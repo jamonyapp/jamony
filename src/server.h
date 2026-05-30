@@ -104,7 +104,7 @@ public:
               const bool         bNUseMultithreading,
               const bool         bDisableRecording,
               const bool         bNDelayPan,
-              const bool         bNEnableIPv6,
+              const bool         bNDisableIPv6,
               const ELicenceType eNLicenceType );
 
     virtual ~CServer();
@@ -125,8 +125,8 @@ public:
 
     void CreateCLServerListReqVerAndOSMes ( const CHostAddress& InetAddr ) { ConnLessProtocol.CreateCLReqVersionAndOSMes ( InetAddr ); }
 
-    // IPv6 Enabled
-    bool IsIPv6Enabled() { return bEnableIPv6; }
+    // IPv6 Available
+    bool IsIPv6Available() { return bIPv6Available; }
 
     // GUI settings ------------------------------------------------------------
     int GetClientNumAudioChannels ( const int iChanNum ) { return vecChannels[iChanNum].GetNumAudioChannels(); }
@@ -273,6 +273,7 @@ protected:
     CVector<uint16_t> vecChannelLevels;
 
     // actual working objects
+    bool            bIPv6Available; // must be before Socket - passed by reference to Socket
     CHighPrioSocket Socket;
 
     // logging
@@ -299,9 +300,6 @@ protected:
 
     // for delay panning
     bool bDelayPan;
-
-    // enable IPv6
-    bool bEnableIPv6;
 
     // messaging
     QString      strWelcomeMessage;

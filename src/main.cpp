@@ -96,7 +96,7 @@ int main ( int argc, char** argv )
     bool         bNoAutoJackConnect          = false;
     bool         bUseTranslation             = true;
     bool         bCustomPortNumberGiven      = false;
-    bool         bEnableIPv6                 = false;
+    bool         bDisableIPv6                = false;
     int          iNumServerChannels          = DEFAULT_USED_NUM_CHANNELS;
     quint16      iPortNumber                 = DEFAULT_PORT_NUMBER;
     int          iJsonRpcPortNumber          = INVALID_PORT;
@@ -241,12 +241,12 @@ int main ( int argc, char** argv )
             continue;
         }
 
-        // Enable IPv6 ---------------------------------------------------------
-        if ( GetFlagArgument ( argv, i, "-6", "--enableipv6" ) )
+        // Disable IPv6 ---------------------------------------------------------
+        if ( GetFlagArgument ( argv, i, "--noipv6", "--noipv6" ) )
         {
-            bEnableIPv6 = true;
-            qInfo() << "- IPv6 enabled";
-            CommandLineOptions << "--enableipv6";
+            bDisableIPv6 = true;
+            qInfo() << "- IPv6 disabled";
+            CommandLineOptions << "--noipv6";
             continue;
         }
 
@@ -935,7 +935,8 @@ int main ( int argc, char** argv )
 #ifndef SERVER_ONLY
         if ( bIsClient )
         {
-            CClient Client ( iPortNumber, iQosNumber, strConnOnStartupAddress, bNoAutoJackConnect, strClientName, bEnableIPv6, bMuteMeInPersonalMix );
+            CClient
+                Client ( iPortNumber, iQosNumber, strConnOnStartupAddress, bNoAutoJackConnect, strClientName, bDisableIPv6, bMuteMeInPersonalMix );
 
             // Create Settings with the client pointer
             CClientSettings Settings ( &Client, strIniFileName );
@@ -960,14 +961,8 @@ int main ( int argc, char** argv )
                 }
 
                 // GUI object
-                CClientDlg ClientDlg ( &Client,
-                                       &Settings,
-                                       strConnOnStartupAddress,
-                                       bShowComplRegConnList,
-                                       bShowAnalyzerConsole,
-                                       bMuteStream,
-                                       bEnableIPv6,
-                                       nullptr );
+                CClientDlg
+                    ClientDlg ( &Client, &Settings, strConnOnStartupAddress, bShowComplRegConnList, bShowAnalyzerConsole, bMuteStream, nullptr );
 
                 // show dialog
                 ClientDlg.show();
@@ -1007,7 +1002,7 @@ int main ( int argc, char** argv )
                              bUseMultithreading,
                              bDisableRecording,
                              bDelayPan,
-                             bEnableIPv6,
+                             bDisableIPv6,
                              eLicenceType );
 
 #ifndef NO_JSON_RPC
@@ -1109,7 +1104,7 @@ QString UsageArguments ( char** argv )
            "  -Q, --qos               set the QoS value. Default is 128. Disable with 0\n"
            "                          (see the Jamulus website to enable QoS on Windows)\n"
            "  -t, --notranslation     disable translation (use English language)\n"
-           "  -6, --enableipv6        enable IPv6 addressing (IPv4 is always enabled)\n"
+           "      --noipv6            disable IPv6 addressing (IPv4 is always enabled)\n"
            "\n"
            "Server only:\n"
            "  -d, --discononquit      disconnect all Clients on quit\n"
