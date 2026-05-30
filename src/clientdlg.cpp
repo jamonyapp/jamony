@@ -856,9 +856,9 @@ void CClientDlg::OnChatTextReceived ( QString strChatText )
 {
     if ( pSettings->bEnableAudioAlerts )
     {
-        QSoundEffect* sf = new QSoundEffect();
-        sf->setSource ( QUrl::fromLocalFile ( ":sounds/res/sounds/new_message.wav" ) );
-        sf->play();
+        QSoundEffect sf;
+        sf.setSource ( QUrl::fromLocalFile ( ":sounds/res/sounds/new_message.wav" ) );
+        sf.play();
     }
     ChatDlg.AddChatText ( strChatText );
 
@@ -907,7 +907,14 @@ void CClientDlg::OnNumClientsChanged ( int iNewNumClients )
 {
     if ( pSettings->bEnableAudioAlerts && iNewNumClients > iClients )
     {
-        QSoundEffect* sf = new QSoundEffect();
+        QSoundEffect* sf = new QSoundEffect ( this );
+        connect ( sf, &QSoundEffect::playingChanged, this, [sf]()
+        {
+            if ( !sf->isPlaying() )
+            {
+                sf->deleteLater();
+            }
+        } );
         sf->setSource ( QUrl::fromLocalFile ( ":sounds/res/sounds/new_user.wav" ) );
         sf->play();
     }
@@ -1440,13 +1447,13 @@ void CClientDlg::SetMeterStyle ( const EMeterStyle eNewMeterStyle )
         break;
 
     case MT_BAR_NARROW:
-        lbrInputLevelL->SetLevelMeterType ( CLevelMeter::MT_BAR_WIDE );
-        lbrInputLevelR->SetLevelMeterType ( CLevelMeter::MT_BAR_WIDE );
+        lbrInputLevelL->SetLevelMeterType ( CLevelMeter::MT_BAR_NARROW );
+        lbrInputLevelR->SetLevelMeterType ( CLevelMeter::MT_BAR_NARROW );
         break;
 
     case MT_LED_ROUND_SMALL:
-        lbrInputLevelL->SetLevelMeterType ( CLevelMeter::MT_LED_ROUND_BIG );
-        lbrInputLevelR->SetLevelMeterType ( CLevelMeter::MT_LED_ROUND_BIG );
+        lbrInputLevelL->SetLevelMeterType ( CLevelMeter::MT_LED_ROUND_SMALL );
+        lbrInputLevelR->SetLevelMeterType ( CLevelMeter::MT_LED_ROUND_SMALL );
         break;
     }
 
