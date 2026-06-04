@@ -44,6 +44,7 @@ CServer::CServer ( const int          iNewMaxNumChan,
                    const bool         bDisableRecording,
                    const bool         bNDelayPan,
                    const bool         bNEnableIPv6,
+                   const bool         bNEnableTcp,
                    const ELicenceType eNLicenceType ) :
     bUseDoubleSystemFrameSize ( bNUseDoubleSystemFrameSize ),
     bUseMultithreading ( bNUseMultithreading ),
@@ -51,6 +52,7 @@ CServer::CServer ( const int          iNewMaxNumChan,
     iCurNumChannels ( 0 ),
     bDisableRaw ( bNDisableRaw ),
     Socket ( this, iPortNumber, iQosNumber, strServerBindIP, bNEnableIPv6 ),
+    TcpServer ( this, strServerBindIP, iPortNumber, bNEnableIPv6 ),
     Logging(),
     iFrameCount ( 0 ),
     HighPrecisionTimer ( bNUseDoubleSystemFrameSize ),
@@ -62,12 +64,14 @@ CServer::CServer ( const int          iNewMaxNumChan,
                         strServerListFilter,
                         iNewMaxNumChan,
                         bNEnableIPv6,
+                        bNEnableTcp,
                         &ConnLessProtocol ),
     JamController ( this ),
     bDisableRecording ( bDisableRecording ),
     bAutoRunMinimized ( false ),
     bDelayPan ( bNDelayPan ),
     bEnableIPv6 ( bNEnableIPv6 ),
+    bEnableTcp ( bNEnableTcp ),
     eLicenceType ( eNLicenceType ),
     bDisconnectAllClientsOnQuit ( bNDisconnectAllClientsOnQuit ),
     pSignalHandler ( CSignalHandler::getSingletonP() )
@@ -269,6 +273,8 @@ CServer::CServer ( const int          iNewMaxNumChan,
 
     QObject::connect ( &ConnLessProtocol, &CProtocol::CLReqConnClientsList, this, &CServer::OnCLReqConnClientsList );
 
+    QObject::connect ( &ConnLessProtocol, &CProtocol::CLClientIDReceived, this, &CServer::OnCLClientIDReceived );
+
     QObject::connect ( &ServerListManager, &CServerListManager::SvrRegStatusChanged, this, &CServer::SvrRegStatusChanged );
 
     QObject::connect ( &JamController, &recorder::CJamController::RestartRecorder, this, &CServer::RestartRecorder );
@@ -295,6 +301,10 @@ CServer::CServer ( const int          iNewMaxNumChan,
     // start the socket (it is important to start the socket after all
     // initializations and connections)
     Socket.Start();
+    if ( bEnableTcp )
+    {
+        TcpServer.Start();
+    }
 }
 
 template<unsigned int slotId>
@@ -370,6 +380,12 @@ void CServer::OnNewConnection ( int iChID, int iTotChans, CHostAddress RecHostAd
 {
     QMutexLocker locker ( &Mutex );
 
+    // if TCP is enabled, we need to announce this first, before sending Client ID
+    if ( bEnableTcp )
+    {
+        ConnLessProtocol.CreateCLTcpSupportedMes ( vecChannels[iChID].GetAddress(), PROTMESSID_CLM_CLIENT_ID );
+    }
+
     // inform the client about its own ID at the server (note that this
     // must be the first message to be sent for a new connection)
     vecChannels[iChID].CreateClientIDMes ( iChID );
@@ -383,7 +399,7 @@ void CServer::OnNewConnection ( int iChID, int iTotChans, CHostAddress RecHostAd
     // Send an empty channel list in order to force clients to reset their
     // audio mixer state. This is required to trigger clients to re-send their
     // gain levels upon reconnecting after server restarts.
-    vecChannels[iChID].CreateConClientListMes ( CVector<CChannelInfo> ( 0 ) );
+    vecChannels[iChID].CreateConClientListMes ( CVector<CChannelInfo> ( 0 ), ConnLessProtocol );
 
     // query support for split messages in the client
     vecChannels[iChID].CreateReqSplitMessSupportMes();
@@ -458,11 +474,55 @@ void CServer::OnServerFull ( CHostAddress RecHostAddr )
     ConnLessProtocol.CreateCLServerFullMes ( RecHostAddr );
 }
 
-void CServer::OnSendCLProtMessage ( CHostAddress InetAddr, CVector<uint8_t> vecMessage )
+void CServer::OnSendCLProtMessage ( CHostAddress InetAddr, CVector<uint8_t> vecMessage, CTcpConnection* pTcpConnection, enum EProtoMode eProtoMode )
 {
+    if ( eProtoMode != PROTO_UDP )
+    {
+        qWarning() << "Server send cannot use TCP client";
+        return;
+    }
+
     // the protocol queries me to call the function to send the message
     // send it through the network
-    Socket.SendPacket ( vecMessage, InetAddr );
+    if ( pTcpConnection )
+    {
+        // send to the connected socket directly
+        pTcpConnection->write ( (const char*) &( (CVector<uint8_t>) vecMessage )[0], vecMessage.Size() );
+    }
+    else
+    {
+        Socket.SendPacket ( vecMessage, InetAddr );
+    }
+}
+
+void CServer::OnCLClientIDReceived ( CHostAddress InetAddr, int iChanID, CTcpConnection* pTcpConnection )
+{
+    qDebug() << "- client ID" << iChanID << "received from" << InetAddr.toString() << "with TCP connection" << pTcpConnection;
+
+    if ( iChanID < 0 || iChanID >= iMaxNumChannels || !vecChannels[iChanID].IsConnected() )
+    {
+        // ID out of range or channel not connected - reject connection
+        pTcpConnection->disconnectFromHost();
+        qDebug() << "- rejected invalid client ID";
+        return;
+    }
+
+    CChannel* pChannel = &vecChannels[iChanID];
+
+    qDebug() << "- request to link TCP connection with UDP client at" << pChannel->GetAddress().toString();
+
+    // compare IP addresses, but not port numbers
+    if ( InetAddr.InetAddr != pChannel->GetAddress().InetAddr )
+    {
+        // IP address mismatch - reject connection
+        pTcpConnection->disconnectFromHost();
+        qDebug() << "- rejected mismatched IP address";
+        return;
+    }
+
+    // link TCP connection with UDP channel
+    pTcpConnection->SetChannel ( pChannel );
+    pChannel->SetTcpConnection ( pTcpConnection );
 }
 
 void CServer::OnCLDisconnection ( CHostAddress InetAddr )
@@ -1248,7 +1308,7 @@ void CServer::CreateAndSendChanListForAllConChannels()
         if ( vecChannels[i].IsConnected() )
         {
             // send message
-            vecChannels[i].CreateConClientListMes ( vecChanInfo );
+            vecChannels[i].CreateConClientListMes ( vecChanInfo, ConnLessProtocol );
         }
     }
 }
@@ -1259,7 +1319,7 @@ void CServer::CreateAndSendChanListForThisChan ( const int iCurChanID )
     CVector<CChannelInfo> vecChanInfo ( CreateChannelList() );
 
     // now send connected channels list to the channel with the ID "iCurChanID"
-    vecChannels[iCurChanID].CreateConClientListMes ( vecChanInfo );
+    vecChannels[iCurChanID].CreateConClientListMes ( vecChanInfo, ConnLessProtocol );
 }
 
 void CServer::CreateAndSendChatTextForAllConChannels ( const int iCurChanID, const QString& strChatText )
@@ -1453,12 +1513,12 @@ void CServer::DumpChannels ( const QString& title )
     }
 }
 
-void CServer::OnProtocolCLMessageReceived ( int iRecID, CVector<uint8_t> vecbyMesBodyData, CHostAddress RecHostAddr )
+void CServer::OnProtocolCLMessageReceived ( int iRecID, CVector<uint8_t> vecbyMesBodyData, CHostAddress RecHostAddr, CTcpConnection* pTcpConnection )
 {
     QMutexLocker locker ( &Mutex );
 
     // connection less messages are always processed
-    ConnLessProtocol.ParseConnectionLessMessageBody ( vecbyMesBodyData, iRecID, RecHostAddr );
+    ConnLessProtocol.ParseConnectionLessMessageBody ( vecbyMesBodyData, iRecID, RecHostAddr, pTcpConnection );
 }
 
 void CServer::OnProtocolMessageReceived ( int iRecCounter, int iRecID, CVector<uint8_t> vecbyMesBodyData, CHostAddress RecHostAddr )
