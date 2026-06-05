@@ -7,7 +7,10 @@
 
 - **官方仓库**：https://github.com/jamulussoftware/jamulus
 - **官方网站**：https://jamulus.io/
-- **许可证**：GPLv2（GNU General Public License v2.0）
+- **许可证**：AGPL 3.0+（GNU Affero General Public License v3.0 or later）
+  - 2026-6-2 由上游正式从 GPLv2 升级为 AGPL 3.0+（commit d289bb6 by pljones）
+  - 分水岭：3.12.1dev（commit eb172d47）之前的代码为 GPL 3.0+，之后的新贡献为 AGPL 3.0+
+  - 关键条款：AGPL 第 13 条（网络服务条款）要求，若以网络服务形式提供修改版，须向所有使用该服务的用户提供完整源码
 - **导入时间**：2026 年 6 月 5 日
 - **导入方式**：GitHub Importer 一次性快照（非持续同步）
 
@@ -25,7 +28,7 @@ jamulus 由 Volker Fischer（GitHub: `corrados`）于 2005 年创立。
 
 1. **基线稳定**：二次开发需要稳定起点，不被上游强制更新打乱节奏
 2. **私有探索**：商业化形态、品牌定制、未公开功能在私有仓库迭代
-3. **GPLv2 合规**：GPLv2 允许私有修改（未对外分发时无公开义务）；一旦对外分发需按 GPLv2 提供完整源码
+3. **AGPL 3.0+ 合规**：AGPL 允许私有修改和内部使用（仅组织内部、未对外提供服务时无公开义务）；⚠️ 注意 AGPL 第 13 条的特殊性 —— 一旦以**网络服务形式**提供给外部用户使用（即便不"分发"二进制），就触发源码公开义务，必须向所有使用该服务的用户提供完整源码下载入口
 
 ## 上游同步策略
 
@@ -38,6 +41,7 @@ jamulus 由 Volker Fischer（GitHub: `corrados`）于 2005 年创立。
 
 ## 协作者须知
 
-- 上游原始代码必须**保留 GPLv2 协议头和 NOTICE/LICENSE 文件**
+- 上游原始代码必须**保留各文件原有的许可证协议头和 COPYING/CONTRIBUTING 等许可证文件**
+  - 注意：分水岭 commit `eb172d47` 之前的文件协议头为 GPL 3.0+，之后的为 AGPL 3.0+，请勿擅自修改或统一
 - 修改文件前建议先看上游同名文件的最新状态
-- 二次开发代码若未来对外分发，需评估 GPLv2 传染性影响
+- 二次开发代码若未来对外分发**或部署为网络服务**，需评估 AGPL 3.0+ 的传染性影响（重点关注第 13 条网络服务条款）
