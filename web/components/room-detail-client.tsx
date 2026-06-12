@@ -5,8 +5,9 @@ import { useParams, useRouter } from "next/navigation"
 import { Headphones, ArrowLeft, Crown, Lock, Loader2, Check } from "lucide-react"
 import { rooms, COLOR_MAP, type Room } from "@/lib/rooms-data"
 
-function MemberList({ room }: { room: Room }) {
-  const current = room.members.length
+function MemberList({ room, extraMembers }: { room: Room; extraMembers?: Room["members"] }) {
+  const allMembers = [...room.members, ...(extraMembers || [])]
+  const current = allMembers.length
   const { capacity } = room
   const emptySlots = Math.max(0, capacity - current)
   const countColor = current >= capacity ? "#ff4d4d" : capacity - current <= 1 ? "#ffb84d" : "#ffffff"
@@ -17,7 +18,7 @@ function MemberList({ room }: { room: Room }) {
         房间成员（<span style={{ color: countColor }}>{current}/{capacity}</span>）
       </h2>
       <ul className="flex flex-col gap-2">
-        {room.members.map((m) => (
+        {allMembers.map((m) => (
           <li key={m.id} className="flex items-center gap-3 rounded-[10px] border border-white/5 bg-white/[0.02] px-3 py-2.5 sm:gap-4">
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white sm:h-10 sm:w-10"
               style={{ backgroundColor: COLOR_MAP[m.color] }}>{m.name.charAt(0)}</span>
@@ -54,6 +55,16 @@ export function RoomDetailClient() {
   const [joinState, setJoinState] = useState<"idle" | "connecting" | "joined">("idle")
   const [leaving, setLeaving] = useState(false)
 
+  // 加入成功后，把自己加到成员列表
+  const joinedMember = joinState === "joined" ? [{
+    id: "me",
+    name: "我",
+    instrument: "?",
+    instrumentEmoji: "🎸",
+    status: "ready" as const,
+    color: "lime" as const,
+  }] : []
+
   if (!room) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-black">
@@ -66,7 +77,7 @@ export function RoomDetailClient() {
     )
   }
 
-  const isFull = room.members.length >= room.capacity
+  const isFull = (room.members.length + joinedMember.length) >= room.capacity
   const isLowLatency = room.latency <= 50
   const latencyColor = isLowLatency ? "#bbee00" : "#ffb84d"
 
@@ -148,7 +159,7 @@ export function RoomDetailClient() {
                 </div>
               </div>
             </div>
-            <MemberList room={room} />
+            <MemberList room={room} extraMembers={joinedMember} />
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               {isFull ? (
                 <button disabled className="flex-1 cursor-not-allowed rounded-[10px] bg-white/10 px-6 py-3.5 text-base font-semibold text-[#8a8a8a]">房间已满</button>
