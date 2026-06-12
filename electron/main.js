@@ -5,8 +5,15 @@ const { spawn } = require('child_process')
 // 云端页面地址
 const WEB_URL = process.env.JAMONY_WEB_URL || 'http://39.96.30.128'
 
-// jamulus 可执行文件路径（打包后相对于 app.asar）
-const JAMULUS_BIN = process.env.JAMULUS_BIN || path.join(__dirname, '..', 'jamulus')
+// jamulus 可执行文件路径
+// 开发模式：../dist/jamulus-bin/Jamulus
+// 打包后：{resourcesPath}/jamulus-bin/Jamulus (Mac) / Jamulus.exe (Win)
+const isPackaged = app.isPackaged
+const JAMULUS_BIN = process.env.JAMULUS_BIN || (
+  isPackaged
+    ? path.join(process.resourcesPath, 'jamulus-bin', process.platform === 'win32' ? 'Jamulus.exe' : 'Jamulus')
+    : path.join(__dirname, '..', 'dist', 'jamulus-bin', process.platform === 'win32' ? 'Jamulus.exe' : 'Jamulus')
+)
 
 let mainWindow = null
 
@@ -43,7 +50,8 @@ function createWindow() {
 
 // 调起 jamulus 子进程
 function launchJamulus(serverIp, port) {
-  const args = ['--server', serverIp, '--port', String(port)]
+  // 使用 jamulus 原生的 --connect 参数自动连接服务器
+  const args = ['--connect', `${serverIp}:${port}`]
 
   console.log(`[jamony] Launching jamulus: ${JAMULUS_BIN} ${args.join(' ')}`)
 
