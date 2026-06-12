@@ -5,6 +5,13 @@ import { useParams, useRouter } from "next/navigation"
 import { Headphones, ArrowLeft, Crown, Lock, Loader2, Check } from "lucide-react"
 import { rooms, COLOR_MAP, type Room } from "@/lib/rooms-data"
 
+// Electron 暴露的 API 类型声明
+declare global {
+  interface Window {
+    jamonyAPI?: { joinRoom: (p: { serverIp: string; port: number }) => void }
+  }
+}
+
 function MemberList({ room, extraMembers }: { room: Room; extraMembers?: Room["members"] }) {
   const allMembers = [...room.members, ...(extraMembers || [])]
   const current = allMembers.length
@@ -89,8 +96,16 @@ export function RoomDetailClient() {
 
   const handleJoin = () => {
     if (isFull || joinState !== "idle") return
-    console.log("[v0] postMessage to Electron:", JSON.stringify({ type: "JOIN_ROOM", payload: { serverIp: room.serverIp, port: room.port } }))
-    window.postMessage({ type: "JOIN_ROOM", payload: { serverIp: room.serverIp, port: room.port } }, "*")
+    const payload = { serverIp: room.serverIp, port: room.port }
+    // Electron 环境 → 通过 jamonyAPI 调起 jamulus
+    if (window.jamonyAPI) {
+      console.log("[jamony] user join room via jamonyAPI:", JSON.stringify(payload))
+      window.jamonyAPI.joinRoom(payload)
+    } else {
+      // 浏览器环境 → postMessage（demo/调试）
+      console.log("[v0] postMessage to Electron:", JSON.stringify({ type: "JOIN_ROOM", payload }))
+      window.postMessage({ type: "JOIN_ROOM", payload }, "*")
+    }
     setJoinState("connecting")
     setTimeout(() => setJoinState("joined"), 2000)
   }

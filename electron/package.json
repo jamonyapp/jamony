@@ -1,0 +1,38 @@
+{
+  "name": "jamony",
+  "version": "0.1.0-alpha",
+  "description": "jamony — 音乐人远程合奏桌面应用",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "build": {
+    "appId": "com.jamony.app",
+    "productName": "jamony",
+    "directories": {
+      "output": "../dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "loading.html",
+      "icon.png",
+      "package.json"
+    ],
+    "mac": {
+      "target": ["dmg"],
+      "icon": "icon.png",
+      "category": "public.app-category.music"
+    },
+    "win": {
+      "target": ["nsis"],
+      "icon": "icon.png"
+    }
+  },
+  "devDependencies": {
+    "electron": "^35.0.0",
+    "electron-builder": "^25.0.0"
+  }
+}
