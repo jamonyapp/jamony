@@ -35,12 +35,14 @@ jobs:
 
       - name: Install Qt via aqt
         run: |
-          pip3 install aqtinstall==3.3.0
+          pip3 install --break-system-packages aqtinstall==3.3.0
           python3 -m aqt install-qt --outputdir ~/qt mac desktop ${QT_VERSION} --archives qtbase qtsvg qtmultimedia
 
       - name: Build jamulus (jamony edition)
         run: |
-          export PATH=~/qt/${QT_VERSION}/clang_64/bin:$PATH
+          export QT_DIR=~/qt/${QT_VERSION}/clang_64
+          export PATH=${QT_DIR}/bin:$PATH
+          which qmake || (echo "qmake not in PATH at ${QT_DIR}/bin" && ls ${QT_DIR}/bin/)
           qmake Jamulus.pro "CONFIG+=nosound" -r -spec macx-clang CONFIG+=x86_64 CONFIG+=arm64
           make -j$(sysctl -n hw.ncpu)
           mkdir -p dist/jamulus
@@ -99,9 +101,12 @@ jobs:
 
       - name: Build jamulus (jamony edition)
         run: |
-          set PATH=~/qt/${QT_VERSION}/msvc2022_64\bin;%PATH%
+          set QT_DIR=C:\Users\runneradmin\qt\%QT_VERSION%\msvc2022_64
+          set PATH=%QT_DIR%\bin;%PATH%
+          echo "qmake path: %QT_DIR%\bin\qmake.exe"
+          dir %QT_DIR%\bin\qmake.exe
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          qmake Jamulus.pro "CONFIG+=nosound" -r -spec win32-msvc
+          call %QT_DIR%\bin\qmake.exe Jamulus.pro "CONFIG+=nosound" -r -spec win32-msvc
           nmake
           mkdir dist\jamulus
           copy release\Jamulus.exe dist\jamulus\
