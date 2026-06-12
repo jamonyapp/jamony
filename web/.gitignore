@@ -1,0 +1,4 @@
+# jamony web UI (Next.js)
+node_modules/
+.next/
+out/
