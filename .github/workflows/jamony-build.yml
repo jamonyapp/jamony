@@ -126,7 +126,8 @@ jobs:
         run: |
           cd jamony-private\electron
           npm install
-          npx electron-builder --win --config --publish never 2>&1
+          dir node_modules\.bin\electron-builder* 2>nul
+          call node_modules\.bin\electron-builder.cmd --win --config --publish never
           echo === electron-builder exit code: %ERRORLEVEL% ===
 
       - name: Debug dist
