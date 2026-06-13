@@ -6,8 +6,8 @@ const { spawn } = require('child_process')
 const WEB_URL = process.env.JAMONY_WEB_URL || 'http://39.96.30.128'
 
 // jamsoul 可执行文件路径
-// 开发模式：../dist/jamsoul-bin/jamsoul
-// 打包后：{resourcesPath}/jamsoul-bin/jamsoul (Mac) / jamsoul.exe (Win)
+// 开发模式：../dist/jamsoul-bin/jamsoul (Mac) / jamsoul.exe (Win)
+// 打包后：{resourcesPath}/jamsoul.app/Contents/MacOS/jamsoul (Mac) / jamsoul-bin/jamsoul.exe (Win)
 const isPackaged = app.isPackaged
 const JAMSOUL_BIN = process.env.JAMSOUL_BIN || (
   isPackaged

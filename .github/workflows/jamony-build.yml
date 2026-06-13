@@ -55,6 +55,16 @@ jobs:
           cp -a jamsoul-source/deploy/Jamulus.app jamony-private/electron/jamsoul.app/
           # 内部二进制改名 Jamulus → jamsoul
           mv jamony-private/electron/jamsoul.app/Contents/MacOS/Jamulus jamony-private/electron/jamsoul.app/Contents/MacOS/jamsoul
+          # Info.plist 改名为 jamsoul
+          plutil -replace CFBundleExecutable -string jamsoul jamony-private/electron/jamsoul.app/Contents/Info.plist
+          plutil -replace CFBundleName -string jamsoul jamony-private/electron/jamsoul.app/Contents/Info.plist
+          plutil -replace CFBundleDisplayName -string jamsoul jamony-private/electron/jamsoul.app/Contents/Info.plist
+          plutil -replace CFBundleIdentifier -string com.jamony.jamsoul jamony-private/electron/jamsoul.app/Contents/Info.plist
+          # jamsoul 是 Electron 子进程，不需要 App Sandbox
+          # 去掉旧签名（含沙箱）→ 重新 adhoc 签名（不含沙箱）
+          codesign --remove-signature jamony-private/electron/jamsoul.app/Contents/MacOS/jamsoul
+          codesign -f -s - jamony-private/electron/jamsoul.app/Contents/MacOS/jamsoul
+          codesign -d --entitlements - jamony-private/electron/jamsoul.app/Contents/MacOS/jamsoul 2>&1 | grep sandbox || echo "sandbox removed OK"
           ls -lh jamony-private/electron/jamsoul.app/Contents/MacOS/
           echo "---Qt frameworks---"
           ls jamony-private/electron/jamsoul.app/Contents/Frameworks/ 2>/dev/null
