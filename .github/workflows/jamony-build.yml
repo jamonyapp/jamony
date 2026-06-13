@@ -14,31 +14,44 @@ jobs:
     runs-on: macos-15
     permissions:
       contents: write
-    env:
-      QT_VERSION: '6.10.2'
-      JAMULUS_BUILD_VERSION: '0.1.0'
-      TARGET_ARCHS: 'x86_64'
-      SIGN_IF_POSSIBLE: '0'
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 0
+          fetch-depth: 1
+          path: jamony-private
+
+      - uses: actions/checkout@v6
+        with:
+          repository: jamonyapp/jamony-jamulus
+          fetch-depth: 1
+          path: jamulus-source
 
       - name: Apply jamony color patch
         run: |
-          patch -p1 < patches/jamony-colors.patch
+          cp jamony-private/patches/jamony-colors.patch jamulus-source/
+          cd jamulus-source
+          patch -p1 < jamony-colors.patch
           grep '#define APP_NAME' src/global.h
 
       - name: Install Qt
-        run: ./.github/autobuild/mac.sh setup
+        run: |
+          cd jamulus-source
+          QT_VERSION=6.10.2 TARGET_ARCHS='x86_64' ./.github/autobuild/mac.sh setup
+        env:
+          JAMULUS_BUILD_VERSION: '0.1.0'
 
       - name: Build jamulus
-        run: ./.github/autobuild/mac.sh build
+        run: |
+          cd jamulus-source
+          QT_VERSION=6.10.2 TARGET_ARCHS='x86_64' ./.github/autobuild/mac.sh build
+        env:
+          JAMULUS_BUILD_VERSION: '0.1.0'
 
       - name: Extract jamulus binary
         run: |
-          mkdir -p dist/jamulus-bin
-          find deploy -name "Jamulus" -type f -exec cp {} dist/jamulus-bin/ \; 2>/dev/null || true
+          mkdir -p jamony-private/dist/jamulus-bin
+          find jamulus-source/deploy -name "Jamulus" -type f -exec cp {} jamony-private/dist/jamulus-bin/ \; 2>/dev/null || true
+          ls -lh jamony-private/dist/jamulus-bin/ 2>/dev/null
 
       - uses: actions/setup-node@v4
         with:
@@ -46,7 +59,7 @@ jobs:
 
       - name: Build Electron app
         run: |
-          cd electron
+          cd jamony-private/electron
           npm install
           npx electron-builder --mac --config
 
@@ -54,8 +67,8 @@ jobs:
         with:
           name: jamony-${{ github.event.inputs.version }}-macos
           path: |
-            dist/*.dmg
-            electron/dist/*.dmg
+            jamony-private/electron/dist/*.dmg
+            jamony-private/dist/*.dmg
           retention-days: 30
           if-no-files-found: warn
 
@@ -67,7 +80,14 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 0
+          fetch-depth: 1
+          path: jamony-private
+
+      - uses: actions/checkout@v6
+        with:
+          repository: jamonyapp/jamony-jamulus
+          fetch-depth: 1
+          path: jamulus-source
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
@@ -82,54 +102,37 @@ jobs:
       - name: Apply jamony color patch
         shell: bash
         run: |
-          patch -p1 < patches/jamony-colors.patch
+          cp jamony-private/patches/jamony-colors.patch jamulus-source/
+          cd jamulus-source
+          patch -p1 < jamony-colors.patch
           grep '#define APP_NAME' src/global.h
 
       - name: Build jamulus
         shell: cmd
         run: |
+          cd jamulus-source
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           qmake Jamulus.pro "CONFIG+=nosound" -r -spec win32-msvc
           nmake
-          mkdir dist\jamulus-bin
-          copy release\Jamulus.exe dist\jamulus-bin\
+          mkdir ..\jamony-private\dist\jamulus-bin
+          copy release\Jamulus.exe ..\jamony-private\dist\jamulus-bin\
 
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
 
-      - name: Diagnose electron-builder
-        shell: cmd
-        run: |
-          cd electron
-          npm install
-          echo === DIAG 1: electron-builder version ===
-          npx electron-builder --version
-          echo === DIAG 2: requirement path ===
-          node -e "try{console.log('require OK:',require.resolve('electron-builder'))}catch(e){console.log('require FAIL:',e.message)}"
-          echo === DIAG 3: jamulus binary check ===
-          if exist ..\dist\jamulus-bin\Jamulus.exe (echo binary OK) else (echo binary NOT FOUND)
-          echo === DIAG 4: config parse ===
-          npx electron-builder --win --config --publish never --help >nul 2>&1
-          echo help exit: %ERRORLEVEL%
-
       - name: Build Electron app
         shell: cmd
         run: |
-          cd electron
-          echo === RUNNING electron-builder ===
+          cd jamony-private\electron
+          npm install
           npx electron-builder --win --config --publish never 2>&1
-          echo === EXIT CODE: %ERRORLEVEL% ===
-          echo === checking outputs ===
-          if exist ..\dist\ (dir ..\dist\*.exe ..\dist\*.dmg 2>nul) else (echo ..\dist NOT FOUND)
-          if exist .\dist\ (dir .\dist\*.exe .\dist\*.dmg 2>nul) else (echo .\dist NOT FOUND)
-          dir /s /b | findstr /i "exe" 2>nul
 
       - uses: actions/upload-artifact@v4
         with:
           name: jamony-${{ github.event.inputs.version }}-windows
           path: |
-            dist\**\*
-            electron\dist\**\*
+            jamony-private\electron\dist\*.exe
+            jamony-private\dist\*.exe
           retention-days: 30
           if-no-files-found: warn
