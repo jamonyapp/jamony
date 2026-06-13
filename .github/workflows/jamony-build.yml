@@ -122,13 +122,14 @@ jobs:
           node-version: '22'
 
       - name: Build Electron app
-        shell: cmd
+        shell: pwsh
         run: |
-          cd jamony-private\electron
+          Set-Location jamony-private/electron
           npm install
-          dir node_modules\.bin\electron-builder* 2>nul
-          call node_modules\.bin\electron-builder.cmd --win --config --publish never
-          echo === electron-builder exit code: %ERRORLEVEL% ===
+          Write-Host "=== Running electron-builder ==="
+          npx.cmd electron-builder --win --config --publish never 2>&1
+          Write-Host "=== Exit code: $LASTEXITCODE ==="
+
 
       - name: Debug dist
         if: always()
