@@ -11,9 +11,14 @@ on:
 jobs:
   build-macos:
     name: Build MacOS
-    runs-on: macos-15-intel
+    runs-on: macos-15
     permissions:
       contents: write
+    env:
+      QT_VERSION: '6.10.2'
+      JAMULUS_BUILD_VERSION: '0.1.0'
+      TARGET_ARCHS: 'x86_64'
+      SIGN_IF_POSSIBLE: '0'
     steps:
       - uses: actions/checkout@v6
         with:
@@ -25,21 +30,17 @@ jobs:
           grep '#define APP_NAME' src/global.h
 
       - name: Install Qt
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: '6.10.2'
-          host: 'mac'
-          target: 'desktop'
-          arch: 'clang_64'
-          modules: 'qtmultimedia'
-          archives: 'qtbase qttools qttranslations'
+        run: ./.github/autobuild/mac.sh setup
 
       - name: Build jamulus
+        run: ./.github/autobuild/mac.sh build
+
+      - name: Extract jamulus binary
         run: |
-          qmake Jamulus.pro "CONFIG+=nosound" -r -spec macx-clang
-          make -j$(sysctl -n hw.ncpu)
           mkdir -p dist/jamulus-bin
-          cp Jamulus.app/Contents/MacOS/Jamulus dist/jamulus-bin/
+          ls deploy/
+          find deploy -name "Jamulus" -type f -exec cp {} dist/jamulus-bin/ \; 2>/dev/null || true
+          find deploy -name "*.app" -exec sh -c 'cp -r "$1/Contents/MacOS/Jamulus" dist/jamulus-bin/' _ {} \; 2>/dev/null || true
 
       - uses: actions/setup-node@v4
         with:
