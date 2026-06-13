@@ -2,13 +2,13 @@ const { contextBridge, ipcRenderer } = require('electron')
 
 // 安全地暴露给渲染进程（网页）的 API
 contextBridge.exposeInMainWorld('jamonyAPI', {
-  // 网页调起 jamulus（由页面 JS 调用）
+  // 网页调起 jamsoul（由页面 JS 调用）
   joinRoom: (payload) => {
     ipcRenderer.send('join-room', payload)
   },
-  // 监听来自主进程的事件（如 jamulus 启动状态）
-  onJamulusLaunched: (callback) => {
-    ipcRenderer.on('jamulus-launched', (_event, data) => callback(data))
+  // 监听来自主进程的事件（如 jamsoul 启动状态）
+  onJamsoulLaunched: (callback) => {
+    ipcRenderer.on('jamsoul-launched', (_event, data) => callback(data))
   },
 })
 

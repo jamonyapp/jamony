@@ -97,7 +97,7 @@ export function RoomDetailClient() {
   const handleJoin = () => {
     if (isFull || joinState !== "idle") return
     const payload = { serverIp: room.serverIp, port: room.port }
-    // Electron 环境 → 通过 jamonyAPI 调起 jamulus
+    // Electron 环境 → 通过 jamonyAPI 调起 jamsoul
     if (window.jamonyAPI) {
       console.log("[jamony] user join room via jamonyAPI:", JSON.stringify(payload))
       window.jamonyAPI.joinRoom(payload)

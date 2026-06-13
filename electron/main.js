@@ -5,14 +5,14 @@ const { spawn } = require('child_process')
 // 云端页面地址
 const WEB_URL = process.env.JAMONY_WEB_URL || 'http://39.96.30.128'
 
-// jamulus 可执行文件路径
-// 开发模式：../dist/jamulus-bin/Jamulus
-// 打包后：{resourcesPath}/jamulus-bin/Jamulus (Mac) / Jamulus.exe (Win)
+// jamsoul 可执行文件路径
+// 开发模式：../dist/jamsoul-bin/jamsoul
+// 打包后：{resourcesPath}/jamsoul-bin/jamsoul (Mac) / jamsoul.exe (Win)
 const isPackaged = app.isPackaged
-const JAMULUS_BIN = process.env.JAMULUS_BIN || (
+const JAMSOUL_BIN = process.env.JAMSOUL_BIN || (
   isPackaged
-    ? path.join(process.resourcesPath, 'jamulus-bin', process.platform === 'win32' ? 'Jamulus.exe' : 'Jamulus')
-    : path.join(__dirname, '..', 'dist', 'jamulus-bin', process.platform === 'win32' ? 'Jamulus.exe' : 'Jamulus')
+    ? path.join(process.resourcesPath, 'jamsoul-bin', process.platform === 'win32' ? 'jamsoul.exe' : 'jamsoul')
+    : path.join(__dirname, '..', 'dist', 'jamsoul-bin', process.platform === 'win32' ? 'jamsoul.exe' : 'jamsoul')
 )
 
 let mainWindow = null
@@ -48,37 +48,37 @@ function createWindow() {
   // mainWindow.webContents.openDevTools()
 }
 
-// 调起 jamulus 子进程
-function launchJamulus(serverIp, port) {
+// 调起 jamsoul 子进程
+function launchJamsoul(serverIp, port) {
   // 使用 jamulus 原生的 --connect 参数自动连接服务器
   const args = ['--connect', `${serverIp}:${port}`]
 
-  console.log(`[jamony] Launching jamulus: ${JAMULUS_BIN} ${args.join(' ')}`)
+  console.log(`[jamony] Launching jamsoul: ${JAMSOUL_BIN} ${args.join(' ')}`)
 
   try {
-    const child = spawn(JAMULUS_BIN, args, {
+    const child = spawn(JAMSOUL_BIN, args, {
       stdio: 'ignore',
       detached: true,
     })
 
     child.on('error', (err) => {
-      console.error(`[jamony] Failed to launch jamulus: ${err.message}`)
+      console.error(`[jamony] Failed to launch jamsoul: ${err.message}`)
       if (mainWindow) {
         mainWindow.webContents.executeJavaScript(`
-          console.error("⚠️ jamulus 未找到或启动失败，请确认已正确安装");
+          console.error("⚠️ jamsoul 未找到或启动失败，请确认已正确安装");
         `)
       }
     })
 
     child.on('exit', (code, signal) => {
-      console.log(`[jamony] jamulus exited (code=${code}, signal=${signal})`)
+      console.log(`[jamony] jamsoul exited (code=${code}, signal=${signal})`)
     })
 
     // 不等待子进程
     child.unref()
     return child
   } catch (err) {
-    console.error(`[jamony] Error launching jamulus: ${err.message}`)
+    console.error(`[jamony] Error launching jamsoul: ${err.message}`)
     return null
   }
 }
@@ -94,11 +94,11 @@ ipcMain.on('join-room', (_event, payload) => {
     return
   }
 
-  launchJamulus(payload.serverIp, payload.port)
+  launchJamsoul(payload.serverIp, payload.port)
 
-  // 通知网页端 jamulus 已启动
+  // 通知网页端 jamsoul 已启动
   if (mainWindow) {
-    mainWindow.webContents.send('jamulus-launched', { ok: true })
+    mainWindow.webContents.send('jamsoul-launched', { ok: true })
   }
 })
 
