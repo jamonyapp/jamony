@@ -107,11 +107,20 @@ jobs:
           npm install
           npx electron-builder --win --config
 
+      - name: Debug - list dist contents
+        shell: cmd
+        run: |
+          echo "=== full dist tree ==="
+          dir dist /s /b 2>nul
+          echo "=== dist root ==="
+          dir dist 2>nul
+          echo "=== electron-builder output ==="
+          dir dist\*.exe dist\*.dmg dist\*.exe? 2>nul
+
       - uses: actions/upload-artifact@v4
         with:
           name: jamony-${{ github.event.inputs.version }}-windows
           path: |
-            dist\*.exe
-            dist\*.dmg
+            dist\**\*
           retention-days: 30
           if-no-files-found: warn
