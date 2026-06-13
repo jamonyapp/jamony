@@ -11,7 +11,7 @@ on:
 jobs:
   build-macos:
     name: Build MacOS
-    runs-on: macos-15
+    runs-on: macos-15-intel
     permissions:
       contents: write
     steps:
@@ -36,10 +36,8 @@ jobs:
 
       - name: Build jamulus
         run: |
-          qmake Jamulus.pro -r -spec macx-clang CONFIG+=x86_64
+          qmake Jamulus.pro "CONFIG+=nosound" -r -spec macx-clang
           make -j$(sysctl -n hw.ncpu)
-          echo "=== Binary built ==="
-          ls -lh Jamulus.app/Contents/MacOS/Jamulus
           mkdir -p dist/jamulus-bin
           cp Jamulus.app/Contents/MacOS/Jamulus dist/jamulus-bin/
 
@@ -92,7 +90,7 @@ jobs:
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          qmake Jamulus.pro -r -spec win32-msvc
+          qmake Jamulus.pro "CONFIG+=nosound" -r -spec win32-msvc
           nmake
           mkdir dist\jamulus-bin
           copy release\Jamulus.exe dist\jamulus-bin\
