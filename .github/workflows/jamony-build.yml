@@ -11,7 +11,7 @@ on:
 jobs:
   build-macos:
     name: Build MacOS
-    runs-on: macos-15
+    runs-on: macos-15-intel
     permissions:
       contents: write
     steps:
@@ -54,8 +54,11 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: jamony-${{ github.event.inputs.version }}-macos
-          path: dist/*.dmg
+          path: |
+            dist/*.dmg
+            dist/**/*.dmg
           retention-days: 30
+          if-no-files-found: error
 
   build-windows:
     name: Build Windows
@@ -103,8 +106,16 @@ jobs:
           npm install
           npx electron-builder --win --config
 
+      - name: List dist contents
+        if: always()
+        shell: cmd
+        run: dir dist /s /b 2>nul || echo "no dist dir"
+
       - uses: actions/upload-artifact@v4
         with:
           name: jamony-${{ github.event.inputs.version }}-windows
-          path: dist\*.exe
+          path: |
+            dist\*.exe
+            dist\*.dmg
           retention-days: 30
+          if-no-files-found: warn
