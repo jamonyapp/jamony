@@ -1,8 +1,75 @@
+diff --git a/src/audiomixerboard.cpp b/src/audiomixerboard.cpp
+index 20c823b..dbe44a2 100644
+--- a/src/audiomixerboard.cpp
++++ b/src/audiomixerboard.cpp
+@@ -479,40 +479,12 @@ void CChannelFader::SetupFaderTag ( const ESkillLevel eSkillLevel )
+         }
+     }
+ 
+-    // setup group box for label/instrument picture: set a thick black border
+-    // with nice round edges
++    // setup group box for label/instrument picture: jamony style
+     QString strStile = "QGroupBox { border:        2px " + strBorderStyle + " " + strBorderColor +
+                        ";"
+-                       "            border-radius: 4px;"
+-                       "            padding:       3px;";
+-
+-    // the background color depends on the skill level
+-    switch ( eSkillLevel )
+-    {
+-    case SL_BEGINNER:
+-        strStile +=
+-            QString ( "background-color: rgb(%1, %2, %3); }" ).arg ( RGBCOL_R_SL_BEGINNER ).arg ( RGBCOL_G_SL_BEGINNER ).arg ( RGBCOL_B_SL_BEGINNER );
+-        break;
+-
+-    case SL_INTERMEDIATE:
+-        strStile += QString ( "background-color: rgb(%1, %2, %3); }" )
+-                        .arg ( RGBCOL_R_SL_INTERMEDIATE )
+-                        .arg ( RGBCOL_G_SL_INTERMEDIATE )
+-                        .arg ( RGBCOL_B_SL_INTERMEDIATE );
+-        break;
+-
+-    case SL_PROFESSIONAL:
+-        strStile += QString ( "background-color: rgb(%1, %2, %3); }" )
+-                        .arg ( RGBCOL_R_SL_SL_PROFESSIONAL )
+-                        .arg ( RGBCOL_G_SL_SL_PROFESSIONAL )
+-                        .arg ( RGBCOL_B_SL_SL_PROFESSIONAL );
+-        break;
+-
+-    default:
+-        strStile +=
+-            QString ( "background-color: rgb(%1, %2, %3); }" ).arg ( RGBCOL_R_SL_NOT_SET ).arg ( RGBCOL_G_SL_NOT_SET ).arg ( RGBCOL_B_SL_NOT_SET );
+-        break;
+-    }
++                       "            border-radius: 10px;"
++                       "            padding:       3px;"
++                       "            background:    #000; }";
+ 
+     pLabelInstBox->setStyleSheet ( strStile );
+ }
+@@ -800,7 +772,7 @@ void CChannelFader::SetChannelInfos ( const CChannelInfo& cChanInfo )
+     if ( eDesign == GD_SLIMFADER )
+     {
+         // in slim mode use a non-bold font (smaller width font)
+-        plblLabel->setStyleSheet ( "QLabel { color: black; }" );
++        plblLabel->setStyleSheet ( "QLabel { color: white; }" );
+ 
+         // break at every 4th character
+         iBreakPos = 4;
+@@ -808,7 +780,7 @@ void CChannelFader::SetChannelInfos ( const CChannelInfo& cChanInfo )
+     else
+     {
+         // in normal mode use bold font
+-        plblLabel->setStyleSheet ( "QLabel { color: black; font: bold; }" );
++        plblLabel->setStyleSheet ( "QLabel { color: white; font: bold; }" );
+ 
+         // break text at predefined position
+         iBreakPos = MAX_LEN_FADER_TAG / 2;
 diff --git a/src/clientdlg.cpp b/src/clientdlg.cpp
-index b102c34..d355751 100644
+index 145a14a..057bbd4 100644
 --- a/src/clientdlg.cpp
 +++ b/src/clientdlg.cpp
-@@ -303,7 +303,7 @@ CClientDlg::CClientDlg ( CClient*         pNCliP,
+@@ -305,7 +305,7 @@ CClientDlg::CClientDlg ( CClient*         pNCliP,
      // File menu  --------------------------------------------------------------
      QMenu* pFileMenu = new QMenu ( tr ( "&File" ), this );
  
@@ -11,7 +78,7 @@ index b102c34..d355751 100644
  
      pFileMenu->addSeparator();
  
-@@ -401,7 +401,7 @@ CClientDlg::CClientDlg ( CClient*         pNCliP,
+@@ -403,7 +403,7 @@ CClientDlg::CClientDlg ( CClient*         pNCliP,
  
      pViewMenu->addSeparator();
  
@@ -20,11 +87,32 @@ index b102c34..d355751 100644
  
      // optionally show analyzer console entry
      if ( bShowAnalyzerConsole )
-@@ -1385,30 +1385,30 @@ void CClientDlg::SetGUIDesign ( const EGUIDesign eNewDesign )
-             "                         border-right:  40px transparent;"
-             "                         padding:       -5px;"
-             "                         margin:        -5px, -5px, 0px, 0px; }"
+@@ -430,6 +430,11 @@ CClientDlg::CClientDlg ( CClient*         pNCliP,
+ 
+     // Main menu bar -----------------------------------------------------------
+     QMenuBar* pMenu = new QMenuBar ( this );
++    pMenu->setStyleSheet (
++        "QMenuBar { background: #000; color: #FFF; font-weight: bold; }"
++        "QMenuBar::item:selected { background: #333; }"
++        "QMenu { background: #000; color: #FFF; border: 1px solid #333; }"
++        "QMenu::item:selected { background: #9933FF; color: #FFF; }" );
+ 
+     pMenu->addMenu ( pFileMenu );
+     pMenu->addMenu ( pEditMenu );
+@@ -1384,37 +1389,32 @@ void CClientDlg::SetGUIDesign ( const EGUIDesign eNewDesign )
+     {
+     case GD_ORIGINAL:
+         backgroundFrame->setStyleSheet (
+-            "QFrame#backgroundFrame { border-image:  url(:/png/fader/res/mixerboardbackground.png) 34px 30px 40px 40px;"
+-            "                         border-top:    34px transparent;"
+-            "                         border-bottom: 40px transparent;"
+-            "                         border-left:   30px transparent;"
+-            "                         border-right:  40px transparent;"
+-            "                         padding:       -5px;"
+-            "                         margin:        -5px, -5px, 0px, 0px; }"
 -            "QLabel {                 color:          rgb(220, 220, 220);"
++            "QFrame#backgroundFrame { background: #000;"
++            "                         border: none; }"
 +            "QLabel {                 color:          rgb(255, 255, 255);"
              "                         font:           bold; }"
 -            "QRadioButton {           color:          rgb(220, 220, 220);"
@@ -32,8 +120,9 @@ index b102c34..d355751 100644
              "                         font:           bold; }"
              "QScrollArea {            background:     transparent; }"
              ".QWidget {               background:     transparent; }" // note: matches instances of QWidget, but not of its subclasses
-             "QGroupBox {              background:     transparent; }"
+-            "QGroupBox {              background:     transparent; }"
 -            "QGroupBox::title {       color:          rgb(220, 220, 220); }"
++            "QGroupBox {              background:     #000; }"
 +            "QGroupBox::title {       color:          rgb(255, 255, 255); }"
              "QCheckBox::indicator {   width:          38px;"
              "                         height:         21px; }"
@@ -57,7 +146,7 @@ index b102c34..d355751 100644
                                         "font:  bold;" );
  #endif
  
-@@ -1500,7 +1500,7 @@ void CClientDlg::SetMixerBoardDeco ( const ERecorderState newRecorderState, cons
+@@ -1506,7 +1506,7 @@ void CClientDlg::SetMixerBoardDeco ( const ERecorderState newRecorderState, cons
          if ( eNewDesign == GD_ORIGINAL )
          {
              // no need to set the background color for dark mode in fancy skin, as the background is already dark.
@@ -66,7 +155,7 @@ index b102c34..d355751 100644
          }
          else
          {
-@@ -1515,7 +1515,7 @@ void CClientDlg::SetMixerBoardDeco ( const ERecorderState newRecorderState, cons
+@@ -1521,11 +1521,11 @@ void CClientDlg::SetMixerBoardDeco ( const ERecorderState newRecorderState, cons
              {
                  // Dark mode needs a light color
  
@@ -75,6 +164,11 @@ index b102c34..d355751 100644
              }
              else
              {
+-                sTitleStyle += "color: rgb(0,0,0); }";
++                sTitleStyle += "color: rgb(255,255,255); }";
+             }
+         }
+     }
 diff --git a/src/global.h b/src/global.h
 index 5414a58..a9eb98b 100644
 --- a/src/global.h
@@ -88,62 +182,11 @@ index 5414a58..a9eb98b 100644
  
  // Windows registry key name of auto run entry for the server
  #define AUTORUN_SERVER_REG_NAME "Jamulus server"
-diff --git a/src/levelmeter.cpp b/src/levelmeter.cpp
-index 0ac4571..e725dc4 100644
---- a/src/levelmeter.cpp
-+++ b/src/levelmeter.cpp
-@@ -163,12 +163,12 @@ void CLevelMeter::SetBarMeterStyleAndClipStatus ( const ELevelMeterType eNType,
-     case MT_BAR_NARROW:
-         if ( bIsClip )
-         {
--            pBarMeter->setStyleSheet ( "QProgressBar        { border:     0px solid red;"
-+            pBarMeter->setStyleSheet ( "QProgressBar        { border:     0px solid #FF33AA;"
-                                        "                      margin:     0px;"
-                                        "                      padding:    0px;"
-                                        "                      width:      4px;"
--                                       "                      background: red; }"
--                                       "QProgressBar::chunk { background: green; }" );
-+                                       "                      background: #FF33AA; }"
-+                                       "QProgressBar::chunk { background: #BBEE00; }" );
-         }
-         else
-         {
-@@ -176,26 +176,26 @@ void CLevelMeter::SetBarMeterStyleAndClipStatus ( const ELevelMeterType eNType,
-                                        "                      margin:     0px;"
-                                        "                      padding:    0px;"
-                                        "                      width:      4px; }"
--                                       "QProgressBar::chunk { background: green; }" );
-+                                       "QProgressBar::chunk { background: #BBEE00; }" );
-         }
-         break;
- 
-     default: /* MT_BAR_WIDE */
-         if ( bIsClip )
-         {
--            pBarMeter->setStyleSheet ( "QProgressBar        { border:     2px solid red;"
-+            pBarMeter->setStyleSheet ( "QProgressBar        { border:     2px solid #FF33AA;"
-                                        "                      margin:     1px;"
-                                        "                      padding:    1px;"
-                                        "                      width:      15px;"
-                                        "                      background: transparent; }"
--                                       "QProgressBar::chunk { background: green; }" );
-+                                       "QProgressBar::chunk { background: #BBEE00; }" );
-         }
-         else
-         {
-             pBarMeter->setStyleSheet ( "QProgressBar        { margin:     1px;"
-                                        "                      padding:    1px;"
-                                        "                      width:      15px; }"
--                                       "QProgressBar::chunk { background: green; }" );
-+                                       "QProgressBar::chunk { background: #BBEE00; }" );
-         }
-         break;
-     }
 diff --git a/src/util.h b/src/util.h
-index 84ce8e3..99ecffa 100644
+index dc1511a..a61a815 100644
 --- a/src/util.h
 +++ b/src/util.h
-@@ -719,19 +719,20 @@ enum ESkillLevel
+@@ -715,19 +715,20 @@ enum ESkillLevel
      SL_PROFESSIONAL = 3
  };
  

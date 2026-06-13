@@ -26,12 +26,14 @@ jobs:
           fetch-depth: 1
           path: jamsoul-source
 
-      - name: Apply jamony color patch
+      - name: Apply jamony color patch + replace icons
         run: |
           cp jamony-private/patches/jamony-colors.patch jamsoul-source/
           cd jamsoul-source
           patch -p1 < jamony-colors.patch
           grep '#define APP_NAME' src/global.h
+          # 替换 jamsoul 窗口图标为 jamony logo
+          cp jamony-private/patches/fronticon.png src/res/fronticon.png
 
       - name: Install Qt
         run: |
@@ -115,13 +117,15 @@ jobs:
           modules: 'qtmultimedia'
           archives: 'qtbase qttools qttranslations'
 
-      - name: Apply jamony color patch
+      - name: Apply jamony color patch + replace icons
         shell: bash
         run: |
           cp jamony-private/patches/jamony-colors.patch jamsoul-source/
           cd jamsoul-source
           patch -p1 < jamony-colors.patch
           grep '#define APP_NAME' src/global.h
+          # 替换 jamsoul 窗口图标为 jamony logo
+          cp jamony-private/patches/fronticon.png src/res/fronticon.png
 
       - name: Build jamsoul
         shell: cmd
