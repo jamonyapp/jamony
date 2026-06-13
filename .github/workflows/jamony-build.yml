@@ -38,9 +38,7 @@ jobs:
       - name: Extract jamulus binary
         run: |
           mkdir -p dist/jamulus-bin
-          ls deploy/
           find deploy -name "Jamulus" -type f -exec cp {} dist/jamulus-bin/ \; 2>/dev/null || true
-          find deploy -name "*.app" -exec sh -c 'cp -r "$1/Contents/MacOS/Jamulus" dist/jamulus-bin/' _ {} \; 2>/dev/null || true
 
       - uses: actions/setup-node@v4
         with:
@@ -57,7 +55,7 @@ jobs:
           name: jamony-${{ github.event.inputs.version }}-macos
           path: |
             dist/*.dmg
-            dist/**/*.dmg
+            electron/dist/*.dmg
           retention-days: 30
           if-no-files-found: warn
 
@@ -105,22 +103,26 @@ jobs:
         run: |
           cd electron
           npm install
-          npx electron-builder --win --config
+          echo === Running electron-builder ===
+          npx electron-builder --win --config --publish never
+          echo === Done, exit code: %ERRORLEVEL% ===
 
-      - name: Debug - list dist contents
+      - name: Find artifacts
         shell: cmd
         run: |
-          echo "=== full dist tree ==="
-          dir dist /s /b 2>nul
-          echo "=== dist root ==="
-          dir dist 2>nul
-          echo "=== electron-builder output ==="
-          dir dist\*.exe dist\*.dmg dist\*.exe? 2>nul
+          echo === electron dir contents ===
+          dir electron /s /b | findstr /i "exe"
+          echo === repo root dist ===
+          dir /s /b | findstr /i "jamony.*exe"
+          echo === generic search ===
+          for /r C:\Users\runneradmin %i in (jamony*.exe) do echo %i
+          dir dist /s /b
 
       - uses: actions/upload-artifact@v4
         with:
           name: jamony-${{ github.event.inputs.version }}-windows
           path: |
             dist\**\*
+            electron\dist\**\*
           retention-days: 30
           if-no-files-found: warn
