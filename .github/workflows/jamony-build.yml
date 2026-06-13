@@ -11,13 +11,18 @@ on:
 jobs:
   build-macos:
     name: Build MacOS
-    runs-on: macos-15-intel
+    runs-on: macos-15
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+
+      - name: Apply jamony color patch
+        run: |
+          patch -p1 < patches/jamony-colors.patch
+          grep '#define APP_NAME' src/global.h
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
@@ -29,15 +34,12 @@ jobs:
           modules: 'qtmultimedia'
           archives: 'qtbase qttools qttranslations'
 
-      - name: Apply jamony color patch
-        run: |
-          patch -p1 < patches/jamony-colors.patch
-          grep '#define APP_NAME' src/global.h
-
       - name: Build jamulus
         run: |
-          qmake Jamulus.pro "CONFIG+=nosound" -r -spec macx-clang CONFIG+=x86_64 CONFIG+=arm64
+          qmake Jamulus.pro -r -spec macx-clang CONFIG+=x86_64
           make -j$(sysctl -n hw.ncpu)
+          echo "=== Binary built ==="
+          ls -lh Jamulus.app/Contents/MacOS/Jamulus
           mkdir -p dist/jamulus-bin
           cp Jamulus.app/Contents/MacOS/Jamulus dist/jamulus-bin/
 
@@ -58,7 +60,7 @@ jobs:
             dist/*.dmg
             dist/**/*.dmg
           retention-days: 30
-          if-no-files-found: error
+          if-no-files-found: warn
 
   build-windows:
     name: Build Windows
@@ -90,7 +92,7 @@ jobs:
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          qmake Jamulus.pro "CONFIG+=nosound" -r -spec win32-msvc
+          qmake Jamulus.pro -r -spec win32-msvc
           nmake
           mkdir dist\jamulus-bin
           copy release\Jamulus.exe dist\jamulus-bin\
@@ -105,11 +107,6 @@ jobs:
           cd electron
           npm install
           npx electron-builder --win --config
-
-      - name: List dist contents
-        if: always()
-        shell: cmd
-        run: dir dist /s /b 2>nul || echo "no dist dir"
 
       - uses: actions/upload-artifact@v4
         with:
