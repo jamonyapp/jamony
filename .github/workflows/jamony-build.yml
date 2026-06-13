@@ -39,6 +39,7 @@ jobs:
           QT_VERSION=6.10.2 TARGET_ARCHS='x86_64' ./.github/autobuild/mac.sh setup
         env:
           JAMSOUL_BUILD_VERSION: '0.1.0'
+          JAMULUS_BUILD_VERSION: '0.1.0'
 
       - name: Build jamsoul
         run: |
@@ -46,6 +47,7 @@ jobs:
           QT_VERSION=6.10.2 TARGET_ARCHS='x86_64' ./.github/autobuild/mac.sh build
         env:
           JAMSOUL_BUILD_VERSION: '0.1.0'
+          JAMULUS_BUILD_VERSION: '0.1.0'
 
       - name: Extract jamsoul binary
         run: |
