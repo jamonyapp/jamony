@@ -52,7 +52,7 @@ jobs:
       - name: Extract jamsoul binary
         run: |
           mkdir -p jamony-private/dist/jamsoul-bin
-          find jamsoul-source/deploy -name "Jamulus" -type f | head -1 | while read f; do cp "$f" jamony-private/dist/jamsoul-bin/jamsoul; done
+          cp jamsoul-source/Jamulus.app/Contents/MacOS/Jamulus jamony-private/dist/jamsoul-bin/jamsoul 2>/dev/null || find jamsoul-source -name "Jamulus" -type f -not -path "*/deploy/*" | head -1 | while read f; do cp "$f" jamony-private/dist/jamsoul-bin/jamsoul; done
           ls -lh jamony-private/dist/jamsoul-bin/ 2>/dev/null
 
       - uses: actions/setup-node@v4
@@ -146,6 +146,6 @@ jobs:
         with:
           name: jamony-${{ github.event.inputs.version }}-windows
           path: |
-            jamony-private/dist/**/*.exe
+            jamony-private/dist/jamony*Setup*.exe
           retention-days: 30
           if-no-files-found: warn
