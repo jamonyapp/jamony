@@ -9,7 +9,9 @@ on:
         default: 'v0.1.0-alpha'
 
 name: jamony-demo-build
-permissions: {}
+
+env:
+  QT_VERSION: '6.10.2'
 
 jobs:
   build-macos:
@@ -17,9 +19,6 @@ jobs:
     runs-on: macos-15
     permissions:
       contents: write
-    env:
-      QT_VERSION: '6.10.2'
-      TARGET_ARCHS: 'arm64 x86_64'
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -30,25 +29,28 @@ jobs:
         run: |
           echo "Applying jamony color modifications..."
           patch -p1 < patches/jamony-colors.patch
-          echo "APP_NAME is now:"
           grep '#define APP_NAME' src/global.h
 
       - name: Install Qt via aqt
         run: |
-          pip3 install --break-system-packages aqtinstall==3.3.0
-          python3 -m aqt install-qt --outputdir ~/qt mac desktop ${QT_VERSION} --archives qtbase qtsvg qtmultimedia
+          sudo mkdir -p ~/qt
+          sudo chown "$(whoami)" ~/qt
+          python3 -m venv /tmp/venv
+          source /tmp/venv/bin/activate
+          pip install aqtinstall==3.3.0
+          python3 -m aqt install-qt --outputdir ~/qt mac desktop ${QT_VERSION} \
+            --archives qtbase qttools qttranslations --modules qtmultimedia
+          rm -rf /tmp/venv
 
       - name: Build jamulus (jamony edition)
         run: |
           export QT_DIR=~/qt/${QT_VERSION}/clang_64
           export PATH=${QT_DIR}/bin:$PATH
-          which qmake || (echo "qmake not in PATH at ${QT_DIR}/bin" && ls ${QT_DIR}/bin/)
           qmake Jamulus.pro "CONFIG+=nosound" -r -spec macx-clang CONFIG+=x86_64 CONFIG+=arm64
           make -j$(sysctl -n hw.ncpu)
-          mkdir -p dist/jamulus
+          mkdir -p dist/jamulus dist/jamulus-bin
           cp -r Jamulus.app dist/jamulus/
-          # Check binary exists
-          ls -lh dist/jamulus/Jamulus.app/Contents/MacOS/Jamulus
+          cp dist/jamulus/Jamulus.app/Contents/MacOS/Jamulus dist/jamulus-bin/
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -59,10 +61,6 @@ jobs:
         run: |
           cd electron
           npm install
-          # Copy jamulus binary for Electron to bundle
-          mkdir -p ../dist/jamulus-bin
-          cp ../dist/jamulus/Jamulus.app/Contents/MacOS/Jamulus ../dist/jamulus-bin/
-          # Build with electron-builder
           npm run dist
 
       - name: Upload Mac DMG
@@ -77,8 +75,6 @@ jobs:
     runs-on: windows-2022
     permissions:
       contents: write
-    env:
-      QT_VERSION: '6.10.2'
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -89,27 +85,28 @@ jobs:
         run: |
           echo "Applying jamony color modifications..."
           patch -p1 < patches/jamony-colors.patch
-          echo "APP_NAME is now:"
           grep '#define APP_NAME' src/global.h
         shell: bash
 
       - name: Install Qt via aqt
         run: |
-          pip3 install aqtinstall==3.3.0
-          python3 -m aqt install-qt --outputdir ~/qt windows desktop ${QT_VERSION} win64_msvc2022_64 --archives qtbase qtsvg qtmultimedia
-        shell: bash
+          python3 -m venv C:\tmp\venv
+          C:\tmp\venv\Scripts\activate.bat
+          pip install aqtinstall==3.3.0
+          python3 -m aqt install-qt --outputdir ~/qt windows desktop %QT_VERSION% win64_msvc2022_64 --archives qtbase qttools qttranslations --modules qtmultimedia
+          rmdir /s /q C:\tmp\venv
+        shell: cmd
 
       - name: Build jamulus (jamony edition)
         run: |
           set QT_DIR=C:\Users\runneradmin\qt\%QT_VERSION%\msvc2022_64
           set PATH=%QT_DIR%\bin;%PATH%
-          echo "qmake path: %QT_DIR%\bin\qmake.exe"
-          dir %QT_DIR%\bin\qmake.exe
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           call %QT_DIR%\bin\qmake.exe Jamulus.pro "CONFIG+=nosound" -r -spec win32-msvc
           nmake
-          mkdir dist\jamulus
+          mkdir dist\jamulus dist\jamulus-bin
           copy release\Jamulus.exe dist\jamulus\
+          copy release\Jamulus.exe dist\jamulus-bin\
         shell: cmd
 
       - name: Setup Node.js
@@ -121,8 +118,6 @@ jobs:
         run: |
           cd electron
           npm install
-          mkdir -p ../dist/jamulus-bin
-          copy ..\dist\jamulus\Jamulus.exe ..\dist\jamulus-bin\
           npm run dist
         shell: cmd
 
