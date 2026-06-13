@@ -132,7 +132,6 @@ jobs:
         with:
           name: jamony-${{ github.event.inputs.version }}-windows
           path: |
-            jamony-private\electron\dist\*.exe
-            jamony-private\dist\*.exe
+            jamony-private\\dist\\**\\*.exe
           retention-days: 30
           if-no-files-found: warn
