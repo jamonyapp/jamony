@@ -31,9 +31,19 @@ jobs:
           patch -p1 < patches/jamony-colors.patch
           grep '#define APP_NAME' src/global.h
 
-      - name: Build jamulus (jamony edition) via mac.sh
+      - name: Install Qt via mac.sh (setup stage)
         run: |
-          JAMULUS_BUILD_VERSION=0.1.0 QT_VERSION=6.10.2 TARGET_ARCHS="arm64 x86_64" ./.github/autobuild/mac.sh
+          QT_VERSION=6.10.2 TARGET_ARCHS="arm64 x86_64" ./.github/autobuild/mac.sh setup
+        env:
+          JAMULUS_BUILD_VERSION: '0.1.0'
+
+      - name: Build jamulus (jamony edition) manually (qmake + make)
+        run: |
+          export QT_DIR=~/qt/6.10.2/clang_64
+          export PATH=${QT_DIR}/bin:$PATH
+          which qmake
+          qmake Jamulus.pro "CONFIG+=nosound" -r -spec macx-clang CONFIG+=x86_64 CONFIG+=arm64
+          make -j$(sysctl -n hw.ncpu)
           echo "=== Binary built ==="
           ls -lh Jamulus.app/Contents/MacOS/Jamulus
 
@@ -76,22 +86,28 @@ jobs:
           grep '#define APP_NAME' src/global.h
         shell: bash
 
-      - name: Setup Qt environment
+      - name: Install Qt via aqt
         run: |
-          python3 -m venv C:\qt-venv
-          C:\qt-venv\Scripts\activate.bat
+          python3 -m venv /tmp/qt-venv
+          source /tmp/qt-venv/bin/activate
           pip install aqtinstall==3.3.0
-          python3 -m aqt install-qt --outputdir C:\Qt windows desktop %QT_VERSION% win64_msvc2022_64 --archives qtbase qttools qttranslations --modules qtmultimedia
-          echo "QT_DIR=C:\Qt\%QT_VERSION%\msvc2022_64" >> %GITHUB_ENV%
-        shell: cmd
+          python3 -m aqt install-qt --outputdir ~/Qt windows desktop ${QT_VERSION} win64_msvc2022_64 --archives qtbase qttools qttranslations --modules qtmultimedia
+          echo "QT_DIR=${HOME}/Qt/${QT_VERSION}/msvc2022_64" >> ${GITHUB_ENV}
+        shell: bash
 
       - name: Build jamulus (jamony edition)
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          call %QT_DIR%\bin\qmake.exe Jamulus.pro "CONFIG+=nosound" -r -spec win32-msvc
+          %QT_DIR%\bin\qmake.exe Jamulus.pro "CONFIG+=nosound" -r -spec win32-msvc
+          if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
           nmake
+          if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
+        shell: cmd
+
+      - name: Copy jamulus binary
+        run: |
           mkdir dist\jamulus-bin
-          copy release\Jamulus.exe dist\jamulus-bin\
+          if exist release\Jamulus.exe (copy release\Jamulus.exe dist\jamulus-bin\) else (if exist Jamulus.exe copy Jamulus.exe dist\jamulus-bin\)
         shell: cmd
 
       - name: Setup Node.js
