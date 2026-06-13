@@ -25,27 +25,26 @@ function createWindow() {
     minHeight: 600,
     title: 'jamony',
     backgroundColor: '#000000',
-    show: false,             // 等加载完再显示，避免白屏闪烁
+    show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,        // preload 需要访问 Node.js API
+      sandbox: false,
     },
   })
 
-  // 加载 loading 页先
-  mainWindow.loadFile(path.join(__dirname, 'loading.html'))
-
-  // 然后后台加载云端页面
-  mainWindow.loadURL(WEB_URL)
+  // 品牌开屏动画（4 秒）
+  mainWindow.loadFile(path.join(__dirname, 'splash.html'))
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show()
   })
 
-  // 打开 DevTools 快捷键（开发期方便调试，发布时注释掉）
-  // mainWindow.webContents.openDevTools()
+  // 4 秒后切换到云端页面
+  setTimeout(() => {
+    mainWindow.loadURL(WEB_URL)
+  }, 4000)
 }
 
 // 调起 jamsoul 子进程

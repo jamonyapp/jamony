@@ -1,10 +1,18 @@
 "use client"
 
 import { useState } from "react"
-import { ChevronDown, LogOut, Settings, User } from "lucide-react"
+import { ChevronDown, LogOut, RefreshCw, Settings, User } from "lucide-react"
 
-export function TopNav() {
+export function TopNav({ onRefresh }: { onRefresh?: () => void }) {
   const [open, setOpen] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+
+  const handleRefresh = () => {
+    if (refreshing || !onRefresh) return
+    setRefreshing(true)
+    onRefresh()
+    setTimeout(() => setRefreshing(false), 1000)
+  }
 
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-background/80 backdrop-blur-xl">
@@ -17,37 +25,52 @@ export function TopNav() {
           </span>
         </div>
 
-        <div className="relative">
-          <button
-            onClick={() => setOpen((v) => !v)}
-            className="flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-secondary active:scale-[0.97]"
-          >
-            <span className="flex h-8 w-8 items-center justify-center rounded-full brand-gradient text-sm font-semibold text-white">
-              木
-            </span>
-            <span className="hidden text-sm font-medium sm:block">木木</span>
-            <ChevronDown className="h-4 w-4 text-muted-foreground" />
-          </button>
-
-          {open && (
-            <>
-              <div
-                className="fixed inset-0 z-40"
-                onClick={() => setOpen(false)}
-                aria-hidden
-              />
-              <div className="absolute right-0 top-full z-50 mt-2 w-48 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-2xl">
-                <MenuItem icon={<User className="h-4 w-4" />} label="个人主页" />
-                <MenuItem icon={<Settings className="h-4 w-4" />} label="设置" />
-                <div className="my-1 h-px bg-border" />
-                <MenuItem
-                  icon={<LogOut className="h-4 w-4" />}
-                  label="退出登录"
-                  danger
-                />
-              </div>
-            </>
+        <div className="flex items-center gap-2">
+          {/* 刷新按钮 */}
+          {onRefresh && (
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground active:scale-[0.97] disabled:opacity-50"
+              title="刷新房间列表"
+            >
+              <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+              <span className="hidden sm:inline">刷新</span>
+            </button>
           )}
+
+          <div className="relative">
+            <button
+              onClick={() => setOpen((v) => !v)}
+              className="flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-secondary active:scale-[0.97]"
+            >
+              <span className="flex h-8 w-8 items-center justify-center rounded-full brand-gradient text-sm font-semibold text-white">
+                木
+              </span>
+              <span className="hidden text-sm font-medium sm:block">木木</span>
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            </button>
+
+            {open && (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setOpen(false)}
+                  aria-hidden
+                />
+                <div className="absolute right-0 top-full z-50 mt-2 w-48 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-2xl">
+                  <MenuItem icon={<User className="h-4 w-4" />} label="个人主页" />
+                  <MenuItem icon={<Settings className="h-4 w-4" />} label="设置" />
+                  <div className="my-1 h-px bg-border" />
+                  <MenuItem
+                    icon={<LogOut className="h-4 w-4" />}
+                    label="退出登录"
+                    danger
+                  />
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
     </header>
