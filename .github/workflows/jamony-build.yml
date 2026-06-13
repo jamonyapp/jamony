@@ -49,11 +49,15 @@ jobs:
           JAMSOUL_BUILD_VERSION: '0.1.0'
           JAMULUS_BUILD_VERSION: '0.1.0'
 
-      - name: Extract jamsoul binary
+      - name: Extract jamsoul.app (with Qt frameworks)
         run: |
-          mkdir -p jamony-private/dist/jamsoul-bin
-          cp jamsoul-source/Jamulus.app/Contents/MacOS/Jamulus jamony-private/dist/jamsoul-bin/jamsoul 2>/dev/null || find jamsoul-source -name "Jamulus" -type f -not -path "*/deploy/*" | head -1 | while read f; do cp "$f" jamony-private/dist/jamsoul-bin/jamsoul; done
-          ls -lh jamony-private/dist/jamsoul-bin/ 2>/dev/null
+          # 复制完整的 Jamulus.app（已含 Qt 框架，由 macdeployqt 部署）
+          cp -a jamsoul-source/deploy/Jamulus.app jamony-private/electron/jamsoul.app/
+          # 内部二进制改名 Jamulus → jamsoul
+          mv jamony-private/electron/jamsoul.app/Contents/MacOS/Jamulus jamony-private/electron/jamsoul.app/Contents/MacOS/jamsoul
+          ls -lh jamony-private/electron/jamsoul.app/Contents/MacOS/
+          echo "---Qt frameworks---"
+          ls jamony-private/electron/jamsoul.app/Contents/Frameworks/ 2>/dev/null
 
       - uses: actions/setup-node@v4
         with:
@@ -118,6 +122,8 @@ jobs:
           nmake
           mkdir ..\jamony-private\dist\jamsoul-bin
           copy release\Jamulus.exe ..\jamony-private\dist\jamsoul-bin\jamsoul.exe
+          where windeployqt
+          windeployqt --release ..\jamony-private\dist\jamsoul-bin\jamsoul.exe
 
       - uses: actions/setup-node@v4
         with:
