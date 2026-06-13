@@ -1,5 +1,5 @@
 # Builds the jamony demo: Electron shell + color-modified jamulus
-# Trigger: manual (workflow_dispatch) only
+# Uses jamulus' existing build infrastructure (mac.sh + autobuild flow)
 on:
   workflow_dispatch:
     inputs:
@@ -31,26 +31,11 @@ jobs:
           patch -p1 < patches/jamony-colors.patch
           grep '#define APP_NAME' src/global.h
 
-      - name: Install Qt via aqt
+      - name: Build jamulus (jamony edition) via mac.sh
         run: |
-          sudo mkdir -p ~/qt
-          sudo chown "$(whoami)" ~/qt
-          python3 -m venv /tmp/venv
-          source /tmp/venv/bin/activate
-          pip install aqtinstall==3.3.0
-          python3 -m aqt install-qt --outputdir ~/qt mac desktop ${QT_VERSION} \
-            --archives qtbase qttools qttranslations --modules qtmultimedia
-          rm -rf /tmp/venv
-
-      - name: Build jamulus (jamony edition)
-        run: |
-          export QT_DIR=~/qt/${QT_VERSION}/clang_64
-          export PATH=${QT_DIR}/bin:$PATH
-          qmake Jamulus.pro "CONFIG+=nosound" -r -spec macx-clang CONFIG+=x86_64 CONFIG+=arm64
-          make -j$(sysctl -n hw.ncpu)
-          mkdir -p dist/jamulus dist/jamulus-bin
-          cp -r Jamulus.app dist/jamulus/
-          cp dist/jamulus/Jamulus.app/Contents/MacOS/Jamulus dist/jamulus-bin/
+          JAMULUS_BUILD_VERSION=0.1.0 QT_VERSION=6.10.2 TARGET_ARCHS="arm64 x86_64" ./.github/autobuild/mac.sh
+          echo "=== Binary built ==="
+          ls -lh Jamulus.app/Contents/MacOS/Jamulus
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -59,15 +44,18 @@ jobs:
 
       - name: Build Electron app
         run: |
+          mkdir -p dist/jamulus-bin
+          cp Jamulus.app/Contents/MacOS/Jamulus dist/jamulus-bin/
           cd electron
           npm install
-          npm run dist
+          npx electron-builder --mac --config
+          ls -lh ../dist/*.dmg 2>/dev/null || echo "no dmg yet"
 
       - name: Upload Mac DMG
         uses: actions/upload-artifact@v4
         with:
           name: jamony-${{ github.event.inputs.version }}-macos
-          path: dist/jamony-*.dmg
+          path: dist/*.dmg
           retention-days: 30
 
   build-windows:
@@ -88,24 +76,21 @@ jobs:
           grep '#define APP_NAME' src/global.h
         shell: bash
 
-      - name: Install Qt via aqt
+      - name: Setup Qt environment
         run: |
-          python3 -m venv C:\tmp\venv
-          C:\tmp\venv\Scripts\activate.bat
+          python3 -m venv C:\qt-venv
+          C:\qt-venv\Scripts\activate.bat
           pip install aqtinstall==3.3.0
-          python3 -m aqt install-qt --outputdir ~/qt windows desktop %QT_VERSION% win64_msvc2022_64 --archives qtbase qttools qttranslations --modules qtmultimedia
-          rmdir /s /q C:\tmp\venv
+          python3 -m aqt install-qt --outputdir C:\Qt windows desktop %QT_VERSION% win64_msvc2022_64 --archives qtbase qttools qttranslations --modules qtmultimedia
+          echo "QT_DIR=C:\Qt\%QT_VERSION%\msvc2022_64" >> %GITHUB_ENV%
         shell: cmd
 
       - name: Build jamulus (jamony edition)
         run: |
-          set QT_DIR=C:\Users\runneradmin\qt\%QT_VERSION%\msvc2022_64
-          set PATH=%QT_DIR%\bin;%PATH%
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           call %QT_DIR%\bin\qmake.exe Jamulus.pro "CONFIG+=nosound" -r -spec win32-msvc
           nmake
-          mkdir dist\jamulus dist\jamulus-bin
-          copy release\Jamulus.exe dist\jamulus\
+          mkdir dist\jamulus-bin
           copy release\Jamulus.exe dist\jamulus-bin\
         shell: cmd
 
@@ -118,12 +103,12 @@ jobs:
         run: |
           cd electron
           npm install
-          npm run dist
+          npx electron-builder --win --config
         shell: cmd
 
       - name: Upload Windows EXE
         uses: actions/upload-artifact@v4
         with:
           name: jamony-${{ github.event.inputs.version }}-windows
-          path: dist\jamony-*.exe
+          path: dist\*.exe
           retention-days: 30
