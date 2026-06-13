@@ -1,5 +1,5 @@
-# Builds the jamony demo: Electron shell + color-modified jamulus
-# Uses jamulus' existing build infrastructure (mac.sh + autobuild flow)
+name: jamony-demo-build
+
 on:
   workflow_dispatch:
     inputs:
@@ -8,11 +8,6 @@ on:
         required: true
         default: 'v0.1.0-alpha'
 
-name: jamony-demo-build
-
-env:
-  QT_VERSION: '6.10.2'
-
 jobs:
   build-macos:
     name: Build MacOS
@@ -20,49 +15,43 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.10.2'
+          host: 'mac'
+          target: 'desktop'
+          arch: 'clang_64'
+          modules: 'qtmultimedia'
+          archives: 'qtbase qttools qttranslations'
+
       - name: Apply jamony color patch
         run: |
-          echo "Applying jamony color modifications..."
           patch -p1 < patches/jamony-colors.patch
           grep '#define APP_NAME' src/global.h
 
-      - name: Install Qt via mac.sh (setup stage)
+      - name: Build jamulus
         run: |
-          QT_VERSION=6.10.2 TARGET_ARCHS="arm64 x86_64" ./.github/autobuild/mac.sh setup
-        env:
-          JAMULUS_BUILD_VERSION: '0.1.0'
-
-      - name: Build jamulus (jamony edition) manually (qmake + make)
-        run: |
-          export QT_DIR=~/qt/6.10.2/clang_64
-          export PATH=${QT_DIR}/bin:$PATH
-          which qmake
           qmake Jamulus.pro "CONFIG+=nosound" -r -spec macx-clang CONFIG+=x86_64 CONFIG+=arm64
           make -j$(sysctl -n hw.ncpu)
-          echo "=== Binary built ==="
-          ls -lh Jamulus.app/Contents/MacOS/Jamulus
+          mkdir -p dist/jamulus-bin
+          cp Jamulus.app/Contents/MacOS/Jamulus dist/jamulus-bin/
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '22'
 
       - name: Build Electron app
         run: |
-          mkdir -p dist/jamulus-bin
-          cp Jamulus.app/Contents/MacOS/Jamulus dist/jamulus-bin/
           cd electron
           npm install
           npx electron-builder --mac --config
-          ls -lh ../dist/*.dmg 2>/dev/null || echo "no dmg yet"
 
-      - name: Upload Mac DMG
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: jamony-${{ github.event.inputs.version }}-macos
           path: dist/*.dmg
@@ -74,56 +63,47 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.10.2'
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_msvc2022_64'
+          modules: 'qtmultimedia'
+          archives: 'qtbase qttools qttranslations'
+
       - name: Apply jamony color patch
+        shell: bash
         run: |
-          echo "Applying jamony color modifications..."
           patch -p1 < patches/jamony-colors.patch
           grep '#define APP_NAME' src/global.h
-        shell: bash
 
-      - name: Install Qt via aqt
-        run: |
-          python3 -m venv /tmp/qt-venv
-          source /tmp/qt-venv/bin/activate
-          pip install aqtinstall==3.3.0
-          python3 -m aqt install-qt --outputdir ~/Qt windows desktop ${QT_VERSION} win64_msvc2022_64 --archives qtbase qttools qttranslations --modules qtmultimedia
-          echo "QT_DIR=${HOME}/Qt/${QT_VERSION}/msvc2022_64" >> ${GITHUB_ENV}
-        shell: bash
-
-      - name: Build jamulus (jamony edition)
+      - name: Build jamulus
+        shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          %QT_DIR%\bin\qmake.exe Jamulus.pro "CONFIG+=nosound" -r -spec win32-msvc
-          if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
+          qmake Jamulus.pro "CONFIG+=nosound" -r -spec win32-msvc
           nmake
-          if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
-        shell: cmd
-
-      - name: Copy jamulus binary
-        run: |
           mkdir dist\jamulus-bin
-          if exist release\Jamulus.exe (copy release\Jamulus.exe dist\jamulus-bin\) else (if exist Jamulus.exe copy Jamulus.exe dist\jamulus-bin\)
-        shell: cmd
+          copy release\Jamulus.exe dist\jamulus-bin\
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '22'
 
       - name: Build Electron app
+        shell: cmd
         run: |
           cd electron
           npm install
           npx electron-builder --win --config
-        shell: cmd
 
-      - name: Upload Windows EXE
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: jamony-${{ github.event.inputs.version }}-windows
           path: dist\*.exe
