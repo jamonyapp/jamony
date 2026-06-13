@@ -98,25 +98,32 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Build Electron app
+      - name: Diagnose electron-builder
         shell: cmd
         run: |
           cd electron
           npm install
-          echo === Running electron-builder ===
-          npx electron-builder --win --config --publish never
-          echo === Done, exit code: %ERRORLEVEL% ===
+          echo === DIAG 1: electron-builder version ===
+          npx electron-builder --version
+          echo === DIAG 2: requirement path ===
+          node -e "try{console.log('require OK:',require.resolve('electron-builder'))}catch(e){console.log('require FAIL:',e.message)}"
+          echo === DIAG 3: jamulus binary check ===
+          if exist ..\dist\jamulus-bin\Jamulus.exe (echo binary OK) else (echo binary NOT FOUND)
+          echo === DIAG 4: config parse ===
+          npx electron-builder --win --config --publish never --help >nul 2>&1
+          echo help exit: %ERRORLEVEL%
 
-      - name: Find artifacts
+      - name: Build Electron app
         shell: cmd
         run: |
-          echo === electron dir contents ===
-          dir electron /s /b | findstr /i "exe"
-          echo === repo root dist ===
-          dir /s /b | findstr /i "jamony.*exe"
-          echo === generic search ===
-          for /r C:\Users\runneradmin %i in (jamony*.exe) do echo %i
-          dir dist /s /b
+          cd electron
+          echo === RUNNING electron-builder ===
+          npx electron-builder --win --config --publish never 2>&1
+          echo === EXIT CODE: %ERRORLEVEL% ===
+          echo === checking outputs ===
+          if exist ..\dist\ (dir ..\dist\*.exe ..\dist\*.dmg 2>nul) else (echo ..\dist NOT FOUND)
+          if exist .\dist\ (dir .\dist\*.exe .\dist\*.dmg 2>nul) else (echo .\dist NOT FOUND)
+          dir /s /b | findstr /i "exe" 2>nul
 
       - uses: actions/upload-artifact@v4
         with:
