@@ -19,26 +19,33 @@
     "files": [
       "main.js",
       "preload.js",
+      "splash.html",
       "loading.html",
       "icon.png",
       "package.json"
     ],
-    "extraResources": [
-      {
-        "from": "../dist/jamsoul-bin",
-        "to": "jamsoul-bin",
-        "filter": ["**/*"]
-      }
-    ],
+    "extraResources": [],
     "mac": {
       "target": ["dmg"],
       "icon": "icon.png",
       "category": "public.app-category.music",
-      "hardenedRuntime": true
+      "extraResources": [
+        {
+          "from": "jamsoul.app",
+          "to": "jamsoul.app"
+        }
+      ]
     },
     "win": {
       "target": ["nsis"],
-      "icon": "icon.png"
+      "icon": "icon.png",
+      "extraResources": [
+        {
+          "from": "../dist/jamsoul-bin",
+          "to": "jamsoul-bin",
+          "filter": ["**/*"]
+        }
+      ]
     },
     "nsis": {
       "oneClick": false,

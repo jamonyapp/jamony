@@ -11,7 +11,9 @@ const WEB_URL = process.env.JAMONY_WEB_URL || 'http://39.96.30.128'
 const isPackaged = app.isPackaged
 const JAMSOUL_BIN = process.env.JAMSOUL_BIN || (
   isPackaged
-    ? path.join(process.resourcesPath, 'jamsoul-bin', process.platform === 'win32' ? 'jamsoul.exe' : 'jamsoul')
+    ? (process.platform === 'darwin'
+        ? path.join(process.resourcesPath, 'jamsoul.app', 'Contents', 'MacOS', 'jamsoul')
+        : path.join(process.resourcesPath, 'jamsoul-bin', 'jamsoul.exe'))
     : path.join(__dirname, '..', 'dist', 'jamsoul-bin', process.platform === 'win32' ? 'jamsoul.exe' : 'jamsoul')
 )
 
