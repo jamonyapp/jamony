@@ -43,10 +43,10 @@ function createWindow() {
     mainWindow.show()
   })
 
-  // 4 秒后切换到云端页面
+  // 5 秒后切换到云端页面（霓虹开屏动画需要更多时间展示）
   setTimeout(() => {
     mainWindow.loadURL(WEB_URL)
-  }, 4000)
+  }, 5000)
 }
 
 // 调起 jamsoul 子进程

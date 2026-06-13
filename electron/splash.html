@@ -8,120 +8,176 @@
 body {
   background: #000;
   color: #fff;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   display: flex;
   align-items: center;
   justify-content: center;
   min-height: 100vh;
   overflow: hidden;
-}
-/* 背景光晕 */
-.glow {
-  position: fixed;
-  width: 400px;
-  height: 400px;
-  border-radius: 50%;
-  filter: blur(100px);
-  opacity: 0.12;
-  pointer-events: none;
-  animation: pulse 3s ease-in-out infinite alternate;
-}
-.glow-1 { top: -150px; left: -150px; background: #00aaff; }
-.glow-2 { bottom: -150px; right: -150px; background: #ff33aa; animation-delay: 1.5s; }
-@keyframes pulse {
-  from { opacity: 0.06; transform: scale(1); }
-  to { opacity: 0.15; transform: scale(1.2); }
+  font-family: 'STKaiti', 'KaiTi', 'Noto Serif SC', 'SimSun', serif;
 }
 
-/* 主容器 */
+/* ============ 背景光晕（大气辉光） ============ */
+.glow-bg {
+  position: fixed;
+  width: 500px;
+  height: 500px;
+  border-radius: 50%;
+  filter: blur(120px);
+  opacity: 0;
+  pointer-events: none;
+  animation: glowBgIn 2.5s ease 0.5s forwards;
+}
+.glow-bg-1 { top: -200px; left: -200px; background: #00AAFF; }
+.glow-bg-2 { bottom: -200px; right: -200px; background: #FF33AA; }
+@keyframes glowBgIn {
+  from { opacity: 0; transform: scale(0.5); }
+  to   { opacity: 0.10; transform: scale(1); }
+}
+
+/* ============ Logo 容器 ============ */
 .container {
   text-align: center;
-  animation: fadeScale 1s ease-out;
-}
-@keyframes fadeScale {
-  from { opacity: 0; transform: scale(0.9); }
-  to { opacity: 1; transform: scale(1); }
+  position: relative;
 }
 
-/* Logo 图标 */
-.logo-wrapper {
-  width: 100px;
-  height: 100px;
-  margin: 0 auto 28px;
-  border-radius: 24px;
-  background: linear-gradient(135deg, #00aaff, #9933ff, #ff33aa, #bbee00);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 44px;
-  font-weight: bold;
-  color: #000;
-  box-shadow: 0 0 60px rgba(0, 170, 255, 0.3);
-  animation: logoGlow 2s ease-in-out infinite alternate;
-}
-@keyframes logoGlow {
-  from { box-shadow: 0 0 40px rgba(0,170,255,0.3); }
-  to { box-shadow: 0 0 80px rgba(153,51,255,0.5); }
-}
-
-/* 渐变文字标题 */
-h1 {
-  font-size: 36px;
-  font-weight: 700;
-  letter-spacing: 2px;
-  margin-bottom: 12px;
-  background: linear-gradient(90deg, #00aaff, #9933ff, #ff33aa, #bbee00);
-  background-size: 200% auto;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  animation: gradientShift 3s ease infinite;
-}
-@keyframes gradientShift {
-  0% { background-position: 0% center; }
-  50% { background-position: 100% center; }
-  100% { background-position: 0% center; }
-}
-
-/* 标语 */
-.tagline {
-  font-size: 15px;
-  color: #8a8a8a;
-  letter-spacing: 4px;
+/* ============ Logo 图像（霓虹灯管效果） ============ */
+.logo {
+  width: 280px;
+  height: auto;
+  display: block;
   opacity: 0;
-  animation: fadeIn 1s ease 0.5s forwards;
-}
-@keyframes fadeIn {
-  to { opacity: 1; }
+  /* 多层霓虹辉光 —— 用 drop-shadow 沿 PNG 透明边缘发光 */
+  animation:
+    neonOn      1.5s ease 0.3s forwards,
+    neonFlow    3s ease-in-out 1.5s infinite,
+    neonFlicker 0.6s ease 2.8s 3;
 }
 
-/* 底部加载条 */
+/* 🌟 阶段一：霓虹点亮（0.3s → 1.8s） */
+@keyframes neonOn {
+  0% {
+    opacity: 0;
+    filter:
+      drop-shadow(0 0 0px rgba(0,170,255,0))
+      drop-shadow(0 0 0px rgba(153,51,255,0));
+  }
+  30% {
+    opacity: 0.15;
+    filter:
+      drop-shadow(0 0 5px rgba(0,170,255,0.2))
+      drop-shadow(0 0 15px rgba(153,51,255,0.1));
+  }
+  60% {
+    opacity: 0.6;
+    filter:
+      drop-shadow(0 0 20px rgba(0,170,255,0.4))
+      drop-shadow(0 0 50px rgba(153,51,255,0.25))
+      drop-shadow(0 0 80px rgba(255,51,170,0.1));
+  }
+  100% {
+    opacity: 1;
+    filter:
+      drop-shadow(0 0 25px rgba(0,170,255,0.6))
+      drop-shadow(0 0 60px rgba(153,51,255,0.35))
+      drop-shadow(0 0 100px rgba(255,51,170,0.15));
+  }
+}
+
+/* 🌟 阶段二：光晕流动（品牌色循环） */
+@keyframes neonFlow {
+  0% {
+    filter:
+      drop-shadow(0 0 25px rgba(0,170,255,0.6))
+      drop-shadow(0 0 60px rgba(153,51,255,0.35))
+      drop-shadow(0 0 100px rgba(255,51,170,0.15));
+  }
+  25% {
+    filter:
+      drop-shadow(0 0 25px rgba(153,51,255,0.6))
+      drop-shadow(0 0 60px rgba(255,51,170,0.35))
+      drop-shadow(0 0 100px rgba(187,238,0,0.1));
+  }
+  50% {
+    filter:
+      drop-shadow(0 0 25px rgba(255,51,170,0.6))
+      drop-shadow(0 0 60px rgba(187,238,0,0.35))
+      drop-shadow(0 0 100px rgba(0,170,255,0.1));
+  }
+  75% {
+    filter:
+      drop-shadow(0 0 25px rgba(187,238,0,0.5))
+      drop-shadow(0 0 60px rgba(0,170,255,0.35))
+      drop-shadow(0 0 100px rgba(153,51,255,0.1));
+  }
+  100% {
+    filter:
+      drop-shadow(0 0 25px rgba(0,170,255,0.6))
+      drop-shadow(0 0 60px rgba(153,51,255,0.35))
+      drop-shadow(0 0 100px rgba(255,51,170,0.15));
+  }
+}
+
+/* 🌟 阶段三：霓虹接触不良闪烁 */
+@keyframes neonFlicker {
+  0%   { opacity: 1; }
+  15%  { opacity: 0.25; filter: drop-shadow(0 0 5px rgba(0,170,255,0.1)); }
+  18%  { opacity: 0.9; }
+  20%  { opacity: 0.15; filter: drop-shadow(0 0 2px rgba(0,170,255,0.05)); }
+  23%  { opacity: 1; }
+  30%  { opacity: 0.5; filter: drop-shadow(0 0 10px rgba(0,170,255,0.2)); }
+  33%  { opacity: 1; }
+  50%  { opacity: 0.6; filter: drop-shadow(0 0 15px rgba(153,51,255,0.25)); }
+  53%  { opacity: 1; }
+  100% { opacity: 1; }
+}
+
+/* ============ 标语 ============ */
+.slogan {
+  margin-top: 48px;
+  font-size: 30px;
+  font-weight: 800;
+  color: #FFFFFF;
+  letter-spacing: 8px;
+  text-shadow: 0 0 20px rgba(255,255,255,0.15);
+  opacity: 0;
+  animation: sloganFadeIn 0.8s ease 1.8s forwards;
+}
+@keyframes sloganFadeIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ============ 底部加载条 ============ */
 .loading-bar {
   position: fixed;
   bottom: 0;
   left: 0;
   width: 100%;
   height: 3px;
-  background: rgba(255,255,255,0.05);
+  background: rgba(255,255,255,0.04);
 }
 .loading-bar-fill {
   height: 100%;
-  background: linear-gradient(90deg, #00aaff, #9933ff, #ff33aa);
-  animation: loadBar 3.5s ease-in-out forwards;
+  background: linear-gradient(90deg, #00AAFF, #9933FF, #FF33AA, #BBEE00);
+  background-size: 200% 100%;
+  animation: loadBar 4.5s ease-in-out forwards, loadBarShimmer 2s linear infinite;
 }
 @keyframes loadBar {
   from { width: 0%; }
-  to { width: 100%; }
+  to   { width: 100%; }
+}
+@keyframes loadBarShimmer {
+  from { background-position: 0% 0; }
+  to   { background-position: 200% 0; }
 }
 </style>
 </head>
 <body>
-<div class="glow glow-1"></div>
-<div class="glow glow-2"></div>
+<div class="glow-bg glow-bg-1"></div>
+<div class="glow-bg glow-bg-2"></div>
 <div class="container">
-  <div class="logo-wrapper">J</div>
-  <h1>jamony</h1>
-  <p class="tagline">远程合奏，就这么简单</p>
+  <img src="icon.png" class="logo" alt="jamony">
+  <p class="slogan">嘤其鸣矣，求其友声</p>
 </div>
 <div class="loading-bar"><div class="loading-bar-fill"></div></div>
 </body>
