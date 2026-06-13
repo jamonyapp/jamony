@@ -66,10 +66,20 @@ index 20c823b..dbe44a2 100644
          // break text at predefined position
          iBreakPos = MAX_LEN_FADER_TAG / 2;
 diff --git a/src/clientdlg.cpp b/src/clientdlg.cpp
-index 145a14a..057bbd4 100644
+index 145a14a..8b6058b 100644
 --- a/src/clientdlg.cpp
 +++ b/src/clientdlg.cpp
-@@ -305,7 +305,7 @@ CClientDlg::CClientDlg ( CClient*         pNCliP,
+@@ -71,6 +71,9 @@ CClientDlg::CClientDlg ( CClient*         pNCliP,
+ {
+     setupUi ( this );
+ 
++    // 聊天功能由 jamony Electron 实现，jamsoul 隐藏聊天按钮
++    chbChat->hide();
++
+     // Add help text to controls -----------------------------------------------
+     // input level meter
+     QString strInpLevH = "<b>" + tr ( "Input Level Meter" ) + ":</b> " +
+@@ -305,7 +308,7 @@ CClientDlg::CClientDlg ( CClient*         pNCliP,
      // File menu  --------------------------------------------------------------
      QMenu* pFileMenu = new QMenu ( tr ( "&File" ), this );
  
@@ -78,7 +88,7 @@ index 145a14a..057bbd4 100644
  
      pFileMenu->addSeparator();
  
-@@ -403,7 +403,7 @@ CClientDlg::CClientDlg ( CClient*         pNCliP,
+@@ -403,7 +406,7 @@ CClientDlg::CClientDlg ( CClient*         pNCliP,
  
      pViewMenu->addSeparator();
  
@@ -87,7 +97,7 @@ index 145a14a..057bbd4 100644
  
      // optionally show analyzer console entry
      if ( bShowAnalyzerConsole )
-@@ -430,6 +430,11 @@ CClientDlg::CClientDlg ( CClient*         pNCliP,
+@@ -430,6 +433,11 @@ CClientDlg::CClientDlg ( CClient*         pNCliP,
  
      // Main menu bar -----------------------------------------------------------
      QMenuBar* pMenu = new QMenuBar ( this );
@@ -99,7 +109,7 @@ index 145a14a..057bbd4 100644
  
      pMenu->addMenu ( pFileMenu );
      pMenu->addMenu ( pEditMenu );
-@@ -1384,37 +1389,32 @@ void CClientDlg::SetGUIDesign ( const EGUIDesign eNewDesign )
+@@ -1384,37 +1392,32 @@ void CClientDlg::SetGUIDesign ( const EGUIDesign eNewDesign )
      {
      case GD_ORIGINAL:
          backgroundFrame->setStyleSheet (
@@ -146,7 +156,7 @@ index 145a14a..057bbd4 100644
                                         "font:  bold;" );
  #endif
  
-@@ -1506,7 +1506,7 @@ void CClientDlg::SetMixerBoardDeco ( const ERecorderState newRecorderState, cons
+@@ -1506,7 +1509,7 @@ void CClientDlg::SetMixerBoardDeco ( const ERecorderState newRecorderState, cons
          if ( eNewDesign == GD_ORIGINAL )
          {
              // no need to set the background color for dark mode in fancy skin, as the background is already dark.
@@ -155,7 +165,7 @@ index 145a14a..057bbd4 100644
          }
          else
          {
-@@ -1521,11 +1521,11 @@ void CClientDlg::SetMixerBoardDeco ( const ERecorderState newRecorderState, cons
+@@ -1521,11 +1524,11 @@ void CClientDlg::SetMixerBoardDeco ( const ERecorderState newRecorderState, cons
              {
                  // Dark mode needs a light color
  
