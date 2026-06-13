@@ -36,7 +36,7 @@ jobs:
       - name: Install Qt
         run: |
           cd jamsoul-source
-          QT_VERSION=6.10.2 TARGET_ARCHS='x86_64' ./.github/autobuild/mac.sh setup
+          QT_VERSION=6.10.2 TARGET_ARCHS='x86_64 arm64' ./.github/autobuild/mac.sh setup
         env:
           JAMSOUL_BUILD_VERSION: '0.1.0'
           JAMULUS_BUILD_VERSION: '0.1.0'
@@ -44,7 +44,7 @@ jobs:
       - name: Build jamsoul
         run: |
           cd jamsoul-source
-          QT_VERSION=6.10.2 TARGET_ARCHS='x86_64' ./.github/autobuild/mac.sh build
+          QT_VERSION=6.10.2 TARGET_ARCHS='x86_64 arm64' ./.github/autobuild/mac.sh build
         env:
           JAMSOUL_BUILD_VERSION: '0.1.0'
           JAMULUS_BUILD_VERSION: '0.1.0'
