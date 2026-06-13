@@ -127,11 +127,21 @@ jobs:
           cd jamony-private\electron
           npm install
           npx electron-builder --win --config --publish never 2>&1
+          echo === electron-builder exit code: %ERRORLEVEL% ===
+
+      - name: Debug dist
+        if: always()
+        shell: bash
+        run: |
+          echo === jamony-private/dist ===
+          find jamony-private/dist -name "*.exe" -ls 2>/dev/null || echo no exe found
+          echo === electron dir ===
+          ls jamony-private/electron/dist/ 2>/dev/null || echo no dir
 
       - uses: actions/upload-artifact@v4
         with:
           name: jamony-${{ github.event.inputs.version }}-windows
           path: |
-            jamony-private\\dist\\**\\*.exe
+            jamony-private/dist/**/*.exe
           retention-days: 30
           if-no-files-found: warn
