@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { Circle, Square, ChevronDown, Play, Pause, Disc3, ArrowRight } from "lucide-react"
+import { Circle, Square, ChevronDown, Play, Pause, Disc3, ArrowRight, Download } from "lucide-react"
 import { DAILY_THEME, RECORDINGS, type RecordingSession } from "@/lib/jam-data"
 
 function fmt(total: number) {
@@ -357,6 +357,17 @@ function SessionCard({
               />
             </div>
             <span className="font-mono text-xs text-muted-foreground">{session.duration}</span>
+            <button
+              onClick={() => alert("下载功能即将上线，敬请期待！")}
+              aria-label="下载该段全部分轨"
+              title="即将开放"
+              className="group relative grid size-9 shrink-0 place-items-center rounded-full bg-secondary text-foreground ring-1 ring-border transition-colors hover:bg-accent"
+            >
+              <Download className="size-4" />
+              <span className="pointer-events-none absolute -top-7 right-0 whitespace-nowrap rounded-[6px] bg-popover px-2 py-1 text-[10px] text-popover-foreground opacity-0 ring-1 ring-border transition-opacity group-hover:opacity-100">
+                即将开放
+              </span>
+            </button>
           </div>
 
           {/* 分轨列表 + M/S 控制 */}
