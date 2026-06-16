@@ -14,10 +14,14 @@ type Tool = "chords" | "metronome"
 
 export function LeftColumn({
   onPushChord,
+  audioConnected,
   onDisconnect,
+  onReconnect,
 }: {
   onPushChord: (chords: string[], style: string) => void
+  audioConnected: boolean
   onDisconnect: () => void
+  onReconnect: () => void
 }) {
   const [tool, setTool] = useState<Tool>("chords")
   const [style, setStyle] = useState<string>(CHORD_STYLES[0])
@@ -193,15 +197,26 @@ export function LeftColumn({
         <p className="mt-4 text-center text-xs text-muted-foreground">更多工具即将上线…</p>
       </section>
 
-      {/* 断开连接 */}
-      <button
-        onClick={onDisconnect}
-        className="flex items-center justify-center gap-2 rounded-[10px] bg-destructive px-4 py-3 text-base font-semibold text-destructive-foreground shadow-[0_0_24px_-6px_var(--brand-pink)] transition-opacity hover:opacity-90"
-        style={{ color: "#fff" }}
-      >
-        <PowerOff className="size-5" />
-        断开连接
-      </button>
+      {/* 音频连接状态 */}
+      {audioConnected ? (
+        <button
+          onClick={onDisconnect}
+          className="flex items-center justify-center gap-2 rounded-[10px] bg-destructive px-4 py-3 text-base font-semibold text-destructive-foreground shadow-[0_0_24px_-6px_var(--brand-pink)] transition-opacity hover:opacity-90"
+          style={{ color: "#fff" }}
+        >
+          <PowerOff className="size-5" />
+          断开连接
+        </button>
+      ) : (
+        <button
+          onClick={onReconnect}
+          className="flex items-center justify-center gap-2 rounded-[10px] px-4 py-3 text-base font-semibold text-white transition-opacity hover:brightness-110 active:scale-[0.97]"
+          style={{ background: "#BBEE00", color: "#0D0D0D" }}
+        >
+          <PowerOff className="size-5" />
+          音频连接
+        </button>
+      )}
     </aside>
   )
 }

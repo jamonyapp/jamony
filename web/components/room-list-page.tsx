@@ -3,11 +3,12 @@
 import { useMemo, useState } from "react"
 import { Search, Plus, ChevronDown } from "lucide-react"
 import { rooms as allRooms, type Room } from "@/lib/rooms-data"
-import { TopNav } from "@/components/top-nav"
+import { TopNav } from "@/components/jamony/top-nav"
 import { CategoryNav } from "@/components/category-nav"
 import { RoomCard } from "@/components/room-card"
 import { EmptyState } from "@/components/empty-state"
 import { CreateRoomModal } from "@/components/create-room-modal"
+import { RoomDetailModal } from "@/components/room-detail-modal"
 
 type SortKey = "members" | "newest" | "latency"
 
@@ -24,6 +25,7 @@ export function RoomListPage() {
   const [sort, setSort] = useState<SortKey>("members")
   const [sortOpen, setSortOpen] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
+  const [detailRoomId, setDetailRoomId] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
   const handleRefresh = () => setRefreshKey((k) => k + 1)
@@ -51,7 +53,7 @@ export function RoomListPage() {
   return (
     <div className="min-h-screen bg-background">
       <TopNav onRefresh={handleRefresh} />
-      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+      <main className="mx-auto max-w-7xl px-4 py-8 pt-11 sm:px-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex flex-col gap-2">
             <h1 className="flex items-center gap-2 text-3xl font-bold tracking-tight">
@@ -103,12 +105,13 @@ export function RoomListPage() {
 
         <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
           {filtered.length > 0 ? (
-            filtered.map((room) => <RoomCard key={room.id} room={room} />)
+            filtered.map((room) => <RoomCard key={room.id} room={room} onSelect={() => setDetailRoomId(room.id)} />)
           ) : (
             <EmptyState onCreate={() => setModalOpen(true)} />
           )}
         </div>
       </main>
+      <RoomDetailModal roomId={detailRoomId} onClose={() => setDetailRoomId(null)} />
       <CreateRoomModal open={modalOpen} onClose={() => setModalOpen(false)} />
     </div>
   )

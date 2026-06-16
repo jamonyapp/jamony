@@ -16,6 +16,8 @@ export const ROOM = {
   online: 5,
   capacity: 8,
   latencyMs: 28,
+  serverIp: "39.96.30.128",
+  port: 22124,
 }
 
 export type Member = {

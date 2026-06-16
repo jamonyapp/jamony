@@ -1,18 +1,36 @@
 "use client"
 
-import { ArrowLeft, Users, Signal } from "lucide-react"
+import { Users, Signal } from "lucide-react"
 import { ROOM } from "@/lib/jam-data"
 
-export function TopNav({ onBack }: { onBack: () => void }) {
+export function TopNav({
+  audioConnected,
+  onBackHome,
+  onBackLobby,
+}: {
+  audioConnected: boolean
+  onBackHome: () => void
+  onBackLobby: () => void
+}) {
   return (
     <header className="sticky top-0 z-30 flex items-center justify-between border-b border-border bg-background/80 px-4 py-3 backdrop-blur-md">
-      <button
-        onClick={onBack}
-        className="flex items-center gap-2 rounded-[10px] px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-      >
-        <ArrowLeft className="size-4" />
-        返回大厅
-      </button>
+      {/* 左侧按钮区 — 始终显示 [返回首页] [返回大厅] */}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={onBackHome}
+          className="rounded-md border px-2 py-[2px] text-[12px] font-normal transition-colors active:scale-[0.97]"
+          style={{ borderColor: "#2A2A2A", color: "#6A6A6A" }}
+        >
+          返回首页
+        </button>
+        <button
+          onClick={onBackLobby}
+          className="rounded-md border px-2 py-[2px] text-[12px] font-normal transition-colors active:scale-[0.97]"
+          style={{ borderColor: "#2A2A2A", color: "#6A6A6A" }}
+        >
+          返回大厅
+        </button>
+      </div>
 
       <div className="flex items-center gap-2 text-balance text-center">
         <span className="text-lg">{ROOM.styleEmoji}</span>

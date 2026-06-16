@@ -3,11 +3,14 @@
 import { Disc3, Home, MessageSquare, Music, Plus, Radio, ScrollText, X } from "lucide-react"
 import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
+import { CreateRoomModal } from "@/components/create-room-modal"
+import { PublishNoticeModal } from "@/components/jamony/publish-notice-modal"
+import type { Notice } from "@/lib/jamony-data"
 
 const navItems = [
   { icon: Home, label: "首页", href: "/" },
   { icon: Music, label: "房间大厅", href: "/lobby" },
-  { icon: ScrollText, label: "公告牌", href: "/board" },       // 待开发
+  { icon: ScrollText, label: "公告牌", href: "/board" },
   { icon: Disc3, label: "作品库", href: null },             // 待开发
 ]
 
@@ -15,6 +18,8 @@ export function LeftSidebar() {
   const router = useRouter()
   const pathname = usePathname()
   const [feedbackOpen, setFeedbackOpen] = useState(false)
+  const [createRoomOpen, setCreateRoomOpen] = useState(false)
+  const [publishOpen, setPublishOpen] = useState(false)
 
   return (
     <aside
@@ -26,7 +31,7 @@ export function LeftSidebar() {
         <button
           className="flex items-center justify-center gap-2 rounded-[10px] py-2.5 text-[14px] font-bold text-white transition-transform active:scale-[0.97]"
           style={{ background: "linear-gradient(90deg, #9933FF, #FF33AA)" }}
-          onClick={() => router.push("/lobby")}
+          onClick={() => setCreateRoomOpen(true)}
         >
           <Plus className="h-4 w-4" />
           创建房间
@@ -34,7 +39,7 @@ export function LeftSidebar() {
         <button
           className="flex items-center justify-center gap-2 rounded-[10px] border py-2.5 text-[14px] font-medium text-white transition-colors hover:bg-white/5 active:scale-[0.97]"
           style={{ borderColor: "rgba(255,255,255,0.4)" }}
-          onClick={() => console.log("[v0] publish notice")}
+          onClick={() => setPublishOpen(true)}
         >
           <Plus className="h-4 w-4" />
           发布公告
@@ -106,6 +111,8 @@ export function LeftSidebar() {
       </div>
 
       {feedbackOpen && <FeedbackModal onClose={() => setFeedbackOpen(false)} />}
+      <CreateRoomModal open={createRoomOpen} onClose={() => setCreateRoomOpen(false)} />
+      <PublishNoticeModal open={publishOpen} onClose={() => setPublishOpen(false)} onPublish={(notice) => console.log("[jamony] published notice from sidebar:", notice.id)} />
     </aside>
   )
 }

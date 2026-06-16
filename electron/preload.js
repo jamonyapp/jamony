@@ -6,6 +6,10 @@ contextBridge.exposeInMainWorld('jamonyAPI', {
   joinRoom: (payload) => {
     ipcRenderer.send('join-room', payload)
   },
+  // 杀死 jamsoul 子进程
+  killJamsoul: () => {
+    ipcRenderer.send('kill-jamsoul')
+  },
   // 监听来自主进程的事件（如 jamsoul 启动状态）
   onJamsoulLaunched: (callback) => {
     ipcRenderer.on('jamsoul-launched', (_event, data) => callback(data))

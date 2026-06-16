@@ -1,9 +1,11 @@
 "use client"
 
 import { useState } from "react"
-import { ChevronDown, LogOut, RefreshCw, Settings, User } from "lucide-react"
+import { ChevronDown, LogOut, RefreshCw, Settings, User, ArrowLeft } from "lucide-react"
+import { useRouter } from "next/navigation"
 
 export function TopNav({ onRefresh }: { onRefresh?: () => void }) {
+  const router = useRouter()
   const [open, setOpen] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
 
@@ -18,7 +20,13 @@ export function TopNav({ onRefresh }: { onRefresh?: () => void }) {
     <header className="sticky top-0 z-50 border-b border-border bg-background/80 backdrop-blur-xl">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
         <div className="flex items-center gap-2">
-          <span className="text-xl font-bold tracking-tight">jamony</span>
+          <button
+            onClick={() => router.push("/")}
+            className="flex items-center gap-1.5 text-xl font-bold tracking-tight text-foreground transition-opacity hover:opacity-70 active:scale-95"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            jamony
+          </button>
           <span className="hidden h-4 w-px bg-border sm:block" />
           <span className="hidden text-xs text-muted-foreground sm:block">
             远程合奏
