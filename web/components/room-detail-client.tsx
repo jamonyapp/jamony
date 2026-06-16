@@ -78,7 +78,7 @@ export function RoomDetailClient() {
         <div className="text-center">
           <p className="text-4xl mb-4">🔍</p>
           <p className="text-white text-lg">房间不存在</p>
-          <button onClick={() => router.push("/")} className="mt-4 rounded-[10px] border border-white/30 px-6 py-2.5 text-white hover:bg-white/5">返回列表</button>
+          <button onClick={() => router.push("/lobby")} className="mt-4 rounded-[10px] border border-white/30 px-6 py-2.5 text-white hover:bg-white/5">返回列表</button>
         </div>
       </div>
     )
@@ -91,7 +91,7 @@ export function RoomDetailClient() {
   const handleBack = () => {
     if (leaving) return
     setLeaving(true)
-    setTimeout(() => router.push("/"), 300)
+    setTimeout(() => router.push("/lobby"), 300)
   }
 
   const handleJoin = () => {

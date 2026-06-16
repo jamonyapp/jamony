@@ -18,14 +18,8 @@ export default function PlayingPage() {
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 px-6 text-center">
         <p className="text-2xl font-bold">已断开连接</p>
         <p className="text-sm text-muted-foreground">
-          调音台进程已结束，正在返回房间大厅…（此跳转由 Electron 控制）
+          调音台进程已结束，正在返回房间大厅…
         </p>
-        <button
-          onClick={() => setDisconnected(false)}
-          className="mt-2 rounded-[10px] bg-secondary px-4 py-2 text-sm font-medium transition-colors hover:bg-accent"
-        >
-          重新进入演示
-        </button>
       </div>
     )
   }

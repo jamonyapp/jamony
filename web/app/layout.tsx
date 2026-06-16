@@ -1,9 +1,42 @@
-import type { Metadata } from 'next'
+import { Analytics } from '@vercel/analytics/next'
+import type { Metadata, Viewport } from 'next'
+import { Geist, Geist_Mono } from 'next/font/google'
 import './globals.css'
 
+const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] })
+const geistMono = Geist_Mono({
+  variable: '--font-geist-mono',
+  subsets: ['latin'],
+})
+
 export const metadata: Metadata = {
-  title: 'jamony — 远程合奏',
-  description: 'jamony — 供音乐人远程合奏的桌面应用。',
+  title: 'jamony · 首页',
+  description: '面向音乐人的远程合奏 —— 有人在里面玩音乐',
+  icons: {
+    icon: [
+      {
+        url: '/icon-light-32x32.png',
+        media: '(prefers-color-scheme: light)',
+      },
+      {
+        url: '/icon-dark-32x32.png',
+        media: '(prefers-color-scheme: dark)',
+      },
+      {
+        url: '/icon.svg',
+        type: 'image/svg+xml',
+      },
+    ],
+    apple: '/apple-icon.png',
+  },
+}
+
+export const viewport: Viewport = {
+  colorScheme: 'dark',
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: 'white' },
+    { media: '(prefers-color-scheme: dark)', color: 'black' },
+  ],
 }
 
 const scrollbarStyle = [
@@ -20,12 +53,13 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="zh" className="bg-background">
+    <html lang="zh-CN" className={`dark ${geistSans.variable} ${geistMono.variable}`} style={{ background: '#000000' }}>
       <head>
         <style dangerouslySetInnerHTML={{ __html: scrollbarStyle }} />
       </head>
-      <body className="font-sans antialiased">
+      <body className="font-sans antialiased" style={{ background: '#000000' }}>
         {children}
+        {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>
   )
