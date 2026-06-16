@@ -257,7 +257,7 @@ function NoticeCard({ notice, onClick }: { notice: Notice; onClick: () => void }
       <div
         className="relative w-full bg-cover bg-center"
         style={{
-          backgroundImage: `url('/images/jamony-board-bg-${String(notice.bgIndex).padStart(2, "0")}.png')`,
+          backgroundImage: `url('/images/jamony-board-bg-${String(notice.bgIndex).padStart(2, "0")}.webp')`,
           aspectRatio: notice.bgIndex % 3 === 0 ? "3 / 4" : notice.bgIndex % 2 === 0 ? "1 / 1" : "4 / 5",
         }}
       >
@@ -301,7 +301,7 @@ function NoticeDetailModal({ notice, onClose }: { notice: Notice | null; onClose
         <div
           className="relative h-44 w-full bg-cover bg-center"
           style={{
-            backgroundImage: `url('/images/jamony-board-bg-${String(notice.bgIndex).padStart(2, "0")}.png')`,
+            backgroundImage: `url('/images/jamony-board-bg-${String(notice.bgIndex).padStart(2, "0")}.webp')`,
           }}
         >
           <span className="absolute inset-0 bg-gradient-to-t from-[#0D0D0D] to-transparent" />
