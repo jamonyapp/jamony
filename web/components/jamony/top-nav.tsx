@@ -1,6 +1,6 @@
 "use client"
 
-import { ChevronDown, LogOut, Megaphone, Search, Settings, User } from "lucide-react"
+import { ChevronDown, LogOut, Megaphone, Settings, User } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
 
@@ -46,12 +46,7 @@ export function TopNav() {
         jamony
       </button>
 
-      <div className="flex max-w-md flex-1 items-center gap-2 rounded-lg border px-3 py-1.5" style={{ borderColor: "#2A2A2A" }}>
-        <Search className="h-4 w-4 shrink-0" style={{ color: "#555555" }} />
-        <span className="truncate text-[13px]" style={{ color: "#555555" }}>
-          搜房间、公告、用户、作品...
-        </span>
-      </div>
+      <div className="flex-1" />
 
       <div className="ml-auto flex items-center gap-3">
         {/* 通知 */}

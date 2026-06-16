@@ -7,7 +7,7 @@ import { useEffect, useState } from "react"
 const navItems = [
   { icon: Home, label: "首页", href: "/" },
   { icon: Music, label: "房间大厅", href: "/lobby" },
-  { icon: ScrollText, label: "公告牌", href: null },       // 待开发
+  { icon: ScrollText, label: "公告牌", href: "/board" },       // 待开发
   { icon: Disc3, label: "作品库", href: null },             // 待开发
 ]
 
