@@ -152,6 +152,7 @@ function CategoryListInner() {
         {/* 第一行：Tabs + 搜索框 */}
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-6">
+            <span className="text-xs font-medium text-[#666]">筛选</span>
             {TABS.map((t) => (
               <button
                 key={t}

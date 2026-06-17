@@ -111,6 +111,14 @@ function WorkDetailInner() {
   const [liked, setLiked] = useState(false)
   const [likeCount, setLikeCount] = useState(0)
   const [commentText, setCommentText] = useState("")
+  const [fromFilter, setFromFilter] = useState(false)
+
+  // 检测来源是否为列表页筛选
+  useEffect(() => {
+    if (typeof document !== "undefined") {
+      setFromFilter(document.referrer.includes("/library/category"))
+    }
+  }, [])
 
   const handleSendComment = () => {
     if (!commentText.trim()) return
@@ -197,7 +205,11 @@ function WorkDetailInner() {
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <TopNav backLinks={[{ label: "返回作品库", href: "/library" }]} />
+      <TopNav backLinks={
+        fromFilter
+          ? [{ label: "返回筛选", href: "/library/category" }, { label: "返回作品库", href: "/library" }]
+          : [{ label: "返回作品库", href: "/library" }]
+      } />
 
       <div className="mx-auto w-full max-w-3xl px-4 pb-32 pt-[3.75rem]">
         {/* 顶部返回 */}
