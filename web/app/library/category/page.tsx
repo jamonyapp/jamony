@@ -1,18 +1,12 @@
-import { CategoryListPage } from "@/components/jamony/category-list-page"
+"use client"
 
-type Tab = "全部作品" | "排练作品" | "Jam 时刻"
+import dynamic from "next/dynamic"
 
-function resolveTab(value?: string): Tab {
-  if (value === "rehearsal") return "排练作品"
-  if (value === "jam") return "Jam 时刻"
-  return "全部作品"
-}
+const CategoryListPage = dynamic(
+  () => import("@/components/jamony/category-list-page").then((m) => ({ default: m.CategoryListPage })),
+  { ssr: false },
+)
 
-export default async function CategoryRoute({
-  searchParams,
-}: {
-  searchParams: Promise<{ tab?: string }>
-}) {
-  const { tab } = await searchParams
-  return <CategoryListPage initialTab={resolveTab(tab)} />
+export default function CategoryRoute() {
+  return <CategoryListPage />
 }

@@ -81,9 +81,18 @@ function passScaleFilter(t: Track, scale: string): boolean {
   }
 }
 
-function CategoryListInner({ initialTab }: { initialTab: Tab }) {
+function resolveTabFromUrl(): Tab {
+  if (typeof window === "undefined") return "全部作品"
+  const params = new URLSearchParams(window.location.search)
+  const t = params.get("tab")
+  if (t === "rehearsal") return "排练作品"
+  if (t === "jam") return "Jam 时刻"
+  return "全部作品"
+}
+
+function CategoryListInner() {
   const { setQueue } = usePlayer()
-  const [tab, setTab] = useState<Tab>(initialTab)
+  const [tab, setTab] = useState<Tab>(resolveTabFromUrl)
   const [query, setQuery] = useState("")
   const [style, setStyle] = useState(ALL)
   const [scale, setScale] = useState(ALL)
@@ -212,10 +221,10 @@ function CategoryListInner({ initialTab }: { initialTab: Tab }) {
   )
 }
 
-export function CategoryListPage({ initialTab = "全部作品" }: { initialTab?: Tab }) {
+export function CategoryListPage() {
   return (
     <PlayerProvider>
-      <CategoryListInner initialTab={initialTab} />
+      <CategoryListInner />
     </PlayerProvider>
   )
 }
