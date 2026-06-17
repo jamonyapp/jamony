@@ -1,8 +1,10 @@
 "use client"
 
-import { rooms, type Room } from "@/lib/jamony-data"
+import { useState } from "react"
+import { rooms } from "@/lib/jamony-data"
 import { useRouter } from "next/navigation"
 import { SectionHeader } from "./section-header"
+import { RoomDetailModal } from "@/components/room-detail-modal"
 
 // Fixed, evenly-distributed tilt angles (degrees, +right / -left) — one per card.
 const ROOM_ANGLES = [2.2, -1.8, 1.5, -2.0, -0.8, 2.5, -2.3, 1.0, -1.2, 2.8, -2.5, 1.8]
@@ -87,14 +89,16 @@ function RoomCard({ room, angle, onJoin }: { room: Room; angle: number; onJoin: 
 
 export function RoomsScreen() {
   const router = useRouter()
+  const [selectedRoom, setSelectedRoom] = useState<string | null>(null)
   return (
     <section>
       <SectionHeader title="🎵 热门房间" linkLabel="房间大厅" onLink={() => router.push("/lobby")} />
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
         {rooms.map((room, i) => (
-          <RoomCard key={room.id} room={room} angle={ROOM_ANGLES[i % ROOM_ANGLES.length]} onJoin={() => router.push(`/room/${room.id}`)} />
+          <RoomCard key={room.id} room={room} angle={ROOM_ANGLES[i % ROOM_ANGLES.length]} onJoin={() => setSelectedRoom(room.id)} />
         ))}
       </div>
+      <RoomDetailModal roomId={selectedRoom} onClose={() => setSelectedRoom(null)} />
     </section>
   )
 }

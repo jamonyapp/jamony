@@ -1,18 +1,16 @@
 "use client"
 
 import { Crown, Lock } from "lucide-react"
-import { useRouter } from "next/navigation"
 import type { Room } from "@/lib/rooms-data"
 
-export function RoomCard({ room }: { room: Room }) {
-  const router = useRouter()
+export function RoomCard({ room, onSelect }: { room: Room; onSelect?: () => void }) {
   const isFull = room.current >= room.capacity
   const isNearFull = !isFull && room.current >= room.capacity - 1
   const latencyColor = room.latency >= 30 ? "text-[#ffb84d]" : "text-brand-lime"
 
   const handleClick = () => {
-    if (isFull) return
-    router.push(`/room/${room.id}`)
+    if (isFull || !onSelect) return
+    onSelect()
   }
 
   return (

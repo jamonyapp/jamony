@@ -18,6 +18,7 @@ const JAMSOUL_BIN = process.env.JAMSOUL_BIN || (
 )
 
 let mainWindow = null
+let jamsoulProcess = null
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -59,7 +60,6 @@ function launchJamsoul(serverIp, port) {
   try {
     const child = spawn(JAMSOUL_BIN, args, {
       stdio: 'ignore',
-      detached: true,
     })
 
     child.on('error', (err) => {
@@ -73,14 +73,29 @@ function launchJamsoul(serverIp, port) {
 
     child.on('exit', (code, signal) => {
       console.log(`[jamony] jamsoul exited (code=${code}, signal=${signal})`)
+      jamsoulProcess = null
     })
 
-    // 不等待子进程
-    child.unref()
+    jamsoulProcess = child
     return child
   } catch (err) {
     console.error(`[jamony] Error launching jamsoul: ${err.message}`)
     return null
+  }
+}
+
+// 清理 jamsoul 子进程
+function killJamsoul() {
+  if (jamsoulProcess) {
+    console.log('[jamony] Killing jamsoul child process')
+    jamsoulProcess.kill('SIGTERM')
+    // 给 jamsoul 3 秒时间优雅退出，超时强制杀死
+    setTimeout(() => {
+      if (jamsoulProcess) {
+        try { jamsoulProcess.kill('SIGKILL') } catch (_) {}
+        jamsoulProcess = null
+      }
+    }, 3000)
   }
 }
 
@@ -103,15 +118,23 @@ ipcMain.on('join-room', (_event, payload) => {
   }
 })
 
+// 来自网页的 KILL_JAMSOUL 请求（断开合奏时）
+ipcMain.on('kill-jamsoul', () => {
+  console.log('[jamony] IPC kill-jamsoul received')
+  killJamsoul()
+})
+
 // ══════════════════════════════════════
 // 生命周期
 // ══════════════════════════════════════
 app.whenReady().then(createWindow)
 
+// 退出 jamony 时自动杀掉 jamsoul 子进程
+app.on('before-quit', killJamsoul)
+
+// 关闭窗口 → 退出整个应用（连带杀掉 jamsoul）
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit()
-  }
+  app.quit()
 })
 
 app.on('activate', () => {

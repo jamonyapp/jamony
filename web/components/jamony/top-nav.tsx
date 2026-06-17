@@ -1,7 +1,7 @@
 "use client"
 
-import { ChevronDown, LogOut, Megaphone, Settings, User } from "lucide-react"
-import { useRouter } from "next/navigation"
+import { ChevronDown, LogOut, Megaphone, RefreshCw, Settings, User } from "lucide-react"
+import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
 
 const notifications = [
@@ -17,10 +17,32 @@ const menuItems = [
   { id: "logout", label: "退出登录", icon: LogOut },
 ]
 
-export function TopNav() {
+export function TopNav({ onRefresh }: { onRefresh?: () => void }) {
   const router = useRouter()
+  const pathname = usePathname()
+  const isHome = pathname === "/"
   const [openMenu, setOpenMenu] = useState<"none" | "notifications" | "user">("none")
+  const [refreshing, setRefreshing] = useState(false)
   const navRef = useRef<HTMLElement>(null)
+  // 用 state 驱动淡入淡出，确保淡出有时间播完再跳转
+  const [showBack, setShowBack] = useState(false)
+
+  // 非首页：挂载后淡入 | 切到首页：立即隐藏
+  useEffect(() => {
+    if (isHome) {
+      setShowBack(false)
+    } else {
+      // 下一帧再显示，确保 opacity 从 0 开始过渡
+      const t = setTimeout(() => setShowBack(true), 30)
+      return () => clearTimeout(t)
+    }
+  }, [isHome])
+
+  const handleBackClick = () => {
+    setShowBack(false)
+    // 等淡出动画播完再跳转（和淡出时间一致）
+    setTimeout(() => router.push("/"), 350)
+  }
 
   useEffect(() => {
     if (openMenu === "none") return
@@ -33,22 +55,61 @@ export function TopNav() {
     return () => document.removeEventListener("mousedown", handleClickOutside)
   }, [openMenu])
 
+  const handleRefresh = () => {
+    if (refreshing || !onRefresh) return
+    setRefreshing(true)
+    onRefresh()
+    setTimeout(() => setRefreshing(false), 1000)
+  }
+
   return (
     <header
       ref={navRef}
       className="fixed inset-x-0 top-0 z-50 flex h-11 items-center gap-4 border-b px-4"
       style={{ background: "#000000", borderColor: "#1A1A1A" }}
     >
-      <button
-        className="shrink-0 text-[18px] font-bold tracking-tight text-white transition-transform active:scale-95"
-        onClick={() => router.push("/")}
-      >
-        jamony
-      </button>
+      {/* Left side: jamony logo + 返回首页按钮 */}
+      <div className="flex items-center">
+        <span className="shrink-0 text-[18px] font-bold tracking-tight text-white">
+          jamony
+        </span>
+
+        {/* 返回首页 — 用 state 驱动淡入淡出（进入慢、退出快） */}
+        <div
+          className="overflow-hidden whitespace-nowrap"
+          style={{
+            transition: showBack
+              ? 'opacity 800ms ease-out, visibility 800ms ease-out'
+              : 'opacity 350ms ease-in, visibility 350ms ease-in',
+            visibility: showBack ? 'visible' : 'hidden',
+            opacity: showBack ? 1 : 0,
+          }}
+        >
+          <button
+            onClick={handleBackClick}
+            className="ml-2.5 rounded-md border px-2 py-[2px] text-[12px] font-normal transition-colors active:scale-[0.97]"
+            style={{ borderColor: "#2A2A2A", color: "#6A6A6A" }}
+          >
+            返回首页
+          </button>
+        </div>
+      </div>
 
       <div className="flex-1" />
 
       <div className="ml-auto flex items-center gap-3">
+        {/* 刷新按钮 */}
+        {onRefresh && (
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-white transition-colors hover:bg-white/5 disabled:opacity-50"
+            title="刷新"
+          >
+            <RefreshCw className={`h-[18px] w-[18px] ${refreshing ? "animate-spin" : ""}`} />
+          </button>
+        )}
+
         {/* 通知 */}
         <div className="relative">
           <button

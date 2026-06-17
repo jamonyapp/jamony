@@ -27,9 +27,9 @@ export function DisconnectDialog({
         <div className="mx-auto grid size-12 place-items-center rounded-full bg-destructive/15">
           <AlertTriangle className="size-6 text-destructive" />
         </div>
-        <h2 className="mt-4 text-lg font-semibold">确定要离开当前合奏吗？</h2>
+        <h2 className="mt-4 text-lg font-semibold">确认要断开音频连接吗？</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          断开后将结束调音台进程并返回房间大厅。
+          断开后将结束调音台进程。
         </p>
         <div className="mt-6 grid grid-cols-2 gap-3">
           <button

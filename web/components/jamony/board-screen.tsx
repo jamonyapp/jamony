@@ -143,7 +143,7 @@ export function BoardScreen() {
         />
 
         <div className="relative grid grid-cols-4 items-start gap-x-6 gap-y-10">
-          {notices.map((notice, i) => (
+          {notices.slice(0, 8).map((notice, i) => (
             <NoteCard key={notice.id} notice={notice} index={i} onOpen={() => setActiveNotice(notice)} />
           ))}
         </div>

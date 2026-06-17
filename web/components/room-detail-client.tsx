@@ -96,18 +96,11 @@ export function RoomDetailClient() {
 
   const handleJoin = () => {
     if (isFull || joinState !== "idle") return
-    const payload = { serverIp: room.serverIp, port: room.port }
-    // Electron 环境 → 通过 jamonyAPI 调起 jamsoul
-    if (window.jamonyAPI) {
-      console.log("[jamony] user join room via jamonyAPI:", JSON.stringify(payload))
-      window.jamonyAPI.joinRoom(payload)
-    } else {
-      // 浏览器环境 → postMessage（demo/调试）
-      console.log("[v0] postMessage to Electron:", JSON.stringify({ type: "JOIN_ROOM", payload }))
-      window.postMessage({ type: "JOIN_ROOM", payload }, "*")
-    }
     setJoinState("connecting")
-    setTimeout(() => setJoinState("joined"), 2000)
+    setTimeout(() => {
+      setJoinState("joined")
+      router.push(`/room/${params.id}/playing`)
+    }, 500)
   }
 
   return (
@@ -184,7 +177,7 @@ export function RoomDetailClient() {
                   style={joinState === "joined" ? { backgroundColor: "#bbee00", color: "#0d0d0d" } : { backgroundImage: "linear-gradient(90deg,#9933ff,#ff33aa)" }}>
                   {joinState === "connecting" && <Loader2 className="h-5 w-5 animate-spin" />}
                   {joinState === "joined" && <Check className="h-5 w-5" />}
-                  {joinState === "idle" && "加入合奏"}
+                  {joinState === "idle" && "进入房间"}
                   {joinState === "connecting" && "正在连接..."}
                   {joinState === "joined" && "已加入"}
                 </button>
