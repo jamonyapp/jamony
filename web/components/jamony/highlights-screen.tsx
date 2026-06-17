@@ -125,39 +125,37 @@ function DetailModal({ item, onClose }: { item: Highlight; onClose: () => void }
 
           {/* Info + Members + Actions */}
           <div className="flex flex-1 flex-col gap-2 min-w-0">
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <h3 className="text-xl font-bold text-white sm:text-2xl">{item.title}</h3>
-                <p className="text-[12px] sm:text-[13px]" style={{ color: "#8A8A8A" }}>
-                  作者
-                </p>
-              </div>
-              {/* 点赞数移到右上角 */}
+            <div className="flex items-center gap-3">
+              <h3 className="text-xl font-bold text-white sm:text-2xl">{item.title}</h3>
+              {/* 点赞放在名字后面 */}
               <span className="flex shrink-0 items-center gap-1 text-[13px] text-white">
                 <Heart className="h-4 w-4" style={{ color: "#FF33AA" }} fill="currentColor" />
                 {item.likes}
               </span>
             </div>
 
-            {/* 成员横向排列 */}
-            <div className="flex flex-wrap gap-x-4 gap-y-1">
-              {item.members.map((m, i) => (
-                <div key={i} className="flex items-center gap-1 text-[12px] text-white sm:text-[13px]">
-                  <span>{m.instrument}</span>
-                  <span>{m.name}</span>
-                </div>
-              ))}
-            </div>
-
+            {/* 风格标签紧随名称 */}
             <span
-              className="mt-0.5 w-fit rounded-full px-2 py-0.5 text-[10px] font-medium sm:text-[11px]"
+              className="w-fit rounded-full px-2 py-0.5 text-[10px] font-medium sm:text-[11px]"
               style={{ background: "rgba(0,170,255,0.12)", color: "#00AAFF" }}
             >
               {item.style}
             </span>
 
-            {/* 3 个操作按钮放在右侧 */}
-            <div className="mt-2 flex flex-wrap items-center gap-2">
+            {/* 作者 + 成员 同一行 */}
+            <div className="flex flex-wrap items-center gap-1 text-[12px] sm:text-[13px]" style={{ color: "#8A8A8A" }}>
+              <span>作者</span>
+              {item.members.map((m, i) => (
+                <span key={i} className="flex items-center gap-1 text-white">
+                  {i > 0 && <span className="text-[#333]">·</span>}
+                  <span>{m.instrument}</span>
+                  <span>{m.name}</span>
+                </span>
+              ))}
+            </div>
+
+            {/* 3 个操作按钮 */}
+            <div className="mt-1 flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={() => {
