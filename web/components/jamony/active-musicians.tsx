@@ -12,14 +12,14 @@ export function ActiveMusicians() {
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
-    const measure = () => setItemWidth(el.clientWidth / 5.5)
+    const measure = () => setItemWidth(el.clientWidth / 8.5)
     measure()
     const ro = new ResizeObserver(measure)
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
 
-  const containerWidth = itemWidth * 5.5
+  const containerWidth = itemWidth * 8.5
   const totalWidth = itemWidth * musicians.length
   const maxTranslate = Math.max(0, totalWidth - containerWidth)
   const translate = Math.min(offset * itemWidth, maxTranslate)
