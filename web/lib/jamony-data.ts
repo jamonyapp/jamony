@@ -100,6 +100,7 @@ export type Highlight = {
   date: string
   members: { name: string; instrument: string }[]
   style: string
+  trackId: string
 }
 
 export const highlights: Highlight[] = [
@@ -112,6 +113,7 @@ export const highlights: Highlight[] = [
     gradient: "linear-gradient(135deg, #00AAFF, #9933FF)",
     date: "2026-06-14",
     style: "Funk / Groove",
+    trackId: "1",
     members: [
       { name: "老张", instrument: "🎸" },
       { name: "小明", instrument: "🥁" },
@@ -128,6 +130,7 @@ export const highlights: Highlight[] = [
     gradient: "linear-gradient(135deg, #9933FF, #FF33AA)",
     date: "2026-06-12",
     style: "Blues",
+    trackId: "17",
     members: [
       { name: "Blues王", instrument: "🎸" },
       { name: "老王", instrument: "🎹" },
@@ -143,6 +146,7 @@ export const highlights: Highlight[] = [
     gradient: "linear-gradient(135deg, #FF33AA, #BBEE00)",
     date: "2026-06-10",
     style: "Folk",
+    trackId: "18",
     members: [
       { name: "小李", instrument: "🎸" },
       { name: "小美", instrument: "🎤" },
@@ -157,6 +161,7 @@ export const highlights: Highlight[] = [
     gradient: "linear-gradient(135deg, #00AAFF, #BBEE00)",
     date: "2026-06-08",
     style: "Electronic",
+    trackId: "4",
     members: [
       { name: "电音客", instrument: "🎹" },
       { name: "MC狗哥", instrument: "🎤" },
@@ -481,6 +486,40 @@ export const tracks: Track[] = [
     gradient: G.blueLime,
     date: "2025-11-26",
     members: ["丝绒嗓", "和弦师"],
+  },
+  {
+    id: "17",
+    title: "雨中布鲁斯",
+    author: "3位乐手",
+    type: "jam",
+    scale: "trio",
+    nature: "original",
+    styles: ["布鲁斯"],
+    instruments: ["电吉他", "键盘乐器", "鼓·小打"],
+    plays: 2341,
+    likes: 96,
+    comments: 23,
+    duration: "4:15",
+    gradient: G.purplePink,
+    date: "2026-06-12",
+    members: ["Blues王", "老王", "阿强"],
+  },
+  {
+    id: "18",
+    title: "夏夜民谣",
+    author: "2位乐手",
+    type: "rehearsal",
+    scale: "duo",
+    nature: "original",
+    styles: ["民谣"],
+    instruments: ["木吉他", "主唱"],
+    plays: 856,
+    likes: 72,
+    comments: 12,
+    duration: "3:48",
+    gradient: G.pinkLime,
+    date: "2026-06-10",
+    members: ["小李", "小美"],
   },
 ]
 

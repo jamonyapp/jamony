@@ -1,6 +1,6 @@
 "use client"
 
-import { highlights, tracks, type Highlight } from "@/lib/jamony-data"
+import { highlights, type Highlight } from "@/lib/jamony-data"
 import { Heart, Pause, Play, SkipBack, SkipForward, X, ExternalLink, ListMusic, MessageCircle } from "lucide-react"
 import { useState } from "react"
 import { SectionHeader } from "./section-header"
@@ -68,19 +68,11 @@ function HighlightCard({ item, angle, onOpen }: { item: Highlight; angle: number
   )
 }
 
-// 根据高亮标题匹配作品库 Track ID
-function findTrackId(title: string): string | null {
-  const found = tracks.find((t) => t.title === title)
-  return found ? found.id : null
-}
-
 function DetailModal({ item, onClose }: { item: Highlight; onClose: () => void }) {
   const [playing, setPlaying] = useState(true)
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [feedbackText, setFeedbackText] = useState("")
   const [feedbackSent, setFeedbackSent] = useState(false)
-
-  const trackId = findTrackId(item.title)
 
   return (
     <div
@@ -159,7 +151,7 @@ function DetailModal({ item, onClose }: { item: Highlight; onClose: () => void }
               <button
                 type="button"
                 onClick={() => {
-                  if (trackId) window.location.href = `/library/${trackId}`
+                  if (item.trackId) window.location.href = `/library/${item.trackId}`
                   else console.log("[highlights] no matching track for", item.title)
                 }}
                 className="flex items-center gap-1 rounded-lg border border-[#1A1A1A] px-2.5 py-1 text-[11px] text-white transition-colors hover:bg-white/5 sm:text-[12px]"
