@@ -1,8 +1,8 @@
 "use client"
 
 import { ChevronDown, LogOut, Megaphone, RefreshCw, Settings, User } from "lucide-react"
-import { usePathname, useRouter } from "next/navigation"
-import { Fragment, useEffect, useRef, useState } from "react"
+import { usePathname } from "next/navigation"
+import { useEffect, useRef, useState } from "react"
 
 const notifications = [
   { id: "n1", text: "「周五夜爵士」房间有 3 位新乐手加入。" },
@@ -17,6 +17,47 @@ const menuItems = [
   { id: "logout", label: "退出登录", icon: LogOut },
 ]
 
+// 额外返回按钮组件 — 独立淡入淡出（进入慢 800ms、退出快 350ms）
+function BackLinkButton({
+  link,
+  onBack,
+}: {
+  link: { label: string; href: string }
+  onBack: (href: string) => void
+}) {
+  const [show, setShow] = useState(false)
+  useEffect(() => {
+    const t = setTimeout(() => setShow(true), 30)
+    return () => clearTimeout(t)
+  }, [])
+
+  const handleClick = () => {
+    setShow(false)
+    // 等淡出动画播完再跳转
+    setTimeout(() => { window.location.href = link.href }, 350)
+  }
+
+  return (
+    <div
+      style={{
+        transition: show
+          ? "opacity 800ms ease-out, visibility 800ms ease-out"
+          : "opacity 350ms ease-in, visibility 350ms ease-in",
+        visibility: show ? "visible" : "hidden",
+        opacity: show ? 1 : 0,
+      }}
+    >
+      <button
+        onClick={handleClick}
+        className="rounded-md border px-2 py-[2px] text-[12px] font-normal transition-colors active:scale-[0.97]"
+        style={{ borderColor: "#2A2A2A", color: "#6A6A6A" }}
+      >
+        {link.label}
+      </button>
+    </div>
+  )
+}
+
 export function TopNav({
   onRefresh,
   backLinks,
@@ -24,28 +65,13 @@ export function TopNav({
   onRefresh?: () => void
   backLinks?: { label: string; href: string }[]
 }) {
-  const router = useRouter()
   const pathname = usePathname()
   const isHome = pathname === "/"
   const [openMenu, setOpenMenu] = useState<"none" | "notifications" | "user">("none")
   const [refreshing, setRefreshing] = useState(false)
   const navRef = useRef<HTMLElement>(null)
-  // 用 state 驱动淡入淡出，确保淡出有时间播完再跳转
-  const [showBack, setShowBack] = useState(false)
-
-  // 非首页：挂载后淡入 | 切到首页：立即隐藏
-  useEffect(() => {
-    if (isHome) {
-      setShowBack(false)
-    } else {
-      // 下一帧再显示，确保 opacity 从 0 开始过渡
-      const t = setTimeout(() => setShowBack(true), 30)
-      return () => clearTimeout(t)
-    }
-  }, [isHome])
 
   const handleBack = (href: string) => {
-    setShowBack(false)
     setTimeout(() => { window.location.href = href }, 350)
   }
 
@@ -73,23 +99,14 @@ export function TopNav({
       className="fixed inset-x-0 top-0 z-50 flex h-11 items-center gap-4 border-b px-4"
       style={{ background: "#000000", borderColor: "#1A1A1A" }}
     >
-      {/* Left side: jamony logo + 返回按钮组 */}
-      <div className="flex items-center gap-0">
+      {/* Left side: jamony logo + 返回按钮 */}
+      <div className="flex items-center gap-2">
         <span className="shrink-0 text-[18px] font-bold tracking-tight text-white">
           jamony
         </span>
 
-        {/* 返回按钮组 — 统一淡入淡出 */}
-        <div
-          className="ml-2.5 flex items-center gap-2 overflow-hidden whitespace-nowrap"
-          style={{
-            transition: showBack
-              ? 'opacity 800ms ease-out, visibility 800ms ease-out'
-              : 'opacity 350ms ease-in, visibility 350ms ease-in',
-            visibility: showBack ? 'visible' : 'hidden',
-            opacity: showBack ? 1 : 0,
-          }}
-        >
+        {/* 返回首页 — 非首页始终可见，不淡出 */}
+        {!isHome && (
           <button
             onClick={() => handleBack("/")}
             className="rounded-md border px-2 py-[2px] text-[12px] font-normal transition-colors active:scale-[0.97]"
@@ -97,19 +114,12 @@ export function TopNav({
           >
             返回首页
           </button>
-          {backLinks?.map((link, i) => (
-            <Fragment key={i}>
-              <span style={{ color: "#2A2A2A" }}>|</span>
-              <button
-                onClick={() => handleBack(link.href)}
-                className="rounded-md border px-2 py-[2px] text-[12px] font-normal transition-colors active:scale-[0.97]"
-                style={{ borderColor: "#2A2A2A", color: "#6A6A6A" }}
-              >
-                {link.label}
-              </button>
-            </Fragment>
-          ))}
-        </div>
+        )}
+
+        {/* 额外返回按钮 — 各自独立淡入淡出 */}
+        {backLinks?.map((link) => (
+          <BackLinkButton key={link.href} link={link} onBack={handleBack} />
+        ))}
       </div>
 
       <div className="flex-1" />
