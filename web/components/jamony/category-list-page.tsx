@@ -146,7 +146,7 @@ function CategoryListInner() {
 
   return (
     <div className="min-h-screen bg-black pb-28">
-      <TopNav backLinks={[{ label: "返回作品库", href: "/library" }]} />
+      <TopNav persistentLinks={[{ label: "返回作品库", href: "/library" }]} />
       <div className="mx-auto max-w-7xl px-4 pt-[3.25rem] md:px-6">
 
         {/* 第一行：Tabs + 搜索框 */}
