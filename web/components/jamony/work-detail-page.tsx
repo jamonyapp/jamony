@@ -83,14 +83,20 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   )
 }
 
-// 假评论池 — 根据作品风格匹配
-const COMMENT_POOLS: Record<string, { emoji: string; name: string; text: string }[]> = {
+// 假评论池 — 带时间戳
+interface MockComment {
+  emoji: string
+  name: string
+  text: string
+  time: string
+}
+const COMMENT_POOLS: Record<string, MockComment[]> = {
   default: [
-    { emoji: "🎸", name: "小明", text: "第一次合奏放克，太爽了！" },
-    { emoji: "🥁", name: "阿强", text: "这节奏稳啊 👍" },
-    { emoji: "🎤", name: "小美", text: "下次再来一首！" },
-    { emoji: "🎹", name: "Nina", text: "groove 太舒服了！" },
-    { emoji: "🎸", name: "老张", text: "大家的配合越来越默契了" },
+    { emoji: "🎸", name: "小明", text: "第一次合奏放克，太爽了！", time: "Jun 17, 2026 · 13:59" },
+    { emoji: "🥁", name: "阿强", text: "这节奏稳啊 👍 下次可以试试更快的 tempo，我已经练好了 16 分音符的节奏型，随时可以再来一次！", time: "Jun 16, 2026 · 21:30" },
+    { emoji: "🎤", name: "小美", text: "下次再来一首！", time: "Jun 16, 2026 · 20:12" },
+    { emoji: "🎹", name: "Nina", text: "groove 太舒服了！这把键盘的音色选得真好 😊", time: "Jun 15, 2026 · 09:45" },
+    { emoji: "🎸", name: "老张", text: "大家的配合越来越默契了，下周末继续！", time: "Jun 14, 2026 · 23:05" },
   ],
 }
 
@@ -104,6 +110,13 @@ function WorkDetailInner() {
   const { setQueue, playTrack, current, isPlaying, togglePlay } = usePlayer()
   const [liked, setLiked] = useState(false)
   const [likeCount, setLikeCount] = useState(0)
+  const [commentText, setCommentText] = useState("")
+
+  const handleSendComment = () => {
+    if (!commentText.trim()) return
+    console.log("[library] send comment:", commentText)
+    setCommentText("")
+  }
 
   const track = useMemo(() => {
     const id = resolveId()
@@ -293,23 +306,65 @@ function WorkDetailInner() {
           </div>
         </section>
 
-        {/* 评论区 */}
+        {/* 评论区 — 可滚动 + 时间戳 + 输入框 */}
         <section className="mt-10">
           <SectionTitle>评论区</SectionTitle>
-          <ul className="mt-3">
-            {comments.map((c, i) => (
-              <li
-                key={i}
-                className="flex items-center gap-2.5 border-b border-white/10 py-3 last:border-b-0"
-              >
-                <span className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full bg-white/10 text-xs">
-                  {c.emoji}
-                </span>
-                <span className="text-sm font-medium text-white">{c.name}</span>
-                <span className="text-sm text-[#C9C9C9]">{c.text}</span>
-              </li>
-            ))}
-          </ul>
+
+          {/* 评论输入框 */}
+          <div className="mb-4 flex gap-3">
+            <span
+              className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white"
+              style={{ background: "linear-gradient(135deg, #00AAFF, #9933FF)" }}
+            >
+              U
+            </span>
+            <div className="flex flex-1 flex-col gap-2">
+              <textarea
+                value={commentText}
+                onChange={(e) => setCommentText(e.target.value)}
+                placeholder="说点什么…"
+                rows={2}
+                className="w-full resize-none rounded-lg border border-[#1A1A1A] bg-[#0D0D0D] px-3 py-2 text-sm text-white placeholder:text-[#666] outline-none transition-colors focus:border-[#00AAFF]"
+              />
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={handleSendComment}
+                  disabled={!commentText.trim()}
+                  className="rounded-full px-4 py-1.5 text-xs font-medium text-white transition-opacity disabled:opacity-30"
+                  style={{ background: "linear-gradient(135deg, #00AAFF, #9933FF)" }}
+                >
+                  发送
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* 评论列表 */}
+          <div className="max-h-[320px] overflow-y-auto rounded-xl border border-white/10">
+            <ul>
+              {comments.map((c, i) => (
+                <li
+                  key={i}
+                  className="border-b border-white/10 px-4 py-3 last:border-b-0"
+                >
+                  <div className="flex items-start gap-2.5">
+                    <span className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full bg-white/10 text-xs">
+                      {c.emoji}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-sm font-medium text-white">{c.name}</span>
+                        <span className="text-[11px] text-[#666]">{c.time}</span>
+                      </div>
+                      <p className="mt-0.5 text-sm text-[#C9C9C9]">{c.text}</p>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+
           <p className="mt-4 text-center text-xs text-[#8A8A8A]">
             评论区功能即将开放，敬请期待
           </p>

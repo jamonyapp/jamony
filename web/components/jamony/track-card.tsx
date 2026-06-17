@@ -179,7 +179,9 @@ export function TrackCard({ track }: { track: Track }) {
 
         {menuOpen && (
           <div
-            className="absolute right-0 top-9 w-44 overflow-hidden rounded-[10px] border border-[#1A1A1A] bg-[#0D0D0D] py-1 shadow-2xl"
+            className={`absolute right-0 top-9 overflow-hidden rounded-[10px] border border-[#1A1A1A] bg-[#0D0D0D] py-1 shadow-2xl ${
+              feedbackOpen ? "w-64" : "w-44"
+            }`}
             onClick={(e) => e.stopPropagation()}
           >
             {!feedbackOpen ? (
@@ -207,26 +209,38 @@ export function TrackCard({ track }: { track: Track }) {
                 </button>
               </>
             ) : feedbackSent ? (
-              <div className="px-3 py-3 text-[13px]" style={{ color: "#BBEE00" }}>
+              <div className="px-4 py-6 text-center text-[13px]" style={{ color: "#BBEE00" }}>
                 ✓ 感谢你的反馈！
               </div>
             ) : (
-              <div className="flex flex-col gap-2 p-2">
-                <input
+              <div className="flex flex-col gap-3 p-3">
+                <p className="text-[12px] text-[#9A9A9A]">反馈给作品作者</p>
+                <textarea
                   autoFocus
                   value={feedbackText}
                   onChange={(e) => setFeedbackText(e.target.value)}
-                  placeholder="请输入需要反馈的内容"
-                  className="w-full rounded-md border border-[#1A1A1A] bg-black px-2 py-1.5 text-[12px] text-white outline-none placeholder:text-[#666] focus:border-[#00AAFF]"
+                  placeholder="请输入需要反馈的内容…"
+                  rows={3}
+                  className="w-full resize-none rounded-lg border border-[#1A1A1A] bg-black px-3 py-2 text-[13px] text-white outline-none placeholder:text-[#666] transition-colors focus:border-[#00AAFF]"
                 />
-                <button
-                  type="button"
-                  onClick={sendFeedback}
-                  className="rounded-md py-1.5 text-[12px] font-medium text-white"
-                  style={{ background: "linear-gradient(135deg, #00AAFF, #9933FF)" }}
-                >
-                  发送
-                </button>
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => { setMenuOpen(false); setFeedbackOpen(false) }}
+                    className="rounded-md px-3 py-1.5 text-[12px] text-[#9A9A9A] transition-colors hover:text-white"
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!feedbackText.trim()}
+                    onClick={sendFeedback}
+                    className="rounded-md px-4 py-1.5 text-[12px] font-medium text-white transition-opacity disabled:opacity-30"
+                    style={{ background: "linear-gradient(135deg, #00AAFF, #9933FF)" }}
+                  >
+                    发送
+                  </button>
+                </div>
               </div>
             )}
           </div>
