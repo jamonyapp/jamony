@@ -66,10 +66,12 @@ function BackLinkButton({
 export function TopNav({
   onRefresh,
   backLinks,
+  persistentLinks,
   onBackHome,
 }: {
   onRefresh?: () => void
   backLinks?: { label: string; href: string; onClick?: () => void }[]
+  persistentLinks?: { label: string; href: string; onClick?: () => void }[]
   onBackHome?: () => void
 }) {
   const pathname = usePathname()
@@ -130,6 +132,18 @@ export function TopNav({
             返回首页
           </button>
         )}
+
+        {/* 始终显示的额外按钮（不淡出）— 如返回作品库 */}
+        {persistentLinks?.map((link) => (
+          <button
+            key={link.href}
+            onClick={() => link.onClick ? link.onClick() : handleBack(link.href)}
+            className="rounded-md border px-2 py-[2px] text-[12px] font-normal transition-colors active:scale-[0.97]"
+            style={{ borderColor: "#2A2A2A", color: "#6A6A6A" }}
+          >
+            {link.label}
+          </button>
+        ))}
 
         {/* 额外返回按钮 — 各自独立淡入淡出 */}
         {backLinks?.map((link) => (
