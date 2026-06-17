@@ -1,7 +1,6 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { useRouter } from "next/navigation"
 import { Search, Guitar, Disc3, ChevronRight, Target } from "lucide-react"
 import { TopNav } from "@/components/jamony/top-nav"
 import { TrackCard } from "@/components/jamony/track-card"
@@ -38,7 +37,6 @@ function Section({
   tracks: Track[]
   href?: string
 }) {
-  const router = useRouter()
   if (tracks.length === 0) return null
 
   return (
@@ -50,7 +48,7 @@ function Section({
         </h2>
         <button
           type="button"
-          onClick={() => (href ? router.push(href) : console.log("[v0] 查看更多:", title))}
+          onClick={() => (href ? window.location.href = href : console.log("[v0] 查看更多:", title))}
           className="flex items-center gap-0.5 text-sm text-[#9A9A9A] transition-colors hover:text-white"
         >
           更多
