@@ -76,9 +76,28 @@ export function TopNav({
   const [refreshing, setRefreshing] = useState(false)
   const navRef = useRef<HTMLElement>(null)
 
-  // showBack 初始 true（非首页直接可见，无需从 false 淡入）
-  // 仅用于「返回首页」点击时的淡出动画
-  const [showBack, setShowBack] = useState(!isHome)
+  // showBack: 返回首页按钮的淡入淡出
+  // 从首页来 → false→setTimeout→true（800ms 淡入）
+  // 从非首页来 → 直接 true（跳过淡入）
+  // 点击返回首页 → false（350ms 淡出）
+  const [showBack, setShowBack] = useState(false)
+
+  // 首页页面存标记，子页面检查标记判断是否来自首页
+  useEffect(() => {
+    if (isHome) {
+      setShowBack(false)
+      sessionStorage.setItem('_jhf', '1')
+      return
+    }
+    const fromHome = sessionStorage.getItem('_jhf')
+    if (fromHome === '1') {
+      sessionStorage.removeItem('_jhf')
+      const t = setTimeout(() => setShowBack(true), 30)
+      return () => clearTimeout(t)
+    } else {
+      setShowBack(true)
+    }
+  }, [isHome])
 
   const handleBackHome = () => {
     if (onBackHome) {
