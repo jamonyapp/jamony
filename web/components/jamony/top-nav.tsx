@@ -79,8 +79,20 @@ export function TopNav({
   const [openMenu, setOpenMenu] = useState<"none" | "notifications" | "user">("none")
   const [refreshing, setRefreshing] = useState(false)
   const navRef = useRef<HTMLElement>(null)
+  // 统一淡入淡出：非首页渐入，首页渐出
+  const [showBack, setShowBack] = useState(false)
+
+  useEffect(() => {
+    if (isHome) {
+      setShowBack(false)
+    } else {
+      const t = setTimeout(() => setShowBack(true), 30)
+      return () => clearTimeout(t)
+    }
+  }, [isHome])
 
   const handleBack = (href: string) => {
+    setShowBack(false)
     setTimeout(() => { window.location.href = href }, 350)
   }
 
@@ -116,14 +128,23 @@ export function TopNav({
       className="fixed inset-x-0 top-0 z-50 flex h-11 items-center gap-4 border-b px-4"
       style={{ background: "#000000", borderColor: "#1A1A1A" }}
     >
-      {/* Left side: jamony logo + 返回按钮 */}
+      {/* Left side: jamony logo */}
       <div className="flex items-center gap-2">
         <span className="shrink-0 text-[18px] font-bold tracking-tight text-white">
           jamony
         </span>
 
-        {/* 返回首页 — 非首页始终可见，不淡出 */}
-        {!isHome && (
+        {/* 返回首页 + persistentLinks — 统一淡入淡出 */}
+        <div
+          className="flex items-center gap-2 overflow-hidden whitespace-nowrap"
+          style={{
+            transition: showBack
+              ? 'opacity 800ms ease-out, visibility 800ms ease-out'
+              : 'opacity 350ms ease-in, visibility 350ms ease-in',
+            visibility: showBack ? 'visible' : 'hidden',
+            opacity: showBack ? 1 : 0,
+          }}
+        >
           <button
             onClick={handleBackHome}
             className="rounded-md border px-2 py-[2px] text-[12px] font-normal transition-colors active:scale-[0.97]"
@@ -131,19 +152,17 @@ export function TopNav({
           >
             返回首页
           </button>
-        )}
-
-        {/* 始终显示的额外按钮（不淡出）— 如返回作品库 */}
-        {persistentLinks?.map((link) => (
-          <button
-            key={link.href}
-            onClick={() => link.onClick ? link.onClick() : handleBack(link.href)}
-            className="rounded-md border px-2 py-[2px] text-[12px] font-normal transition-colors active:scale-[0.97]"
-            style={{ borderColor: "#2A2A2A", color: "#6A6A6A" }}
-          >
-            {link.label}
-          </button>
-        ))}
+          {persistentLinks?.map((link) => (
+            <button
+              key={link.href}
+              onClick={() => link.onClick ? link.onClick() : handleBack(link.href)}
+              className="rounded-md border px-2 py-[2px] text-[12px] font-normal transition-colors active:scale-[0.97]"
+              style={{ borderColor: "#2A2A2A", color: "#6A6A6A" }}
+            >
+              {link.label}
+            </button>
+          ))}
+        </div>
 
         {/* 额外返回按钮 — 各自独立淡入淡出 */}
         {backLinks?.map((link) => (
