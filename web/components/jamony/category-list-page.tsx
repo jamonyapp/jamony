@@ -101,22 +101,6 @@ function CategoryListInner() {
   const [visible, setVisible] = useState(PAGE_SIZE)
   const sentinelRef = useRef<HTMLDivElement | null>(null)
 
-  // 返回按钮淡入淡出
-  const [showBack, setShowBack] = useState(false)
-  useEffect(() => {
-    const t = setTimeout(() => setShowBack(true), 30)
-    return () => clearTimeout(t)
-  }, [])
-
-  const handleBackHome = () => {
-    setShowBack(false)
-    setTimeout(() => { window.location.href = "/" }, 350)
-  }
-  const handleBackLibrary = () => {
-    setShowBack(false)
-    setTimeout(() => { window.location.href = "/library" }, 350)
-  }
-
   // 整个作品库作为默认播放队列
   useEffect(() => {
     setQueue(tracks)
@@ -162,45 +146,8 @@ function CategoryListInner() {
 
   return (
     <div className="min-h-screen bg-black pb-28">
-      <TopNav />
+      <TopNav backLinks={[{ label: "返回作品库", href: "/library" }]} />
       <div className="mx-auto max-w-7xl px-4 pt-[3.25rem] md:px-6">
-        {/* 两个返回按钮（淡入淡出） */}
-        <div className="mb-6 mt-4 flex items-center gap-3">
-          <div
-            style={{
-              transition: showBack
-                ? 'opacity 800ms ease-out, visibility 800ms ease-out'
-                : 'opacity 350ms ease-in, visibility 350ms ease-in',
-              visibility: showBack ? 'visible' : 'hidden',
-              opacity: showBack ? 1 : 0,
-            }}
-          >
-            <button
-              onClick={handleBackHome}
-              className="rounded-md border px-2 py-[2px] text-[12px] transition-colors active:scale-[0.97]"
-              style={{ borderColor: "#2A2A2A", color: "#6A6A6A" }}
-            >
-              返回首页
-            </button>
-          </div>
-          <div
-            style={{
-              transition: showBack
-                ? 'opacity 800ms ease-out, visibility 800ms ease-out'
-                : 'opacity 350ms ease-in, visibility 350ms ease-in',
-              visibility: showBack ? 'visible' : 'hidden',
-              opacity: showBack ? 1 : 0,
-            }}
-          >
-            <button
-              onClick={handleBackLibrary}
-              className="rounded-md border px-2 py-[2px] text-[12px] transition-colors active:scale-[0.97]"
-              style={{ borderColor: "#2A2A2A", color: "#6A6A6A" }}
-            >
-              返回作品库
-            </button>
-          </div>
-        </div>
 
         {/* 第一行：Tabs + 搜索框 */}
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

@@ -2,7 +2,7 @@
 
 import { ChevronDown, LogOut, Megaphone, RefreshCw, Settings, User } from "lucide-react"
 import { usePathname, useRouter } from "next/navigation"
-import { useEffect, useRef, useState } from "react"
+import { Fragment, useEffect, useRef, useState } from "react"
 
 const notifications = [
   { id: "n1", text: "「周五夜爵士」房间有 3 位新乐手加入。" },
@@ -17,7 +17,13 @@ const menuItems = [
   { id: "logout", label: "退出登录", icon: LogOut },
 ]
 
-export function TopNav({ onRefresh }: { onRefresh?: () => void }) {
+export function TopNav({
+  onRefresh,
+  backLinks,
+}: {
+  onRefresh?: () => void
+  backLinks?: { label: string; href: string }[]
+}) {
   const router = useRouter()
   const pathname = usePathname()
   const isHome = pathname === "/"
@@ -38,10 +44,9 @@ export function TopNav({ onRefresh }: { onRefresh?: () => void }) {
     }
   }, [isHome])
 
-  const handleBackClick = () => {
+  const handleBack = (href: string) => {
     setShowBack(false)
-    // 等淡出动画播完再跳转（和淡出时间一致）
-    setTimeout(() => router.push("/"), 350)
+    setTimeout(() => { window.location.href = href }, 350)
   }
 
   useEffect(() => {
@@ -68,15 +73,15 @@ export function TopNav({ onRefresh }: { onRefresh?: () => void }) {
       className="fixed inset-x-0 top-0 z-50 flex h-11 items-center gap-4 border-b px-4"
       style={{ background: "#000000", borderColor: "#1A1A1A" }}
     >
-      {/* Left side: jamony logo + 返回首页按钮 */}
-      <div className="flex items-center">
+      {/* Left side: jamony logo + 返回按钮组 */}
+      <div className="flex items-center gap-0">
         <span className="shrink-0 text-[18px] font-bold tracking-tight text-white">
           jamony
         </span>
 
-        {/* 返回首页 — 用 state 驱动淡入淡出（进入慢、退出快） */}
+        {/* 返回按钮组 — 统一淡入淡出 */}
         <div
-          className="overflow-hidden whitespace-nowrap"
+          className="ml-2.5 flex items-center gap-2 overflow-hidden whitespace-nowrap"
           style={{
             transition: showBack
               ? 'opacity 800ms ease-out, visibility 800ms ease-out'
@@ -86,12 +91,24 @@ export function TopNav({ onRefresh }: { onRefresh?: () => void }) {
           }}
         >
           <button
-            onClick={handleBackClick}
-            className="ml-2.5 rounded-md border px-2 py-[2px] text-[12px] font-normal transition-colors active:scale-[0.97]"
+            onClick={() => handleBack("/")}
+            className="rounded-md border px-2 py-[2px] text-[12px] font-normal transition-colors active:scale-[0.97]"
             style={{ borderColor: "#2A2A2A", color: "#6A6A6A" }}
           >
             返回首页
           </button>
+          {backLinks?.map((link, i) => (
+            <Fragment key={i}>
+              <span style={{ color: "#2A2A2A" }}>|</span>
+              <button
+                onClick={() => handleBack(link.href)}
+                className="rounded-md border px-2 py-[2px] text-[12px] font-normal transition-colors active:scale-[0.97]"
+                style={{ borderColor: "#2A2A2A", color: "#6A6A6A" }}
+              >
+                {link.label}
+              </button>
+            </Fragment>
+          ))}
         </div>
       </div>
 
