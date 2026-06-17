@@ -89,7 +89,7 @@ function DetailModal({ item, onClose }: { item: Highlight; onClose: () => void }
       onClick={onClose}
     >
       <div
-        className="jamony-modal-enter relative w-full max-w-2xl rounded-2xl border p-6"
+        className="jamony-modal-enter relative w-full max-w-2xl rounded-2xl border p-5"
         style={{ background: "#0D0D0D", borderColor: "#1A1A1A" }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -101,11 +101,11 @@ function DetailModal({ item, onClose }: { item: Highlight; onClose: () => void }
           <X className="h-5 w-5" />
         </button>
 
-        <div className="flex flex-col gap-6 sm:flex-row">
+        <div className="flex flex-col gap-4 sm:flex-row">
           {/* Vinyl */}
           <div className="mx-auto shrink-0">
             <div
-              className="relative flex h-44 w-44 items-center justify-center rounded-full"
+              className="relative flex h-36 w-36 items-center justify-center rounded-full sm:h-44 sm:w-44"
               style={{
                 background: `${item.gradient}, repeating-radial-gradient(circle at center, rgba(0,0,0,0.35) 0 2px, transparent 2px 5px)`,
                 backgroundBlendMode: "overlay",
@@ -114,97 +114,103 @@ function DetailModal({ item, onClose }: { item: Highlight; onClose: () => void }
             >
               <span className="absolute inset-0 rounded-full" style={{ background: "repeating-radial-gradient(circle at center, rgba(0,0,0,0.4) 0 1px, transparent 1px 4px)" }} />
               <button
-                className="relative flex h-16 w-16 items-center justify-center rounded-full text-white transition-transform active:scale-95"
+                className="relative flex h-14 w-14 items-center justify-center rounded-full text-white transition-transform active:scale-95 sm:h-16 sm:w-16"
                 style={{ background: "#9933FF", boxShadow: "0 0 20px rgba(153,51,255,0.6)" }}
                 onClick={() => setPlaying((p) => !p)}
               >
-                {playing ? <Pause className="h-6 w-6" fill="currentColor" /> : <Play className="h-6 w-6" fill="currentColor" />}
+                {playing ? <Pause className="h-5 w-5 sm:h-6 sm:w-6" fill="currentColor" /> : <Play className="h-5 w-5 sm:h-6 sm:w-6" fill="currentColor" />}
               </button>
             </div>
           </div>
 
-          {/* Info */}
+          {/* Info + Members + Actions */}
           <div className="flex flex-1 flex-col gap-2 min-w-0">
-            <h3 className="text-2xl font-bold text-white">{item.title}</h3>
-            <p className="text-[13px]" style={{ color: "#8A8A8A" }}>
-              作者
-            </p>
-            {/* 直接列出所有作者成员 */}
-            <div className="flex flex-col gap-1">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <h3 className="text-xl font-bold text-white sm:text-2xl">{item.title}</h3>
+                <p className="text-[12px] sm:text-[13px]" style={{ color: "#8A8A8A" }}>
+                  作者
+                </p>
+              </div>
+              {/* 点赞数移到右上角 */}
+              <span className="flex shrink-0 items-center gap-1 text-[13px] text-white">
+                <Heart className="h-4 w-4" style={{ color: "#FF33AA" }} fill="currentColor" />
+                {item.likes}
+              </span>
+            </div>
+
+            {/* 成员横向排列 */}
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
               {item.members.map((m, i) => (
-                <div key={i} className="flex items-center gap-1.5 text-[13px] text-white">
+                <div key={i} className="flex items-center gap-1 text-[12px] text-white sm:text-[13px]">
                   <span>{m.instrument}</span>
                   <span>{m.name}</span>
                 </div>
               ))}
             </div>
+
             <span
-              className="mt-1 w-fit rounded-full px-2 py-0.5 text-[11px] font-medium"
+              className="mt-0.5 w-fit rounded-full px-2 py-0.5 text-[10px] font-medium sm:text-[11px]"
               style={{ background: "rgba(0,170,255,0.12)", color: "#00AAFF" }}
             >
               {item.style}
             </span>
+
+            {/* 3 个操作按钮放在右侧 */}
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  if (trackId) window.location.href = `/library/${trackId}`
+                  else console.log("[highlights] no matching track for", item.title)
+                }}
+                className="flex items-center gap-1 rounded-lg border border-[#1A1A1A] px-2.5 py-1 text-[11px] text-white transition-colors hover:bg-white/5 sm:text-[12px]"
+              >
+                <ExternalLink className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
+                查看详情
+              </button>
+              <button
+                type="button"
+                onClick={() => console.log("[highlights] add to playlist:", item.title)}
+                className="flex items-center gap-1 rounded-lg border border-[#1A1A1A] px-2.5 py-1 text-[11px] text-white transition-colors hover:bg-white/5 sm:text-[12px]"
+              >
+                <ListMusic className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
+                加入播放列表
+              </button>
+              <button
+                type="button"
+                onClick={() => setFeedbackOpen(true)}
+                className="flex items-center gap-1 rounded-lg border border-[#1A1A1A] px-2.5 py-1 text-[11px] text-white transition-colors hover:bg-white/5 sm:text-[12px]"
+              >
+                <MessageCircle className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
+                反馈
+              </button>
+            </div>
           </div>
         </div>
 
         {/* Player controls */}
-        <div className="mt-6 flex items-center gap-3">
+        <div className="mt-4 flex items-center gap-3">
           <button className="text-white/70 transition-colors hover:text-white" onClick={() => console.log("[v0] prev")}>
-            <SkipBack className="h-5 w-5" fill="currentColor" />
+            <SkipBack className="h-4 w-4 sm:h-5 sm:w-5" fill="currentColor" />
           </button>
           <button
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-black"
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-black sm:h-9 sm:w-9"
             onClick={() => setPlaying((p) => !p)}
           >
-            {playing ? <Pause className="h-4 w-4" fill="currentColor" /> : <Play className="h-4 w-4" fill="currentColor" />}
+            {playing ? <Pause className="h-3.5 w-3.5 sm:h-4 sm:w-4" fill="currentColor" /> : <Play className="h-3.5 w-3.5 sm:h-4 sm:w-4" fill="currentColor" />}
           </button>
           <button className="text-white/70 transition-colors hover:text-white" onClick={() => console.log("[v0] next")}>
-            <SkipForward className="h-5 w-5" fill="currentColor" />
+            <SkipForward className="h-4 w-4 sm:h-5 sm:w-5" fill="currentColor" />
           </button>
-          <div className="relative mx-2 h-1.5 flex-1 rounded-full bg-white/15">
+          <div className="relative mx-1 h-1 flex-1 rounded-full bg-white/15 sm:mx-2 sm:h-1.5">
             <span
               className="absolute inset-y-0 left-0 w-3/5 rounded-full"
               style={{ background: "linear-gradient(90deg, #00AAFF, #9933FF)" }}
             />
           </div>
-          <span className="text-[12px] tabular-nums" style={{ color: "#8A8A8A" }}>
+          <span className="text-[11px] tabular-nums sm:text-[12px]" style={{ color: "#8A8A8A" }}>
             03:24 / {item.duration}
-          </span>
-        </div>
-
-        {/* 3 action buttons */}
-        <div className="mt-4 flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => {
-              if (trackId) window.location.href = `/library/${trackId}`
-              else console.log("[highlights] no matching track for", item.title)
-            }}
-            className="flex items-center gap-1.5 rounded-lg border border-[#1A1A1A] px-3 py-1.5 text-[12px] text-white transition-colors hover:bg-white/5"
-          >
-            <ExternalLink className="h-3.5 w-3.5" />
-            查看详情
-          </button>
-          <button
-            type="button"
-            onClick={() => console.log("[highlights] add to playlist:", item.title)}
-            className="flex items-center gap-1.5 rounded-lg border border-[#1A1A1A] px-3 py-1.5 text-[12px] text-white transition-colors hover:bg-white/5"
-          >
-            <ListMusic className="h-3.5 w-3.5" />
-            加入播放列表
-          </button>
-          <button
-            type="button"
-            onClick={() => setFeedbackOpen(true)}
-            className="flex items-center gap-1.5 rounded-lg border border-[#1A1A1A] px-3 py-1.5 text-[12px] text-white transition-colors hover:bg-white/5"
-          >
-            <MessageCircle className="h-3.5 w-3.5" />
-            反馈
-          </button>
-
-          <span className="ml-auto flex items-center gap-1.5 text-[13px] text-white">
-            <Heart className="h-4 w-4" style={{ color: "#FF33AA" }} fill="currentColor" />
-            {item.likes}
           </span>
         </div>
 
