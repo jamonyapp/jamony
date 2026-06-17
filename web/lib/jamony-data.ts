@@ -174,3 +174,351 @@ export function hashAngle(id: string, range: number): number {
   const norm = (Math.abs(h) % 1000) / 1000 // 0..1
   return (norm * 2 - 1) * range // -range..+range
 }
+
+// ── 作品库 Track ──
+
+export type TrackType = "rehearsal" | "jam"
+export type TrackScale = "solo" | "duo" | "trio" | "ensemble"
+export type TrackNature = "original" | "cover"
+
+export interface Track {
+  id: string
+  title: string
+  author: string
+  type: TrackType
+  scale: TrackScale
+  nature: TrackNature
+  styles: string[]
+  instruments: string[]
+  plays: number
+  likes: number
+  comments: number
+  duration: string
+  gradient: string
+  date: string
+  members: string[]
+  coverImage?: string
+}
+
+const G = {
+  bluePurple: "linear-gradient(135deg, #00AAFF, #9933FF)",
+  purplePink: "linear-gradient(135deg, #9933FF, #FF33AA)",
+  pinkLime: "linear-gradient(135deg, #FF33AA, #BBEE00)",
+  blueLime: "linear-gradient(135deg, #00AAFF, #BBEE00)",
+  bluePink: "linear-gradient(135deg, #00AAFF, #FF33AA)",
+  purpleLime: "linear-gradient(135deg, #9933FF, #BBEE00)",
+}
+
+export const tracks: Track[] = [
+  {
+    id: "1",
+    title: "Funk Jam #47",
+    author: "4位乐手",
+    type: "rehearsal",
+    scale: "ensemble",
+    nature: "original",
+    styles: ["放克"],
+    instruments: ["电吉他", "鼓·小打", "键盘乐器", "主唱"],
+    plays: 1234,
+    likes: 128,
+    comments: 23,
+    duration: "5:30",
+    gradient: G.bluePurple,
+    date: "2025-12-02",
+    members: ["阿K", "小鼓手", "键盘喵", "主唱阿May"],
+  },
+  {
+    id: "2",
+    title: "秋日的风",
+    author: "小李",
+    type: "rehearsal",
+    scale: "solo",
+    nature: "original",
+    styles: ["民谣"],
+    instruments: ["木吉他", "主唱"],
+    plays: 856,
+    likes: 72,
+    comments: 12,
+    duration: "3:48",
+    gradient: G.purplePink,
+    date: "2025-11-28",
+    members: ["小李"],
+  },
+  {
+    id: "3",
+    title: "蓝色列车",
+    author: "3位乐手",
+    type: "rehearsal",
+    scale: "trio",
+    nature: "cover",
+    styles: ["布鲁斯"],
+    instruments: ["电吉他", "键盘乐器", "鼓·小打"],
+    plays: 2341,
+    likes: 196,
+    comments: 45,
+    duration: "4:12",
+    gradient: G.pinkLime,
+    date: "2025-11-25",
+    members: ["老布", "键盘侠", "鼓点君"],
+  },
+  {
+    id: "4",
+    title: "电子梦",
+    author: "3位乐手",
+    type: "rehearsal",
+    scale: "trio",
+    nature: "original",
+    styles: ["电子"],
+    instruments: ["键盘乐器", "主唱", "电子"],
+    plays: 1520,
+    likes: 164,
+    comments: 31,
+    duration: "4:55",
+    gradient: G.blueLime,
+    date: "2025-11-20",
+    members: ["Neo", "声波", "采样姬"],
+  },
+  {
+    id: "5",
+    title: "夏夜爵士",
+    author: "2位乐手",
+    type: "rehearsal",
+    scale: "duo",
+    nature: "original",
+    styles: ["爵士"],
+    instruments: ["键盘乐器", "鼓·小打"],
+    plays: 678,
+    likes: 56,
+    comments: 8,
+    duration: "6:08",
+    gradient: G.bluePink,
+    date: "2025-11-18",
+    members: ["夜钢琴", "刷鼓的"],
+  },
+  {
+    id: "6",
+    title: "古典小品",
+    author: "2位乐手",
+    type: "rehearsal",
+    scale: "duo",
+    nature: "cover",
+    styles: ["古典"],
+    instruments: ["弦乐", "木吉他"],
+    plays: 445,
+    likes: 38,
+    comments: 6,
+    duration: "3:20",
+    gradient: G.purpleLime,
+    date: "2025-11-15",
+    members: ["弦语", "木吉他君"],
+  },
+  {
+    id: "7",
+    title: "周末排练",
+    author: "3位乐手",
+    type: "rehearsal",
+    scale: "trio",
+    nature: "original",
+    styles: ["摇滚"],
+    instruments: ["电吉他", "贝斯", "鼓·小打"],
+    plays: 3210,
+    likes: 256,
+    comments: 67,
+    duration: "4:40",
+    gradient: G.bluePurple,
+    date: "2025-11-12",
+    members: ["六弦狂", "低音炮", "鼓王"],
+  },
+  {
+    id: "8",
+    title: "动漫 OP 翻奏",
+    author: "3位乐手",
+    type: "rehearsal",
+    scale: "trio",
+    nature: "cover",
+    styles: ["ACG"],
+    instruments: ["电吉他", "键盘乐器", "鼓·小打"],
+    plays: 5678,
+    likes: 423,
+    comments: 89,
+    duration: "1:32",
+    gradient: G.purplePink,
+    date: "2025-11-10",
+    members: ["二次元吉他", "键盘控", "热血鼓手"],
+  },
+  {
+    id: "9",
+    title: "深夜 Blues",
+    author: "2位乐手",
+    type: "jam",
+    scale: "duo",
+    nature: "original",
+    styles: ["布鲁斯"],
+    instruments: ["电吉他", "管乐"],
+    plays: 234,
+    likes: 45,
+    comments: 6,
+    duration: "5:02",
+    gradient: G.pinkLime,
+    date: "2025-12-05",
+    members: ["蓝调猫", "口琴叔"],
+  },
+  {
+    id: "10",
+    title: "雨中即兴",
+    author: "2位乐手",
+    type: "jam",
+    scale: "duo",
+    nature: "original",
+    styles: ["流行"],
+    instruments: ["键盘乐器", "主唱"],
+    plays: 567,
+    likes: 89,
+    comments: 14,
+    duration: "3:36",
+    gradient: G.blueLime,
+    date: "2025-12-04",
+    members: ["雨声", "哼唱者"],
+  },
+  {
+    id: "11",
+    title: "放克夜",
+    author: "老张",
+    type: "jam",
+    scale: "solo",
+    nature: "original",
+    styles: ["放克"],
+    instruments: ["电吉他"],
+    plays: 890,
+    likes: 67,
+    comments: 11,
+    duration: "2:48",
+    gradient: G.bluePink,
+    date: "2025-12-03",
+    members: ["老张"],
+  },
+  {
+    id: "12",
+    title: "雷鬼午后",
+    author: "2位乐手",
+    type: "jam",
+    scale: "duo",
+    nature: "original",
+    styles: ["雷鬼"],
+    instruments: ["贝斯", "鼓·小打"],
+    plays: 345,
+    likes: 52,
+    comments: 7,
+    duration: "4:18",
+    gradient: G.purpleLime,
+    date: "2025-12-01",
+    members: ["低音律", "节奏手"],
+  },
+  {
+    id: "13",
+    title: "国风片刻",
+    author: "2位乐手",
+    type: "jam",
+    scale: "duo",
+    nature: "original",
+    styles: ["国风"],
+    instruments: ["民乐", "管乐"],
+    plays: 456,
+    likes: 73,
+    comments: 9,
+    duration: "3:55",
+    gradient: G.bluePurple,
+    date: "2025-11-30",
+    members: ["筝鸣", "笛声远"],
+  },
+  {
+    id: "14",
+    title: "HIPHOP Cypher",
+    author: "2位乐手",
+    type: "jam",
+    scale: "duo",
+    nature: "original",
+    styles: ["嘻哈"],
+    instruments: ["主唱", "键盘乐器"],
+    plays: 789,
+    likes: 94,
+    comments: 22,
+    duration: "2:30",
+    gradient: G.purplePink,
+    date: "2025-11-29",
+    members: ["麦霸", "Beat师"],
+  },
+  {
+    id: "15",
+    title: "Epic 尝试",
+    author: "3位乐手",
+    type: "jam",
+    scale: "trio",
+    nature: "original",
+    styles: ["Epic"],
+    instruments: ["弦乐", "管乐", "键盘乐器"],
+    plays: 123,
+    likes: 34,
+    comments: 5,
+    duration: "5:12",
+    gradient: G.pinkLime,
+    date: "2025-11-27",
+    members: ["弦海", "铜管阵", "氛围键"],
+  },
+  {
+    id: "16",
+    title: "R&B 小段",
+    author: "2位乐手",
+    type: "jam",
+    scale: "duo",
+    nature: "cover",
+    styles: ["R&B"],
+    instruments: ["主唱", "键盘乐器"],
+    plays: 678,
+    likes: 87,
+    comments: 16,
+    duration: "3:08",
+    gradient: G.blueLime,
+    date: "2025-11-26",
+    members: ["丝绒嗓", "和弦师"],
+  },
+]
+
+export const rehearsalTracks = tracks.filter((t) => t.type === "rehearsal")
+export const jamTracks = tracks.filter((t) => t.type === "jam")
+
+export function formatCount(n: number): string {
+  if (n >= 1000) {
+    return (n / 1000).toFixed(1).replace(/\.0$/, "") + "k"
+  }
+  return String(n)
+}
+
+// ── 活跃乐手 Musician ──
+
+export type Musician = {
+  id: number
+  name: string
+  primaryInstrument: string
+  secondaryInstrument?: string
+  avatarGradient: string
+}
+
+export const musicians: Musician[] = [
+  { id: 1, name: "老张", primaryInstrument: "🎸", secondaryInstrument: "🎹", avatarGradient: "linear-gradient(135deg, #00AAFF, #9933FF)" },
+  { id: 2, name: "小李", primaryInstrument: "🎸", avatarGradient: "linear-gradient(135deg, #9933FF, #FF33AA)" },
+  { id: 3, name: "Nina", primaryInstrument: "🎹", avatarGradient: "linear-gradient(135deg, #00AAFF, #FF33AA)" },
+  { id: 4, name: "阿强", primaryInstrument: "🥁", avatarGradient: "linear-gradient(135deg, #9933FF, #BBEE00)" },
+  { id: 5, name: "小美", primaryInstrument: "🎤", avatarGradient: "linear-gradient(135deg, #FF33AA, #BBEE00)" },
+  { id: 6, name: "电音客", primaryInstrument: "🎛️", avatarGradient: "linear-gradient(135deg, #00AAFF, #BBEE00)" },
+  { id: 7, name: "提琴手", primaryInstrument: "🎻", avatarGradient: "linear-gradient(135deg, #00AAFF, #9933FF)" },
+  { id: 8, name: "MC狗哥", primaryInstrument: "🎤", avatarGradient: "linear-gradient(135deg, #9933FF, #FF33AA)" },
+  { id: 9, name: "Blues王", primaryInstrument: "🎸", avatarGradient: "linear-gradient(135deg, #00AAFF, #FF33AA)" },
+  { id: 10, name: "六弦居士", primaryInstrument: "🎸", avatarGradient: "linear-gradient(135deg, #9933FF, #BBEE00)" },
+  { id: 11, name: "小明", primaryInstrument: "🥁", avatarGradient: "linear-gradient(135deg, #FF33AA, #BBEE00)" },
+  { id: 12, name: "老王", primaryInstrument: "🎹", avatarGradient: "linear-gradient(135deg, #00AAFF, #BBEE00)" },
+  { id: 13, name: "阿宅", primaryInstrument: "🎸", avatarGradient: "linear-gradient(135deg, #00AAFF, #9933FF)" },
+  { id: 14, name: "合成器幽灵", primaryInstrument: "🎛️", avatarGradient: "linear-gradient(135deg, #9933FF, #FF33AA)" },
+  { id: 15, name: "城南谣", primaryInstrument: "🎸", avatarGradient: "linear-gradient(135deg, #00AAFF, #FF33AA)" },
+  { id: 16, name: "海岛节拍", primaryInstrument: "🥁", avatarGradient: "linear-gradient(135deg, #9933FF, #BBEE00)" },
+]
