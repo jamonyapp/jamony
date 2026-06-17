@@ -206,8 +206,11 @@ function WorkDetailInner() {
   return (
     <div className="min-h-screen bg-black text-white">
       <TopNav
-        persistentLinks={[{ label: "返回作品库", href: "/library" }]}
-        backLinks={fromFilter ? [{ label: "返回筛选", href: "/library/category" }] : undefined}
+        backLinks={
+          fromFilter
+            ? [{ label: "返回作品库", href: "/library" }, { label: "返回筛选", href: "/library/category" }]
+            : [{ label: "返回作品库", href: "/library" }]
+        }
       />
 
       <div className="mx-auto w-full max-w-3xl px-4 pb-32 pt-[3.75rem]">

@@ -20,11 +20,9 @@ const menuItems = [
 // 额外返回按钮组件 — 独立淡入淡出（进入慢 800ms、退出快 350ms）
 function BackLinkButton({
   link,
-  onBack,
   onClick,
 }: {
   link: { label: string; href: string }
-  onBack: (href: string) => void
   onClick?: () => void
 }) {
   const [show, setShow] = useState(false)
@@ -66,12 +64,10 @@ function BackLinkButton({
 export function TopNav({
   onRefresh,
   backLinks,
-  persistentLinks,
   onBackHome,
 }: {
   onRefresh?: () => void
   backLinks?: { label: string; href: string; onClick?: () => void }[]
-  persistentLinks?: { label: string; href: string; onClick?: () => void }[]
   onBackHome?: () => void
 }) {
   const pathname = usePathname()
@@ -79,28 +75,17 @@ export function TopNav({
   const [openMenu, setOpenMenu] = useState<"none" | "notifications" | "user">("none")
   const [refreshing, setRefreshing] = useState(false)
   const navRef = useRef<HTMLElement>(null)
-  // 统一淡入淡出：非首页渐入，首页渐出
-  const [showBack, setShowBack] = useState(false)
 
-  useEffect(() => {
-    if (isHome) {
-      setShowBack(false)
-    } else {
-      const t = setTimeout(() => setShowBack(true), 30)
-      return () => clearTimeout(t)
-    }
-  }, [isHome])
-
-  const handleBack = (href: string) => {
-    setShowBack(false)
-    setTimeout(() => { window.location.href = href }, 350)
-  }
+  // showBack 初始 true（非首页直接可见，无需从 false 淡入）
+  // 仅用于「返回首页」点击时的淡出动画
+  const [showBack, setShowBack] = useState(!isHome)
 
   const handleBackHome = () => {
     if (onBackHome) {
       onBackHome()
     } else {
-      handleBack("/")
+      setShowBack(false)
+      setTimeout(() => { window.location.href = "/" }, 350)
     }
   }
 
@@ -128,45 +113,36 @@ export function TopNav({
       className="fixed inset-x-0 top-0 z-50 flex h-11 items-center gap-4 border-b px-4"
       style={{ background: "#000000", borderColor: "#1A1A1A" }}
     >
-      {/* Left side: jamony logo */}
+      {/* Left side: jamony logo + 返回按钮 */}
       <div className="flex items-center gap-2">
         <span className="shrink-0 text-[18px] font-bold tracking-tight text-white">
           jamony
         </span>
 
-        {/* 返回首页 + persistentLinks — 统一淡入淡出 */}
+        {/* 返回首页 — showBack 容器，初始 true，仅点击首页时淡出 */}
         <div
-          className="flex items-center gap-2 overflow-hidden whitespace-nowrap"
           style={{
             transition: showBack
-              ? 'opacity 800ms ease-out, visibility 800ms ease-out'
-              : 'opacity 350ms ease-in, visibility 350ms ease-in',
-            visibility: showBack ? 'visible' : 'hidden',
+              ? "opacity 800ms ease-out, visibility 800ms ease-out"
+              : "opacity 350ms ease-in, visibility 350ms ease-in",
+            visibility: showBack ? "visible" : "hidden",
             opacity: showBack ? 1 : 0,
           }}
         >
-          <button
-            onClick={handleBackHome}
-            className="rounded-md border px-2 py-[2px] text-[12px] font-normal transition-colors active:scale-[0.97]"
-            style={{ borderColor: "#2A2A2A", color: "#6A6A6A" }}
-          >
-            返回首页
-          </button>
-          {persistentLinks?.map((link) => (
+          {!isHome && (
             <button
-              key={link.href}
-              onClick={() => link.onClick ? link.onClick() : handleBack(link.href)}
+              onClick={handleBackHome}
               className="rounded-md border px-2 py-[2px] text-[12px] font-normal transition-colors active:scale-[0.97]"
               style={{ borderColor: "#2A2A2A", color: "#6A6A6A" }}
             >
-              {link.label}
+              返回首页
             </button>
-          ))}
+          )}
         </div>
 
         {/* 额外返回按钮 — 各自独立淡入淡出 */}
         {backLinks?.map((link) => (
-          <BackLinkButton key={link.href} link={link} onBack={handleBack} onClick={link.onClick} />
+          <BackLinkButton key={link.href} link={link} onClick={link.onClick} />
         ))}
       </div>
 
