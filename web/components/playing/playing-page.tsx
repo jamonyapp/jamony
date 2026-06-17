@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { TopNav } from "@/components/playing/top-nav"
+import { TopNav } from "@/components/jamony/top-nav"
 import { LeftColumn } from "@/components/playing/left-column"
 import { CenterColumn } from "@/components/playing/center-column"
 import { RightColumn } from "@/components/playing/right-column"
@@ -52,15 +52,18 @@ export function PlayingPage() {
   return (
     <div className="flex h-screen flex-col bg-background">
       <TopNav
-        audioConnected={audioConnected}
         onBackHome={() => {
           if (audioConnected) { setConfirmTarget("home"); setConfirmOpen(true) }
-          else router.push("/")
+          else window.location.href = "/"
         }}
-        onBackLobby={() => {
-          if (audioConnected) { setConfirmTarget("lobby"); setConfirmOpen(true) }
-          else router.push("/lobby")
-        }}
+        backLinks={[{
+          label: "返回大厅",
+          href: "/lobby",
+          onClick: () => {
+            if (audioConnected) { setConfirmTarget("lobby"); setConfirmOpen(true) }
+            else window.location.href = "/lobby"
+          },
+        }]}
       />
 
       <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[22%_minmax(0,1fr)_30%]">

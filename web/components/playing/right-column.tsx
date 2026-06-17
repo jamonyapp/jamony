@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Send, Info, Users } from "lucide-react"
+import { Send, Info, Users, Signal } from "lucide-react"
 import { ROOM, MEMBERS, CHAT_MESSAGES, type ChatMessage } from "@/lib/jam-data"
 
 export function RightColumn() {
@@ -21,7 +21,17 @@ export function RightColumn() {
           </span>
         </div>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{ROOM.description}</p>
-        <p className="mt-3 text-xs text-muted-foreground">
+        <div className="mt-3 flex items-center gap-3 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1">
+            <Users className="size-3.5" />
+            {ROOM.online}/{ROOM.capacity}
+          </span>
+          <span className="flex items-center gap-1">
+            <Signal className="size-3.5" />
+            {ROOM.latencyMs}ms
+          </span>
+        </div>
+        <p className="mt-2 text-xs text-muted-foreground">
           创建者 <span className="text-foreground">{ROOM.creator}</span> · {ROOM.createdAt}
         </p>
       </section>

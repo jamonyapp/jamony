@@ -21,9 +21,11 @@ const menuItems = [
 function BackLinkButton({
   link,
   onBack,
+  onClick,
 }: {
   link: { label: string; href: string }
   onBack: (href: string) => void
+  onClick?: () => void
 }) {
   const [show, setShow] = useState(false)
   useEffect(() => {
@@ -33,8 +35,11 @@ function BackLinkButton({
 
   const handleClick = () => {
     setShow(false)
-    // 等淡出动画播完再跳转
-    setTimeout(() => { window.location.href = link.href }, 350)
+    if (onClick) {
+      setTimeout(onClick, 350)
+    } else {
+      setTimeout(() => { window.location.href = link.href }, 350)
+    }
   }
 
   return (
@@ -61,9 +66,11 @@ function BackLinkButton({
 export function TopNav({
   onRefresh,
   backLinks,
+  onBackHome,
 }: {
   onRefresh?: () => void
-  backLinks?: { label: string; href: string }[]
+  backLinks?: { label: string; href: string; onClick?: () => void }[]
+  onBackHome?: () => void
 }) {
   const pathname = usePathname()
   const isHome = pathname === "/"
@@ -73,6 +80,14 @@ export function TopNav({
 
   const handleBack = (href: string) => {
     setTimeout(() => { window.location.href = href }, 350)
+  }
+
+  const handleBackHome = () => {
+    if (onBackHome) {
+      onBackHome()
+    } else {
+      handleBack("/")
+    }
   }
 
   useEffect(() => {
@@ -108,7 +123,7 @@ export function TopNav({
         {/* 返回首页 — 非首页始终可见，不淡出 */}
         {!isHome && (
           <button
-            onClick={() => handleBack("/")}
+            onClick={handleBackHome}
             className="rounded-md border px-2 py-[2px] text-[12px] font-normal transition-colors active:scale-[0.97]"
             style={{ borderColor: "#2A2A2A", color: "#6A6A6A" }}
           >
@@ -118,7 +133,7 @@ export function TopNav({
 
         {/* 额外返回按钮 — 各自独立淡入淡出 */}
         {backLinks?.map((link) => (
-          <BackLinkButton key={link.href} link={link} onBack={handleBack} />
+          <BackLinkButton key={link.href} link={link} onBack={handleBack} onClick={link.onClick} />
         ))}
       </div>
 
