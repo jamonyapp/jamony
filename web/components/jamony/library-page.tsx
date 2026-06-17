@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import Link from "next/link"
 import { Search, Guitar, Disc3, ChevronRight, Target } from "lucide-react"
 import { TopNav } from "@/components/jamony/top-nav"
 import { TrackCard } from "@/components/jamony/track-card"
@@ -30,10 +31,12 @@ function Section({
   icon,
   title,
   tracks,
+  href,
 }: {
   icon: React.ReactNode
   title: string
   tracks: Track[]
+  href?: string
 }) {
   if (tracks.length === 0) return null
 
@@ -44,14 +47,24 @@ function Section({
           {icon}
           {title}
         </h2>
-        <button
-          type="button"
-          onClick={() => console.log("[v0] 查看更多:", title)}
-          className="flex items-center gap-0.5 text-sm text-[#9A9A9A] transition-colors hover:text-white"
-        >
-          更多
-          <ChevronRight className="h-4 w-4" />
-        </button>
+        {href ? (
+          <Link
+            href={href}
+            className="flex items-center gap-0.5 text-sm text-[#9A9A9A] transition-colors hover:text-white"
+          >
+            更多
+            <ChevronRight className="h-4 w-4" />
+          </Link>
+        ) : (
+          <button
+            type="button"
+            onClick={() => console.log("[v0] 查看更多:", title)}
+            className="flex items-center gap-0.5 text-sm text-[#9A9A9A] transition-colors hover:text-white"
+          >
+            更多
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        )}
       </div>
       <div className="grid grid-cols-2 gap-5 md:grid-cols-3 lg:grid-cols-4">
         {tracks.map((t) => (
@@ -118,12 +131,14 @@ function LibraryInner() {
               icon={<Target className="h-5 w-5" style={{ color: "#00AAFF" }} />}
               title="排练作品"
               tracks={filteredRehearsal}
+              href="/library/category?tab=rehearsal"
             />
             {!query && <ActiveMusicians />}
             <Section
               icon={<Guitar className="h-5 w-5" style={{ color: "#FF33AA" }} />}
               title="Jam 时刻"
               tracks={filteredJam}
+              href="/library/category?tab=jam"
             />
           </>
         )}
