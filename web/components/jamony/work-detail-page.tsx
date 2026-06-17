@@ -271,6 +271,20 @@ function WorkDetailInner() {
                 {track.comments}
               </span>
             </div>
+
+            {/* CTA — 放在右侧空白处 */}
+            <div className="mt-5 flex items-center gap-4 rounded-xl border border-white/10 bg-[#0D0D0D] px-5 py-4">
+              <p className="text-sm font-bold text-white">听不过瘾？来玩真的！</p>
+              <button
+                type="button"
+                onClick={() => router.push("/lobby")}
+                className="flex shrink-0 items-center gap-2 rounded-full px-5 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-80"
+                style={{ background: "linear-gradient(135deg, #9933FF, #FF33AA)" }}
+              >
+                <Guitar className="h-4 w-4" />
+                去房间大厅
+              </button>
+            </div>
           </div>
         </section>
 
@@ -370,21 +384,6 @@ function WorkDetailInner() {
           </p>
         </section>
 
-        {/* CTA 引导区 */}
-        <section className="mt-14 flex flex-col items-center gap-5 text-center">
-          <h2 className="text-xl font-bold text-white text-balance">
-            听不过瘾？来玩真的！
-          </h2>
-          <button
-            type="button"
-            onClick={() => router.push("/lobby")}
-            className="flex items-center gap-2 rounded-full px-7 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-80"
-            style={{ background: "linear-gradient(135deg, #9933FF, #FF33AA)" }}
-          >
-            <Guitar className="h-4 w-4" />
-            去房间大厅
-          </button>
-        </section>
       </div>
 
       <PlayerBar />
