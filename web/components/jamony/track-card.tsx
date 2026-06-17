@@ -65,6 +65,10 @@ export function TrackCard({ track }: { track: Track }) {
 
   function handleMenuItem(action: string) {
     console.log("[v0] 菜单操作:", action, "-", track.title)
+    if (action === "detail") {
+      window.location.href = `/library/${track.id}`
+      return
+    }
     if (action === "feedback") {
       setFeedbackOpen(true)
       return
