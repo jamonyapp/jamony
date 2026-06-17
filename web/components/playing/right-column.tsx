@@ -21,15 +21,15 @@ export function RightColumn() {
           <div className="min-w-0 flex-1">
             <div className="flex items-center flex-wrap gap-x-2 gap-y-1">
               <span className="text-sm font-semibold">{ROOM.name}</span>
+              <span className="rounded-[6px] bg-secondary px-1.5 py-[1px] text-[10px] text-muted-foreground">
+                {ROOM.styleTag}
+              </span>
               <span
-                className="text-xs font-semibold tabular-nums"
+                className="ml-auto text-xs font-semibold tabular-nums"
                 style={{ color: latencyColor(ROOM.latencyMs) }}
               >
                 <Signal className="inline size-3 -mt-0.5 mr-0.5" />
                 {ROOM.latencyMs}ms
-              </span>
-              <span className="rounded-[6px] bg-secondary px-1.5 py-[1px] text-[10px] text-muted-foreground">
-                {ROOM.styleTag}
               </span>
             </div>
             <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{ROOM.description}</p>

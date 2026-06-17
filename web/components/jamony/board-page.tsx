@@ -65,9 +65,19 @@ export function BoardPage() {
 
   const resetPaging = () => setVisibleCount(PAGE_SIZE)
 
+  const handleRefresh = () => {
+    setAllNotices(initialNotices)
+    setActiveTab("all")
+    setSearch("")
+    setSort("latest")
+    setCityFilter("all")
+    setStyleFilter("all")
+    setVisibleCount(PAGE_SIZE)
+  }
+
   return (
     <div className="min-h-screen bg-black text-white">
-      <TopNav />
+      <TopNav onRefresh={handleRefresh} />
       <div className="mx-auto max-w-7xl px-4 py-8 pt-[2.75rem] md:px-8">
         {/* 标题区 */}
         <header className="mb-8 flex items-center justify-between">
