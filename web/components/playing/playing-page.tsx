@@ -50,7 +50,7 @@ export function PlayingPage() {
   }
 
   return (
-    <div className="flex h-screen flex-col bg-background">
+    <div className="flex h-screen flex-col pt-11 bg-background">
       <TopNav
         onBackHome={() => {
           if (audioConnected) { setConfirmTarget("home"); setConfirmOpen(true) }
