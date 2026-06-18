@@ -282,14 +282,14 @@ function NoticeCard({ notice, onClick }: { notice: Notice; onClick: () => void }
 
       {/* 标题区 */}
       <div className="px-3 py-2.5">
-        <div className="flex items-center gap-2">
+        <p className="truncate text-sm font-bold leading-snug text-white">{notice.title}</p>
+        <p className="mt-1 flex items-center gap-1.5 text-xs" style={{ color: "#8A8A8A" }}>
           <span
             className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
             style={{ backgroundColor: NOTICE_TYPE_COLOR[notice.type] }}
           />
-          <p className="truncate text-sm font-bold leading-snug text-white">{notice.title}</p>
-        </div>
-        <p className="mt-1 text-xs text-[#8A8A8A]">from：{notice.author}</p>
+          {NOTICE_TYPE_LABEL[notice.type]} · from：{notice.author}
+        </p>
       </div>
     </button>
   )
