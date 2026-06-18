@@ -4,6 +4,7 @@ import { useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { Headphones, ArrowLeft, Crown, Lock, Loader2, Check } from "lucide-react"
 import { rooms, COLOR_MAP, type Room } from "@/lib/rooms-data"
+import { useAuth } from "@/lib/auth-context"
 
 // Electron 暴露的 API 类型声明
 declare global {
@@ -94,7 +95,10 @@ export function RoomDetailClient() {
     setTimeout(() => router.push("/lobby"), 300)
   }
 
+  const { loggedIn, setShowLoginModal } = useAuth()
+
   const handleJoin = () => {
+    if (!loggedIn) { setShowLoginModal(true); return }
     if (isFull || joinState !== "idle") return
     setJoinState("connecting")
     setTimeout(() => {

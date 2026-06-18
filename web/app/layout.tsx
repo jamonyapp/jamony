@@ -2,6 +2,8 @@ import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import './globals.css'
+import { AuthProvider } from '@/lib/auth-context'
+import { LoginModal } from '@/components/jamony/login-modal'
 
 const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] })
 const geistMono = Geist_Mono({
@@ -58,7 +60,10 @@ export default function RootLayout({
         <style dangerouslySetInnerHTML={{ __html: scrollbarStyle }} />
       </head>
       <body className="font-sans antialiased" style={{ background: '#000000' }}>
-        {children}
+        <AuthProvider>
+          {children}
+          <LoginModal />
+        </AuthProvider>
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>

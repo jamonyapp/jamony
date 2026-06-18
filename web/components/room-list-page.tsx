@@ -9,6 +9,7 @@ import { RoomCard } from "@/components/room-card"
 import { EmptyState } from "@/components/empty-state"
 import { CreateRoomModal } from "@/components/create-room-modal"
 import { RoomDetailModal } from "@/components/room-detail-modal"
+import { useAuth } from "@/lib/auth-context"
 
 type SortKey = "members" | "newest" | "latency"
 
@@ -27,6 +28,7 @@ export function RoomListPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [detailRoomId, setDetailRoomId] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  const { loggedIn, setShowLoginModal } = useAuth()
 
   const handleRefresh = () => setRefreshKey((k) => k + 1)
 
@@ -61,7 +63,7 @@ export function RoomListPage() {
             </h1>
             <p className="text-pretty text-muted-foreground">选择一个房间加入，或创建你自己的房间</p>
           </div>
-          <button onClick={() => setModalOpen(true)}
+          <button onClick={() => { if (!loggedIn) { setShowLoginModal(true); return }; setModalOpen(true) }}
             className="flex shrink-0 items-center gap-1.5 self-start rounded-[10px] px-4 py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:brightness-110 active:scale-[0.97] sm:self-auto"
             style={{ backgroundImage: "linear-gradient(90deg, #9933ff 0%, #ff33aa 100%)" }}>
             <Plus className="h-4 w-4" />创建房间

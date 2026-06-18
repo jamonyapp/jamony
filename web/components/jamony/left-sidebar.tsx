@@ -6,6 +6,7 @@ import { useEffect, useState } from "react"
 import { CreateRoomModal } from "@/components/create-room-modal"
 import { PublishNoticeModal } from "@/components/jamony/publish-notice-modal"
 import type { Notice } from "@/lib/jamony-data"
+import { useAuth } from "@/lib/auth-context"
 
 const navItems = [
   { icon: Home, label: "首页", href: "/" },
@@ -20,6 +21,12 @@ export function LeftSidebar() {
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [createRoomOpen, setCreateRoomOpen] = useState(false)
   const [publishOpen, setPublishOpen] = useState(false)
+  const { loggedIn, setShowLoginModal } = useAuth()
+
+  const requireAuth = (fn: () => void) => {
+    if (!loggedIn) { setShowLoginModal(true); return }
+    fn()
+  }
 
   return (
     <aside
@@ -31,7 +38,7 @@ export function LeftSidebar() {
         <button
           className="flex items-center justify-center gap-2 rounded-[10px] py-2.5 text-[14px] font-bold text-white transition-transform active:scale-[0.97]"
           style={{ background: "linear-gradient(90deg, #9933FF, #FF33AA)" }}
-          onClick={() => setCreateRoomOpen(true)}
+          onClick={() => requireAuth(() => setCreateRoomOpen(true))}
         >
           <Plus className="h-4 w-4" />
           创建房间
@@ -39,7 +46,7 @@ export function LeftSidebar() {
         <button
           className="flex items-center justify-center gap-2 rounded-[10px] border py-2.5 text-[14px] font-medium text-white transition-colors hover:bg-white/5 active:scale-[0.97]"
           style={{ borderColor: "rgba(255,255,255,0.4)" }}
-          onClick={() => setPublishOpen(true)}
+          onClick={() => requireAuth(() => setPublishOpen(true))}
         >
           <Plus className="h-4 w-4" />
           发布公告

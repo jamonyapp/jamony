@@ -12,6 +12,7 @@ import {
 } from "@/lib/jamony-data"
 import { PublishNoticeModal } from "@/components/jamony/publish-notice-modal"
 import { TopNav } from "@/components/jamony/top-nav"
+import { useAuth } from "@/lib/auth-context"
 
 const PAGE_SIZE = 20
 const LOAD_MORE_SIZE = 12
@@ -297,6 +298,12 @@ function NoticeCard({ notice, onClick }: { notice: Notice; onClick: () => void }
 
 function NoticeDetailModal({ notice, onClose }: { notice: Notice | null; onClose: () => void }) {
   if (!notice) return null
+  const { loggedIn, setShowLoginModal } = useAuth()
+
+  const requireAuth = (fn: () => void) => {
+    if (!loggedIn) { setShowLoginModal(true); return }
+    fn()
+  }
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -351,6 +358,7 @@ function NoticeDetailModal({ notice, onClose }: { notice: Notice | null; onClose
             <button
               className="flex flex-1 items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
               style={{ background: "linear-gradient(90deg, #9933FF, #FF33AA)" }}
+              onClick={() => requireAuth(() => console.log("[v0] contact", notice.author))}
             >
               <MessageCircle className="h-4 w-4" />
               联系
@@ -358,6 +366,7 @@ function NoticeDetailModal({ notice, onClose }: { notice: Notice | null; onClose
             <button
               className="flex items-center justify-center gap-2 rounded-lg border px-5 py-2.5 text-sm text-white transition-colors hover:bg-[#141414]"
               style={{ borderColor: "#2A2A2A" }}
+              onClick={() => requireAuth(() => console.log("[v0] favorite notice", notice.id))}
             >
               <Heart className="h-4 w-4" />
               收藏

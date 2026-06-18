@@ -7,6 +7,7 @@ import { TopNav } from "@/components/jamony/top-nav"
 import { PlayerBar } from "@/components/jamony/player-bar"
 import { PlayerProvider, usePlayer } from "@/components/jamony/player-context"
 import { tracks, type Track } from "@/lib/jamony-data"
+import { useAuth } from "@/lib/auth-context"
 
 const SCALE_LABEL: Record<string, string> = {
   solo: "Solo · 单人",
@@ -112,6 +113,7 @@ function WorkDetailInner() {
   const [likeCount, setLikeCount] = useState(0)
   const [commentText, setCommentText] = useState("")
   const [fromFilter, setFromFilter] = useState(false)
+  const { loggedIn, setShowLoginModal } = useAuth()
 
   // 检测来源是否为列表页筛选
   useEffect(() => {
@@ -121,6 +123,7 @@ function WorkDetailInner() {
   }, [])
 
   const handleSendComment = () => {
+    if (!loggedIn) { setShowLoginModal(true); return }
     if (!commentText.trim()) return
     console.log("[library] send comment:", commentText)
     setCommentText("")
@@ -157,6 +160,7 @@ function WorkDetailInner() {
   const isCurrentPlaying = isCurrent && isPlaying
 
   function toggleLike() {
+    if (!loggedIn) { setShowLoginModal(true); return }
     setLiked((prev) => {
       const next = !prev
       setLikeCount((c) => c + (next ? 1 : -1))

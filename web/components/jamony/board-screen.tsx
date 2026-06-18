@@ -1,6 +1,7 @@
 "use client"
 
 import { notices, type Notice } from "@/lib/jamony-data"
+import { useAuth } from "@/lib/auth-context"
 import { X } from "lucide-react"
 import { useEffect, useState } from "react"
 import { SectionHeader } from "./section-header"
@@ -161,6 +162,11 @@ function NoticeDetailModal({ item, onClose }: { item: Notice; onClose: () => voi
       document.body.style.overflow = ""
     }
   }, [])
+  const { loggedIn, setShowLoginModal } = useAuth()
+  const requireAuth = (fn: () => void) => {
+    if (!loggedIn) { setShowLoginModal(true); return }
+    fn()
+  }
 
   return (
     <div
@@ -208,14 +214,14 @@ function NoticeDetailModal({ item, onClose }: { item: Notice; onClose: () => voi
             <button
               className="rounded-[10px] px-5 py-2 text-[14px] font-bold text-white transition-transform active:scale-[0.97]"
               style={{ background: "linear-gradient(90deg, #9933FF, #FF33AA)" }}
-              onClick={() => console.log("[v0] contact", item.author)}
+              onClick={() => requireAuth(() => console.log("[v0] contact", item.author))}
             >
               联系
             </button>
             <button
               className="rounded-[10px] border px-5 py-2 text-[14px] font-medium text-white transition-colors hover:bg-white/5"
               style={{ borderColor: "rgba(255,255,255,0.4)" }}
-              onClick={() => console.log("[v0] favorite notice", item.id)}
+              onClick={() => requireAuth(() => console.log("[v0] favorite notice", item.id))}
             >
               收藏
             </button>

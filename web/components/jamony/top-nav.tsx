@@ -1,8 +1,9 @@
 "use client"
 
-import { ChevronDown, LogOut, Megaphone, RefreshCw, Settings, User } from "lucide-react"
+import { ChevronDown, LogOut, Megaphone, RefreshCw, Settings, User, LogIn } from "lucide-react"
 import { usePathname } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
+import { useAuth } from "@/lib/auth-context"
 
 const notifications = [
   { id: "n1", text: "「周五夜爵士」房间有 3 位新乐手加入。" },
@@ -75,6 +76,7 @@ export function TopNav({
   const [openMenu, setOpenMenu] = useState<"none" | "notifications" | "user">("none")
   const [refreshing, setRefreshing] = useState(false)
   const navRef = useRef<HTMLElement>(null)
+  const { loggedIn, setShowLoginModal, logout, user } = useAuth()
 
   // showBack: 返回首页按钮的淡入淡出
   // 从首页来 → false→setTimeout→true（800ms 淡入）
@@ -180,80 +182,96 @@ export function TopNav({
           </button>
         )}
 
-        {/* 通知 */}
-        <div className="relative">
-          <button
-            aria-label="通知"
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-white transition-colors hover:bg-white/5"
-            onClick={() => setOpenMenu((m) => (m === "notifications" ? "none" : "notifications"))}
-          >
-            <Megaphone className="h-[18px] w-[18px]" />
-          </button>
+        {loggedIn ? (
+          <>
+            {/* 通知 */}
+            <div className="relative">
+              <button
+                aria-label="通知"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-white transition-colors hover:bg-white/5"
+                onClick={() => setOpenMenu((m) => (m === "notifications" ? "none" : "notifications"))}
+              >
+                <Megaphone className="h-[18px] w-[18px]" />
+              </button>
 
-          {openMenu === "notifications" && (
-            <div
-              className="absolute right-0 top-[calc(100%+8px)] w-80 overflow-hidden rounded-xl border"
-              style={{ background: "#0D0D0D", borderColor: "#1A1A1A" }}
-            >
-              <div className="px-4 py-3">
-                <h3 className="text-[14px] font-bold text-white">通知</h3>
-              </div>
-              <div className="border-t" style={{ borderColor: "#1A1A1A" }}>
-                {notifications.map((n) => (
-                  <button
-                    key={n.id}
-                    className="block w-full border-b px-4 py-3 text-left text-[13px] transition-colors last:border-b-0 hover:bg-white/[0.03]"
-                    style={{ borderColor: "#1A1A1A", color: "#C8C8C8" }}
-                    onClick={() => console.log("[v0] open notification", n.id)}
-                  >
-                    {n.text}
-                  </button>
-                ))}
-              </div>
+              {openMenu === "notifications" && (
+                <div
+                  className="absolute right-0 top-[calc(100%+8px)] w-80 overflow-hidden rounded-xl border"
+                  style={{ background: "#0D0D0D", borderColor: "#1A1A1A" }}
+                >
+                  <div className="px-4 py-3">
+                    <h3 className="text-[14px] font-bold text-white">通知</h3>
+                  </div>
+                  <div className="border-t" style={{ borderColor: "#1A1A1A" }}>
+                    {notifications.map((n) => (
+                      <button
+                        key={n.id}
+                        className="block w-full border-b px-4 py-3 text-left text-[13px] transition-colors last:border-b-0 hover:bg-white/[0.03]"
+                        style={{ borderColor: "#1A1A1A", color: "#C8C8C8" }}
+                        onClick={() => console.log("[v0] open notification", n.id)}
+                      >
+                        {n.text}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
-          )}
-        </div>
 
-        {/* 头像 */}
-        <div className="relative">
-          <button
-            className="flex items-center gap-1.5 rounded-lg p-0.5 transition-colors hover:bg-white/5"
-            onClick={() => setOpenMenu((m) => (m === "user" ? "none" : "user"))}
-          >
-            <span
-              className="flex h-7 w-7 items-center justify-center rounded-full text-[13px] font-bold text-white"
-              style={{ background: "linear-gradient(135deg, #00AAFF, #9933FF, #FF33AA)" }}
-            >
-              U
-            </span>
-            <ChevronDown className="h-4 w-4" style={{ color: "#8A8A8A" }} />
-          </button>
+            {/* 头像 */}
+            <div className="relative">
+              <button
+                className="flex items-center gap-1.5 rounded-lg p-0.5 transition-colors hover:bg-white/5"
+                onClick={() => setOpenMenu((m) => (m === "user" ? "none" : "user"))}
+              >
+                <span
+                  className="flex h-7 w-7 items-center justify-center rounded-full text-[13px] font-bold text-white"
+                  style={{ background: "linear-gradient(135deg, #00AAFF, #9933FF, #FF33AA)" }}
+                >
+                  {user?.nickname?.charAt(0) || "U"}
+                </span>
+                <ChevronDown className="h-4 w-4" style={{ color: "#8A8A8A" }} />
+              </button>
 
-          {openMenu === "user" && (
-            <div
-              className="absolute right-0 top-[calc(100%+8px)] w-[180px] overflow-hidden rounded-xl border p-1"
-              style={{ background: "#0D0D0D", borderColor: "#1A1A1A" }}
-            >
-              {menuItems.map((item) => {
-                const Icon = item.icon
-                return (
-                  <button
-                    key={item.id}
-                    className="flex h-10 w-full items-center gap-2.5 rounded-lg px-3 text-[14px] transition-colors hover:bg-white/5"
-                    style={{ color: "#E0E0E0" }}
-                    onClick={() => {
-                      console.log("[v0] user menu:", item.id)
-                      setOpenMenu("none")
-                    }}
-                  >
-                    <Icon className="h-4 w-4" />
-                    {item.label}
-                  </button>
-                )
-              })}
+              {openMenu === "user" && (
+                <div
+                  className="absolute right-0 top-[calc(100%+8px)] w-[180px] overflow-hidden rounded-xl border p-1"
+                  style={{ background: "#0D0D0D", borderColor: "#1A1A1A" }}
+                >
+                  {menuItems.map((item) => {
+                    const Icon = item.icon
+                    return (
+                      <button
+                        key={item.id}
+                        className="flex h-10 w-full items-center gap-2.5 rounded-lg px-3 text-[14px] transition-colors hover:bg-white/5"
+                        style={{ color: "#E0E0E0" }}
+                        onClick={() => {
+                          if (item.id === "logout") {
+                            logout()
+                          }
+                          console.log("[v0] user menu:", item.id)
+                          setOpenMenu("none")
+                        }}
+                      >
+                        <Icon className="h-4 w-4" />
+                        {item.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          </>
+        ) : (
+          <button
+            onClick={() => setShowLoginModal(true)}
+            className="flex items-center gap-1.5 rounded-[10px] px-4 py-1.5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+            style={{ background: "linear-gradient(90deg, #9933FF, #FF33AA)" }}
+          >
+            <LogIn className="h-4 w-4" />
+            登录 / 注册
+          </button>
+        )}
       </div>
     </header>
   )

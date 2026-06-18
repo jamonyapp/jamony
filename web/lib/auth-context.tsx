@@ -1,0 +1,73 @@
+"use client"
+
+import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react"
+
+export type UserInfo = {
+  id: number
+  nickname: string
+  avatarIndex: number
+  bio: string
+  city: string
+  primaryInstrument: string
+  secondaryInstrument: string
+  level: number
+  points: number
+}
+
+type AuthContextType = {
+  user: UserInfo | null
+  loggedIn: boolean
+  login: (nickname: string, password: string) => Promise<string | null>
+  logout: () => void
+  showLoginModal: boolean
+  setShowLoginModal: (v: boolean) => void
+}
+
+const AuthContext = createContext<AuthContextType>(null!)
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<UserInfo | null>(null)
+  const [showLoginModal, setShowLoginModal] = useState(false)
+
+  // 页面加载时从 localStorage 恢复登录状态
+  useEffect(() => {
+    const saved = localStorage.getItem("jamony_user")
+    if (saved) {
+      try {
+        setUser(JSON.parse(saved))
+      } catch { /* ignore */ }
+    }
+  }, [])
+
+  const login = useCallback(async (nickname: string, password: string): Promise<string | null> => {
+    try {
+      const res = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nickname, password }),
+      })
+      const data = await res.json()
+      if (!data.ok) return data.msg || "登录失败"
+      setUser(data.user)
+      localStorage.setItem("jamony_user", JSON.stringify(data.user))
+      return null // null = 成功
+    } catch {
+      return "网络错误，请检查服务器"
+    }
+  }, [])
+
+  const logout = useCallback(() => {
+    setUser(null)
+    localStorage.removeItem("jamony_user")
+  }, [])
+
+  return (
+    <AuthContext.Provider value={{ user, loggedIn: !!user, login, logout, showLoginModal, setShowLoginModal }}>
+      {children}
+    </AuthContext.Provider>
+  )
+}
+
+export function useAuth() {
+  return useContext(AuthContext)
+}
