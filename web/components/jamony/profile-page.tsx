@@ -40,6 +40,7 @@ export function ProfilePage({ nickname }: { nickname: string }) {
   const { user: currentUser, loggedIn, ready, setShowLoginModal } = useAuth()
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
+  const [userWorks, setUserWorks] = useState<any[]>([])
 
   useEffect(() => {
     if (!ready) return
@@ -52,7 +53,19 @@ export function ProfilePage({ nickname }: { nickname: string }) {
       try {
         const res = await fetch(`/api/users/by-nickname/${encodeURIComponent(nickname)}`)
         const data = await res.json()
-        if (data.ok) setProfile(data.user)
+        if (data.ok) {
+          setProfile(data.user)
+          // 加载该用户参与的作品
+          const tracksRes = await fetch(`/api/tracks?limit=50`)
+          const tracksData = await tracksRes.json()
+          if (tracksData.ok) {
+            const name = data.user.nickname
+            const myTracks = tracksData.tracks.filter((t: any) =>
+              t.members && t.members.includes(name) || t.author_name === name
+            )
+            setUserWorks(myTracks)
+          }
+        }
       } catch { /* ignore */ }
       setLoading(false)
     }
@@ -104,14 +117,6 @@ export function ProfilePage({ nickname }: { nickname: string }) {
   const isSelf = loggedIn && currentUser?.nickname === nickname
   const styles: string[] = profile.styles || []
   const instrument = profile.primary_instrument + (profile.secondary_instrument ? ` · ${profile.secondary_instrument}` : "")
-
-  // mock works for now — will connect to API later
-  const works = [
-    { title: "Funk Jam #47", time: "2026-06-14", type: "Jam时刻" as const, typeColor: "#FF33AA" as const, plays: "3.2k", likes: "412", comments: "38" },
-    { title: "雨中布鲁斯", time: "2026-06-12", type: "Jam时刻" as const, typeColor: "#FF33AA" as const, plays: "2.3k", likes: "96", comments: "23" },
-    { title: "秋日的风", time: "2026-05-28", type: "排练作品" as const, typeColor: "#00AAFF" as const, plays: "856", likes: "72", comments: "12" },
-    { title: "夏夜民谣", time: "2026-06-10", type: "排练作品" as const, typeColor: "#00AAFF" as const, plays: "856", likes: "72", comments: "12" },
-  ]
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -210,10 +215,13 @@ export function ProfilePage({ nickname }: { nickname: string }) {
                 </button>
               )}
             </div>
+            {userWorks.length === 0 ? (
+              <p className="mt-4 text-sm" style={{ color: "#8A8A8A" }}>暂无作品记录</p>
+            ) : (
             <div className="mt-4 grid grid-cols-2 gap-4">
-              {works.map((w) => (
+              {userWorks.slice(0, 4).map((w: any) => (
                 <article
-                  key={w.title}
+                  key={w.id}
                   className="relative overflow-hidden rounded-[10px] border border-[#1A1A1A] bg-[#0D0D0D] p-4"
                 >
                   <span
@@ -225,12 +233,12 @@ export function ProfilePage({ nickname }: { nickname: string }) {
                     <h3 className="text-[14px] font-bold text-white">{w.title}</h3>
                     <span
                       className="shrink-0 text-[11px] font-medium"
-                      style={{ color: w.typeColor }}
+                      style={{ color: w.type === "rehearsal" ? "#00AAFF" : "#FF33AA" }}
                     >
-                      {w.type}
+                      {w.type === "rehearsal" ? "排练作品" : "Jam时刻"}
                     </span>
                   </div>
-                  <p className="mt-1 text-[12px] text-[#8A8A8A]">{w.time}</p>
+                  <p className="mt-1 text-[12px] text-[#8A8A8A]">{w.date}</p>
 
                   <div className="mt-4 flex items-center gap-4 text-[12px] text-[#8A8A8A]">
                     <span className="flex items-center gap-1">
@@ -249,6 +257,7 @@ export function ProfilePage({ nickname }: { nickname: string }) {
                 </article>
               ))}
             </div>
+            )}
           </section>
         </div>
       </main>
