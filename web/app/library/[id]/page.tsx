@@ -1,8 +1,9 @@
-import { tracks } from "@/lib/jamony-data"
 import { WorkDetailPage } from "@/components/jamony/work-detail-page"
 
 export function generateStaticParams() {
-  return tracks.map((t) => ({ id: t.id }))
+  const ids = []
+  for (let i = 1; i <= 18; i++) ids.push({ id: String(i) })
+  return ids
 }
 
 export default function DetailRoute() {

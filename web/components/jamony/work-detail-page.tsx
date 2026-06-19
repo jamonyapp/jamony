@@ -1,13 +1,22 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { ArrowLeft, Play, Heart, MessageCircle, Guitar, Check } from "lucide-react"
 import { TopNav } from "@/components/jamony/top-nav"
 import { PlayerBar } from "@/components/jamony/player-bar"
 import { PlayerProvider, usePlayer } from "@/components/jamony/player-context"
-import { tracks, type Track } from "@/lib/jamony-data"
+import { type Track } from "@/lib/jamony-data"
 import { useAuth } from "@/lib/auth-context"
+
+const GRADIENTS = [
+  "linear-gradient(135deg, #00AAFF, #9933FF)",
+  "linear-gradient(135deg, #9933FF, #FF33AA)",
+  "linear-gradient(135deg, #FF33AA, #BBEE00)",
+  "linear-gradient(135deg, #00AAFF, #BBEE00)",
+  "linear-gradient(135deg, #00AAFF, #FF33AA)",
+  "linear-gradient(135deg, #9933FF, #BBEE00)",
+]
 import { UserPopover } from "@/components/jamony/user-popover"
 
 const SCALE_LABEL: Record<string, string> = {
@@ -114,6 +123,8 @@ function WorkDetailInner() {
   const [likeCount, setLikeCount] = useState(0)
   const [commentText, setCommentText] = useState("")
   const [fromFilter, setFromFilter] = useState(false)
+  const [track, setTrack] = useState<Track | null>(null)
+  const [loading, setLoading] = useState(true)
   const { loggedIn, setShowLoginModal } = useAuth()
 
   // 检测来源是否为列表页筛选
@@ -130,20 +141,67 @@ function WorkDetailInner() {
     setCommentText("")
   }
 
-  const track = useMemo(() => {
-    const id = resolveId()
-    return tracks.find((t) => t.id === id) ?? null
-  }, [])
-
-  // 整个作品库作为播放队列
+  // 从 API 读取作品
   useEffect(() => {
-    setQueue(tracks)
+    const id = resolveId()
+    if (!id) { setLoading(false); return }
+
+    Promise.all([
+      fetch(`/api/tracks/${id}`).then(r => r.json()),
+      fetch("/api/tracks?limit=50").then(r => r.json()),
+    ]).then(([trackData, allData]) => {
+      if (trackData.ok) {
+        const t = trackData.track
+        const mapped: Track = {
+          id: String(t.id),
+          title: t.title,
+          author: t.author_name,
+          type: t.type,
+          scale: t.scale,
+          nature: t.nature,
+          styles: t.styles || [],
+          instruments: t.instruments || [],
+          plays: t.plays,
+          likes: t.likes,
+          comments: t.comments,
+          duration: t.duration,
+          gradient: GRADIENTS[t.id % GRADIENTS.length],
+          date: t.date ? t.date.slice(0, 10) : "",
+          members: t.members || [],
+          coverImage: t.cover_image || "",
+        }
+        setTrack(mapped)
+        setLikeCount(t.likes)
+      }
+      if (allData.ok) {
+        const queue: Track[] = allData.tracks.map((tr: any, i: number) => ({
+          id: String(tr.id),
+          title: tr.title,
+          author: tr.author_name,
+          type: tr.type,
+          scale: tr.scale,
+          nature: tr.nature,
+          styles: tr.styles || [],
+          instruments: tr.instruments || [],
+          plays: tr.plays,
+          likes: tr.likes,
+          comments: tr.comments,
+          duration: tr.duration,
+          gradient: GRADIENTS[i % GRADIENTS.length],
+          date: tr.date ? tr.date.slice(0, 10) : "",
+          members: tr.members || [],
+          coverImage: tr.cover_image || "",
+        }))
+        setQueue(queue)
+      }
+      setLoading(false)
+    }).catch(() => setLoading(false))
   }, [setQueue])
 
-  // 初始化点赞数
-  useEffect(() => {
-    if (track) setLikeCount(track.likes)
-  }, [track])
+  // 加载中
+  if (loading) {
+    return <div className="min-h-screen bg-black text-white flex items-center justify-center"><p className="text-[#8A8A8A]">加载中...</p></div>
+  }
 
   // 如果没找到作品
   if (!track) {

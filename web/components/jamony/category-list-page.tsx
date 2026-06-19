@@ -6,18 +6,24 @@ import { TrackCard } from "@/components/jamony/track-card"
 import { PlayerBar } from "@/components/jamony/player-bar"
 import { PlayerProvider, usePlayer } from "@/components/jamony/player-context"
 import { TopNav } from "@/components/jamony/top-nav"
-import { tracks, type Track } from "@/lib/jamony-data"
+import { type Track } from "@/lib/jamony-data"
+
+const GRADIENTS = [
+  "linear-gradient(135deg, #00AAFF, #9933FF)",
+  "linear-gradient(135deg, #9933FF, #FF33AA)",
+  "linear-gradient(135deg, #FF33AA, #BBEE00)",
+  "linear-gradient(135deg, #00AAFF, #BBEE00)",
+  "linear-gradient(135deg, #00AAFF, #FF33AA)",
+  "linear-gradient(135deg, #9933FF, #BBEE00)",
+]
 
 const PAGE_SIZE = 12
 const ALL = "全部"
 
 type Tab = "全部作品" | "排练作品" | "Jam 时刻"
 const TABS: Tab[] = ["全部作品", "排练作品", "Jam 时刻"]
-
-const STYLE_OPTIONS = [...new Set(tracks.flatMap((t) => t.styles))].sort()
 const SCALE_OPTIONS = ["Solo", "2-3players", "4-5players", ">5players"]
 const NATURE_OPTIONS = ["Original", "Cover"]
-const INSTRUMENT_OPTIONS = [...new Set(tracks.flatMap((t) => t.instruments))].sort()
 
 function FilterSelect({
   label,
@@ -92,6 +98,8 @@ function resolveTabFromUrl(): Tab {
 
 function CategoryListInner() {
   const { setQueue } = usePlayer()
+  const [allTracks, setAllTracks] = useState<Track[]>([])
+  const [loaded, setLoaded] = useState(false)
   const [tab, setTab] = useState<Tab>(resolveTabFromUrl)
   const [query, setQuery] = useState("")
   const [style, setStyle] = useState(ALL)
@@ -101,13 +109,41 @@ function CategoryListInner() {
   const [visible, setVisible] = useState(PAGE_SIZE)
   const sentinelRef = useRef<HTMLDivElement | null>(null)
 
-  // 整个作品库作为默认播放队列
+  // 从 API 读取作品
   useEffect(() => {
-    setQueue(tracks)
+    fetch("/api/tracks?limit=50")
+      .then(r => r.json())
+      .then(data => {
+        if (!data.ok) return
+        const mapped: Track[] = data.tracks.map((t: any, i: number) => ({
+          id: String(t.id),
+          title: t.title,
+          author: t.author_name,
+          type: t.type,
+          scale: t.scale,
+          nature: t.nature,
+          styles: t.styles || [],
+          instruments: t.instruments || [],
+          plays: t.plays,
+          likes: t.likes,
+          comments: t.comments,
+          duration: t.duration,
+          gradient: GRADIENTS[i % GRADIENTS.length],
+          date: t.date ? t.date.slice(0, 10) : "",
+          members: t.members || [],
+          coverImage: t.cover_image || "",
+        }))
+        setAllTracks(mapped)
+        setQueue(mapped)
+        setLoaded(true)
+      })
   }, [setQueue])
 
+  const STYLE_OPTIONS = [...new Set(allTracks.flatMap((t) => t.styles))].sort()
+  const INSTRUMENT_OPTIONS = [...new Set(allTracks.flatMap((t) => t.instruments))].sort()
+
   const filtered = useMemo(() => {
-    return tracks.filter((t) => {
+    return allTracks.filter((t) => {
       if (tab === "排练作品" && t.type !== "rehearsal") return false
       if (tab === "Jam 时刻" && t.type !== "jam") return false
       if (style !== ALL && !t.styles.includes(style)) return false
@@ -118,7 +154,7 @@ function CategoryListInner() {
       if (query && !matchTrack(t, query)) return false
       return true
     })
-  }, [tab, query, style, scale, nature, instrument])
+  }, [allTracks, tab, query, style, scale, nature, instrument])
 
   // 筛选条件变化时重置页码
   useEffect(() => {

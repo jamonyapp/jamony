@@ -7,7 +7,16 @@ import { TrackCard } from "@/components/jamony/track-card"
 import { ActiveMusicians } from "@/components/jamony/active-musicians"
 import { PlayerBar } from "@/components/jamony/player-bar"
 import { PlayerProvider, usePlayer } from "@/components/jamony/player-context"
-import { rehearsalTracks, jamTracks, type Track } from "@/lib/jamony-data"
+import { type Track } from "@/lib/jamony-data"
+
+const GRADIENTS = [
+  "linear-gradient(135deg, #00AAFF, #9933FF)",
+  "linear-gradient(135deg, #9933FF, #FF33AA)",
+  "linear-gradient(135deg, #FF33AA, #BBEE00)",
+  "linear-gradient(135deg, #00AAFF, #BBEE00)",
+  "linear-gradient(135deg, #00AAFF, #FF33AA)",
+  "linear-gradient(135deg, #9933FF, #BBEE00)",
+]
 
 function matchTrack(t: Track, q: string): boolean {
   if (!q) return true
@@ -66,20 +75,48 @@ function Section({
 
 function LibraryInner() {
   const [query, setQuery] = useState("")
+  const [allTracks, setAllTracks] = useState<Track[]>([])
   const { setQueue } = usePlayer()
 
-  // 整个作品库作为默认播放队列
+  // 从 API 读取作品
   useEffect(() => {
-    setQueue([...rehearsalTracks, ...jamTracks])
+    fetch("/api/tracks?limit=50")
+      .then(r => r.json())
+      .then(data => {
+        if (!data.ok) return
+        const mapped: Track[] = data.tracks.map((t: any, i: number) => ({
+          id: String(t.id),
+          title: t.title,
+          author: t.author_name,
+          type: t.type,
+          scale: t.scale,
+          nature: t.nature,
+          styles: t.styles || [],
+          instruments: t.instruments || [],
+          plays: t.plays,
+          likes: t.likes,
+          comments: t.comments,
+          duration: t.duration,
+          gradient: GRADIENTS[i % GRADIENTS.length],
+          date: t.date ? t.date.slice(0, 10) : "",
+          members: t.members || [],
+          coverImage: t.cover_image || "",
+        }))
+        setAllTracks(mapped)
+        setQueue(mapped)
+      })
   }, [setQueue])
+
+  const rehearsalTracks = allTracks.filter(t => t.type === "rehearsal")
+  const jamTracks = allTracks.filter(t => t.type === "jam")
 
   const filteredRehearsal = useMemo(
     () => rehearsalTracks.filter((t) => matchTrack(t, query)),
-    [query],
+    [query, rehearsalTracks],
   )
   const filteredJam = useMemo(
     () => jamTracks.filter((t) => matchTrack(t, query)),
-    [query],
+    [query, jamTracks],
   )
 
   const noResults =
