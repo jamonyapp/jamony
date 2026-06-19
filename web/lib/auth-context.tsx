@@ -23,6 +23,7 @@ type AuthContextType = {
   login: (nickname: string, password: string) => Promise<string | null>
   register: (nickname: string, password: string, primaryInstrument: string, instrumentCategory?: string) => Promise<string | null>
   logout: () => void
+  updateUser: (data: Partial<UserInfo>) => void
   showLoginModal: boolean
   setShowLoginModal: (v: boolean) => void
 }
@@ -79,13 +80,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const updateUser = useCallback((data: Partial<UserInfo>) => {
+    setUser(prev => {
+      if (!prev) return prev
+      const updated = { ...prev, ...data }
+      localStorage.setItem("jamony_user", JSON.stringify(updated))
+      return updated
+    })
+  }, [])
+
   const logout = useCallback(() => {
     setUser(null)
     localStorage.removeItem("jamony_user")
   }, [])
 
   return (
-    <AuthContext.Provider value={{ user, loggedIn: !!user, ready, login, register, logout, showLoginModal, setShowLoginModal }}>
+    <AuthContext.Provider value={{ user, loggedIn: !!user, ready, login, register, updateUser, logout, showLoginModal, setShowLoginModal }}>
       {children}
     </AuthContext.Provider>
   )

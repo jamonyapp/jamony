@@ -75,8 +75,10 @@ const inputClass = "w-full rounded-[10px] border px-3 py-2.5 text-sm text-white 
 
 export function SettingsPage() {
   const router = useRouter()
-  const { user, loggedIn, ready, logout, setShowLoginModal } = useAuth()
+  const { user, loggedIn, ready, logout, updateUser, setShowLoginModal } = useAuth()
   const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState("")
+  const [pwdError, setPwdError] = useState("")
   const [avatarOpen, setAvatarOpen] = useState(false)
   const [avatarIdx, setAvatarIdx] = useState(0)
   const [nickname, setNickname] = useState("")
@@ -127,9 +129,61 @@ export function SettingsPage() {
     })
   }
 
-  const handleSave = () => {
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
+  const handleSave = async () => {
+    setSaveError("")
+    const finalInstrument = INSTRUMENT_NEEDS_INPUT.includes(instrument) ? customInstrument : instrument
+    const cat = instrument
+
+    try {
+      const res = await fetch(`/api/users/${user.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nickname: nickname.trim(),
+          bio,
+          signature,
+          city,
+          primaryInstrument: finalInstrument,
+          instrumentCategory: cat,
+          avatarIndex: avatarIdx,
+        }),
+      })
+      const data = await res.json()
+      if (!data.ok) {
+        setSaveError(data.msg || "保存失败")
+        return
+      }
+      // 更新本地登录状态
+      if (data.user) updateUser(data.user)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } catch {
+      setSaveError("网络错误")
+    }
+  }
+
+  const handleChangePassword = async () => {
+    if (pwdMismatch || !newPwd || !oldPwd) return
+    setPwdError("")
+    try {
+      const res = await fetch(`/api/users/${user.id}/password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ oldPassword: oldPwd, newPassword: newPwd }),
+      })
+      const data = await res.json()
+      if (!data.ok) {
+        setPwdError(data.msg || "修改失败")
+        return
+      }
+      setPwdSaved(true)
+      setOldPwd("")
+      setNewPwd("")
+      setConfirmPwd("")
+      setTimeout(() => setPwdSaved(false), 2000)
+    } catch {
+      setPwdError("网络错误")
+    }
   }
 
   const handleLogout = () => {
@@ -248,6 +302,7 @@ export function SettingsPage() {
             {saved ? <span className="flex items-center gap-1.5"><Check className="h-4 w-4" />已保存</span> : "保存修改"}
           </button>
         </div>
+        {saveError && <p className="mt-3 text-right text-xs" style={{ color: "#FF5C5C" }}>{saveError}</p>}
 
         <Divider />
 
@@ -276,7 +331,7 @@ export function SettingsPage() {
             <FieldLabel hint="选填">邮箱</FieldLabel>
             <div className="flex gap-2">
               <input type="email" className={inputClass} style={{ background: "#141414", borderColor: "#2A2A2A" }} value={email} onChange={(e) => setEmail(e.target.value)} placeholder="example@email.com" />
-              <button type="button" onClick={() => { setEmailSaved(true); setTimeout(() => setEmailSaved(false), 2000) }}
+              <button type="button" onClick={async () => { await fetch(`/api/users/${user.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }) }); setEmailSaved(true); setTimeout(() => setEmailSaved(false), 2000) }}
                 className="shrink-0 rounded-[10px] border px-4 text-sm transition-colors hover:border-[#3A3A3A] hover:text-white" style={{ borderColor: "#2A2A2A", color: "#B0B0B0" }}>
                 {emailSaved ? "已保存" : "保存"}
               </button>
@@ -294,10 +349,11 @@ export function SettingsPage() {
             <FieldLabel>确认新密码</FieldLabel>
             <input type="password" className={`${inputClass} ${pwdMismatch ? "!border-[#FF5C5C]" : ""}`} style={{ background: "#141414", borderColor: pwdMismatch ? "#FF5C5C" : "#2A2A2A" }} value={confirmPwd} onChange={(e) => setConfirmPwd(e.target.value)} placeholder="再次输入新密码" />
             {pwdMismatch && <p className="mt-1.5 text-xs" style={{ color: "#FF5C5C" }}>两次输入的密码不一致</p>}
+            {pwdError && <p className="mt-1.5 text-xs" style={{ color: "#FF5C5C" }}>{pwdError}</p>}
           </div>
           <div className="flex justify-end">
             <button type="button" disabled={pwdMismatch || newPwd.length === 0}
-              onClick={() => { setPwdSaved(true); setTimeout(() => setPwdSaved(false), 2000) }}
+              onClick={handleChangePassword}
               className="flex h-9 items-center gap-1.5 rounded-[10px] border px-4 text-sm text-white transition-colors hover:border-[#3A3A3A] disabled:cursor-not-allowed" style={{ borderColor: "#2A2A2A", color: pwdMismatch || newPwd.length === 0 ? "#5A5A5A" : "#FFFFFF" }}>
               {pwdSaved ? <><Check className="h-4 w-4" />已修改</> : "修改密码"}
             </button>
