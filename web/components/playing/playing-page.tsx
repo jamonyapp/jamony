@@ -84,6 +84,15 @@ export function PlayingPage() {
     setConfirmOpen(false)
     window.jamonyAPI?.killJamsoul?.()
     setAudioConnected(false)
+    // 退出房间（只剩自己时自动解散）
+    const rid = params?.id
+    if (rid && user?.id) {
+      fetch(`/api/rooms/${rid}/leave`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id }),
+      }).catch(() => {})
+    }
     if (target === "home") router.push("/")
     else if (target === "lobby") router.push("/lobby")
   }
