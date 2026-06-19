@@ -139,7 +139,7 @@ export function SettingsPage() {
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <TopNav />
+      <TopNav backLinks={[{ label: "返回个人主页", href: `/profile?nickname=${encodeURIComponent(user.nickname)}` }]} />
       <div className="mx-auto max-w-3xl px-4 pb-20 pt-16">
         <h1 className="mb-8 text-xl font-bold text-white">个人设置</h1>
 
