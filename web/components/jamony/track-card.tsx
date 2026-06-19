@@ -5,6 +5,7 @@ import { MoreHorizontal, Pause, Play, Heart, MessageCircle } from "lucide-react"
 import { VinylRecord } from "@/components/jamony/vinyl-record"
 import { usePlayer } from "@/components/jamony/player-context"
 import { formatCount, type Track } from "@/lib/jamony-data"
+import { useAuth } from "@/lib/auth-context"
 
 function WaveBars() {
   return (
@@ -25,6 +26,7 @@ function WaveBars() {
 
 export function TrackCard({ track }: { track: Track }) {
   const { current, isPlaying, playTrack, togglePlay, addToPlaylist } = usePlayer()
+  const { loggedIn, setShowLoginModal } = useAuth()
   const [menuOpen, setMenuOpen] = useState(false)
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [feedbackText, setFeedbackText] = useState("")
@@ -66,6 +68,7 @@ export function TrackCard({ track }: { track: Track }) {
   function handleMenuItem(action: string) {
     console.log("[v0] 菜单操作:", action, "-", track.title)
     if (action === "detail") {
+      if (!loggedIn) { setShowLoginModal(true); return }
       window.location.href = `/library/${track.id}`
       return
     }

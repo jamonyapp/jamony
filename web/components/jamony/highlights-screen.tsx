@@ -4,6 +4,7 @@ import { highlights, type Highlight } from "@/lib/jamony-data"
 import { Heart, Pause, Play, SkipBack, SkipForward, X, ExternalLink, ListMusic, MessageCircle } from "lucide-react"
 import { useState } from "react"
 import { SectionHeader } from "./section-header"
+import { useAuth } from "@/lib/auth-context"
 
 const DISC_ANGLES = [-2.0, 1.6, -1.4, 2.2]
 
@@ -73,6 +74,7 @@ function DetailModal({ item, onClose }: { item: Highlight; onClose: () => void }
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [feedbackText, setFeedbackText] = useState("")
   const [feedbackSent, setFeedbackSent] = useState(false)
+  const { loggedIn, setShowLoginModal } = useAuth()
 
   return (
     <div
@@ -151,6 +153,7 @@ function DetailModal({ item, onClose }: { item: Highlight; onClose: () => void }
               <button
                 type="button"
                 onClick={() => {
+                  if (!loggedIn) { setShowLoginModal(true); return }
                   if (item.trackId) window.location.href = `/library/${item.trackId}`
                   else console.log("[highlights] no matching track for", item.title)
                 }}
