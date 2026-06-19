@@ -8,6 +8,7 @@ import { PlayerBar } from "@/components/jamony/player-bar"
 import { PlayerProvider, usePlayer } from "@/components/jamony/player-context"
 import { tracks, type Track } from "@/lib/jamony-data"
 import { useAuth } from "@/lib/auth-context"
+import { UserPopover } from "@/components/jamony/user-popover"
 
 const SCALE_LABEL: Record<string, string> = {
   solo: "Solo · 单人",
@@ -329,7 +330,7 @@ function WorkDetailInner() {
             {track.members.map((name, i) => (
               <div key={name} className="flex items-center gap-2">
                 <Avatar name={name} gradient={musicianGradients[i % musicianGradients.length]} size={36} />
-                <span className="text-sm text-white">{name}</span>
+                <span className="text-sm text-white"><UserPopover nickname={name}>{name}</UserPopover></span>
                 <span className="text-base leading-none">
                   {track.instruments[i] ? instrumentEmojis[track.instruments[i]] ?? "🎵" : "🎵"}
                 </span>
@@ -386,7 +387,7 @@ function WorkDetailInner() {
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-baseline gap-2">
-                        <span className="text-sm font-medium text-white">{c.name}</span>
+                        <span className="text-sm font-medium text-white"><UserPopover nickname={c.name}>{c.name}</UserPopover></span>
                         <span className="text-[11px] text-[#666]">{c.time}</span>
                       </div>
                       <p className="mt-0.5 text-sm text-[#C9C9C9]">{c.text}</p>

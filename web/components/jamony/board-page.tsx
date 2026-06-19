@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useMemo, useState, type ReactNode } from "react"
 import { Plus, X, Heart, MessageCircle, ChevronDown, Search } from "lucide-react"
 import {
   type Notice,
@@ -13,6 +13,7 @@ import {
 import { PublishNoticeModal } from "@/components/jamony/publish-notice-modal"
 import { TopNav } from "@/components/jamony/top-nav"
 import { useAuth } from "@/lib/auth-context"
+import { UserPopover } from "@/components/jamony/user-popover"
 
 const PAGE_SIZE = 20
 const LOAD_MORE_SIZE = 12
@@ -289,7 +290,7 @@ function NoticeCard({ notice, onClick }: { notice: Notice; onClick: () => void }
             className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
             style={{ backgroundColor: NOTICE_TYPE_COLOR[notice.type] }}
           />
-          {NOTICE_TYPE_LABEL[notice.type]} · from：{notice.author}
+          {NOTICE_TYPE_LABEL[notice.type]} · from：<UserPopover nickname={notice.author}>{notice.author}</UserPopover>
         </p>
       </div>
     </button>
@@ -348,7 +349,7 @@ function NoticeDetailModal({ notice, onClose }: { notice: Notice | null; onClose
           <div className="my-5 h-px w-full" style={{ backgroundColor: "#1A1A1A" }} />
 
           <dl className="grid grid-cols-2 gap-y-2 text-sm">
-            <Meta label="发布人" value={notice.author} />
+            <Meta label="发布人" value={<UserPopover nickname={notice.author}><span className="text-white">{notice.author}</span></UserPopover>} />
             <Meta label="发布时间" value={notice.time} />
             <Meta label="风格" value={notice.style} />
             <Meta label="城市" value={notice.city} />
@@ -378,7 +379,7 @@ function NoticeDetailModal({ notice, onClose }: { notice: Notice | null; onClose
   )
 }
 
-function Meta({ label, value }: { label: string; value: string }) {
+function Meta({ label, value }: { label: string; value: string | ReactNode }) {
   return (
     <div className="flex flex-col">
       <dt className="text-xs text-[#8A8A8A]">{label}</dt>

@@ -2,6 +2,7 @@
 
 import { notices, type Notice } from "@/lib/jamony-data"
 import { useAuth } from "@/lib/auth-context"
+import { UserPopover } from "@/components/jamony/user-popover"
 import { X } from "lucide-react"
 import { useEffect, useState } from "react"
 import { SectionHeader } from "./section-header"
@@ -100,7 +101,7 @@ function NoteCard({ notice, index, onOpen }: { notice: Notice; index: number; on
           </span>
         </div>
         <p className="mt-3 text-right text-[12px]" style={{ color: "#9A9A9A" }}>
-          —— {notice.author}
+          —— <UserPopover nickname={notice.author}>{notice.author}</UserPopover>
         </p>
 
         {/* curled bottom-right corner */}
@@ -205,7 +206,7 @@ function NoticeDetailModal({ item, onClose }: { item: Notice; onClose: () => voi
 
           {/* 发布信息 */}
           <div className="flex flex-col gap-1 text-[13px]" style={{ color: "#8A8A8A" }}>
-            <span>发布人：{item.author}</span>
+            <span>发布人：<UserPopover nickname={item.author}>{item.author}</UserPopover></span>
             <span>发布时间：{item.time}</span>
           </div>
 

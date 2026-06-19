@@ -6,6 +6,7 @@ import { VinylRecord } from "@/components/jamony/vinyl-record"
 import { usePlayer } from "@/components/jamony/player-context"
 import { formatCount, type Track } from "@/lib/jamony-data"
 import { useAuth } from "@/lib/auth-context"
+import { UserPopover } from "@/components/jamony/user-popover"
 
 function WaveBars() {
   return (
@@ -256,7 +257,7 @@ export function TrackCard({ track }: { track: Track }) {
           {track.title}
         </h3>
         <span className="text-[12px]" style={{ color: "#D0D0D0" }}>
-          {track.author}
+          <UserPopover nickname={track.author}>{track.author}</UserPopover>
         </span>
         <div className="flex items-center gap-2 text-[12px] text-white">
           <span className="flex items-center gap-0.5">

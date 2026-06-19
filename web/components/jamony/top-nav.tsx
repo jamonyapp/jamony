@@ -235,39 +235,56 @@ export function TopNav({
 
               {openMenu === "user" && (
                 <div
-                  className="absolute right-0 top-[calc(100%+8px)] w-[180px] overflow-hidden rounded-xl border p-1"
+                  className="absolute right-0 top-[calc(100%+8px)] w-[200px] overflow-hidden rounded-xl border"
                   style={{ background: "#0D0D0D", borderColor: "#1A1A1A" }}
                 >
-                  {menuItems.map((item) => {
-                    const Icon = item.icon
-                    return (
-                      <button
-                        key={item.id}
-                        className="flex h-10 w-full items-center gap-2.5 rounded-lg px-3 text-[14px] transition-colors hover:bg-white/5"
-                        style={{ color: "#E0E0E0" }}
-                        onClick={() => {
-                          if (item.id === "logout") {
-                            logout()
-                            setOpenMenu("none")
-                            return
-                          }
-                          if (item.id === "profile" && user?.nickname) {
-                            window.location.href = `/profile?nickname=${encodeURIComponent(user.nickname)}`
-                            return
-                          }
-                          if (item.id === "settings") {
-                            window.location.href = "/settings"
-                            return
-                          }
-                          console.log("[v0] user menu:", item.id)
-                          setOpenMenu("none")
-                        }}
+                  {/* 用户信息条 */}
+                  {user && (
+                    <div className="border-b px-4 py-3" style={{ borderColor: "#1A1A1A" }}>
+                      <p className="text-[14px] font-semibold text-white">{user.nickname}</p>
+                      <p className="mt-0.5 text-[12px]" style={{ color: "#8A8A8A" }}>
+                        Lv.{user.level} · {user.points.toLocaleString()} 积分
+                      </p>
+                      <span
+                        className="mt-1.5 inline-block rounded-md px-1.5 py-0.5 text-[10px]"
+                        style={{ color: "#FF33AA", backgroundColor: "rgba(255,51,170,0.10)" }}
                       >
-                        <Icon className="h-4 w-4" />
-                        {item.label}
-                      </button>
-                    )
-                  })}
+                        🎵 免费用户
+                      </span>
+                    </div>
+                  )}
+                  <div className="p-1">
+                    {menuItems.map((item) => {
+                      const Icon = item.icon
+                      return (
+                        <button
+                          key={item.id}
+                          className="flex h-10 w-full items-center gap-2.5 rounded-lg px-3 text-[14px] transition-colors hover:bg-white/5"
+                          style={{ color: "#E0E0E0" }}
+                          onClick={() => {
+                            if (item.id === "logout") {
+                              logout()
+                              setOpenMenu("none")
+                              return
+                            }
+                            if (item.id === "profile" && user?.nickname) {
+                              window.location.href = `/profile?nickname=${encodeURIComponent(user.nickname)}`
+                              return
+                            }
+                            if (item.id === "settings") {
+                              window.location.href = "/settings"
+                              return
+                            }
+                            console.log("[v0] user menu:", item.id)
+                            setOpenMenu("none")
+                          }}
+                        >
+                          <Icon className="h-4 w-4" />
+                          {item.label}
+                        </button>
+                      )
+                    })}
+                  </div>
                 </div>
               )}
             </div>
