@@ -42,6 +42,7 @@ export function PlayingPage() {
   const [chords, setChords] = useState<string[]>([])
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [audioConnected, setAudioConnected] = useState(false)
+  const [roomGone, setRoomGone] = useState(false)
   const [confirmTarget, setConfirmTarget] = useState<"stay" | "home" | "lobby">("stay")
 
   // 从 API 读取房间数据 + 自动连接音频
@@ -98,7 +99,7 @@ export function PlayingPage() {
   }
 
   const handleReconnect = () => {
-    if (!room) return
+    if (!room || roomGone) return
     const payload = { serverIp: room.stored_server_ip || "39.96.30.128", port: room.server_port }
     if (window.jamonyAPI) {
       window.jamonyAPI.joinRoom(payload)
@@ -117,6 +118,7 @@ export function PlayingPage() {
     <div className="flex h-screen flex-col pt-11 bg-black">
       <TopNav
         onBackHome={() => {
+          if (roomGone) { window.location.href = "/"; return }
           if (audioConnected) { setConfirmTarget("home"); setConfirmOpen(true) }
           else window.location.href = "/"
         }}
@@ -124,13 +126,14 @@ export function PlayingPage() {
           label: "返回大厅",
           href: "/lobby",
           onClick: () => {
+            if (roomGone) { window.location.href = "/lobby"; return }
             if (audioConnected) { setConfirmTarget("lobby"); setConfirmOpen(true) }
             else window.location.href = "/lobby"
           },
         }]}
       />
 
-      {room && !audioConnected && (
+      {room && !audioConnected && !roomGone && (
         <div className="flex items-center justify-center gap-3 border-b px-4 py-2" style={{ borderColor: "#1A1A1A", background: "#0D0D0D" }}>
           <span className="text-sm text-white">{room.name}</span>
           <span className="text-xs" style={{ color: "#8A8A8A" }}>
@@ -143,12 +146,18 @@ export function PlayingPage() {
           </button>
         </div>
       )}
+      {room && !audioConnected && roomGone && (
+        <div className="flex items-center justify-center gap-3 border-b px-4 py-2" style={{ borderColor: "#1A1A1A", background: "#0D0D0D" }}>
+          <span className="text-sm" style={{ color: "#8A8A8A" }}>房间已关闭</span>
+        </div>
+      )}
 
       <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[22%_minmax(0,1fr)_30%]">
         <div className="min-h-0 border-b lg:border-b-0 lg:border-r" style={{ borderColor: "#1A1A1A" }}>
           <LeftColumn
             onPushChord={(c) => setChords(c)}
             audioConnected={audioConnected}
+            roomGone={roomGone}
             onDisconnect={() => { setConfirmTarget("stay"); setConfirmOpen(true) }}
             onReconnect={handleReconnect}
           />

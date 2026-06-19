@@ -15,11 +15,13 @@ type Tool = "chords" | "metronome"
 export function LeftColumn({
   onPushChord,
   audioConnected,
+  roomGone,
   onDisconnect,
   onReconnect,
 }: {
   onPushChord: (chords: string[], style: string) => void
   audioConnected: boolean
+  roomGone?: boolean
   onDisconnect: () => void
   onReconnect: () => void
 }) {
@@ -198,11 +200,20 @@ export function LeftColumn({
       </section>
 
       {/* 音频连接状态 */}
-      {audioConnected ? (
+      {roomGone ? (
+        <button
+          disabled
+          className="flex items-center justify-center gap-2 rounded-[10px] px-4 py-3 text-base font-semibold cursor-not-allowed"
+          style={{ background: "#222", color: "#666" }}
+        >
+          <PowerOff className="size-5" />
+          房间已关闭
+        </button>
+      ) : audioConnected ? (
         <button
           onClick={onDisconnect}
-          className="flex items-center justify-center gap-2 rounded-[10px] bg-destructive px-4 py-3 text-base font-semibold text-destructive-foreground shadow-[0_0_24px_-6px_var(--brand-pink)] transition-opacity hover:opacity-90"
-          style={{ color: "#fff" }}
+          className="flex items-center justify-center gap-2 rounded-[10px] px-4 py-3 text-base font-semibold text-white transition-opacity hover:opacity-90"
+          style={{ background: "#FF5C5C", color: "#fff" }}
         >
           <PowerOff className="size-5" />
           断开连接
