@@ -256,7 +256,7 @@ export function HighlightsScreen() {
   const [active, setActive] = useState<Highlight | null>(null)
   return (
     <section>
-      <SectionHeader title="⭐ 高光时刻" linkLabel="作品库" onLink={() => window.location.href = "/library"} />
+      <SectionHeader title="高光时刻" linkLabel="作品库" onLink={() => window.location.href = "/library"} />
       <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 lg:grid-cols-4">
         {highlights.map((item, i) => (
           <HighlightCard

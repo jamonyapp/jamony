@@ -92,7 +92,7 @@ export function RoomsScreen() {
   const [selectedRoom, setSelectedRoom] = useState<string | null>(null)
   return (
     <section>
-      <SectionHeader title="🎵 热门房间" linkLabel="房间大厅" onLink={() => router.push("/lobby")} />
+      <SectionHeader title="热门房间" linkLabel="房间大厅" onLink={() => router.push("/lobby")} />
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
         {rooms.map((room, i) => (
           <RoomCard key={room.id} room={room} angle={ROOM_ANGLES[i % ROOM_ANGLES.length]} onJoin={() => setSelectedRoom(room.id)} />

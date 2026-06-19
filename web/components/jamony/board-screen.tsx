@@ -123,7 +123,7 @@ export function BoardScreen() {
   const [activeNotice, setActiveNotice] = useState<Notice | null>(null)
   return (
     <section>
-      <SectionHeader title="📢 公告牌" linkLabel="全部公告" onLink={() => console.log("[v0] all notices")} />
+      <SectionHeader title="公告牌" linkLabel="全部公告" onLink={() => console.log("[v0] all notices")} />
 
       {/* neon-wall photo background */}
       <div

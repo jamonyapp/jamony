@@ -63,16 +63,17 @@ export function ActiveMusicians() {
                   className="flex shrink-0 flex-col items-center gap-2.5 px-0.5 transition-all duration-500 ease-out"
                 >
                   <span
-                    className="flex items-center justify-center rounded-full text-3xl font-bold text-white"
+                    className="flex items-center justify-center rounded-full font-bold text-white"
                     style={{
                       background: m.avatarGradient,
-                      height: 96,
-                      width: 96,
+                      height: 72,
+                      width: 72,
+                      fontSize: 24,
                     }}
                   >
                     {m.name.charAt(0)}
                   </span>
-                  <span className="max-w-full truncate text-[15px] font-medium text-white">
+                  <span className="max-w-full truncate text-[13px] font-medium text-white">
                     {m.name}
                   </span>
                   <span className="text-[13px] text-[#8A8A8A]">
