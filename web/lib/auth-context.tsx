@@ -19,6 +19,7 @@ export type UserInfo = {
 type AuthContextType = {
   user: UserInfo | null
   loggedIn: boolean
+  ready: boolean
   login: (nickname: string, password: string) => Promise<string | null>
   register: (nickname: string, password: string, primaryInstrument: string, instrumentCategory?: string) => Promise<string | null>
   logout: () => void
@@ -30,6 +31,7 @@ const AuthContext = createContext<AuthContextType>(null!)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserInfo | null>(null)
+  const [ready, setReady] = useState(false)
   const [showLoginModal, setShowLoginModal] = useState(false)
 
   // 页面加载时从 localStorage 恢复登录状态
@@ -40,6 +42,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(JSON.parse(saved))
       } catch { /* ignore */ }
     }
+    setReady(true)
   }, [])
 
   const login = useCallback(async (nickname: string, password: string): Promise<string | null> => {
@@ -82,7 +85,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   return (
-    <AuthContext.Provider value={{ user, loggedIn: !!user, login, register, logout, showLoginModal, setShowLoginModal }}>
+    <AuthContext.Provider value={{ user, loggedIn: !!user, ready, login, register, logout, showLoginModal, setShowLoginModal }}>
       {children}
     </AuthContext.Provider>
   )

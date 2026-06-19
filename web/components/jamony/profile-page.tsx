@@ -37,11 +37,12 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 export function ProfilePage({ nickname }: { nickname: string }) {
   const router = useRouter()
-  const { user: currentUser, loggedIn, setShowLoginModal } = useAuth()
+  const { user: currentUser, loggedIn, ready, setShowLoginModal } = useAuth()
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    if (!ready) return
     if (!loggedIn) {
       setShowLoginModal(true)
       setLoading(false)
@@ -56,7 +57,11 @@ export function ProfilePage({ nickname }: { nickname: string }) {
       setLoading(false)
     }
     load()
-  }, [nickname, loggedIn, setShowLoginModal])
+  }, [nickname, loggedIn, ready, setShowLoginModal])
+
+  if (!ready) {
+    return <div className="min-h-screen bg-black text-white"><TopNav /></div>
+  }
 
   // 未登录 → 显示透明占位（弹窗已弹出）
   if (!loggedIn) {

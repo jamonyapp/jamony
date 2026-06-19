@@ -75,7 +75,7 @@ const inputClass = "w-full rounded-[10px] border px-3 py-2.5 text-sm text-white 
 
 export function SettingsPage() {
   const router = useRouter()
-  const { user, loggedIn, logout, setShowLoginModal } = useAuth()
+  const { user, loggedIn, ready, logout, setShowLoginModal } = useAuth()
   const [saved, setSaved] = useState(false)
   const [avatarOpen, setAvatarOpen] = useState(false)
   const [avatarIdx, setAvatarIdx] = useState(0)
@@ -95,6 +95,7 @@ export function SettingsPage() {
   const [phoneTip, setPhoneTip] = useState(false)
 
   useEffect(() => {
+    if (!ready) return
     if (!loggedIn) {
       setShowLoginModal(true)
       return
@@ -105,14 +106,14 @@ export function SettingsPage() {
     setCity(user?.city || "")
     setInstrument(user?.primaryInstrument || "原声吉他")
     setAvatarIdx(user?.avatarIndex || 0)
-  }, [loggedIn, user, setShowLoginModal])
+  }, [ready, loggedIn, user, setShowLoginModal])
+
+  if (!ready) {
+    return <div className="min-h-screen bg-black text-white"><TopNav /></div>
+  }
 
   if (!loggedIn || !user) {
-    return (
-      <div className="min-h-screen bg-black text-white">
-        <TopNav />
-      </div>
-    )
+    return <div className="min-h-screen bg-black text-white"><TopNav /></div>
   }
 
   const showCustomInput = instrument in CUSTOM_INSTRUMENT_PLACEHOLDER
