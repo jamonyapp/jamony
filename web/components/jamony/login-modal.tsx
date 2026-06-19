@@ -5,13 +5,13 @@ import { X, Loader2 } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
 
 const INSTRUMENTS = [
-  "电吉他", "原声吉他", "贝斯", "打击乐器", "键盘乐器",
+  "原声吉他", "电吉他", "贝斯", "打击乐器", "键盘乐器",
   "主唱", "弦乐", "管乐", "民乐",
   "其他", "听众",
 ]
 
 // 选择了这些大类后，弹出输入框让用户细化
-const INSTRUMENT_NEEDS_INPUT = ["弦乐", "管乐", "其他"]
+const INSTRUMENT_NEEDS_INPUT = ["弦乐", "管乐", "民乐", "其他"]
 
 type Mode = "login" | "register"
 
@@ -264,7 +264,7 @@ export function LoginModal() {
                     type="text"
                     value={regOtherInstrument}
                     onChange={(e) => setRegOtherInstrument(e.target.value)}
-                    placeholder={regInstrument === "其他" ? "请输入你的乐器" : "例如：小提琴、笛子、二胡..."}
+                    placeholder={regInstrument === "其他" ? "请输入你的乐器" : regInstrument === "弦乐" ? "例如：小提琴、大提琴..." : regInstrument === "管乐" ? "例如：萨克斯、口琴、笛子..." : "例如：古筝、二胡、琵琶..."}
                     autoFocus
                     className="mt-2 w-full rounded-xl border px-4 py-2.5 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
                     style={{ background: "#141414", borderColor: "#2A2A2A" }}
