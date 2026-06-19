@@ -145,7 +145,7 @@ export function RoomListPage() {
         {loading ? (
           <div className="mt-20 text-center text-sm" style={{ color: "#8A8A8A" }}>加载中...</div>
         ) : (
-        <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
           {filtered.length > 0 ? (
             filtered.map((room) => {
               const mappedForCard = {

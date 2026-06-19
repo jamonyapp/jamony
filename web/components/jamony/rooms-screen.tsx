@@ -117,7 +117,7 @@ export function RoomsScreen() {
           <p className="text-sm" style={{ color: "#8A8A8A" }}>暂无房间，去大厅创建一个吧</p>
         </div>
       ) : (
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         {rooms.map((room, i) => (
           <RoomCard key={room.id} room={room} angle={ROOM_ANGLES[i % ROOM_ANGLES.length]} onJoin={() => setSelectedRoom(String(room.id))} />
         ))}

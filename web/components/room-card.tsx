@@ -9,14 +9,14 @@ export function RoomCard({ room, onSelect }: { room: Room; onSelect?: () => void
   const latencyColor = room.latency >= 30 ? "text-[#ffb84d]" : "text-brand-lime"
 
   const handleClick = () => {
-    if (isFull || !onSelect) return
+    if (!onSelect) return
     onSelect()
   }
 
   return (
-    <button type="button" disabled={isFull} onClick={handleClick}
+    <button type="button" onClick={handleClick}
       className={`group relative flex w-full flex-col gap-3 rounded-[10px] border border-border bg-card p-5 text-left transition-all duration-200 ${
-        isFull ? "cursor-not-allowed opacity-60" : "hover:-translate-y-0.5 hover:border-transparent active:scale-[0.985]"
+        isFull ? "opacity-80" : "hover:-translate-y-0.5 hover:border-transparent active:scale-[0.985]"
       } ${room.isPrivate ? "opacity-90" : ""}`}>
       {!isFull && (
         <span aria-hidden className="pointer-events-none absolute inset-0 rounded-[10px] opacity-0 transition-opacity duration-200 group-hover:opacity-100"

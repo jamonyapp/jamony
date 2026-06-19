@@ -249,7 +249,7 @@ export function RoomDetailModal({
               </>
             ) : myRole === "musician" ? (
               <div className="text-center text-sm py-2" style={{ color: "#BBEE00" }}>
-                ✅ 你已加入合奏
+                {room?.host_id === user?.id ? "👑 你是房主" : "✅ 你已加入合奏"}
               </div>
             ) : (
               <div className="text-center text-sm py-2" style={{ color: "#FF33AA" }}>

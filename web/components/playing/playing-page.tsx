@@ -39,7 +39,7 @@ export function PlayingPage() {
   const router = useRouter()
   const { user } = useAuth()
   const [room, setRoom] = useState<RoomData | null>(null)
-  const [chords, setChords] = useState<string[]>(CHORD_PRESETS[0].chords)
+  const [chords, setChords] = useState<string[]>([])
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [audioConnected, setAudioConnected] = useState(false)
   const [confirmTarget, setConfirmTarget] = useState<"stay" | "home" | "lobby">("stay")

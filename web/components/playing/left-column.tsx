@@ -27,7 +27,7 @@ export function LeftColumn({
   const [style, setStyle] = useState<string>(CHORD_STYLES[0])
   const [phrases, setPhrases] = useState<number>(2)
   // 初始用确定性进程，避免 SSR / 客户端随机不一致；随机仅在点击“生成”时发生
-  const [chords, setChords] = useState<string[]>(["E7", "A7", "E7", "E7", "A7", "E7", "B7", "E7"])
+  const [chords, setChords] = useState<string[]>([])
   const [customMode, setCustomMode] = useState(false)
   const [customInput, setCustomInput] = useState("")
 
