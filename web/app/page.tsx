@@ -6,6 +6,7 @@ import { HighlightsScreen } from "@/components/jamony/highlights-screen"
 import { LeftSidebar } from "@/components/jamony/left-sidebar"
 import { RoomsScreen } from "@/components/jamony/rooms-screen"
 import { TopNav } from "@/components/jamony/top-nav"
+import { ActiveMusicians } from "@/components/jamony/active-musicians"
 
 export default function Home() {
   return (
@@ -17,6 +18,7 @@ export default function Home() {
           <HeroSection />
           <RoomsScreen />
           <BoardScreen />
+          <ActiveMusicians />
           <HighlightsScreen />
         </div>
       </main>
