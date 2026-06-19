@@ -9,6 +9,7 @@ export type UserInfo = {
   bio: string
   city: string
   primaryInstrument: string
+  instrumentCategory: string
   secondaryInstrument: string
   level: number
   points: number
@@ -18,7 +19,7 @@ type AuthContextType = {
   user: UserInfo | null
   loggedIn: boolean
   login: (nickname: string, password: string) => Promise<string | null>
-  register: (nickname: string, password: string, primaryInstrument: string) => Promise<string | null>
+  register: (nickname: string, password: string, primaryInstrument: string, instrumentCategory?: string) => Promise<string | null>
   logout: () => void
   showLoginModal: boolean
   setShowLoginModal: (v: boolean) => void
@@ -57,12 +58,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const register = useCallback(async (nickname: string, password: string, primaryInstrument: string): Promise<string | null> => {
+  const register = useCallback(async (nickname: string, password: string, primaryInstrument: string, instrumentCategory?: string): Promise<string | null> => {
     try {
       const res = await fetch("/api/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nickname, password, primaryInstrument }),
+        body: JSON.stringify({ nickname, password, primaryInstrument, instrumentCategory }),
       })
       const data = await res.json()
       if (!data.ok) return data.msg || "注册失败"

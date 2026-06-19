@@ -88,7 +88,8 @@ export function LoginModal() {
     setLoading(true)
     setError("")
     const finalInstrument = INSTRUMENT_NEEDS_INPUT.includes(regInstrument) ? regOtherInstrument.trim() : regInstrument
-    const err = await register(regNickname.trim(), regPassword, finalInstrument)
+    const finalCategory = regInstrument
+    const err = await register(regNickname.trim(), regPassword, finalInstrument, finalCategory)
     setLoading(false)
     if (err) {
       setError(err)

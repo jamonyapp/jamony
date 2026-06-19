@@ -30,6 +30,7 @@ type Musician = {
   id: number
   nickname: string
   primary_instrument: string
+  instrument_category: string
 }
 
 export function ActiveMusicians() {
@@ -120,7 +121,7 @@ export function ActiveMusicians() {
                     {m.nickname}
                   </span>
                   <span className="text-[18px] leading-none text-[#8A8A8A]">
-                    {INSTRUMENT_ICON[m.primary_instrument] || "🎵"}
+                    {INSTRUMENT_ICON[m.instrument_category] || "🎵"}
                   </span>
                 </button>
               )
