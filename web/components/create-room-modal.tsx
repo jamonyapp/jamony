@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { X, Loader2 } from "lucide-react"
+import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 
 const STYLES = ["摇滚","民谣","爵士","布鲁斯","放克","雷鬼","电子","古典","流行","嘻哈","R&B","国风","金属","ACG","实验"]
@@ -14,6 +15,7 @@ export function CreateRoomModal({
   onClose: () => void
 }) {
   const { user } = useAuth()
+  const router = useRouter()
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
   const [style, setStyle] = useState("摇滚")
@@ -44,6 +46,7 @@ export function CreateRoomModal({
       if (!data.ok) { setError(data.msg || "创建失败"); setLoading(false); return }
       setLoading(false)
       onClose()
+      router.push(`/room/${data.room.id}/playing`)
     } catch {
       setError("网络错误")
       setLoading(false)

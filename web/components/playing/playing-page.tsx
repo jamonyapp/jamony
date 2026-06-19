@@ -44,7 +44,7 @@ export function PlayingPage() {
   const [audioConnected, setAudioConnected] = useState(false)
   const [confirmTarget, setConfirmTarget] = useState<"stay" | "home" | "lobby">("stay")
 
-  // 从 API 读取房间数据
+  // 从 API 读取房间数据 + 自动连接音频
   useEffect(() => {
     const roomId = params?.id
     if (!roomId) return
@@ -52,14 +52,33 @@ export function PlayingPage() {
       .then(r => r.json())
       .then(data => {
         if (data.ok) {
-          setRoom({
+          const roomData = {
             ...data.room,
             stored_server_ip: "39.96.30.128",
-          })
+          }
+          setRoom(roomData)
+          // 自动调起 jamsoul 连接音频
+          setTimeout(() => {
+            const payload = { serverIp: "39.96.30.128", port: roomData.server_port }
+            if (window.jamonyAPI) {
+              window.jamonyAPI.joinRoom(payload)
+            } else {
+              window.postMessage({ type: "JOIN_ROOM", payload }, "*")
+            }
+            setAudioConnected(true)
+            // 更新音频状态到数据库
+            if (user?.id) {
+              fetch(`/api/rooms/${roomId}/members/${user.id}/audio-status`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ audioStatus: "connected" }),
+              }).catch(() => {})
+            }
+          }, 500)
         }
       })
       .catch(() => {})
-  }, [params?.id])
+  }, [params?.id, user?.id])
 
   const doDisconnect = (target: "stay" | "home" | "lobby") => {
     setConfirmOpen(false)
