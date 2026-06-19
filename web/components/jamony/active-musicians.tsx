@@ -54,7 +54,7 @@ export function ActiveMusicians() {
                 <button
                   key={m.id}
                   type="button"
-                  onClick={() => console.log("[library] go to profile:", m.name)}
+                  onClick={() => window.location.href = `/profile?nickname=${encodeURIComponent(m.name)}`}
                   style={{
                     width: itemWidth || undefined,
                     opacity: faded ? 0 : 1,

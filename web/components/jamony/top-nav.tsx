@@ -248,6 +248,17 @@ export function TopNav({
                         onClick={() => {
                           if (item.id === "logout") {
                             logout()
+                            setOpenMenu("none")
+                            return
+                          }
+                          if (item.id === "profile" && user?.nickname) {
+                            window.location.href = `/profile?nickname=${encodeURIComponent(user.nickname)}`
+                            return
+                          }
+                          if (item.id === "settings") {
+                            console.log("[v0] settings page coming soon")
+                            setOpenMenu("none")
+                            return
                           }
                           console.log("[v0] user menu:", item.id)
                           setOpenMenu("none")
