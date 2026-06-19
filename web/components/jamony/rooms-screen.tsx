@@ -1,16 +1,23 @@
 "use client"
 
-import { useState } from "react"
-import { rooms } from "@/lib/jamony-data"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { SectionHeader } from "./section-header"
 import { RoomDetailModal } from "@/components/room-detail-modal"
 
-// Fixed, evenly-distributed tilt angles (degrees, +right / -left) — one per card.
 const ROOM_ANGLES = [2.2, -1.8, 1.5, -2.0, -0.8, 2.5, -2.3, 1.0, -1.2, 2.8, -2.5, 1.8]
 
+const STYLE_EMOJI: Record<string, string> = {
+  "摇滚": "🎸", "金属": "🎸", "流行": "🎤",
+  "爵士": "🎷", "布鲁斯": "🎷",
+  "民谣": "🪕", "古典": "🎻",
+  "电子": "🎛️", "放克": "🎸",
+  "嘻哈": "🎤", "R&B": "🎤",
+  "国风": "🏮", "ACG": "🎹",
+  "雷鬼": "🥁",
+}
+
 function SoundWavePin() {
-  // tiny pulsing soundwave "pin" in the corner of each card
   const bars = [0, 1, 2, 3, 4]
   return (
     <div className="flex h-5 items-end gap-[2px]" aria-hidden>
@@ -30,6 +37,17 @@ function SoundWavePin() {
   )
 }
 
+type Room = {
+  id: number
+  name: string
+  description: string
+  style: string
+  host_name: string
+  musician_count: number
+  max_musicians: number
+  listener_count: number
+}
+
 function RoomCard({ room, angle, onJoin }: { room: Room; angle: number; onJoin: () => void }) {
   return (
     <button
@@ -44,44 +62,34 @@ function RoomCard({ room, angle, onJoin }: { room: Room; angle: number; onJoin: 
       }}
       onClick={onJoin}
     >
-      {/* sheen sweep */}
       <span className="jamony-sheen pointer-events-none absolute inset-0 rounded-[10px]" aria-hidden />
 
       <div className="flex items-start justify-between">
         <SoundWavePin />
         <span className="text-[12px] font-medium text-white">
-          {room.current}/{room.max}
+          {room.musician_count}/{room.max_musicians}
         </span>
       </div>
 
       <div className="flex flex-col gap-1">
-        <h3 className="text-[15px] font-bold text-white">{room.title}</h3>
+        <div className="flex items-center gap-1.5">
+          <span className="text-lg">{STYLE_EMOJI[room.style] || "🎵"}</span>
+          <h3 className="text-[15px] font-bold text-white">{room.name}</h3>
+        </div>
         <p className="truncate text-[13px]" style={{ color: "#8A8A8A" }}>
-          {room.desc}
+          {room.description}
         </p>
       </div>
 
       <div className="flex items-center gap-2">
-        <span className="text-[12px] text-white">{room.host}</span>
-        <span
-          className="rounded px-1.5 py-0.5 text-[10px] font-semibold"
-          style={{ background: "rgba(255,193,7,0.15)", color: "#FFC107" }}
-        >
+        <span className="text-[12px] text-white">{room.host_name}</span>
+        <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold" style={{ background: "rgba(255,193,7,0.15)", color: "#FFC107" }}>
           host
         </span>
       </div>
 
-      <div className="flex items-center gap-1.5 text-[15px]">
-        {room.instruments.map((inst, i) => (
-          <span key={i} style={{ filter: "drop-shadow(0 0 4px rgba(153,51,255,0.5))" }}>
-            {inst}
-          </span>
-        ))}
-        {Array.from({ length: Math.max(0, room.max - room.instruments.length) }).map((_, i) => (
-          <span key={`empty-${i}`} className="opacity-25 grayscale">
-            🎵
-          </span>
-        ))}
+      <div className="flex items-center gap-1.5 text-xs" style={{ color: "#8A8A8A" }}>
+        🎸 {room.musician_count}/{room.max_musicians} · 🎧 {room.listener_count}
       </div>
     </button>
   )
@@ -89,15 +97,32 @@ function RoomCard({ room, angle, onJoin }: { room: Room; angle: number; onJoin: 
 
 export function RoomsScreen() {
   const router = useRouter()
+  const [rooms, setRooms] = useState<Room[]>([])
   const [selectedRoom, setSelectedRoom] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetch("/api/rooms")
+      .then(r => r.json())
+      .then(data => {
+        if (data.ok) setRooms(data.rooms.slice(0, 4))
+      })
+      .catch(() => {})
+  }, [])
+
   return (
     <section>
       <SectionHeader title="热门房间" linkLabel="房间大厅" onLink={() => router.push("/lobby")} />
+      {rooms.length === 0 ? (
+        <div className="flex items-center justify-center rounded-[10px] border border-dashed py-12" style={{ borderColor: "#2A2A2A" }}>
+          <p className="text-sm" style={{ color: "#8A8A8A" }}>暂无房间，去大厅创建一个吧</p>
+        </div>
+      ) : (
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
         {rooms.map((room, i) => (
-          <RoomCard key={room.id} room={room} angle={ROOM_ANGLES[i % ROOM_ANGLES.length]} onJoin={() => setSelectedRoom(room.id)} />
+          <RoomCard key={room.id} room={room} angle={ROOM_ANGLES[i % ROOM_ANGLES.length]} onJoin={() => setSelectedRoom(String(room.id))} />
         ))}
       </div>
+      )}
       <RoomDetailModal roomId={selectedRoom} onClose={() => setSelectedRoom(null)} />
     </section>
   )
