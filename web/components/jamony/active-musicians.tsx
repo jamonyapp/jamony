@@ -2,22 +2,50 @@
 
 import { useEffect, useRef, useState } from "react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
-import { musicians } from "@/lib/jamony-data"
+
+const GRADIENTS = [
+  "linear-gradient(135deg, #00AAFF, #9933FF)",
+  "linear-gradient(135deg, #9933FF, #FF33AA)",
+  "linear-gradient(135deg, #00AAFF, #FF33AA)",
+  "linear-gradient(135deg, #9933FF, #BBEE00)",
+  "linear-gradient(135deg, #FF33AA, #BBEE00)",
+  "linear-gradient(135deg, #00AAFF, #BBEE00)",
+]
+
+type Musician = {
+  id: number
+  nickname: string
+  primary_instrument: string
+}
 
 export function ActiveMusicians() {
   const containerRef = useRef<HTMLDivElement>(null)
   const [itemWidth, setItemWidth] = useState(0)
   const [offset, setOffset] = useState(0)
+  const [musicians, setMusicians] = useState<Musician[]>([])
 
   useEffect(() => {
+    fetch("/api/users?limit=16")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.ok) setMusicians(data.users)
+      })
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    if (musicians.length === 0) return
     const el = containerRef.current
     if (!el) return
     const measure = () => setItemWidth(el.clientWidth / 8.5)
-    measure()
-    const ro = new ResizeObserver(measure)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
+    // small delay so the DOM is ready after musicians load
+    const t = setTimeout(() => {
+      measure()
+      const ro = new ResizeObserver(measure)
+      ro.observe(el)
+    }, 50)
+    return () => clearTimeout(t)
+  }, [musicians.length])
 
   const containerWidth = itemWidth * 8.5
   const totalWidth = itemWidth * musicians.length
@@ -50,11 +78,12 @@ export function ActiveMusicians() {
           >
             {musicians.map((m, i) => {
               const faded = i < offset
+              const grad = GRADIENTS[i % GRADIENTS.length]
               return (
                 <button
                   key={m.id}
                   type="button"
-                  onClick={() => window.location.href = `/profile?nickname=${encodeURIComponent(m.name)}`}
+                  onClick={() => window.location.href = `/profile?nickname=${encodeURIComponent(m.nickname)}`}
                   style={{
                     width: itemWidth || undefined,
                     opacity: faded ? 0 : 1,
@@ -65,20 +94,19 @@ export function ActiveMusicians() {
                   <span
                     className="flex items-center justify-center rounded-full font-bold text-white"
                     style={{
-                      background: m.avatarGradient,
+                      background: grad,
                       height: 72,
                       width: 72,
                       fontSize: 24,
                     }}
                   >
-                    {m.name.charAt(0)}
+                    {m.nickname.charAt(0)}
                   </span>
                   <span className="max-w-full truncate text-[13px] font-medium text-white">
-                    {m.name}
+                    {m.nickname}
                   </span>
                   <span className="text-[13px] text-[#8A8A8A]">
-                    {m.primaryInstrument}
-                    {m.secondaryInstrument ?? ""}
+                    {m.primary_instrument}
                   </span>
                 </button>
               )
