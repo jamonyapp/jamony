@@ -1,8 +1,7 @@
-import { rooms } from "@/lib/rooms-data"
 import { PlayingPage } from "@/components/playing/playing-page"
 
 export function generateStaticParams() {
-  return rooms.map((room) => ({ id: room.id }))
+  return Array.from({ length: 10 }, (_, i) => ({ id: String(i + 1) }))
 }
 
 export default function Page() {

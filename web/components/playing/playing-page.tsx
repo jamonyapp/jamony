@@ -1,15 +1,15 @@
 "use client"
 
-import { useState } from "react"
-import { useRouter } from "next/navigation"
+import { useEffect, useState } from "react"
+import { useParams, useRouter } from "next/navigation"
 import { TopNav } from "@/components/jamony/top-nav"
 import { LeftColumn } from "@/components/playing/left-column"
 import { CenterColumn } from "@/components/playing/center-column"
 import { RightColumn } from "@/components/playing/right-column"
 import { DisconnectDialog } from "@/components/playing/disconnect-dialog"
-import { CHORD_PRESETS, ROOM } from "@/lib/jam-data"
+import { CHORD_PRESETS } from "@/lib/jam-data"
+import { useAuth } from "@/lib/auth-context"
 
-// Electron API 类型扩展
 declare global {
   interface Window {
     jamonyAPI?: {
@@ -20,28 +20,59 @@ declare global {
   }
 }
 
+type RoomData = {
+  id: number
+  name: string
+  description: string
+  style: string
+  host_id: number
+  host_name: string
+  server_port: number
+  stored_server_ip?: string
+  musician_count: number
+  listener_count: number
+  max_musicians: number
+}
+
 export function PlayingPage() {
+  const params = useParams()
   const router = useRouter()
+  const { user } = useAuth()
+  const [room, setRoom] = useState<RoomData | null>(null)
   const [chords, setChords] = useState<string[]>(CHORD_PRESETS[0].chords)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [audioConnected, setAudioConnected] = useState(false)
-  // "stay"=左下角断开 | "home"=回首页 | "lobby"=回大厅
   const [confirmTarget, setConfirmTarget] = useState<"stay" | "home" | "lobby">("stay")
+
+  // 从 API 读取房间数据
+  useEffect(() => {
+    const roomId = params?.id
+    if (!roomId) return
+    fetch(`/api/rooms/${roomId}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.ok) {
+          setRoom({
+            ...data.room,
+            stored_server_ip: "39.96.30.128",
+          })
+        }
+      })
+      .catch(() => {})
+  }, [params?.id])
 
   const doDisconnect = (target: "stay" | "home" | "lobby") => {
     setConfirmOpen(false)
     window.jamonyAPI?.killJamsoul?.()
-    console.log("[jamony] Audio disconnected, target:", target)
     setAudioConnected(false)
     if (target === "home") router.push("/")
     else if (target === "lobby") router.push("/lobby")
-    // "stay" → 留在合奏中页面
   }
 
   const handleReconnect = () => {
-    const payload = { serverIp: ROOM.serverIp, port: ROOM.port }
+    if (!room) return
+    const payload = { serverIp: room.stored_server_ip || "39.96.30.128", port: room.server_port }
     if (window.jamonyAPI) {
-      console.log("[jamony] Reconnecting audio:", JSON.stringify(payload))
       window.jamonyAPI.joinRoom(payload)
     } else {
       window.postMessage({ type: "JOIN_ROOM", payload }, "*")
@@ -49,8 +80,13 @@ export function PlayingPage() {
     setAudioConnected(true)
   }
 
+  const handleLaunchJamsoul = () => {
+    if (!room) return
+    handleReconnect()
+  }
+
   return (
-    <div className="flex h-screen flex-col pt-11 bg-background">
+    <div className="flex h-screen flex-col pt-11 bg-black">
       <TopNav
         onBackHome={() => {
           if (audioConnected) { setConfirmTarget("home"); setConfirmOpen(true) }
@@ -66,8 +102,22 @@ export function PlayingPage() {
         }]}
       />
 
+      {room && !audioConnected && (
+        <div className="flex items-center justify-center gap-3 border-b px-4 py-2" style={{ borderColor: "#1A1A1A", background: "#0D0D0D" }}>
+          <span className="text-sm text-white">{room.name}</span>
+          <span className="text-xs" style={{ color: "#8A8A8A" }}>
+            🎸 {room.musician_count}/{room.max_musicians} · 🎧 {room.listener_count}
+          </span>
+          <button onClick={handleLaunchJamsoul}
+            className="rounded-[8px] px-3 py-1 text-xs font-medium text-white transition-opacity hover:opacity-90"
+            style={{ background: "linear-gradient(90deg, #9933FF, #FF33AA)" }}>
+            连接音频
+          </button>
+        </div>
+      )}
+
       <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[22%_minmax(0,1fr)_30%]">
-        <div className="min-h-0 border-b border-border lg:border-b-0 lg:border-r">
+        <div className="min-h-0 border-b lg:border-b-0 lg:border-r" style={{ borderColor: "#1A1A1A" }}>
           <LeftColumn
             onPushChord={(c) => setChords(c)}
             audioConnected={audioConnected}
@@ -75,11 +125,11 @@ export function PlayingPage() {
             onReconnect={handleReconnect}
           />
         </div>
-        <div className="min-h-0 border-b border-border lg:border-b-0 lg:border-r">
+        <div className="min-h-0 border-b lg:border-b-0 lg:border-r" style={{ borderColor: "#1A1A1A" }}>
           <CenterColumn chords={chords} />
         </div>
         <div className="min-h-0">
-          <RightColumn />
+          <RightColumn roomId={params?.id as string} room={room} />
         </div>
       </div>
 

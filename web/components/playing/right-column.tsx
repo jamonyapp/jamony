@@ -1,140 +1,176 @@
 "use client"
 
-import { useState } from "react"
-import { Send, Users, Signal } from "lucide-react"
-import { ROOM, MEMBERS, CHAT_MESSAGES, type ChatMessage } from "@/lib/jam-data"
+import { useEffect, useState } from "react"
+import { Send, Users, Signal, Crown, Headphones, UserCheck } from "lucide-react"
 
-// jamulus 标准延迟颜色标注
-function latencyColor(ms: number): string {
-  if (ms < 30) return "#BBEE00"   // 绿 — 优秀
-  if (ms < 60) return "#FFCC00"   // 黄 — 良好
-  return "#FF33AA"                // 红 — 较差
+type Member = {
+  id: number
+  user_id: number
+  nickname: string
+  role: "musician" | "listener"
+  audio_status: string
+  joined_at: string
 }
 
-export function RightColumn() {
+type RoomInfo = {
+  id: number
+  name: string
+  description: string
+  style: string
+  host_id: number
+  host_name: string
+  server_port: number
+  musician_count: number
+  listener_count: number
+  max_musicians: number
+}
+
+function latencyColor(ms: number): string {
+  if (ms < 30) return "#BBEE00"
+  if (ms < 60) return "#FFCC00"
+  return "#FF33AA"
+}
+
+export function RightColumn({ roomId, room }: { roomId?: string; room: RoomInfo | null }) {
+  const [members, setMembers] = useState<Member[]>([])
+
+  useEffect(() => {
+    if (!roomId) return
+    fetch(`/api/rooms/${roomId}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.ok) setMembers(data.members || [])
+      })
+      .catch(() => {})
+  }, [roomId])
+
+  const musicians = members.filter(m => m.role === "musician")
+  const listeners = members.filter(m => m.role === "listener")
+
   return (
-    <aside className="flex h-full flex-col gap-3 overflow-hidden p-3">
+    <aside className="flex h-full flex-col gap-3 overflow-hidden p-3" style={{ background: "#000" }}>
       {/* 房间信息卡片 */}
-      <section className="shrink-0 rounded-[10px] border border-border bg-card px-4 py-3">
+      {room && (
+      <section className="shrink-0 rounded-[10px] border p-4" style={{ borderColor: "#1A1A1A", background: "#0D0D0D" }}>
         <div className="flex items-start gap-3">
-          <span className="text-lg leading-none pt-0.5">{ROOM.styleEmoji}</span>
           <div className="min-w-0 flex-1">
             <div className="flex items-center flex-wrap gap-x-2 gap-y-1">
-              <span className="text-sm font-semibold">{ROOM.name}</span>
-              <span className="rounded-[6px] bg-secondary px-1.5 py-[1px] text-[10px] text-muted-foreground">
-                {ROOM.styleTag}
-              </span>
-              <span
-                className="ml-auto text-xs font-semibold tabular-nums"
-                style={{ color: latencyColor(ROOM.latencyMs) }}
-              >
-                <Signal className="inline size-3 -mt-0.5 mr-0.5" />
-                {ROOM.latencyMs}ms
+              <span className="text-sm font-semibold text-white">{room.name}</span>
+              <span className="rounded-[6px] px-1.5 py-[1px] text-[10px]" style={{ background: "rgba(255,255,255,0.06)", color: "#8A8A8A" }}>
+                {room.style || "通用"}
               </span>
             </div>
-            <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{ROOM.description}</p>
-            <p className="mt-1.5 text-[11px] text-muted-foreground">
-              创建者 <span className="text-foreground">{ROOM.creator}</span> · {ROOM.createdAt}
+            <p className="mt-1.5 text-xs leading-relaxed" style={{ color: "#8A8A8A" }}>{room.description}</p>
+            <p className="mt-1.5 text-[11px]" style={{ color: "#8A8A8A" }}>
+              房主 <span className="text-white">{room.host_name}</span>
             </p>
           </div>
         </div>
       </section>
+      )}
 
       {/* 成员列表 */}
-      <section className="shrink-0 rounded-[10px] border border-border bg-card px-4 py-2.5">
-        <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
-          <Users className="size-3.5 text-brand-green" />
-          成员 {MEMBERS.length}
-          <span className="font-normal text-muted-foreground/60">· {ROOM.online}/{ROOM.capacity} 在线</span>
+      <section className="shrink-0 rounded-[10px] border p-3" style={{ borderColor: "#1A1A1A", background: "#0D0D0D" }}>
+        <div className="flex items-center gap-1.5 text-xs font-semibold" style={{ color: "#8A8A8A" }}>
+          <Users className="h-3.5 w-3.5" style={{ color: "#BBEE00" }} />
+          成员 {members.length}
         </div>
-        <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
-          {MEMBERS.map((m) => (
-            <div key={m.id} className="flex items-center gap-1.5">
-              <span className="relative inline-flex">
-                <span
-                  className="grid size-6 place-items-center rounded-full text-[10px] font-bold text-white"
-                  style={{ backgroundColor: m.color }}
-                >
-                  {m.name.slice(0, 1)}
+
+        {musicians.length > 0 && (
+        <div className="mt-2">
+          <p className="text-[10px] font-medium mb-1" style={{ color: "#00AAFF" }}>
+            <Headphones className="h-3 w-3 inline mr-0.5" />合奏者 {musicians.length}
+          </p>
+          <div className="flex flex-wrap gap-x-3 gap-y-1.5">
+            {musicians.map((m) => (
+              <div key={m.id} className="flex items-center gap-1.5">
+                <span className="relative inline-flex">
+                  <span className="grid h-6 w-6 place-items-center rounded-full text-[10px] font-bold text-white"
+                    style={{ background: m.user_id === room?.host_id ? "linear-gradient(135deg, #9933FF, #FF33AA)" : "#00AAFF" }}>
+                    {m.nickname.charAt(0)}
+                  </span>
+                  {m.audio_status === "connected" && (
+                    <span className="absolute -bottom-[1px] -right-[1px] h-2 w-2 rounded-full border" style={{ background: "#BBEE00", borderColor: "#0D0D0D" }} />
+                  )}
                 </span>
-                {m.online && (
-                  <span className="absolute -bottom-[1px] -right-[1px] size-2 rounded-full border border-card bg-brand-green" />
+                <span className="text-xs text-white">{m.nickname}</span>
+                {m.user_id === room?.host_id && (
+                  <Crown className="h-3 w-3" style={{ color: "#ffb84d" }} />
                 )}
-              </span>
-              <span className="text-xs text-foreground">{m.name}</span>
-              {m.isSelf && (
-                <span className="rounded-[4px] bg-primary/20 px-1 text-[9px] font-semibold text-brand-purple">
-                  我
-                </span>
-              )}
-            </div>
-          ))}
+              </div>
+            ))}
+          </div>
         </div>
+        )}
+
+        {listeners.length > 0 && (
+        <div className="mt-2">
+          <p className="text-[10px] font-medium mb-1" style={{ color: "#FF33AA" }}>
+            <UserCheck className="h-3 w-3 inline mr-0.5" />听众 {listeners.length}
+          </p>
+          <div className="flex flex-wrap gap-x-3 gap-y-1.5">
+            {listeners.map((m) => (
+              <div key={m.id} className="flex items-center gap-1.5">
+                <span className="grid h-5 w-5 place-items-center rounded-full text-[9px] font-bold text-white"
+                  style={{ background: "#FF33AA" }}>
+                  {m.nickname.charAt(0)}
+                </span>
+                <span className="text-xs" style={{ color: "#B0B0B0" }}>{m.nickname}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        )}
+
+        {members.length === 0 && (
+          <p className="mt-2 text-xs" style={{ color: "#8A8A8A" }}>暂无成员</p>
+        )}
       </section>
 
-      {/* 聊天 — 撑满剩余空间 */}
+      {/* 聊天 — 占位 */}
       <ChatPanel />
     </aside>
   )
 }
 
 function ChatPanel() {
-  const [messages, setMessages] = useState<ChatMessage[]>(CHAT_MESSAGES)
+  const [messages, setMessages] = useState<any[]>([])
   const [draft, setDraft] = useState("")
 
   function send() {
     const text = draft.trim()
     if (!text) return
-    setMessages((m) => [
-      ...m,
-      {
-        id: `c${Date.now()}`,
-        author: "你",
-        content: text,
-        time: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }),
-        isSelf: true,
-      },
-    ])
+    setMessages((m) => [...m, { id: `c${Date.now()}`, author: "你", content: text, time: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }), isSelf: true }])
     setDraft("")
   }
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col rounded-[10px] border border-border bg-card">
-      <div className="flex items-center gap-2 border-b border-border px-3 py-2 text-xs font-semibold text-muted-foreground">
+    <section className="flex min-h-0 flex-1 flex-col rounded-[10px] border" style={{ borderColor: "#1A1A1A", background: "#0D0D0D" }}>
+      <div className="flex items-center gap-2 border-b px-3 py-2 text-xs font-semibold" style={{ borderColor: "#1A1A1A", color: "#8A8A8A" }}>
         💬 聊天
       </div>
-
-      <div className="flex-1 space-y-2 overflow-y-auto scrollbar-thin px-3 py-2">
+      <div className="flex-1 space-y-2 overflow-y-auto px-3 py-2 scrollbar-thin">
         {messages.map((msg) => (
           <div key={msg.id} className={`flex flex-col ${msg.isSelf ? "items-end" : "items-start"}`}>
-            <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-              <span>{msg.author}</span>
-              <span>{msg.time}</span>
+            <div className="flex items-center gap-1.5 text-[10px]" style={{ color: "#8A8A8A" }}>
+              <span>{msg.author}</span><span>{msg.time}</span>
             </div>
-            <div
-              className={`mt-0.5 max-w-[90%] rounded-[8px] px-2.5 py-1.5 text-sm ${
-                msg.isSelf ? "bg-primary text-primary-foreground" : "bg-secondary text-foreground"
-              }`}
-            >
+            <div className={`mt-0.5 max-w-[90%] rounded-[8px] px-2.5 py-1.5 text-sm ${msg.isSelf ? "text-white" : "text-white"}`}
+              style={msg.isSelf ? { background: "#9933FF" } : { background: "rgba(255,255,255,0.08)" }}>
               {msg.content}
             </div>
           </div>
         ))}
       </div>
-
-      <div className="flex items-center gap-1.5 border-t border-border p-2">
-        <input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && send()}
+      <div className="flex items-center gap-1.5 border-t p-2" style={{ borderColor: "#1A1A1A" }}>
+        <input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()}
           placeholder="发条消息…"
-          className="min-w-0 flex-1 rounded-[8px] bg-secondary px-2.5 py-1.5 text-xs outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
+          className="min-w-0 flex-1 rounded-[8px] px-2.5 py-1.5 text-xs outline-none" style={{ background: "#141414", color: "#FFF" }}
         />
-        <button
-          onClick={send}
-          className="grid size-7 shrink-0 place-items-center rounded-[8px] bg-primary text-primary-foreground transition-opacity hover:opacity-90"
-        >
-          <Send className="size-3.5" />
+        <button onClick={send}
+          className="grid h-7 w-7 shrink-0 place-items-center rounded-[8px] text-white transition-opacity hover:opacity-90"
+          style={{ background: "#9933FF" }}>
+          <Send className="h-3.5 w-3.5" />
         </button>
       </div>
     </section>
