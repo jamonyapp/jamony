@@ -3,6 +3,20 @@
 import { useEffect, useRef, useState } from "react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
 
+const INSTRUMENT_ICON: Record<string, string> = {
+  "电吉他": "🎸",
+  "原声吉他": "🎸",
+  "贝斯": "🎸",
+  "打击乐器": "🥁",
+  "键盘乐器": "🎹",
+  "主唱": "🎤",
+  "萨克斯": "🎷",
+  "弦乐": "🎻",
+  "管乐": "🪈",
+  "民乐": "🪕",
+  "听众": "🎧",
+}
+
 const GRADIENTS = [
   "linear-gradient(135deg, #00AAFF, #9933FF)",
   "linear-gradient(135deg, #9933FF, #FF33AA)",
@@ -105,8 +119,8 @@ export function ActiveMusicians() {
                   <span className="max-w-full truncate text-[13px] font-medium text-white">
                     {m.nickname}
                   </span>
-                  <span className="text-[13px] text-[#8A8A8A]">
-                    {m.primary_instrument}
+                  <span className="text-[18px] leading-none text-[#8A8A8A]">
+                    {INSTRUMENT_ICON[m.primary_instrument] || "🎵"}
                   </span>
                 </button>
               )

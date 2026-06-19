@@ -5,9 +5,9 @@ import { X, Loader2 } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
 
 const INSTRUMENTS = [
-  "电吉他", "木吉他", "贝斯", "架子鼓", "键盘乐器", "主唱",
-  "萨克斯", "小提琴", "大提琴", "笛子", "古筝", "二胡",
-  "口琴", "手风琴", "电子合成器", "MIDI控制器", "采样器", "手鼓", "卡洪",
+  "电吉他", "原声吉他", "贝斯", "打击乐器", "键盘乐器",
+  "主唱", "萨克斯", "弦乐", "管乐", "民乐",
+  "其他", "听众",
 ]
 
 type Mode = "login" | "register"
@@ -24,6 +24,7 @@ export function LoginModal() {
   const [regPassword, setRegPassword] = useState("")
   const [regConfirm, setRegConfirm] = useState("")
   const [regInstrument, setRegInstrument] = useState("")
+  const [regOtherInstrument, setRegOtherInstrument] = useState("")
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
@@ -37,6 +38,7 @@ export function LoginModal() {
     setRegPassword("")
     setRegConfirm("")
     setRegInstrument("")
+    setRegOtherInstrument("")
     setError("")
   }
 
@@ -76,9 +78,14 @@ export function LoginModal() {
       setError("两次密码输入不一致")
       return
     }
+    if (regInstrument === "其他" && !regOtherInstrument.trim()) {
+      setError("请输入你的乐器")
+      return
+    }
     setLoading(true)
     setError("")
-    const err = await register(regNickname.trim(), regPassword, regInstrument)
+    const finalInstrument = regInstrument === "其他" ? regOtherInstrument.trim() : regInstrument
+    const err = await register(regNickname.trim(), regPassword, finalInstrument)
     setLoading(false)
     if (err) {
       setError(err)
@@ -134,9 +141,9 @@ export function LoginModal() {
         {mode === "login" ? (
           <>
             <div className="mb-4">
-              <h2 className="text-xl font-bold text-white">欢迎回来</h2>
+              <h2 className="text-xl font-bold text-white">请登录</h2>
               <p className="mt-1 text-sm" style={{ color: "#8A8A8A" }}>
-                登录后即可创建房间、发布公告、参与合奏
+                登录后即可创建房间、发布公告、参与合奏等
               </p>
             </div>
 
@@ -236,11 +243,11 @@ export function LoginModal() {
 
               <div>
                 <label className="mb-1.5 block text-xs font-medium" style={{ color: "#9A9A9A" }}>
-                  主修乐器
+                  主力乐器
                 </label>
                 <select
                   value={regInstrument}
-                  onChange={(e) => setRegInstrument(e.target.value)}
+                  onChange={(e) => { setRegInstrument(e.target.value); setRegOtherInstrument("") }}
                   className="w-full rounded-xl border px-4 py-2.5 text-sm text-white outline-none transition-colors focus:border-[#9933FF]"
                   style={{ background: "#141414", borderColor: "#2A2A2A" }}
                 >
@@ -249,6 +256,17 @@ export function LoginModal() {
                     <option key={ins} value={ins} className="bg-[#141414] text-white">{ins}</option>
                   ))}
                 </select>
+                {regInstrument === "其他" && (
+                  <input
+                    type="text"
+                    value={regOtherInstrument}
+                    onChange={(e) => setRegOtherInstrument(e.target.value)}
+                    placeholder="请输入你的乐器"
+                    autoFocus
+                    className="mt-2 w-full rounded-xl border px-4 py-2.5 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
+                    style={{ background: "#141414", borderColor: "#2A2A2A" }}
+                  />
+                )}
               </div>
 
               {error && <p className="text-sm" style={{ color: "#FF33AA" }}>{error}</p>}

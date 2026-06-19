@@ -36,13 +36,16 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 export function ProfilePage({ nickname }: { nickname: string }) {
   const router = useRouter()
-  const { user: currentUser, loggedIn } = useAuth()
+  const { user: currentUser, loggedIn, setShowLoginModal } = useAuth()
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // 需要登录才能查看个人主页
-    if (!loggedIn) { setLoading(false); return }
+    if (!loggedIn) {
+      setShowLoginModal(true)
+      setLoading(false)
+      return
+    }
     async function load() {
       try {
         const res = await fetch(`/api/users/by-nickname/${encodeURIComponent(nickname)}`)
@@ -52,18 +55,13 @@ export function ProfilePage({ nickname }: { nickname: string }) {
       setLoading(false)
     }
     load()
-  }, [nickname, loggedIn])
+  }, [nickname, loggedIn, setShowLoginModal])
 
-  // 未登录 → 显示拦截
+  // 未登录 → 显示透明占位（弹窗已弹出）
   if (!loggedIn) {
     return (
       <div className="min-h-screen bg-black text-white">
         <TopNav />
-        <main className="mx-auto max-w-3xl px-4 pt-11">
-          <div className="flex h-64 flex-col items-center justify-center gap-4">
-            <p className="text-lg text-[#8A8A8A]">请登录后查看个人主页</p>
-          </div>
-        </main>
       </div>
     )
   }
