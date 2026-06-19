@@ -6,9 +6,12 @@ import { useAuth } from "@/lib/auth-context"
 
 const INSTRUMENTS = [
   "电吉他", "原声吉他", "贝斯", "打击乐器", "键盘乐器",
-  "主唱", "萨克斯", "弦乐", "管乐", "民乐",
+  "主唱", "弦乐", "管乐", "民乐",
   "其他", "听众",
 ]
+
+// 选择了这些大类后，弹出输入框让用户细化
+const INSTRUMENT_NEEDS_INPUT = ["弦乐", "管乐", "其他"]
 
 type Mode = "login" | "register"
 
@@ -78,13 +81,13 @@ export function LoginModal() {
       setError("两次密码输入不一致")
       return
     }
-    if (regInstrument === "其他" && !regOtherInstrument.trim()) {
-      setError("请输入你的乐器")
+    if (INSTRUMENT_NEEDS_INPUT.includes(regInstrument) && !regOtherInstrument.trim()) {
+      setError("请输入你的具体乐器")
       return
     }
     setLoading(true)
     setError("")
-    const finalInstrument = regInstrument === "其他" ? regOtherInstrument.trim() : regInstrument
+    const finalInstrument = INSTRUMENT_NEEDS_INPUT.includes(regInstrument) ? regOtherInstrument.trim() : regInstrument
     const err = await register(regNickname.trim(), regPassword, finalInstrument)
     setLoading(false)
     if (err) {
@@ -256,12 +259,12 @@ export function LoginModal() {
                     <option key={ins} value={ins} className="bg-[#141414] text-white">{ins}</option>
                   ))}
                 </select>
-                {regInstrument === "其他" && (
+                {INSTRUMENT_NEEDS_INPUT.includes(regInstrument) && (
                   <input
                     type="text"
                     value={regOtherInstrument}
                     onChange={(e) => setRegOtherInstrument(e.target.value)}
-                    placeholder="请输入你的乐器"
+                    placeholder={regInstrument === "其他" ? "请输入你的乐器" : "例如：小提琴、笛子、二胡..."}
                     autoFocus
                     className="mt-2 w-full rounded-xl border px-4 py-2.5 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
                     style={{ background: "#141414", borderColor: "#2A2A2A" }}
