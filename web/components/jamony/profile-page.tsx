@@ -12,6 +12,7 @@ type UserProfile = {
   id: number
   nickname: string
   bio: string
+  signature: string
   city: string
   primary_instrument: string
   secondary_instrument: string
@@ -123,7 +124,7 @@ export function ProfilePage({ nickname }: { nickname: string }) {
             </div>
             <div className="min-w-0 flex-1">
               <h1 className="text-2xl font-bold text-white">{profile.nickname}</h1>
-              {profile.bio && <p className="mt-1 text-[14px] text-[#B0B0B0]">{profile.bio}</p>}
+              {profile.signature && <p className="mt-1 text-[14px] text-[#B0B0B0]">{profile.signature}</p>}
               <p className="mt-2 text-[13px] text-[#8A8A8A]">
                 {profile.city}{instrument ? ` · ${instrument}` : ""}
               </p>

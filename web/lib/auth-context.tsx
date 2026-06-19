@@ -10,6 +10,7 @@ export type UserInfo = {
   city: string
   primaryInstrument: string
   instrumentCategory: string
+  signature: string
   secondaryInstrument: string
   level: number
   points: number
