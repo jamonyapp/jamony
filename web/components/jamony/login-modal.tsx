@@ -264,7 +264,7 @@ export function LoginModal() {
                     type="text"
                     value={regOtherInstrument}
                     onChange={(e) => setRegOtherInstrument(e.target.value)}
-                    placeholder={regInstrument === "其他" ? "请输入你的乐器" : regInstrument === "弦乐" ? "例如：小提琴、大提琴..." : regInstrument === "管乐" ? "例如：萨克斯、口琴、笛子..." : "例如：古筝、二胡、琵琶..."}
+                    placeholder={regInstrument === "其他" ? "请输入你的乐器" : regInstrument === "弦乐" ? "例如：小提琴、大提琴..." : regInstrument === "管乐" ? "例如：萨克斯、小号、电吹管" : "例如：古筝、二胡、琵琶..."}
                     autoFocus
                     className="mt-2 w-full rounded-xl border px-4 py-2.5 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
                     style={{ background: "#141414", borderColor: "#2A2A2A" }}
