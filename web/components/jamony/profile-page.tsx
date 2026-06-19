@@ -2,7 +2,7 @@
 
 import { use, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Play, Heart, MessageCircle, ChevronLeft } from "lucide-react"
+import { Play, Heart, MessageCircle, ChevronLeft, Settings } from "lucide-react"
 import { TopNav } from "@/components/jamony/top-nav"
 import { useAuth } from "@/lib/auth-context"
 
@@ -128,7 +128,19 @@ export function ProfilePage({ nickname }: { nickname: string }) {
               {profile.nickname.charAt(0)}
             </div>
             <div className="min-w-0 flex-1">
-              <h1 className="text-2xl font-bold text-white">{profile.nickname}</h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl font-bold text-white">{profile.nickname}</h1>
+                {isSelf && (
+                  <button
+                    type="button"
+                    onClick={() => window.location.href = "/settings"}
+                    className="flex h-7 w-7 items-center justify-center rounded-lg transition-colors hover:bg-white/10"
+                    title="个人设置"
+                  >
+                    <Settings className="h-4 w-4" style={{ color: "#8A8A8A" }} />
+                  </button>
+                )}
+              </div>
               {profile.signature && <p className="mt-1 text-[14px] text-[#B0B0B0]">{profile.signature}</p>}
               <p className="mt-2 text-[13px] text-[#8A8A8A]">
                 {profile.city}{instrument ? ` · ${instrument}` : ""}
@@ -185,7 +197,19 @@ export function ProfilePage({ nickname }: { nickname: string }) {
 
           {/* 作品记录区 */}
           <section className="mt-10">
-            <h2 className="text-[16px] font-bold text-white">作品记录</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-[16px] font-bold text-white">作品记录</h2>
+              {isSelf && (
+                <button
+                  type="button"
+                  onClick={() => console.log("[v0] 作品管理页面建设中")}
+                  className="rounded-[10px] border px-3 py-1.5 text-xs transition-colors hover:bg-white/5"
+                  style={{ borderColor: "#2A2A2A", color: "#8A8A8A" }}
+                >
+                  管理作品
+                </button>
+              )}
+            </div>
             <div className="mt-4 grid grid-cols-2 gap-4">
               {works.map((w) => (
                 <article
