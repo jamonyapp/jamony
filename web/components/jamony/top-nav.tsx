@@ -256,8 +256,7 @@ export function TopNav({
                             return
                           }
                           if (item.id === "settings") {
-                            console.log("[v0] settings page coming soon")
-                            setOpenMenu("none")
+                            window.location.href = "/settings"
                             return
                           }
                           console.log("[v0] user menu:", item.id)
