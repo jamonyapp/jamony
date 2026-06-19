@@ -207,7 +207,7 @@ export function ProfilePage({ nickname }: { nickname: string }) {
               {isSelf && (
                 <button
                   type="button"
-                  onClick={() => console.log("[v0] 作品管理页面建设中")}
+                  onClick={() => window.location.href = "/profile/works"}
                   className="rounded-[10px] border px-3 py-1.5 text-xs transition-colors hover:bg-white/5"
                   style={{ borderColor: "#2A2A2A", color: "#8A8A8A" }}
                 >
