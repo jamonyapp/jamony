@@ -68,7 +68,7 @@ export function LeftColumn({
           <span>今日 jamony 主题</span>
         </div>
         <p className="mt-1 text-xs" style={{ color: "#8A8A8A" }}>{dailyTheme.emoji} {dailyTheme.title}</p>
-        {roomName && <p className="mt-1 text-xs" style={{ color: "#666" }}>房间：{roomName}</p>}
+
       </section>
 
       {/* 自定义主题（仅合奏者可见） */}

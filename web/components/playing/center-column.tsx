@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { Circle, Square, ChevronDown, Play, Pause, Disc3, ArrowRight, Download } from "lucide-react"
-import { DAILY_THEME, RECORDINGS, type RecordingSession } from "@/lib/jam-data"
+import { RECORDINGS, type RecordingSession } from "@/lib/jam-data"
 
 function parseDuration(d: string) {
   const [m, s] = d.split(":").map(Number)
@@ -16,6 +16,13 @@ function fmt(total: number) {
 }
 
 export function CenterColumn({ chords, customTheme }: { chords: string[]; customTheme?: string }) {
+  const [todayTheme, setTodayTheme] = useState({ title: "加载中...", emoji: "🎵" })
+  useEffect(() => {
+    fetch("/api/daily-theme")
+      .then(r => r.json())
+      .then(data => { if (data.ok) setTodayTheme(data.theme) })
+      .catch(() => {})
+  }, [])
   return (
     <main className="flex h-full flex-col gap-4 p-4">
       {/* 合奏大屏 */}
@@ -36,19 +43,12 @@ export function CenterColumn({ chords, customTheme }: { chords: string[]; custom
         />
         <div className="relative flex h-full flex-col items-center justify-center gap-5 px-6 py-6 text-center">
           <div>
-            {customTheme ? (
-              <>
-                <p className="text-xs uppercase tracking-[0.3em]" style={{ color: "#00AAFF" }}>自定义主题</p>
-                <p className="mt-2 text-2xl font-bold text-white sm:text-3xl lg:text-4xl">{customTheme}</p>
-              </>
-            ) : (
-              <>
-                <p className="text-xs uppercase tracking-[0.3em] text-white/50">今日主题</p>
-                <p className="mt-2 text-2xl font-bold text-white sm:text-3xl lg:text-4xl">
-                  {DAILY_THEME.emoji} {DAILY_THEME.title}
-                </p>
-              </>
-            )}
+            <>
+              <p className="text-xs uppercase tracking-[0.3em] text-white/50">本房间主题</p>
+              <p className="mt-2 text-2xl font-bold text-white sm:text-3xl lg:text-4xl">
+                {customTheme && customTheme.length > 0 ? customTheme : `${todayTheme.emoji} ${todayTheme.title}`}
+              </p>
+            </>
           </div>
 
           {chords.length > 0 && (
