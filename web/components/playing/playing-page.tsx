@@ -203,6 +203,7 @@ export function PlayingPage() {
         open={confirmOpen}
         onCancel={() => setConfirmOpen(false)}
         onConfirm={() => doDisconnect(confirmTarget)}
+        isListener={myRole === "listener" && !audioConnected}
       />
     </div>
   )
