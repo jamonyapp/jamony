@@ -4,29 +4,22 @@ import { useEffect, useRef, useState } from "react"
 import { Circle, Square, ChevronDown, Play, Pause, Disc3, ArrowRight, Download } from "lucide-react"
 import { DAILY_THEME, RECORDINGS, type RecordingSession } from "@/lib/jam-data"
 
+function parseDuration(d: string) {
+  const [m, s] = d.split(":").map(Number)
+  return (m || 0) * 60 + (s || 0)
+}
+
 function fmt(total: number) {
   const m = Math.floor(total / 60)
   const s = Math.floor(total % 60)
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
 }
 
-function parseDuration(d: string) {
-  const [m, s] = d.split(":").map(Number)
-  return (m || 0) * 60 + (s || 0)
-}
-
-export function CenterColumn({ chords }: { chords: string[] }) {
-  const [elapsed, setElapsed] = useState(23 * 60 + 42)
-
-  useEffect(() => {
-    const id = setInterval(() => setElapsed((e) => e + 1), 1000)
-    return () => clearInterval(id)
-  }, [])
-
+export function CenterColumn({ chords, customTheme }: { chords: string[]; customTheme?: string }) {
   return (
     <main className="flex h-full flex-col gap-4 p-4">
-      {/* 合奏大屏 —— 固定 16:9 比例，不随下方录音模块变化 */}
-      <section className="relative aspect-video w-full shrink-0 overflow-hidden rounded-[10px] border border-border">
+      {/* 合奏大屏 */}
+      <section className="relative aspect-video w-full shrink-0 overflow-hidden rounded-[10px] border" style={{ borderColor: "#1A1A1A" }}>
         <img
           src="/images/stage-backdrop.png"
           alt=""
@@ -43,35 +36,39 @@ export function CenterColumn({ chords }: { chords: string[] }) {
         />
         <div className="relative flex h-full flex-col items-center justify-center gap-5 px-6 py-6 text-center">
           <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-white/50">当前主题</p>
-            <p className="mt-2 text-2xl font-bold text-white sm:text-3xl lg:text-4xl">
-              {DAILY_THEME.emoji} {DAILY_THEME.title}
-            </p>
+            {customTheme ? (
+              <>
+                <p className="text-xs uppercase tracking-[0.3em]" style={{ color: "#00AAFF" }}>自定义主题</p>
+                <p className="mt-2 text-2xl font-bold text-white sm:text-3xl lg:text-4xl">{customTheme}</p>
+              </>
+            ) : (
+              <>
+                <p className="text-xs uppercase tracking-[0.3em] text-white/50">今日主题</p>
+                <p className="mt-2 text-2xl font-bold text-white sm:text-3xl lg:text-4xl">
+                  {DAILY_THEME.emoji} {DAILY_THEME.title}
+                </p>
+              </>
+            )}
           </div>
 
+          {chords.length > 0 && (
           <div className="w-full">
             <p className="text-center text-xs uppercase tracking-[0.3em] text-white/50">和弦进程</p>
             <div className="mt-3">
               <ChordBoard chords={chords} />
             </div>
           </div>
+          )}
 
-          <div className="flex items-center gap-10">
-            <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-white/50">拍速</p>
-              <p className="mt-1 text-xl font-bold text-white lg:text-2xl">120 BPM</p>
-            </div>
-            <div className="h-10 w-px bg-white/15" />
-            <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-white/50">已合奏</p>
-              <p className="mt-1 font-mono text-xl font-bold text-white lg:text-2xl">{fmt(elapsed)}</p>
-            </div>
+          <div>
+            <p className="text-xs uppercase tracking-[0.3em] text-white/50">拍速</p>
+            <p className="mt-1 text-xl font-bold text-white lg:text-2xl">120 BPM</p>
           </div>
         </div>
-        <div className="absolute inset-x-0 bottom-0 h-0.5 brand-gradient" />
+        <div className="absolute inset-x-0 bottom-0 h-0.5" style={{ background: "linear-gradient(90deg, #00AAFF, #9933FF, #FF33AA, #BBEE00)" }} />
       </section>
 
-      {/* 录音功能 —— 占据剩余空间，内部可滚动 */}
+      {/* 录音功能 */}
       <RecordingPanel />
     </main>
   )

@@ -1,7 +1,7 @@
 "use client"
 
-import { Fragment, useState } from "react"
-import { Dices, Send, Wrench, Sparkles, PowerOff, Pencil, Lightbulb, Headphones } from "lucide-react"
+import { Fragment, useEffect, useState } from "react"
+import { Dices, Send, Wrench, Sparkles, PowerOff, Pencil, Lightbulb, Headphones, MessageSquareText } from "lucide-react"
 import {
   DAILY_THEME,
   CHORD_STYLES,
@@ -14,6 +14,7 @@ type Tool = "chords" | "metronome"
 
 export function LeftColumn({
   onPushChord,
+  onPushTheme,
   audioConnected,
   roomGone,
   myRole,
@@ -22,6 +23,7 @@ export function LeftColumn({
   onReconnect,
 }: {
   onPushChord: (chords: string[], style: string) => void
+  onPushTheme: (theme: string) => void
   audioConnected: boolean
   roomGone?: boolean
   myRole: "musician" | "listener"
@@ -35,6 +37,18 @@ export function LeftColumn({
   const [chords, setChords] = useState<string[]>([])
   const [customMode, setCustomMode] = useState(false)
   const [customInput, setCustomInput] = useState("")
+  const [customTheme, setCustomTheme] = useState("")
+  const [dailyTheme, setDailyTheme] = useState(DAILY_THEME)
+
+  const isMusician = myRole === "musician" || audioConnected
+
+  // Load today's theme
+  useEffect(() => {
+    fetch("/api/daily-theme")
+      .then(r => r.json())
+      .then(data => { if (data.ok) setDailyTheme(data.theme) })
+      .catch(() => {})
+  }, [])
 
   const displayChords = customMode
     ? customInput.split(/[\s,，|｜]+/).map((c) => c.trim()).filter(Boolean)
@@ -45,30 +59,49 @@ export function LeftColumn({
     if (displayChords.length > 0) onPushChord(displayChords, style)
   }
 
-  const isListener = myRole === "listener" && !audioConnected
-
   return (
     <aside className="flex h-full flex-col gap-4 overflow-y-auto scrollbar-thin p-4" style={{ background: "#000" }}>
-      {/* 全员 Jam — 今日主题 */}
+      {/* 今日主题 */}
       <section className="rounded-[10px] border p-4" style={{ borderColor: "#1A1A1A", background: "#0D0D0D" }}>
         <div className="flex items-center gap-2 text-sm font-semibold text-white">
-          <span>🎸</span>
-          <span>全员 Jam</span>
+          <Sparkles className="h-4 w-4" style={{ color: "#BBEE00" }} />
+          <span>今日 jamony 主题</span>
         </div>
-        <p className="mt-1 text-xs" style={{ color: "#8A8A8A" }}>jamony 今日主题</p>
-        <p className="mt-2 text-lg font-semibold text-transparent bg-clip-text" style={{ backgroundImage: "linear-gradient(90deg, #00AAFF, #9933FF, #FF33AA, #BBEE00)" }}>
-          {DAILY_THEME.title}
-        </p>
+        <p className="mt-1 text-xs" style={{ color: "#8A8A8A" }}>{dailyTheme.emoji} {dailyTheme.title}</p>
         {roomName && <p className="mt-1 text-xs" style={{ color: "#666" }}>房间：{roomName}</p>}
       </section>
 
-      {/* 听众模式：替代 Jam 魔盒 */}
-      {isListener ? (
+      {/* 自定义主题（仅合奏者可见） */}
+      {isMusician && !roomGone && (
+        <section className="rounded-[10px] border p-3" style={{ borderColor: "#1A1A1A", background: "#0D0D0D" }}>
+          <div className="flex items-center gap-2 text-xs font-semibold text-white">
+            <MessageSquareText className="h-3.5 w-3.5" style={{ color: "#00AAFF" }} />
+            <span>自定义主题</span>
+          </div>
+          <div className="mt-2 flex gap-2">
+            <input type="text" value={customTheme}
+              onChange={(e) => setCustomTheme(e.target.value)}
+              placeholder="输入你的主题..."
+              className="min-w-0 flex-1 rounded-[8px] border px-2.5 py-1.5 text-xs text-white outline-none placeholder:text-[#666]"
+              style={{ background: "#141414", borderColor: "#2A2A2A" }}
+            />
+            <button onClick={() => onPushTheme(customTheme)}
+              disabled={!customTheme.trim()}
+              className="shrink-0 rounded-[8px] px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-30"
+              style={{ background: "#00AAFF" }}>
+              推送到大屏
+            </button>
+          </div>
+        </section>
+      )}
+
+      {/* 听众模式 */}
+      {!isMusician ? (
         <section className="flex flex-1 flex-col items-center justify-center rounded-[10px] border p-6" style={{ borderColor: "#1A1A1A", background: "#0D0D0D" }}>
           <Headphones className="h-12 w-12" style={{ color: "#FF33AA" }} />
           <p className="mt-4 text-lg font-bold text-white">正在收听</p>
           <p className="mt-2 text-center text-sm" style={{ color: "#8A8A8A" }}>
-            不过瘾？点击下方，一起玩！
+            不过瘾？<br/>点击下方，一起玩！
           </p>
         </section>
       ) : roomGone ? null : (
@@ -81,7 +114,7 @@ export function LeftColumn({
           <label className="mt-3 flex flex-col gap-1">
             <span className="text-xs" style={{ color: "#8A8A8A" }}>选择工具</span>
             <select value={tool} onChange={(e) => setTool(e.target.value as Tool)}
-              className="rounded-[10px] border px-3 py-2.5 text-sm font-medium text-white outline-none focus:ring-1"
+              className="rounded-[10px] border px-3 py-2.5 text-sm font-medium text-white outline-none"
               style={{ borderColor: "#1A1A1A", background: "#141414" }}>
               <option value="chords">💡 灵感进程</option>
               <option value="metronome">🥁 节拍器</option>
@@ -100,7 +133,7 @@ export function LeftColumn({
                   <label className="flex flex-col gap-1">
                     <span className="text-xs" style={{ color: "#8A8A8A" }}>风格</span>
                     <select value={style} onChange={(e) => setStyle(e.target.value)} disabled={customMode}
-                      className="rounded-[10px] border px-2 py-2 text-sm text-white outline-none focus:ring-1 disabled:opacity-50"
+                      className="rounded-[10px] border px-2 py-2 text-sm text-white outline-none disabled:opacity-50"
                       style={{ borderColor: "#1A1A1A", background: "#141414" }}>
                       {CHORD_STYLES.map((s) => (<option key={s} value={s}>{CHORD_POOLS[s].emoji} {s}</option>))}
                     </select>
@@ -108,26 +141,12 @@ export function LeftColumn({
                   <label className="flex flex-col gap-1">
                     <span className="text-xs" style={{ color: "#8A8A8A" }}>乐句数量</span>
                     <select value={phrases} onChange={(e) => setPhrases(Number(e.target.value))} disabled={customMode}
-                      className="rounded-[10px] border px-2 py-2 text-sm text-white outline-none focus:ring-1 disabled:opacity-50"
+                      className="rounded-[10px] border px-2 py-2 text-sm text-white outline-none disabled:opacity-50"
                       style={{ borderColor: "#1A1A1A", background: "#141414" }}>
                       {PHRASE_COUNTS.map((n) => (<option key={n} value={n}>{n} 句</option>))}
                     </select>
                   </label>
                 </div>
-
-                <button onClick={() => setCustomMode((v) => !v)}
-                  className={`mt-3 flex items-center justify-center gap-1.5 rounded-[10px] border px-3 py-1.5 text-xs font-medium transition-colors ${customMode ? "text-white" : "text-[#B0B0B0] hover:text-white"}`}
-                  style={customMode ? { borderColor: "#9933FF", background: "rgba(153,51,255,0.15)" } : { borderColor: "#1A1A1A" }}>
-                  <Pencil className="h-3.5 w-3.5" />
-                  {customMode ? "自定义模式（已开启）" : "切换到自定义输入"}
-                </button>
-
-                {customMode && (
-                  <input value={customInput} onChange={(e) => setCustomInput(e.target.value)}
-                    placeholder="手动输入和弦，用空格分隔，如 C G Am F"
-                    className="mt-2 rounded-[10px] border px-3 py-2 font-mono text-sm text-white outline-none placeholder:text-[#666] focus:ring-1"
-                    style={{ borderColor: "#1A1A1A", background: "#141414" }} />
-                )}
 
                 <div className="mt-3 min-h-[64px] rounded-[10px] border p-3" style={{ borderColor: "#1A1A1A", background: "#141414" }}>
                   {displayChords.length > 0 ? (
@@ -153,7 +172,7 @@ export function LeftColumn({
 
                 <div className="mt-3 grid grid-cols-2 gap-2">
                   <button onClick={handleGenerate} disabled={customMode}
-                    className="flex items-center justify-center gap-1.5 rounded-[10px] px-3 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                    className="flex items-center justify-center gap-1.5 rounded-[10px] px-3 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-40"
                     style={{ background: "#141414", color: "#B0B0B0" }}>
                     <Dices className="h-4 w-4" style={{ color: "#00AAFF" }} />
                     生成
@@ -190,16 +209,9 @@ export function LeftColumn({
           <PowerOff className="h-5 w-5" />
           断开连接
         </button>
-      ) : isListener ? (
-        <button onClick={onReconnect}
-          className="flex items-center justify-center gap-2 rounded-[10px] px-4 py-3 text-base font-semibold transition-opacity hover:brightness-110 active:scale-[0.97]"
-          style={{ background: "#BBEE00", color: "#0D0D0D" }}>
-          <PowerOff className="h-5 w-5" />
-          音频连接
-        </button>
       ) : (
         <button onClick={onReconnect}
-          className="flex items-center justify-center gap-2 rounded-[10px] px-4 py-3 text-base font-semibold text-white transition-opacity hover:brightness-110 active:scale-[0.97]"
+          className="flex items-center justify-center gap-2 rounded-[10px] px-4 py-3 text-base font-semibold transition-opacity hover:brightness-110 active:scale-[0.97]"
           style={{ background: "#BBEE00", color: "#0D0D0D" }}>
           <PowerOff className="h-5 w-5" />
           音频连接

@@ -12,6 +12,7 @@ type Member = {
   role: "musician" | "listener"
   audio_status: string
   joined_at: string
+  instrument_category?: string
 }
 
 type RoomInfo = {
@@ -75,7 +76,7 @@ export function RightColumn({ roomId, room, refreshTrigger }: { roomId?: string;
       <section className="shrink-0 rounded-[10px] border p-3" style={{ borderColor: "#1A1A1A", background: "#0D0D0D" }}>
         <div className="flex items-center gap-1.5 text-xs font-semibold" style={{ color: "#8A8A8A" }}>
           <Users className="h-3.5 w-3.5" style={{ color: "#BBEE00" }} />
-          成员 {members.length}
+          房间总人数 {members.length}
         </div>
 
         {musicians.length > 0 && (
@@ -83,8 +84,16 @@ export function RightColumn({ roomId, room, refreshTrigger }: { roomId?: string;
           <p className="text-[10px] font-medium mb-1" style={{ color: "#00AAFF" }}>
             <Headphones className="h-3 w-3 inline mr-0.5" />合奏者 {musicians.length}
           </p>
+          <div className="overflow-y-auto" style={{ maxHeight: "120px" }}>
           <div className="flex flex-wrap gap-x-3 gap-y-1.5">
-            {musicians.map((m) => (
+            {musicians.map((m) => {
+              const iconMap: Record<string, string> = {
+                "原声吉他": "🎸", "电吉他": "🎸", "贝斯": "🎸",
+                "打击乐器": "🥁", "键盘乐器": "🎹", "主唱": "🎤",
+                "弦乐": "🎻", "管乐": "🎷", "民乐": "🪕", "其他": "🎵", "听众": "🎧",
+              }
+              const icon = iconMap[m.instrument_category || ""] || "🎵"
+              return (
               <div key={m.id} className="flex items-center gap-1.5">
                 <span className="relative inline-flex">
                   <span className="grid h-6 w-6 place-items-center rounded-full text-[10px] font-bold text-white"
@@ -96,11 +105,13 @@ export function RightColumn({ roomId, room, refreshTrigger }: { roomId?: string;
                   )}
                 </span>
                 <span className="text-xs text-white">{m.nickname}</span>
+                <span className="text-xs">{icon}</span>
                 {m.user_id === room?.host_id && (
                   <Crown className="h-3 w-3" style={{ color: "#ffb84d" }} />
                 )}
               </div>
-            ))}
+            )})}
+          </div>
           </div>
         </div>
         )}
@@ -110,6 +121,7 @@ export function RightColumn({ roomId, room, refreshTrigger }: { roomId?: string;
           <p className="text-[10px] font-medium mb-1" style={{ color: "#FF33AA" }}>
             <UserCheck className="h-3 w-3 inline mr-0.5" />听众 {listeners.length}
           </p>
+          <div className="overflow-y-auto" style={{ maxHeight: "80px" }}>
           <div className="flex flex-wrap gap-x-3 gap-y-1.5">
             {listeners.map((m) => (
               <div key={m.id} className="flex items-center gap-1.5">
@@ -120,6 +132,7 @@ export function RightColumn({ roomId, room, refreshTrigger }: { roomId?: string;
                 <span className="text-xs" style={{ color: "#B0B0B0" }}>{m.nickname}</span>
               </div>
             ))}
+          </div>
           </div>
         </div>
         )}
