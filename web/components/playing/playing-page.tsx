@@ -7,6 +7,7 @@ import { LeftColumn } from "@/components/playing/left-column"
 import { CenterColumn } from "@/components/playing/center-column"
 import { RightColumn } from "@/components/playing/right-column"
 import { DisconnectDialog } from "@/components/playing/disconnect-dialog"
+import { IcecastPlayer } from "@/components/playing/icecast-player"
 import { useAuth } from "@/lib/auth-context"
 import { useChatSocket } from "@/lib/chat-socket"
 
@@ -199,6 +200,7 @@ export function PlayingPage() {
         </div>
       </div>
 
+      {myRole === "listener" && !audioConnected && !roomGone && <IcecastPlayer active port={room?.server_port} />}
       <DisconnectDialog
         open={confirmOpen}
         onCancel={() => setConfirmOpen(false)}
