@@ -47,6 +47,7 @@ export function PlayingPage() {
   const [audioConnected, setAudioConnected] = useState(false)
   const [roomGone, setRoomGone] = useState(false)
   const [myRole, setMyRole] = useState<"musician" | "listener">("musician")
+  const [refreshTrigger, setRefreshTrigger] = useState(0)
   const [confirmTarget, setConfirmTarget] = useState<"stay" | "home" | "lobby">("stay")
 
   // 从 API 读取房间数据 + 检测用户角色
@@ -94,22 +95,37 @@ export function PlayingPage() {
     setConfirmOpen(false)
     window.jamonyAPI?.killJamsoul?.()
     setAudioConnected(false)
-    // 退出房间（只剩自己时自动解散）
     const rid = params?.id
-    if (rid && user?.id) {
+    if (!rid || !user?.id) return
+
+    if (target === "stay") {
+      // 断开但不离开页面 → 切换为听众
+      setMyRole("listener")
+      fetch(`/api/rooms/${rid}/join`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id, role: "listener" }),
+      }).then(() => {
+        setRefreshTrigger(n => n + 1)
+        // 重新拉取房间数据
+        fetch(`/api/rooms/${rid}`).then(r => r.json()).then(d => {
+          if (d.ok) setRoom(prev => prev ? {...prev, musician_count: d.room.musician_count, listener_count: d.room.listener_count} : prev)
+        })
+      }).catch(() => {})
+    } else {
+      // 离开房间
       fetch(`/api/rooms/${rid}/leave`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: user.id }),
-      }).catch(() => {})
+      }).then(() => setRoomGone(true)).catch(() => {})
+      if (target === "home") router.push("/")
+      else if (target === "lobby") router.push("/lobby")
     }
-    if (target === "home") router.push("/")
-    else if (target === "lobby") router.push("/lobby")
   }
 
   const handleReconnect = () => {
     if (!room || roomGone) return
-    // 检查合奏名额
     if (room.musician_count >= room.max_musicians) {
       alert("合奏名额已满")
       return
@@ -122,17 +138,16 @@ export function PlayingPage() {
     }
     setAudioConnected(true)
     setMyRole("musician")
-    // 更新数据库
     if (user?.id) {
       fetch(`/api/rooms/${room.id}/join`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: user.id, role: "musician" }),
-      }).catch(() => {})
-      fetch(`/api/rooms/${room.id}/members/${user.id}/audio-status`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ audioStatus: "connected" }),
+      }).then(() => {
+        setRefreshTrigger(n => n + 1)
+        fetch(`/api/rooms/${room.id}`).then(r => r.json()).then(d => {
+          if (d.ok) setRoom(prev => prev ? {...prev, musician_count: d.room.musician_count, listener_count: d.room.listener_count} : prev)
+        })
       }).catch(() => {})
     }
   }
@@ -196,7 +211,7 @@ export function PlayingPage() {
           <CenterColumn chords={chords} />
         </div>
         <div className="min-h-0">
-          <RightColumn roomId={params?.id as string} room={room} />
+          <RightColumn roomId={params?.id as string} room={room} refreshTrigger={refreshTrigger} />
         </div>
       </div>
 

@@ -33,7 +33,7 @@ function latencyColor(ms: number): string {
   return "#FF33AA"
 }
 
-export function RightColumn({ roomId, room }: { roomId?: string; room: RoomInfo | null }) {
+export function RightColumn({ roomId, room, refreshTrigger }: { roomId?: string; room: RoomInfo | null; refreshTrigger?: number }) {
   const [members, setMembers] = useState<Member[]>([])
 
   useEffect(() => {
@@ -44,7 +44,7 @@ export function RightColumn({ roomId, room }: { roomId?: string; room: RoomInfo 
         if (data.ok) setMembers(data.members || [])
       })
       .catch(() => {})
-  }, [roomId])
+  }, [roomId, refreshTrigger])
 
   const musicians = members.filter(m => m.role === "musician")
   const listeners = members.filter(m => m.role === "listener")
