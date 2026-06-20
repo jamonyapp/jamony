@@ -34,7 +34,7 @@ export function DisconnectDialog({
           {isListener ? "确认退出房间？" : "确认要断开音频连接吗？"}
         </h2>
         <p className="mt-1 text-sm" style={{ color: "#8A8A8A" }}>
-          {isListener ? "退出后将回到大厅。" : "断开后将结束调音台进程。"}
+          {isListener ? "" : "退出后将离开合奏中页面。"}
         </p>
         <div className="mt-6 grid grid-cols-2 gap-3">
           <button onClick={onCancel}
