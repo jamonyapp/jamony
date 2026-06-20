@@ -228,16 +228,34 @@ function DrumMachineTool({ roomId }: { roomId?: string }) {
   const [bpm, setBpm] = useState(120)
   const [style, setStyle] = useState("rock")
   const [styles, setStyles] = useState<string[]>([])
+  const [files, setFiles] = useState<string[]>([])
+  const [selectedFile, setSelectedFile] = useState("")
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
     fetch("/api/drums/styles")
       .then(r => r.json())
       .then(data => {
-        if (data.ok) setStyles(Object.keys(data.styles))
+        if (data.ok) {
+          setStyles(Object.keys(data.styles))
+          setFiles(data.styles.rock || [])
+        }
       })
       .catch(() => {})
   }, [])
+
+  useEffect(() => {
+    fetch("/api/drums/styles")
+      .then(r => r.json())
+      .then(data => {
+        if (data.ok) {
+          const flist = data.styles[style] || []
+          setFiles(flist)
+          setSelectedFile(flist[Math.floor(Math.random() * flist.length)] || "")
+        }
+      })
+      .catch(() => {})
+  }, [style])
 
   const start = async () => {
     if (!roomId) return
@@ -246,7 +264,7 @@ function DrumMachineTool({ roomId }: { roomId?: string }) {
       const res = await fetch(`/api/rooms/${roomId}/drums/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ style, bpm }),
+        body: JSON.stringify({ style, bpm, file: selectedFile }),
       })
       const data = await res.json()
       if (data.ok) setRunning(true)
@@ -279,6 +297,18 @@ function DrumMachineTool({ roomId }: { roomId?: string }) {
             <option key={s} value={s} className="bg-[#141414] text-white">
               {styleLabels[s] || s} 🥁
             </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Loop 选择 */}
+      <div>
+        <label className="mb-1.5 block text-xs" style={{ color: "#8A8A8A" }}>节奏型</label>
+        <select value={selectedFile} onChange={(e) => setSelectedFile(e.target.value)} disabled={running}
+          className="w-full rounded-[10px] border px-3 py-2 text-xs text-white outline-none disabled:opacity-50"
+          style={{ background: "#141414", borderColor: "#1A1A1A" }}>
+          {files.map((f) => (
+            <option key={f} value={f} className="bg-[#141414] text-white">{f.replace(/_/g, ' ').replace(/\.mid/g, '')}</option>
           ))}
         </select>
       </div>
