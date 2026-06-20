@@ -15,6 +15,7 @@ export function useChatSocket(roomId?: string, nickname?: string) {
   const socketRef = useRef<Socket | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [connected, setConnected] = useState(false)
+  const [realtimeChords, setRealtimeChords] = useState<string[]>([])
 
   useEffect(() => {
     if (!roomId || !nickname) return
@@ -34,6 +35,10 @@ export function useChatSocket(roomId?: string, nickname?: string) {
       setMessages((prev) => [...prev, { ...msg, isSelf: msg.author === nickname }])
     })
 
+    socket.on("chords-update", (data: { chords: string[] }) => {
+      setRealtimeChords(data.chords || [])
+    })
+
     socket.on("disconnect", () => {
       setConnected(false)
     })
@@ -48,7 +53,6 @@ export function useChatSocket(roomId?: string, nickname?: string) {
   const sendMessage = (message: string) => {
     if (!socketRef.current || !message.trim() || !roomId) return
     const msg = message.trim()
-    // 先加到自己界面
     setMessages((prev) => [
       ...prev,
       {
@@ -62,5 +66,11 @@ export function useChatSocket(roomId?: string, nickname?: string) {
     socketRef.current.emit("chat-message", { roomId, message: msg, author: nickname })
   }
 
-  return { messages, sendMessage, connected }
+  const pushChords = (chords: string[]) => {
+    if (!socketRef.current || !roomId) return
+    socketRef.current.emit("push-chords", { roomId, chords })
+    setRealtimeChords(chords)
+  }
+
+  return { messages, sendMessage, connected, realtimeChords, pushChords }
 }

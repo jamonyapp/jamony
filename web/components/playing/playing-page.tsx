@@ -7,8 +7,8 @@ import { LeftColumn } from "@/components/playing/left-column"
 import { CenterColumn } from "@/components/playing/center-column"
 import { RightColumn } from "@/components/playing/right-column"
 import { DisconnectDialog } from "@/components/playing/disconnect-dialog"
-import { CHORD_PRESETS } from "@/lib/jam-data"
 import { useAuth } from "@/lib/auth-context"
+import { useChatSocket } from "@/lib/chat-socket"
 
 declare global {
   interface Window {
@@ -38,8 +38,10 @@ export function PlayingPage() {
   const params = useParams()
   const router = useRouter()
   const { user } = useAuth()
+  const { realtimeChords, pushChords } = useChatSocket(params?.id as string, user?.nickname)
   const [room, setRoom] = useState<RoomData | null>(null)
   const [chords, setChords] = useState<string[]>([])
+  useEffect(() => { if (realtimeChords.length > 0) setChords(realtimeChords) }, [realtimeChords])
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [audioConnected, setAudioConnected] = useState(false)
   const [roomGone, setRoomGone] = useState(false)
@@ -155,7 +157,7 @@ export function PlayingPage() {
       <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[22%_minmax(0,1fr)_30%]">
         <div className="min-h-0 border-b lg:border-b-0 lg:border-r" style={{ borderColor: "#1A1A1A" }}>
           <LeftColumn
-            onPushChord={(c) => setChords(c)}
+            onPushChord={(c) => { setChords(c); pushChords(c) }}
             audioConnected={audioConnected}
             roomGone={roomGone}
             onDisconnect={() => { setConfirmTarget("stay"); setConfirmOpen(true) }}
