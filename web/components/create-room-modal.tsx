@@ -101,7 +101,7 @@ export function CreateRoomModal({
               <select value={maxMusicians} onChange={(e) => setMaxMusicians(Number(e.target.value))}
                 className="w-full rounded-[10px] border px-4 py-2.5 text-sm text-white outline-none transition-colors focus:border-[#9933FF] appearance-none"
                 style={{ background: "#141414", borderColor: "#2A2A2A" }}>
-                {[2,3,4,5,6,7,8].map((n) => (<option key={n} value={n} className="bg-[#141414] text-white">{n} 人</option>))}
+                {[1,2,3,4,5,6,7,8].map((n) => (<option key={n} value={n} className="bg-[#141414] text-white">{n} 人</option>))}
               </select>
             </div>
           </div>
