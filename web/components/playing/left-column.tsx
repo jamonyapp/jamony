@@ -1,7 +1,7 @@
 "use client"
 
 import { Fragment, useState } from "react"
-import { Dices, Send, Wrench, Sparkles, PowerOff, Pencil, Lightbulb } from "lucide-react"
+import { Dices, Send, Wrench, Sparkles, PowerOff, Pencil, Lightbulb, Headphones } from "lucide-react"
 import {
   DAILY_THEME,
   CHORD_STYLES,
@@ -16,28 +16,28 @@ export function LeftColumn({
   onPushChord,
   audioConnected,
   roomGone,
+  myRole,
+  roomName,
   onDisconnect,
   onReconnect,
 }: {
   onPushChord: (chords: string[], style: string) => void
   audioConnected: boolean
   roomGone?: boolean
+  myRole: "musician" | "listener"
+  roomName?: string
   onDisconnect: () => void
   onReconnect: () => void
 }) {
   const [tool, setTool] = useState<Tool>("chords")
   const [style, setStyle] = useState<string>(CHORD_STYLES[0])
   const [phrases, setPhrases] = useState<number>(2)
-  // 初始用确定性进程，避免 SSR / 客户端随机不一致；随机仅在点击“生成”时发生
   const [chords, setChords] = useState<string[]>([])
   const [customMode, setCustomMode] = useState(false)
   const [customInput, setCustomInput] = useState("")
 
   const displayChords = customMode
-    ? customInput
-        .split(/[\s,，|｜]+/)
-        .map((c) => c.trim())
-        .filter(Boolean)
+    ? customInput.split(/[\s,，|｜]+/).map((c) => c.trim()).filter(Boolean)
     : chords
 
   const handleGenerate = () => setChords(generateProgression(style, phrases))
@@ -45,186 +45,163 @@ export function LeftColumn({
     if (displayChords.length > 0) onPushChord(displayChords, style)
   }
 
+  const isListener = myRole === "listener" && !audioConnected
+
   return (
-    <aside className="flex h-full flex-col gap-4 overflow-y-auto scrollbar-thin p-4">
+    <aside className="flex h-full flex-col gap-4 overflow-y-auto scrollbar-thin p-4" style={{ background: "#000" }}>
       {/* 全员 Jam — 今日主题 */}
-      <section className="rounded-[10px] border border-border bg-card p-4">
-        <div className="flex items-center gap-2 text-sm font-semibold">
+      <section className="rounded-[10px] border p-4" style={{ borderColor: "#1A1A1A", background: "#0D0D0D" }}>
+        <div className="flex items-center gap-2 text-sm font-semibold text-white">
           <span>🎸</span>
           <span>全员 Jam</span>
-          <Sparkles className="ml-auto size-4 text-brand-green" />
         </div>
-        <p className="mt-1 text-xs text-muted-foreground">jamony 今日主题</p>
-        <p className="mt-2 text-lg font-semibold brand-text-gradient">{DAILY_THEME.title}</p>
+        <p className="mt-1 text-xs" style={{ color: "#8A8A8A" }}>jamony 今日主题</p>
+        <p className="mt-2 text-lg font-semibold text-transparent bg-clip-text" style={{ backgroundImage: "linear-gradient(90deg, #00AAFF, #9933FF, #FF33AA, #BBEE00)" }}>
+          {DAILY_THEME.title}
+        </p>
+        {roomName && <p className="mt-1 text-xs" style={{ color: "#666" }}>房间：{roomName}</p>}
       </section>
 
-      {/* Jam 魔盒 */}
-      <section className="flex flex-1 flex-col rounded-[10px] border border-border bg-card p-4">
-        <div className="flex items-center gap-2 text-sm font-semibold">
-          <Wrench className="size-4 text-brand-purple" />
-          <span>🧰 Jam 魔盒</span>
-        </div>
+      {/* 听众模式：替代 Jam 魔盒 */}
+      {isListener ? (
+        <section className="flex flex-1 flex-col items-center justify-center rounded-[10px] border p-6" style={{ borderColor: "#1A1A1A", background: "#0D0D0D" }}>
+          <Headphones className="h-12 w-12" style={{ color: "#FF33AA" }} />
+          <p className="mt-4 text-lg font-bold text-white">正在收听</p>
+          <p className="mt-2 text-center text-sm" style={{ color: "#8A8A8A" }}>
+            不过瘾？点击下方，一起玩！
+          </p>
+        </section>
+      ) : roomGone ? null : (
+        <section className="flex flex-1 flex-col rounded-[10px] border p-4" style={{ borderColor: "#1A1A1A", background: "#0D0D0D" }}>
+          <div className="flex items-center gap-2 text-sm font-semibold text-white">
+            <Wrench className="h-4 w-4" style={{ color: "#9933FF" }} />
+            <span>🧰 Jam 魔盒</span>
+          </div>
 
-        {/* 工具选择下拉 */}
-        <label className="mt-3 flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">选择工具</span>
-          <select
-            value={tool}
-            onChange={(e) => setTool(e.target.value as Tool)}
-            className="rounded-[10px] border border-border bg-secondary px-3 py-2.5 text-sm font-medium text-foreground outline-none focus:ring-1 focus:ring-ring"
-          >
-            <option value="chords">💡 灵感进程</option>
-            <option value="metronome">🥁 节拍器</option>
-          </select>
-        </label>
+          <label className="mt-3 flex flex-col gap-1">
+            <span className="text-xs" style={{ color: "#8A8A8A" }}>选择工具</span>
+            <select value={tool} onChange={(e) => setTool(e.target.value as Tool)}
+              className="rounded-[10px] border px-3 py-2.5 text-sm font-medium text-white outline-none focus:ring-1"
+              style={{ borderColor: "#1A1A1A", background: "#141414" }}>
+              <option value="chords">💡 灵感进程</option>
+              <option value="metronome">🥁 节拍器</option>
+            </select>
+          </label>
 
-        {/* 工具内容 */}
-        <div className="mt-4 flex-1">
-          {tool === "chords" ? (
-            <div className="flex h-full flex-col">
-              <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                <Lightbulb className="size-3.5 text-brand-green" />
-                <span>灵感进程</span>
-              </div>
+          <div className="mt-4 flex-1">
+            {tool === "chords" ? (
+              <div className="flex h-full flex-col">
+                <div className="flex items-center gap-1.5 text-xs font-medium" style={{ color: "#8A8A8A" }}>
+                  <Lightbulb className="h-3.5 w-3.5" style={{ color: "#BBEE00" }} />
+                  <span>灵感进程</span>
+                </div>
 
-              {/* 风格 + 句数选择 */}
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <label className="flex flex-col gap-1">
-                  <span className="text-xs text-muted-foreground">风格</span>
-                  <select
-                    value={style}
-                    onChange={(e) => setStyle(e.target.value)}
-                    disabled={customMode}
-                    className="rounded-[10px] border border-border bg-secondary px-2 py-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
-                  >
-                    {CHORD_STYLES.map((s) => (
-                      <option key={s} value={s}>
-                        {CHORD_POOLS[s].emoji} {s}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span className="text-xs text-muted-foreground">乐句数量</span>
-                  <select
-                    value={phrases}
-                    onChange={(e) => setPhrases(Number(e.target.value))}
-                    disabled={customMode}
-                    className="rounded-[10px] border border-border bg-secondary px-2 py-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
-                  >
-                    {PHRASE_COUNTS.map((n) => (
-                      <option key={n} value={n}>
-                        {n} 句
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs" style={{ color: "#8A8A8A" }}>风格</span>
+                    <select value={style} onChange={(e) => setStyle(e.target.value)} disabled={customMode}
+                      className="rounded-[10px] border px-2 py-2 text-sm text-white outline-none focus:ring-1 disabled:opacity-50"
+                      style={{ borderColor: "#1A1A1A", background: "#141414" }}>
+                      {CHORD_STYLES.map((s) => (<option key={s} value={s}>{CHORD_POOLS[s].emoji} {s}</option>))}
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs" style={{ color: "#8A8A8A" }}>乐句数量</span>
+                    <select value={phrases} onChange={(e) => setPhrases(Number(e.target.value))} disabled={customMode}
+                      className="rounded-[10px] border px-2 py-2 text-sm text-white outline-none focus:ring-1 disabled:opacity-50"
+                      style={{ borderColor: "#1A1A1A", background: "#141414" }}>
+                      {PHRASE_COUNTS.map((n) => (<option key={n} value={n}>{n} 句</option>))}
+                    </select>
+                  </label>
+                </div>
 
-              {/* 自定义输入切换 */}
-              <button
-                onClick={() => setCustomMode((v) => !v)}
-                className={`mt-3 flex items-center justify-center gap-1.5 rounded-[10px] border px-3 py-1.5 text-xs font-medium transition-colors ${
-                  customMode
-                    ? "border-brand-purple bg-primary/15 text-foreground"
-                    : "border-border bg-secondary text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <Pencil className="size-3.5" />
-                {customMode ? "自定义模式（已开启）" : "切换到自定义输入"}
-              </button>
+                <button onClick={() => setCustomMode((v) => !v)}
+                  className={`mt-3 flex items-center justify-center gap-1.5 rounded-[10px] border px-3 py-1.5 text-xs font-medium transition-colors ${customMode ? "text-white" : "text-[#B0B0B0] hover:text-white"}`}
+                  style={customMode ? { borderColor: "#9933FF", background: "rgba(153,51,255,0.15)" } : { borderColor: "#1A1A1A" }}>
+                  <Pencil className="h-3.5 w-3.5" />
+                  {customMode ? "自定义模式（已开启）" : "切换到自定义输入"}
+                </button>
 
-              {/* 自定义输入框 */}
-              {customMode && (
-                <input
-                  value={customInput}
-                  onChange={(e) => setCustomInput(e.target.value)}
-                  placeholder="手动输入和弦，用空格分隔，如 C G Am F"
-                  className="mt-2 rounded-[10px] border border-border bg-secondary px-3 py-2 font-mono text-sm text-foreground outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
-                />
-              )}
-
-              {/* 进程展示 — 每行固定 4 个和弦，整齐对齐 */}
-              <div className="mt-3 min-h-[64px] rounded-[10px] border border-border bg-secondary p-3">
-                {displayChords.length > 0 ? (
-                  <div className="flex flex-col gap-1.5">
-                    {Array.from({ length: Math.ceil(displayChords.length / 4) }).map((_, row) => (
-                      <div key={row} className="flex items-center">
-                        {Array.from({ length: 4 }).map((_, col) => {
-                          const chord = displayChords[row * 4 + col]
-                          return (
-                            <Fragment key={col}>
-                              <span className="flex-1 text-center font-mono text-sm font-semibold tracking-wide text-foreground">
-                                {chord ?? ""}
-                              </span>
-                              {col < 3 && <span className="shrink-0 px-1 text-sm text-muted-foreground">|</span>}
-                            </Fragment>
-                          )
-                        })}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="py-2 text-center text-sm text-muted-foreground">
-                    {customMode ? "请输入和弦…" : "点击生成获取灵感"}
-                  </p>
+                {customMode && (
+                  <input value={customInput} onChange={(e) => setCustomInput(e.target.value)}
+                    placeholder="手动输入和弦，用空格分隔，如 C G Am F"
+                    className="mt-2 rounded-[10px] border px-3 py-2 font-mono text-sm text-white outline-none placeholder:text-[#666] focus:ring-1"
+                    style={{ borderColor: "#1A1A1A", background: "#141414" }} />
                 )}
+
+                <div className="mt-3 min-h-[64px] rounded-[10px] border p-3" style={{ borderColor: "#1A1A1A", background: "#141414" }}>
+                  {displayChords.length > 0 ? (
+                    <div className="flex flex-col gap-1.5">
+                      {Array.from({ length: Math.ceil(displayChords.length / 4) }).map((_, row) => (
+                        <div key={row} className="flex items-center">
+                          {Array.from({ length: 4 }).map((_, col) => {
+                            const chord = displayChords[row * 4 + col]
+                            return (
+                              <Fragment key={col}>
+                                <span className="flex-1 text-center font-mono text-sm font-semibold tracking-wide text-white">{chord ?? ""}</span>
+                                {col < 3 && <span className="shrink-0 px-1 text-sm" style={{ color: "#666" }}>|</span>}
+                              </Fragment>
+                            )
+                          })}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="py-2 text-center text-sm" style={{ color: "#666" }}>{customMode ? "请输入和弦…" : "点击生成获取灵感"}</p>
+                  )}
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <button onClick={handleGenerate} disabled={customMode}
+                    className="flex items-center justify-center gap-1.5 rounded-[10px] px-3 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                    style={{ background: "#141414", color: "#B0B0B0" }}>
+                    <Dices className="h-4 w-4" style={{ color: "#00AAFF" }} />
+                    生成
+                  </button>
+                  <button onClick={handlePush} disabled={displayChords.length === 0}
+                    className="flex items-center justify-center gap-1.5 rounded-[10px] px-3 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                    style={{ background: "#9933FF" }}>
+                    <Send className="h-4 w-4" />
+                    推送至大屏
+                  </button>
+                </div>
               </div>
+            ) : (
+              <MetronomeTool />
+            )}
+          </div>
 
-              {/* 操作按钮 */}
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <button
-                  onClick={handleGenerate}
-                  disabled={customMode}
-                  className="flex items-center justify-center gap-1.5 rounded-[10px] bg-secondary px-3 py-2 text-sm font-medium transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  <Dices className="size-4 text-brand-blue" />
-                  生成
-                </button>
-                <button
-                  onClick={handlePush}
-                  disabled={displayChords.length === 0}
-                  className="flex items-center justify-center gap-1.5 rounded-[10px] bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  <Send className="size-4" />
-                  推送至大屏
-                </button>
-              </div>
-            </div>
-          ) : (
-            <MetronomeTool />
-          )}
-        </div>
+          <p className="mt-4 text-center text-xs" style={{ color: "#666" }}>更多工具即将上线…</p>
+        </section>
+      )}
 
-        <p className="mt-4 text-center text-xs text-muted-foreground">更多工具即将上线…</p>
-      </section>
-
-      {/* 音频连接状态 */}
+      {/* 底部按钮 */}
       {roomGone ? (
-        <button
-          disabled
+        <button disabled
           className="flex items-center justify-center gap-2 rounded-[10px] px-4 py-3 text-base font-semibold cursor-not-allowed"
-          style={{ background: "#222", color: "#666" }}
-        >
-          <PowerOff className="size-5" />
+          style={{ background: "#222", color: "#666" }}>
+          <PowerOff className="h-5 w-5" />
           房间已关闭
         </button>
       ) : audioConnected ? (
-        <button
-          onClick={onDisconnect}
+        <button onClick={onDisconnect}
           className="flex items-center justify-center gap-2 rounded-[10px] px-4 py-3 text-base font-semibold text-white transition-opacity hover:opacity-90"
-          style={{ background: "#FF5C5C", color: "#fff" }}
-        >
-          <PowerOff className="size-5" />
+          style={{ background: "#FF5C5C" }}>
+          <PowerOff className="h-5 w-5" />
           断开连接
         </button>
+      ) : isListener ? (
+        <button onClick={onReconnect}
+          className="flex items-center justify-center gap-2 rounded-[10px] px-4 py-3 text-base font-semibold transition-opacity hover:brightness-110 active:scale-[0.97]"
+          style={{ background: "#BBEE00", color: "#0D0D0D" }}>
+          <PowerOff className="h-5 w-5" />
+          音频连接
+        </button>
       ) : (
-        <button
-          onClick={onReconnect}
+        <button onClick={onReconnect}
           className="flex items-center justify-center gap-2 rounded-[10px] px-4 py-3 text-base font-semibold text-white transition-opacity hover:brightness-110 active:scale-[0.97]"
-          style={{ background: "#BBEE00", color: "#0D0D0D" }}
-        >
-          <PowerOff className="size-5" />
+          style={{ background: "#BBEE00", color: "#0D0D0D" }}>
+          <PowerOff className="h-5 w-5" />
           音频连接
         </button>
       )}
@@ -235,17 +212,13 @@ export function LeftColumn({
 function MetronomeTool() {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-4 py-2">
-      <p className="font-mono text-3xl font-bold text-foreground">120 BPM</p>
+      <p className="font-mono text-3xl font-bold text-white">120 BPM</p>
       <div className="flex items-center gap-2">
         {[0, 1, 2, 3].map((i) => (
-          <span
-            key={i}
-            className="size-3 rounded-full bg-brand-green animate-rec-pulse"
-            style={{ animationDelay: `${i * 0.5}s` }}
-          />
+          <span key={i} className="h-3 w-3 rounded-full" style={{ background: "#BBEE00", animation: "rec-pulse 1.1s ease-in-out infinite", animationDelay: `${i * 0.5}s` }} />
         ))}
       </div>
-      <p className="text-xs text-muted-foreground">🎵 即将上线</p>
+      <p className="text-xs" style={{ color: "#8A8A8A" }}>🎵 即将上线</p>
     </div>
   )
 }

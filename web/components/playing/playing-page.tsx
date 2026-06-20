@@ -45,12 +45,13 @@ export function PlayingPage() {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [audioConnected, setAudioConnected] = useState(false)
   const [roomGone, setRoomGone] = useState(false)
+  const [myRole, setMyRole] = useState<"musician" | "listener">("musician")
   const [confirmTarget, setConfirmTarget] = useState<"stay" | "home" | "lobby">("stay")
 
-  // 从 API 读取房间数据 + 自动连接音频
+  // 从 API 读取房间数据 + 检测用户角色
   useEffect(() => {
     const roomId = params?.id
-    if (!roomId) return
+    if (!roomId || !user?.id) return
     fetch(`/api/rooms/${roomId}`)
       .then(r => r.json())
       .then(data => {
@@ -60,24 +61,29 @@ export function PlayingPage() {
             stored_server_ip: "39.96.30.128",
           }
           setRoom(roomData)
-          // 自动调起 jamsoul 连接音频
-          setTimeout(() => {
-            const payload = { serverIp: "39.96.30.128", port: roomData.server_port }
-            if (window.jamonyAPI) {
-              window.jamonyAPI.joinRoom(payload)
-            } else {
-              window.postMessage({ type: "JOIN_ROOM", payload }, "*")
-            }
-            setAudioConnected(true)
-            // 更新音频状态到数据库
-            if (user?.id) {
+          // 检测当前用户在房间的角色
+          const me = (data.members || []).find((m: any) => m.user_id === user.id)
+          const role = me?.role || "musician"
+          setMyRole(role)
+
+          // 仅合奏者自动调起 jamsoul
+          if (role === "musician") {
+            setTimeout(() => {
+              const payload = { serverIp: "39.96.30.128", port: roomData.server_port }
+              if (window.jamonyAPI) {
+                window.jamonyAPI.joinRoom(payload)
+              } else {
+                window.postMessage({ type: "JOIN_ROOM", payload }, "*")
+              }
+              setAudioConnected(true)
+              // 更新音频状态到数据库
               fetch(`/api/rooms/${roomId}/members/${user.id}/audio-status`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ audioStatus: "connected" }),
               }).catch(() => {})
-            }
-          }, 500)
+            }, 500)
+          }
         }
       })
       .catch(() => {})
@@ -102,6 +108,11 @@ export function PlayingPage() {
 
   const handleReconnect = () => {
     if (!room || roomGone) return
+    // 检查合奏名额
+    if (room.musician_count >= room.max_musicians) {
+      alert("合奏名额已满")
+      return
+    }
     const payload = { serverIp: room.stored_server_ip || "39.96.30.128", port: room.server_port }
     if (window.jamonyAPI) {
       window.jamonyAPI.joinRoom(payload)
@@ -109,6 +120,20 @@ export function PlayingPage() {
       window.postMessage({ type: "JOIN_ROOM", payload }, "*")
     }
     setAudioConnected(true)
+    setMyRole("musician")
+    // 更新数据库
+    if (user?.id) {
+      fetch(`/api/rooms/${room.id}/join`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id, role: "musician" }),
+      }).catch(() => {})
+      fetch(`/api/rooms/${room.id}/members/${user.id}/audio-status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ audioStatus: "connected" }),
+      }).catch(() => {})
+    }
   }
 
   const handleLaunchJamsoul = () => {
@@ -121,7 +146,7 @@ export function PlayingPage() {
       <TopNav
         onBackHome={() => {
           if (roomGone) { window.location.href = "/"; return }
-          if (audioConnected) { setConfirmTarget("home"); setConfirmOpen(true) }
+          if (audioConnected || myRole === "listener") { setConfirmTarget("home"); setConfirmOpen(true) }
           else window.location.href = "/"
         }}
         backLinks={[{
@@ -129,7 +154,7 @@ export function PlayingPage() {
           href: "/lobby",
           onClick: () => {
             if (roomGone) { window.location.href = "/lobby"; return }
-            if (audioConnected) { setConfirmTarget("lobby"); setConfirmOpen(true) }
+            if (audioConnected || myRole === "listener") { setConfirmTarget("lobby"); setConfirmOpen(true) }
             else window.location.href = "/lobby"
           },
         }]}
@@ -160,6 +185,8 @@ export function PlayingPage() {
             onPushChord={(c) => { setChords(c); pushChords(c) }}
             audioConnected={audioConnected}
             roomGone={roomGone}
+            myRole={myRole}
+            roomName={room?.name}
             onDisconnect={() => { setConfirmTarget("stay"); setConfirmOpen(true) }}
             onReconnect={handleReconnect}
           />
