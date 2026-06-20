@@ -90,9 +90,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const logout = useCallback(() => {
+    const uId = user?.id
     setUser(null)
     localStorage.removeItem("jamony_user")
-  }, [])
+    if (uId) {
+      fetch(`/api/users/${uId}/leave-all-rooms`, { method: "POST" }).catch(() => {})
+    }
+  }, [user])
 
   return (
     <AuthContext.Provider value={{ user, loggedIn: !!user, ready, login, register, updateUser, logout, showLoginModal, setShowLoginModal }}>

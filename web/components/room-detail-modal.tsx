@@ -89,10 +89,8 @@ export function RoomDetailModal({
         const rd = await r.json()
         if (rd.ok) { setRoom(rd.room); setMembers(rd.members || []) }
 
-        if (role === "musician") {
-          onClose()
-          router.push(`/room/${roomId}/playing`)
-        }
+        onClose()
+        router.push(`/room/${roomId}/playing`)
       }
     } catch {}
     setJoining(false)

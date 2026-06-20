@@ -102,14 +102,7 @@ export function RoomDetailClient() {
         if (data.ok) {
           setMyRole(role)
           setJoinState("joined")
-          if (role === "musician") {
-            setTimeout(() => router.push(`/room/${roomId}/playing`), 500)
-          } else {
-            // 听众模式，刷新成员列表
-            fetch(`/api/rooms/${roomId}`).then(r => r.json()).then(d => {
-              if (d.ok) { setRoom(d.room); setMembers(d.members || []) }
-            })
-          }
+          setTimeout(() => router.push(`/room/${roomId}/playing`), 500)
         }
         setJoinState("idle")
       })
