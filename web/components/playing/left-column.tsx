@@ -1,6 +1,7 @@
 "use client"
 
 import { Fragment, useEffect, useState } from "react"
+import { useParams } from "next/navigation"
 import { Dices, Send, Wrench, Sparkles, PowerOff, Pencil, Lightbulb, Headphones, MessageSquareText } from "lucide-react"
 import {
   DAILY_THEME,
@@ -38,6 +39,7 @@ export function LeftColumn({
   const [customMode, setCustomMode] = useState(false)
   const [customInput, setCustomInput] = useState("")
   const [customTheme, setCustomTheme] = useState("")
+  const params = useParams()
   const [dailyTheme, setDailyTheme] = useState(DAILY_THEME)
 
   const isMusician = myRole === "musician" || audioConnected
@@ -117,7 +119,7 @@ export function LeftColumn({
               className="rounded-[10px] border px-3 py-2.5 text-sm font-medium text-white outline-none"
               style={{ borderColor: "#1A1A1A", background: "#141414" }}>
               <option value="chords">💡 灵感进程</option>
-              <option value="metronome">🥁 节拍器</option>
+              <option value="drums">🥁 鼓机</option>
             </select>
           </label>
 
@@ -186,7 +188,7 @@ export function LeftColumn({
                 </div>
               </div>
             ) : (
-              <MetronomeTool />
+              <DrumMachineTool roomId={params?.id as string} />
             )}
           </div>
 
@@ -221,16 +223,107 @@ export function LeftColumn({
   )
 }
 
-function MetronomeTool() {
+function DrumMachineTool({ roomId }: { roomId?: string }) {
+  const [running, setRunning] = useState(false)
+  const [bpm, setBpm] = useState(120)
+  const [style, setStyle] = useState("rock")
+  const [styles, setStyles] = useState<string[]>([])
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    fetch("/api/drums/styles")
+      .then(r => r.json())
+      .then(data => {
+        if (data.ok) setStyles(Object.keys(data.styles))
+      })
+      .catch(() => {})
+  }, [])
+
+  const start = async () => {
+    if (!roomId) return
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/rooms/${roomId}/drums/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ style, bpm }),
+      })
+      const data = await res.json()
+      if (data.ok) setRunning(true)
+    } catch {}
+    setLoading(false)
+  }
+
+  const stop = async () => {
+    if (!roomId) return
+    try {
+      await fetch(`/api/rooms/${roomId}/drums/stop`, { method: "POST" })
+    } catch {}
+    setRunning(false)
+  }
+
+  const styleLabels: Record<string, string> = {
+    rock: "摇滚", funk: "放克", jazz: "爵士", blues: "布鲁斯",
+    metal: "金属", folk: "民谣", latin: "拉丁",
+  }
+
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-4 py-2">
-      <p className="font-mono text-3xl font-bold text-white">120 BPM</p>
-      <div className="flex items-center gap-2">
-        {[0, 1, 2, 3].map((i) => (
-          <span key={i} className="h-3 w-3 rounded-full" style={{ background: "#BBEE00", animation: "rec-pulse 1.1s ease-in-out infinite", animationDelay: `${i * 0.5}s` }} />
-        ))}
+    <div className="flex h-full flex-col gap-4 py-2">
+      {/* 风格选择 */}
+      <div>
+        <label className="mb-1.5 block text-xs" style={{ color: "#8A8A8A" }}>风格</label>
+        <select value={style} onChange={(e) => setStyle(e.target.value)} disabled={running}
+          className="w-full rounded-[10px] border px-3 py-2 text-sm text-white outline-none disabled:opacity-50"
+          style={{ background: "#141414", borderColor: "#1A1A1A" }}>
+          {styles.map((s) => (
+            <option key={s} value={s} className="bg-[#141414] text-white">
+              {styleLabels[s] || s} 🥁
+            </option>
+          ))}
+        </select>
       </div>
-      <p className="text-xs" style={{ color: "#8A8A8A" }}>🎵 即将上线</p>
+
+      {/* BPM */}
+      <div>
+        <div className="mb-1.5 flex items-center justify-between">
+          <span className="text-xs" style={{ color: "#8A8A8A" }}>速度 (BPM)</span>
+          <span className="font-mono text-sm font-bold text-white">{bpm}</span>
+        </div>
+        <input type="range" min="40" max="220" value={bpm}
+          onChange={(e) => setBpm(Number(e.target.value))}
+          disabled={running}
+          className="w-full accent-[#9933FF] disabled:opacity-50" />
+        <div className="mt-1 flex justify-between text-[10px]" style={{ color: "#555" }}>
+          <span>40</span><span>220</span>
+        </div>
+      </div>
+
+      {/* 启动/停止 */}
+      <button onClick={running ? stop : start} disabled={loading}
+        className={`flex items-center justify-center gap-2 rounded-[10px] px-4 py-3 text-base font-semibold transition-opacity hover:brightness-110 active:scale-[0.97] disabled:opacity-50 ${
+          running ? "text-white" : "text-white"
+        }`}
+        style={running ? { background: "#FF5C5C" } : { background: "linear-gradient(90deg, #9933FF, #FF33AA)" }}>
+        {loading ? "处理中..." : running ? "🛑 停止鼓机" : "▶ 启动鼓机"}
+      </button>
+
+      {running && (
+        <div className="flex items-center justify-center gap-1.5 text-xs" style={{ color: "#BBEE00" }}>
+          <span className="flex gap-0.5">
+            {[0,1,2,3].map((i) => (
+              <span key={i}
+                className="inline-block h-3 w-[3px] rounded-full"
+                style={{
+                  background: "#BBEE00",
+                  animation: "jamony-wave 0.9s ease-in-out infinite",
+                  animationDelay: `${i * 0.12}s`,
+                }}
+              />
+            ))}
+          </span>
+          鼓机运行中 · {styleLabels[style] || style} @ {bpm}BPM
+        </div>
+      )}
     </div>
   )
 }
