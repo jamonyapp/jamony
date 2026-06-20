@@ -1,7 +1,9 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Send, Users, Signal, Crown, Headphones, UserCheck } from "lucide-react"
+import { useChatSocket } from "@/lib/chat-socket"
+import { useAuth } from "@/lib/auth-context"
 
 type Member = {
   id: number
@@ -128,19 +130,20 @@ export function RightColumn({ roomId, room }: { roomId?: string; room: RoomInfo 
       </section>
 
       {/* 聊天 — 占位 */}
-      <ChatPanel />
+      <ChatPanel roomId={roomId} />
     </aside>
   )
 }
 
-function ChatPanel() {
-  const [messages, setMessages] = useState<any[]>([])
+function ChatPanel({ roomId }: { roomId?: string }) {
+  const { user } = useAuth()
+  const { messages, sendMessage, connected } = useChatSocket(roomId, user?.nickname)
   const [draft, setDraft] = useState("")
 
   function send() {
     const text = draft.trim()
     if (!text) return
-    setMessages((m) => [...m, { id: `c${Date.now()}`, author: "你", content: text, time: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }), isSelf: true }])
+    sendMessage(text)
     setDraft("")
   }
 
@@ -148,8 +151,14 @@ function ChatPanel() {
     <section className="flex min-h-0 flex-1 flex-col rounded-[10px] border" style={{ borderColor: "#1A1A1A", background: "#0D0D0D" }}>
       <div className="flex items-center gap-2 border-b px-3 py-2 text-xs font-semibold" style={{ borderColor: "#1A1A1A", color: "#8A8A8A" }}>
         💬 聊天
+        <span className="ml-auto text-[10px] font-normal" style={{ color: connected ? "#BBEE00" : "#FF5C5C" }}>
+          {connected ? "● 已连接" : "○ 未连接"}
+        </span>
       </div>
       <div className="flex-1 space-y-2 overflow-y-auto px-3 py-2 scrollbar-thin">
+        {messages.length === 0 && (
+          <p className="text-center text-xs" style={{ color: "#666" }}>{'暂无消息'}</p>
+        )}
         {messages.map((msg) => (
           <div key={msg.id} className={`flex flex-col ${msg.isSelf ? "items-end" : "items-start"}`}>
             <div className="flex items-center gap-1.5 text-[10px]" style={{ color: "#8A8A8A" }}>
@@ -163,8 +172,8 @@ function ChatPanel() {
         ))}
       </div>
       <div className="flex items-center gap-1.5 border-t p-2" style={{ borderColor: "#1A1A1A" }}>
-        <input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()}
-          placeholder="发条消息…"
+        <input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") send() }}
+          placeholder={"发条消息…"}
           className="min-w-0 flex-1 rounded-[8px] px-2.5 py-1.5 text-xs outline-none" style={{ background: "#141414", color: "#FFF" }}
         />
         <button onClick={send}
