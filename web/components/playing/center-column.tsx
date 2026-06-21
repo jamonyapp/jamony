@@ -15,7 +15,7 @@ function fmt(total: number) {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
 }
 
-export function CenterColumn({ chords, customTheme }: { chords: string[]; customTheme?: string }) {
+export function CenterColumn({ chords, customTheme, currentBpm }: { chords: string[]; customTheme?: string; currentBpm?: number }) {
   const [todayTheme, setTodayTheme] = useState({ title: "加载中...", emoji: "🎵" })
   useEffect(() => {
     fetch("/api/daily-theme")
@@ -62,7 +62,7 @@ export function CenterColumn({ chords, customTheme }: { chords: string[]; custom
 
           <div>
             <p className="text-xs uppercase tracking-[0.3em] text-white/50">拍速</p>
-            <p className="mt-1 text-xl font-bold text-white lg:text-2xl">120 BPM</p>
+            <p className="mt-1 text-xl font-bold text-white lg:text-2xl">{currentBpm && currentBpm > 0 ? currentBpm + " BPM" : "custom"}</p>
           </div>
         </div>
         <div className="absolute inset-x-0 bottom-0 h-0.5" style={{ background: "linear-gradient(90deg, #00AAFF, #9933FF, #FF33AA, #BBEE00)" }} />

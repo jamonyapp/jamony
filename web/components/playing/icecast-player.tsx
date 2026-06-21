@@ -26,10 +26,12 @@ export function IcecastPlayer({ active, port }: { active: boolean; port?: number
     const audio = new Audio(url)
     audioRef.current = audio
     audio.volume = 0.8
-
-    audio.play().catch(() => {
-      console.log("[icecast] autoplay blocked")
-    })
+    const playPromise = audio.play()
+    if (playPromise) {
+      playPromise.catch(() => {
+        console.log("[icecast] autoplay blocked, will retry on next user gesture")
+      })
+    }
 
     return () => {
       audio.pause()

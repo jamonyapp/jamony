@@ -1,0 +1,128 @@
+﻿G8,127,Reserved 11
+F#8,126,Reserved 10
+F8,125,Reserved 09
+E8,124,Reserved 08
+D#8,123,Reserved 07
+D8,122,Reserved 06
+C#8,121,User 45
+C8,120,User 44
+B7,119,User 43
+A#7,118,User 42
+A7,117,User 41
+G#7,116,User 40
+G7,115,User 39
+F#7,114,User 38
+F7,113,User 37
+E7,112,User 36
+D#7,111,User 35
+D7,110,User 34
+C#7,109,User 33
+C7,108,User 32
+B6,107,User 31
+A#6,106,User 30
+A6,105,User 29
+G#6,104,User 28
+G6,103,User 27
+F#6,102,User 26
+F6,101,User 25
+E6,100,User 24
+D#6,99,User 23
+D6,98,User 22
+C#6,97,User 21
+C6,96,User 20
+B5,95,XL Cymbal Tip
+A#5,94,XR Cymbal Tip
+A5,93,China Tip
+G#5,92,Crash Right Tip
+G5,91,Crash Left Tip
+F#5,90,Splash Tip
+F5,89,User 19
+E5,88,User 18
+D#5,87,User 17
+D5,86,User 16
+C#5,85,User 15
+C5,84,Bell Right
+B4,83,Bell Left
+A#4,82,Shaker Hit
+A4,81,Shaker Down
+G#4,80,Shaker Up
+G4,79,Tambourine Hit
+F#4,78,Tambourine Down
+F4,77,Tambourine Up
+E4,76,Clap
+D#4,75,Cowbell Tip
+D4,74,Cowbell Shank
+C#4,73,Hi-Hat Footsplash
+C4,72,Hi-Hat Pedal
+B3,71,Hi-Hat Tip Open 3
+A#3,70,Hi-Hat Tip Open 2
+A3,69,Hi-Hat Tip Open 1
+G#3,68,Hi-Hat Tip Loosen
+G3,67,Hi-Hat Tip Closed
+F#3,66,Hi-Hat Tip Closed Tight
+F3,65,Hi-Hat Shank Open 3
+E3,64,Hi-Hat Shank Open 2
+D#3,63,Hi-Hat Shank Open 1
+D3,62,Hi-Hat Shank Loosen
+C#3,61,Hi-Hat Shank Closed
+C3,60,Hi-Hat Shank Closed Tight
+B2,59,Ride Edge
+A#2,58,Ride Choke
+A2,57,Crash Right Edge
+G#2,56,Crash Right Choke
+G2,55,Crash Left Edge
+F#2,54,Crash Left Choke
+F2,53,Ride Bell
+E2,52,Ride Bow Shank
+D#2,51,Ride Bow Tip
+D2,50,Splash Edge
+C#2,49,Splash Choke
+C2,48,Rack Tom 1 Center
+B1,47,Rack Tom 2 Center
+A#1,46,Hi-Hat Tip CC Controlable
+A1,45,Xtra Rack Tom Center
+G#1,44,Hi-Hat Pedal
+G1,43,Floor Tom 1 Center
+F#1,42,Hi-Hat Tip Closed
+F1,41,Floor Tom 2 Center
+E1,40,Snare Rimshot
+D#1,39,Snare Rimclick
+D1,38,Snare Center
+C#1,37,Snare Sidestick
+C1,36,Kick Center
+B0,35,Kick Double
+A#0,34,Snare Side
+A0,33,Snare Rimshot Edge
+G#0,32,China Choke
+G0,31,China Edge
+F#0,30,XR Cymbal Choke
+F0,29,XR Cymbal Edge
+E0,28,XL Cymbal Edge
+D#0,27,XL Cymbal Choke
+D0,26,Hi-Hat Shank CC Controlable
+C#0,25,User 14
+C0,24,User 13
+B-1,23,User 12
+A#-1,22,Hi-Hat Shank Closed
+A-1,21,Snare Rolls
+G#-1,20,User 11
+G-1,19,Rack Tom 1 Rimclick
+F#-1,18,User 10
+F-1,17,Rack Tom 2 Rimclick
+E-1,16,Xtra Rack Tom Rimclick
+D#-1,15,User 09
+D-1,14,Floor Tom 1 Rimclick
+C#-1,13,User 08
+C-1,12,Floor Tom 2 Rimclick
+B-2,11,User 07
+A#-2,10,User 06
+A-2,9,User 05
+G#-2,8,User 04
+G-2,7,User 03
+F#-2,6,User 02
+F-2,5,User 01
+E-2,4,Reserved 05
+D#-2,3,Reserved 04
+D-2,2,Reserved 03
+C#-2,1,Reserved 02
+C-2,0,Reserved 01

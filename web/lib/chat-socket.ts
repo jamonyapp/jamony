@@ -17,6 +17,7 @@ export function useChatSocket(roomId?: string, nickname?: string) {
   const [connected, setConnected] = useState(false)
   const [realtimeChords, setRealtimeChords] = useState<string[]>([])
   const [realtimeTheme, setRealtimeTheme] = useState<string>("")
+  const [realtimeBpm, setRealtimeBpm] = useState<number>(0)
 
   useEffect(() => {
     if (!roomId || !nickname) return
@@ -44,6 +45,10 @@ export function useChatSocket(roomId?: string, nickname?: string) {
       setRealtimeTheme(data.theme || "")
     })
 
+    socket.on("bpm-update", (data: { bpm: number }) => {
+      setRealtimeBpm(data.bpm || 0)
+    })
+
     socket.on("disconnect", () => {
       setConnected(false)
     })
@@ -58,16 +63,6 @@ export function useChatSocket(roomId?: string, nickname?: string) {
   const sendMessage = (message: string) => {
     if (!socketRef.current || !message.trim() || !roomId) return
     const msg = message.trim()
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: Date.now().toString(),
-        author: nickname || "我",
-        content: msg,
-        time: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
-        isSelf: true,
-      },
-    ])
     socketRef.current.emit("chat-message", { roomId, message: msg, author: nickname })
   }
 
@@ -83,5 +78,5 @@ export function useChatSocket(roomId?: string, nickname?: string) {
     setRealtimeTheme(theme)
   }
 
-  return { messages, sendMessage, connected, realtimeChords, pushChords, realtimeTheme, pushTheme }
+  return { messages, sendMessage, connected, realtimeChords, pushChords, realtimeTheme, pushTheme, realtimeBpm }
 }

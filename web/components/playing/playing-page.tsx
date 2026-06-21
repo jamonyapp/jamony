@@ -1,13 +1,12 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { TopNav } from "@/components/jamony/top-nav"
 import { LeftColumn } from "@/components/playing/left-column"
 import { CenterColumn } from "@/components/playing/center-column"
 import { RightColumn } from "@/components/playing/right-column"
 import { DisconnectDialog } from "@/components/playing/disconnect-dialog"
-import { IcecastPlayer } from "@/components/playing/icecast-player"
 import { useAuth } from "@/lib/auth-context"
 import { useChatSocket } from "@/lib/chat-socket"
 
@@ -39,12 +38,20 @@ export function PlayingPage() {
   const params = useParams()
   const router = useRouter()
   const { user } = useAuth()
-  const { realtimeChords, pushChords, realtimeTheme, pushTheme } = useChatSocket(params?.id as string, user?.nickname)
+  const { realtimeChords, pushChords, realtimeTheme, pushTheme, realtimeBpm } = useChatSocket(params?.id as string, user?.nickname)
   const [room, setRoom] = useState<RoomData | null>(null)
   const [chords, setChords] = useState<string[]>([])
   const [customTheme, setCustomTheme] = useState("")
-  useEffect(() => { if (realtimeChords.length > 0) setChords(realtimeChords) }, [realtimeChords])
+  const [chordTextFromPush, setChordTextFromPush] = useState("")
+  const [currentBpm, setCurrentBpm] = useState(0)
+  const [listenerActive, setListenerActive] = useState(false)
+  useEffect(() => { if (realtimeChords.length > 0) { setChords(realtimeChords); setChordTextFromPush(realtimeChords.join(' ')) } }, [realtimeChords])
   useEffect(() => { if (realtimeTheme) setCustomTheme(realtimeTheme) }, [realtimeTheme])
+  const initBpmRef = useRef(false)
+  useEffect(() => {
+    if (realtimeBpm > 0) { setCurrentBpm(realtimeBpm); initBpmRef.current = true }
+    else if (initBpmRef.current && realtimeBpm === 0) setCurrentBpm(0)
+  }, [realtimeBpm])
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [audioConnected, setAudioConnected] = useState(false)
   const [roomGone, setRoomGone] = useState(false)
@@ -69,6 +76,12 @@ export function PlayingPage() {
           const me = (data.members || []).find((m: any) => m.user_id === user.id)
           const role = me?.role || "musician"
           setMyRole(role)
+
+          // 加载已保存的房间主题
+          if (data.room.current_theme) setCustomTheme(data.room.current_theme)
+          // 加载已保存的和弦进程
+          if (data.room.current_chords) setChords(data.room.current_chords.split(' '))
+          if (data.room.current_bpm) setCurrentBpm(data.room.current_bpm)
 
           // 仅合奏者自动调起 jamsoul
           if (role === "musician") {
@@ -179,23 +192,29 @@ export function PlayingPage() {
           <LeftColumn
             onPushChord={(c) => { setChords(c); pushChords(c) }}
             onPushTheme={(t) => { setCustomTheme(t); pushTheme(t) }}
+            customTheme={customTheme}
+            chordTextFromPush={chordTextFromPush}
+            realtimeBpm={realtimeBpm}
             audioConnected={audioConnected}
             roomGone={roomGone}
             myRole={myRole}
             roomName={room?.name}
+            roomPort={room?.server_port}
+            listenerActive={listenerActive}
+            onStartListening={() => setListenerActive(p => !p)}
             onDisconnect={() => { setConfirmTarget("stay"); setConfirmOpen(true) }}
             onReconnect={handleReconnect}
           />
         </div>
         <div className="min-h-0 border-b lg:border-b-0 lg:border-r" style={{ borderColor: "#1A1A1A" }}>
-          <CenterColumn chords={chords} customTheme={customTheme} />
+          <CenterColumn chords={chords} customTheme={customTheme} currentBpm={currentBpm} />
         </div>
         <div className="min-h-0">
           <RightColumn roomId={params?.id as string} room={room} refreshTrigger={refreshTrigger} />
         </div>
       </div>
 
-      {myRole === "listener" && !audioConnected && !roomGone && <IcecastPlayer active port={room?.server_port} />}
+      {null}
       <DisconnectDialog
         open={confirmOpen}
         onCancel={() => setConfirmOpen(false)}

@@ -1,0 +1,352 @@
+{
+  "12": {
+    "to": 41,
+    "ssd": "Floor Tom 2 Rimclick",
+    "gm": "Low Floor Tom"
+  },
+  "14": {
+    "to": 43,
+    "ssd": "Floor Tom 1 Rimclick",
+    "gm": "High Floor Tom"
+  },
+  "17": {
+    "to": 47,
+    "ssd": "Rack Tom 2 Rimclick",
+    "gm": "Low-Mid Tom (rim)"
+  },
+  "19": {
+    "to": 48,
+    "ssd": "Rack Tom 1 Rimclick",
+    "gm": "Hi-Mid Tom (rim)"
+  },
+  "21": {
+    "to": 40,
+    "ssd": "Snare Rolls",
+    "gm": "Electric Snare (rolls)"
+  },
+  "22": {
+    "to": 42,
+    "ssd": "Hi-Hat Shank Closed",
+    "gm": "Closed Hi-Hat"
+  },
+  "26": {
+    "to": 46,
+    "ssd": "Hi-Hat Shank CC Controlable",
+    "gm": "Open Hi-Hat (CC)"
+  },
+  "27": {
+    "to": 49,
+    "ssd": "XL Cymbal Choke",
+    "gm": "Crash Cymbal 1"
+  },
+  "28": {
+    "to": 49,
+    "ssd": "XL Cymbal Edge",
+    "gm": "Crash Cymbal 1"
+  },
+  "29": {
+    "to": 49,
+    "ssd": "XR Cymbal Edge",
+    "gm": "Crash Cymbal 1"
+  },
+  "30": {
+    "to": 49,
+    "ssd": "XR Cymbal Choke",
+    "gm": "Crash Cymbal 1"
+  },
+  "31": {
+    "to": 52,
+    "ssd": "China Edge",
+    "gm": "Chinese Cymbal"
+  },
+  "32": {
+    "to": 52,
+    "ssd": "China Choke",
+    "gm": "Chinese Cymbal"
+  },
+  "33": {
+    "to": 38,
+    "ssd": "Snare Rimshot Edge",
+    "gm": "Acoustic Snare"
+  },
+  "34": {
+    "to": 37,
+    "ssd": "Snare Side",
+    "gm": "Side Stick"
+  },
+  "35": {
+    "to": 36,
+    "ssd": "Kick Double",
+    "gm": "Bass Drum 1"
+  },
+  "36": {
+    "to": 36,
+    "ssd": "Kick Center",
+    "gm": "Bass Drum 1"
+  },
+  "37": {
+    "to": 37,
+    "ssd": "Snare Sidestick",
+    "gm": "Side Stick"
+  },
+  "38": {
+    "to": 38,
+    "ssd": "Snare Center",
+    "gm": "Acoustic Snare"
+  },
+  "39": {
+    "to": 38,
+    "ssd": "Snare Rimclick",
+    "gm": "Acoustic Snare"
+  },
+  "40": {
+    "to": 38,
+    "ssd": "Snare Rimshot",
+    "gm": "Acoustic Snare"
+  },
+  "41": {
+    "to": 41,
+    "ssd": "Floor Tom 2 Center",
+    "gm": "Low Floor Tom"
+  },
+  "42": {
+    "to": 42,
+    "ssd": "Hi-Hat Tip Closed",
+    "gm": "Closed Hi-Hat"
+  },
+  "43": {
+    "to": 43,
+    "ssd": "Floor Tom 1 Center",
+    "gm": "High Floor Tom"
+  },
+  "44": {
+    "to": 44,
+    "ssd": "Hi-Hat Pedal",
+    "gm": "Pedal Hi-Hat"
+  },
+  "46": {
+    "to": 46,
+    "ssd": "Hi-Hat Tip CC Controlable",
+    "gm": "Open Hi-Hat (CC)"
+  },
+  "47": {
+    "to": 47,
+    "ssd": "Rack Tom 2 Center",
+    "gm": "Low-Mid Tom"
+  },
+  "48": {
+    "to": 48,
+    "ssd": "Rack Tom 1 Center",
+    "gm": "Hi-Mid Tom"
+  },
+  "49": {
+    "to": 55,
+    "ssd": "Splash Choke",
+    "gm": "Splash Cymbal"
+  },
+  "50": {
+    "to": 55,
+    "ssd": "Splash Edge",
+    "gm": "Splash Cymbal"
+  },
+  "51": {
+    "to": 51,
+    "ssd": "Ride Bow Tip",
+    "gm": "Ride Cymbal 1"
+  },
+  "52": {
+    "to": 51,
+    "ssd": "Ride Bow Shank",
+    "gm": "Ride Cymbal 1"
+  },
+  "53": {
+    "to": 53,
+    "ssd": "Ride Bell",
+    "gm": "Ride Bell"
+  },
+  "54": {
+    "to": 49,
+    "ssd": "Crash Left Choke",
+    "gm": "Crash Cymbal 1"
+  },
+  "55": {
+    "to": 49,
+    "ssd": "Crash Left Edge",
+    "gm": "Crash Cymbal 1"
+  },
+  "56": {
+    "to": 57,
+    "ssd": "Crash Right Choke",
+    "gm": "Crash Cymbal 2"
+  },
+  "57": {
+    "to": 57,
+    "ssd": "Crash Right Edge",
+    "gm": "Crash Cymbal 2"
+  },
+  "58": {
+    "to": 51,
+    "ssd": "Ride Choke",
+    "gm": "Ride Cymbal 1"
+  },
+  "59": {
+    "to": 51,
+    "ssd": "Ride Edge",
+    "gm": "Ride Cymbal 1"
+  },
+  "60": {
+    "to": 42,
+    "ssd": "Hi-Hat Shank Closed Tight",
+    "gm": "Closed Hi-Hat"
+  },
+  "61": {
+    "to": 42,
+    "ssd": "Hi-Hat Shank Closed",
+    "gm": "Closed Hi-Hat"
+  },
+  "62": {
+    "to": 46,
+    "ssd": "Hi-Hat Shank Loosen",
+    "gm": "Open Hi-Hat (loose)"
+  },
+  "63": {
+    "to": 46,
+    "ssd": "Hi-Hat Shank Open 1",
+    "gm": "Open Hi-Hat"
+  },
+  "64": {
+    "to": 46,
+    "ssd": "Hi-Hat Shank Open 2",
+    "gm": "Open Hi-Hat"
+  },
+  "65": {
+    "to": 46,
+    "ssd": "Hi-Hat Shank Open 3",
+    "gm": "Open Hi-Hat"
+  },
+  "66": {
+    "to": 42,
+    "ssd": "Hi-Hat Tip Closed Tight",
+    "gm": "Closed Hi-Hat"
+  },
+  "67": {
+    "to": 42,
+    "ssd": "Hi-Hat Tip Closed",
+    "gm": "Closed Hi-Hat"
+  },
+  "68": {
+    "to": 46,
+    "ssd": "Hi-Hat Tip Loosen",
+    "gm": "Open Hi-Hat (loose)"
+  },
+  "69": {
+    "to": 46,
+    "ssd": "Hi-Hat Tip Open 1",
+    "gm": "Open Hi-Hat"
+  },
+  "70": {
+    "to": 46,
+    "ssd": "Hi-Hat Tip Open 2",
+    "gm": "Open Hi-Hat"
+  },
+  "71": {
+    "to": 46,
+    "ssd": "Hi-Hat Tip Open 3",
+    "gm": "Open Hi-Hat"
+  },
+  "72": {
+    "to": 44,
+    "ssd": "Hi-Hat Pedal",
+    "gm": "Pedal Hi-Hat"
+  },
+  "73": {
+    "to": 46,
+    "ssd": "Hi-Hat Footsplash",
+    "gm": "Open Hi-Hat"
+  },
+  "74": {
+    "to": 56,
+    "ssd": "Cowbell Shank",
+    "gm": "Cowbell"
+  },
+  "75": {
+    "to": 56,
+    "ssd": "Cowbell Tip",
+    "gm": "Cowbell"
+  },
+  "76": {
+    "to": 39,
+    "ssd": "Clap",
+    "gm": "Hand Clap"
+  },
+  "77": {
+    "to": 54,
+    "ssd": "Tambourine Up",
+    "gm": "Tambourine"
+  },
+  "78": {
+    "to": 54,
+    "ssd": "Tambourine Down",
+    "gm": "Tambourine"
+  },
+  "79": {
+    "to": 54,
+    "ssd": "Tambourine Hit",
+    "gm": "Tambourine"
+  },
+  "80": {
+    "to": 70,
+    "ssd": "Shaker Up",
+    "gm": "Maracas"
+  },
+  "81": {
+    "to": 70,
+    "ssd": "Shaker Down",
+    "gm": "Maracas"
+  },
+  "82": {
+    "to": 70,
+    "ssd": "Shaker Hit",
+    "gm": "Maracas"
+  },
+  "90": {
+    "to": 55,
+    "ssd": "Splash Tip",
+    "gm": "Splash Cymbal"
+  },
+  "91": {
+    "to": 49,
+    "ssd": "Crash Left Tip",
+    "gm": "Crash Cymbal 1"
+  },
+  "92": {
+    "to": 57,
+    "ssd": "Crash Right Tip",
+    "gm": "Crash Cymbal 2"
+  },
+  "93": {
+    "to": 52,
+    "ssd": "China Tip",
+    "gm": "Chinese Cymbal"
+  },
+  "94": {
+    "to": 49,
+    "ssd": "XR Cymbal Tip",
+    "gm": "Crash Cymbal 1"
+  },
+  "95": {
+    "to": 49,
+    "ssd": "XL Cymbal Tip",
+    "gm": "Crash Cymbal 1"
+  },
+  "16": {
+    "to": 47,
+    "ssd": "Xtra Rack Tom Rimclick",
+    "gm": "Low-Mid Tom"
+  },
+  "45": {
+    "to": 45,
+    "ssd": "Xtra Rack Tom Center",
+    "gm": "Low Tom"
+  }
+}
