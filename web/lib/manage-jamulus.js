@@ -51,7 +51,7 @@ if (CMD === 'stop') {
   var st = getState()
   if (st[PORT]) {
     try { process.kill(st[PORT].ghostPid) } catch {}
-    try { process.kill(st[PORT].ffmpegPid) } catch {}
+    if (st[PORT].ffmpegPid) { try { process.kill(st[PORT].ffmpegPid) } catch {} }
     delete st[PORT]
     saveState(st)
     console.log('Ghost cleaned for port ' + PORT)
@@ -72,38 +72,53 @@ if (CMD === 'start-ghost') {
   var ghost = spawn(GHOST_BIN, ['-n', '--connect', '127.0.0.1:' + PORT], { stdio: 'ignore', detached: true })
   ghost.unref()
 
-  // Wait and detect JACK name
-  var name = 'Jamulus'
-  execSync('sleep 2')
-  for (var i = 0; i < 4; i++) {
-    execSync('sleep 1')
-    try {
-      var after = execSync('jack_lsp 2>/dev/null', { encoding: 'utf8' }).toString().split('\\n').filter(function(l) { return l.indexOf('output') >= 0 })
-      var newPorts = after.filter(function(l) { return before.indexOf(l.trim()) < 0 })
-      if (newPorts.length > 0) {
-        var m = newPorts[0].match(/([\\w-]+):/)
-        if (m && m[1] !== 'system') { name = m[1]; break }
-      } else if (after.length > 0) {
-        var m = after[after.length-1].match(/([\\w-]+):/)
-        if (m && m[1] !== 'system') name = m[1]
-      }
-    } catch {}
-  }
-
-  var ffmpeg = spawn('ffmpeg', ['-f', 'jack', '-i', name, '-acodec', 'libmp3lame', '-b:a', '48k', '-content_type', 'audio/mpeg', '-f', 'mp3', 'icecast://source:jamony2026ice@localhost:8000' + mount], { stdio: 'ignore', detached: true })
-  ffmpeg.unref()
-
+  // 后台每秒检测 JACK，就绪后立即启动 ffmpeg（不阻塞 API）
   var st = getState()
-  st[PORT] = { ghostPid: ghost.pid, ffmpegPid: ffmpeg.pid, ghostName: name, mountPath: mount, startedAt: new Date().toISOString() }
+  st[PORT] = { ghostPid: ghost.pid, ffmpegPid: 0, ghostName: "Jamulus", mountPath: mount, startedAt: new Date().toISOString() }
   saveState(st)
-  console.log('GHOST ' + PORT + ' name=' + name + ' mount=' + mount + ' ghostPid=' + ghost.pid + ' ffmpegPid=' + ffmpeg.pid)
+  console.log("GHOST " + PORT + " ghostPid=" + ghost.pid + " (JACK pending, watching)")
+
+  var watchInterval = setInterval(function() {
+    var curSt = getState()
+    if (!curSt[PORT] || !pidAlive(curSt[PORT].ghostPid)) { clearInterval(watchInterval); return }
+    if (pidAlive(curSt[PORT].ffmpegPid)) { clearInterval(watchInterval); return }
+    try {
+      var out = execSync('jack_lsp 2>/dev/null | grep -c ":output"', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).toString().trim()
+      if (parseInt(out) <= 2) return
+    } catch(e) { return }
+    clearInterval(watchInterval)
+    console.log("JACK ready for " + PORT + ", starting ffmpeg")
+    var name = "Jamulus"
+    var mount = "/room-" + PORT
+    var ffmpeg = spawn("ffmpeg", ["-f", "jack", "-i", name, "-acodec", "libmp3lame", "-b:a", "48k", "-content_type", "audio/mpeg", "-f", "mp3", "icecast://source:jamony2026ice@localhost:8000" + mount], { stdio: "ignore", detached: true })
+    ffmpeg.unref()
+    curSt[PORT].ffmpegPid = ffmpeg.pid
+    curSt[PORT].startedAt = new Date().toISOString()
+    saveState(curSt)
+    console.log("FFMPEG started for " + PORT + " pid=" + ffmpeg.pid)
+  }, 1000)
+  // 保持进程存活，直到 ffmpeg 启动或 30 秒超时
+  var keepAliveTimer = setInterval(function() {
+    var curSt = getState()
+    if (curSt[PORT] && pidAlive(curSt[PORT].ffmpegPid)) {
+      console.log("FFMPEG confirmed for " + PORT + ", start-ghost exiting")
+      clearInterval(keepAliveTimer)
+      process.exit(0)
+    }
+  }, 500)
+  setTimeout(function() {
+    console.log("start-ghost timeout for " + PORT + ", exiting")
+    process.exit(0)
+  }, 30000)
 }
+
+
 
 if (CMD === 'stop-ghost') {
   var st = getState()
   if (st[PORT]) {
     try { process.kill(st[PORT].ghostPid) } catch {}
-    try { process.kill(st[PORT].ffmpegPid) } catch {}
+    if (st[PORT].ffmpegPid) { try { process.kill(st[PORT].ffmpegPid) } catch {} }
     delete st[PORT]
     saveState(st)
     console.log('Stopped ghost for port ' + PORT)
@@ -148,8 +163,12 @@ if (CMD === 'health-check') {
       return
     }
     if (!pidAlive(s.ffmpegPid)) {
+      // 先确认 JACK 已就绪
+      var jackReady = false
+      try { var out = execSync('jack_lsp 2>/dev/null | grep -c ":output"', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).toString().trim(); if (parseInt(out) > 4) jackReady = true } catch(e) {}
+      if (!jackReady) { console.log('JACK not ready for ' + k + ', deferring ffmpeg'); return }
       console.log('FFMPEG DEAD: ' + k + ' - restarting')
-      var name = s.ghostName
+      var name = 'Jamulus'
       var mount = s.mountPath
       var ffmpeg = spawn('ffmpeg', ['-f', 'jack', '-i', name, '-acodec', 'libmp3lame', '-b:a', '48k', '-content_type', 'audio/mpeg', '-f', 'mp3', 'icecast://source:jamony2026ice@localhost:8000' + mount], { stdio: 'ignore', detached: true })
       ffmpeg.unref()
@@ -162,3 +181,4 @@ if (CMD === 'health-check') {
   if (restarted > 0) console.log('Restarted ' + restarted + ' ffmpeg processes')
   else console.log('All healthy')
 }
+
