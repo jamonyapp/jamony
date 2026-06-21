@@ -74,7 +74,8 @@ if (CMD === 'start-ghost') {
 
   // Wait and detect JACK name
   var name = 'Jamulus'
-  for (var i = 0; i < 12; i++) {
+  execSync('sleep 2')
+  for (var i = 0; i < 4; i++) {
     execSync('sleep 1')
     try {
       var after = execSync('jack_lsp 2>/dev/null', { encoding: 'utf8' }).toString().split('\\n').filter(function(l) { return l.indexOf('output') >= 0 })
@@ -112,11 +113,12 @@ if (CMD === 'stop-ghost') {
 }
 
 if (CMD === 'drums-start') {
-  execSync('/var/www/jamony/api/start-drums.sh ' + (process.argv[3] || 'rock') + ' ' + (process.argv[4] || '120') + ' ' + (process.argv[5] || '') + ' ' + (process.argv[6] || ''), { timeout: 10000, stdio: 'inherit' })
+  execSync('/var/www/jamony/api/start-drums.sh ' + (process.argv[3] || 'rock') + ' ' + (process.argv[4] || '120') + ' "' + (process.argv[5] || '') + '" ' + (process.argv[6] || ''), { timeout: 10000, stdio: 'inherit' })
 }
 
 if (CMD === 'drums-stop') {
-  execSync('/var/www/jamony/api/start-drums.sh stop', { stdio: 'inherit' })
+  var roomPort = process.argv[3] || 'global'
+  execSync('/var/www/jamony/api/start-drums.sh stop ' + roomPort, { stdio: 'inherit' })
 }
 
 if (CMD === 'status') {
@@ -132,4 +134,31 @@ if (CMD === 'status') {
       console.log(k + ': ' + s.ghostName + ' ghost=' + g + ' ffmpeg=' + f + ' ' + s.mountPath)
     })
   }
+}
+
+if (CMD === 'health-check') {
+  var st = getState()
+  var keys = Object.keys(st)
+  var restarted = 0
+  keys.sort().forEach(function(k) {
+    var s = st[k]
+    if (!pidAlive(s.ghostPid)) {
+      console.log('GHOST DEAD: ' + k + ' - removing')
+      delete st[k]
+      return
+    }
+    if (!pidAlive(s.ffmpegPid)) {
+      console.log('FFMPEG DEAD: ' + k + ' - restarting')
+      var name = s.ghostName
+      var mount = s.mountPath
+      var ffmpeg = spawn('ffmpeg', ['-f', 'jack', '-i', name, '-acodec', 'libmp3lame', '-b:a', '48k', '-content_type', 'audio/mpeg', '-f', 'mp3', 'icecast://source:jamony2026ice@localhost:8000' + mount], { stdio: 'ignore', detached: true })
+      ffmpeg.unref()
+      st[k].ffmpegPid = ffmpeg.pid
+      st[k].startedAt = new Date().toISOString()
+      restarted++
+    }
+  })
+  saveState(st)
+  if (restarted > 0) console.log('Restarted ' + restarted + ' ffmpeg processes')
+  else console.log('All healthy')
 }
