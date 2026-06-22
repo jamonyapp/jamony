@@ -640,7 +640,7 @@ app.post('/api/rooms/:id/leave', async (req, res) => {
         // 没有合奏者了，解散房间
         await pool.query("UPDATE rooms SET status = 'closed' WHERE id = $1", [id])
         if (roomResult.rows[0]?.server_port) {
-          try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop ${roomResult.rows[0].server_port}`, { timeout: 5000, stdio: 'pipe' }); try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop-ghost ${roomResult.rows[0].server_port}`, { timeout: 5000, stdio: 'pipe' }) } catch {} } catch {}
+          try { execSync(`node /var/www/jamony/api/manage-jamulus.js drums-stop ${roomResult.rows[0].server_port}`, { timeout: 5000, stdio: 'pipe' }) } catch {}; try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop ${roomResult.rows[0].server_port}`, { timeout: 5000, stdio: 'pipe' }); try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop-ghost ${roomResult.rows[0].server_port}`, { timeout: 5000, stdio: 'pipe' }) } catch {} } catch {}
         }
       }
     }
@@ -863,7 +863,7 @@ app.post('/api/users/:userId/leave-all-rooms', async (req, res) => {
         const portResult = await pool.query('SELECT server_port FROM rooms WHERE id = $1 AND status != $2', [row.room_id, 'closed'])
         await pool.query("UPDATE rooms SET status = 'closed' WHERE id = $1", [row.room_id])
         if (portResult.rows[0]?.server_port) {
-          try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop ${portResult.rows[0].server_port}`, { timeout: 5000, stdio: 'pipe' }); try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop-ghost ${portResult.rows[0].server_port}`, { timeout: 5000, stdio: 'pipe' }) } catch {} } catch {}
+          try { execSync(`node /var/www/jamony/api/manage-jamulus.js drums-stop ${portResult.rows[0].server_port}`, { timeout: 5000, stdio: 'pipe' }) } catch {}; try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop ${portResult.rows[0].server_port}`, { timeout: 5000, stdio: 'pipe' }); try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop-ghost ${portResult.rows[0].server_port}`, { timeout: 5000, stdio: 'pipe' }) } catch {} } catch {}
         }
       }
     }

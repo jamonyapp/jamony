@@ -48,6 +48,7 @@ export function PlayingPage() {
   useEffect(() => { if (realtimeChords.length > 0) { setChords(realtimeChords); setChordTextFromPush(realtimeChords.join(' ')) } }, [realtimeChords])
   useEffect(() => { if (realtimeTheme) setCustomTheme(realtimeTheme) }, [realtimeTheme])
   const initBpmRef = useRef(false)
+  const BUILD_VERSION = "2026-06-23-v2" // force chunk hash refresh
   useEffect(() => {
     if (realtimeBpm > 0) { setCurrentBpm(realtimeBpm); initBpmRef.current = true }
     else if (initBpmRef.current && realtimeBpm === 0) setCurrentBpm(0)
@@ -56,8 +57,9 @@ export function PlayingPage() {
   const [audioConnected, setAudioConnected] = useState(false)
   const [roomGone, setRoomGone] = useState(false)
   const [myRole, setMyRole] = useState<"musician" | "listener">("musician")
-  const [refreshTrigger, setRefreshTrigger] = useState(0)
+  const [refreshTrigger, setRefreshTrigger] = useState(0) // v2 - listenerActive cleanup
   const [confirmTarget, setConfirmTarget] = useState<"stay" | "home" | "lobby">("stay")
+  const [listenerKey, setListenerKey] = useState(0)
 
   // 从 API 读取房间数据 + 检测用户角色
   useEffect(() => {
@@ -116,6 +118,8 @@ export function PlayingPage() {
     if (target === "stay") {
       // 断开但不离开页面 → 切换为听众
       setMyRole("listener")
+      setListenerActive(false)  // 停 Icecast，回来时显示"开始收听"
+      setListenerKey(n => n + 1)
       fetch(`/api/rooms/${rid}/join`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -145,25 +149,34 @@ export function PlayingPage() {
       alert("合奏名额已满")
       return
     }
-    const payload = { serverIp: room.stored_server_ip || "39.96.30.128", port: room.server_port }
-    if (window.jamonyAPI) {
-      window.jamonyAPI.joinRoom(payload)
-    } else {
-      window.postMessage({ type: "JOIN_ROOM", payload }, "*")
+
+    const launchJamsoul = () => {
+      const payload = { serverIp: room.stored_server_ip || "39.96.30.128", port: room.server_port }
+      if (window.jamonyAPI) { window.jamonyAPI.joinRoom(payload) }
+      else { window.postMessage({ type: "JOIN_ROOM", payload }, "*") }
+      setAudioConnected(true)
+      setMyRole("musician")
+      if (user?.id) {
+        fetch(`/api/rooms/${room.id}/join`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: user.id, role: "musician" }),
+        }).then(() => {
+          setRefreshTrigger(n => n + 1)
+          fetch(`/api/rooms/${room.id}`).then(r => r.json()).then(d => {
+            if (d.ok) setRoom(prev => prev ? {...prev, musician_count: d.room.musician_count, listener_count: d.room.listener_count} : prev)
+          })
+        }).catch(() => {})
+      }
     }
-    setAudioConnected(true)
-    setMyRole("musician")
-    if (user?.id) {
-      fetch(`/api/rooms/${room.id}/join`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: user.id, role: "musician" }),
-      }).then(() => {
-        setRefreshTrigger(n => n + 1)
-        fetch(`/api/rooms/${room.id}`).then(r => r.json()).then(d => {
-          if (d.ok) setRoom(prev => prev ? {...prev, musician_count: d.room.musician_count, listener_count: d.room.listener_count} : prev)
-        })
-      }).catch(() => {})
+
+    // 如果正在收听 Icecast，先停掉（卸载 LevelMeter 彻底摧毁 AudioContext），再加入
+    if (listenerActive) {
+      setListenerActive(false)
+      setListenerKey(n => n + 1)
+      setTimeout(launchJamsoul, 100)
+    } else {
+      launchJamsoul()
     }
   }
 
@@ -201,6 +214,7 @@ export function PlayingPage() {
             roomName={room?.name}
             roomPort={room?.server_port}
             listenerActive={listenerActive}
+            listenerKey={listenerKey}
             onStartListening={() => setListenerActive(p => !p)}
             onDisconnect={() => { setConfirmTarget("stay"); setConfirmOpen(true) }}
             onReconnect={handleReconnect}

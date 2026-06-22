@@ -84,18 +84,31 @@ if (CMD === 'start-ghost') {
     if (pidAlive(curSt[PORT].ffmpegPid)) { clearInterval(watchInterval); return }
     try {
       var out = execSync('jack_lsp 2>/dev/null | grep -c ":output"', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).toString().trim()
-      if (parseInt(out) <= 2) return
+      if (parseInt(out) < 2) return
     } catch(e) { return }
     clearInterval(watchInterval)
     console.log("JACK ready for " + PORT + ", starting ffmpeg")
-    var name = "Jamulus"
+    var iceClient = "jm-stream-" + PORT
     var mount = "/room-" + PORT
-    var ffmpeg = spawn("ffmpeg", ["-f", "jack", "-i", name, "-acodec", "libmp3lame", "-b:a", "48k", "-content_type", "audio/mpeg", "-f", "mp3", "icecast://source:jamony2026ice@localhost:8000" + mount], { stdio: "ignore", detached: true })
+    var ffmpeg = spawn("ffmpeg", ["-f", "jack", "-i", iceClient, "-acodec", "libmp3lame", "-b:a", "48k", "-content_type", "audio/mpeg", "-f", "mp3", "icecast://source:jamony2026ice@localhost:8000" + mount], { stdio: "ignore", detached: true })
     ffmpeg.unref()
     curSt[PORT].ffmpegPid = ffmpeg.pid
     curSt[PORT].startedAt = new Date().toISOString()
     saveState(curSt)
     console.log("FFMPEG started for " + PORT + " pid=" + ffmpeg.pid)
+    // 等待 ffmpeg JACK 端口出现，手动连接音频源
+    var jcTimer = setInterval(function() {
+      try {
+        var found = execSync('jack_lsp 2>/dev/null | grep -c "' + iceClient + ':input_1"', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).toString().trim()
+        if (parseInt(found) > 0) {
+          execSync('jack_connect "' + iceClient + ':input_1" "Jamulus:output left"', { stdio: 'pipe' })
+          execSync('jack_connect "' + iceClient + ':input_2" "Jamulus:output right"', { stdio: 'pipe' })
+          clearInterval(jcTimer)
+          console.log("JACK connections made for " + iceClient)
+        }
+      } catch(e) {}
+    }, 500)
+    setTimeout(function() { clearInterval(jcTimer) }, 15000)
   }, 1000)
   // 保持进程存活，直到 ffmpeg 启动或 30 秒超时
   var keepAliveTimer = setInterval(function() {
@@ -165,16 +178,30 @@ if (CMD === 'health-check') {
     if (!pidAlive(s.ffmpegPid)) {
       // 先确认 JACK 已就绪
       var jackReady = false
-      try { var out = execSync('jack_lsp 2>/dev/null | grep -c ":output"', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).toString().trim(); if (parseInt(out) > 4) jackReady = true } catch(e) {}
+      try { var out = execSync('jack_lsp 2>/dev/null | grep -c ":output"', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).toString().trim(); if (parseInt(out) >= 2) jackReady = true } catch(e) {}
       if (!jackReady) { console.log('JACK not ready for ' + k + ', deferring ffmpeg'); return }
       console.log('FFMPEG DEAD: ' + k + ' - restarting')
-      var name = 'Jamulus'
+      var iceClient = 'jm-stream-' + k
       var mount = s.mountPath
-      var ffmpeg = spawn('ffmpeg', ['-f', 'jack', '-i', name, '-acodec', 'libmp3lame', '-b:a', '48k', '-content_type', 'audio/mpeg', '-f', 'mp3', 'icecast://source:jamony2026ice@localhost:8000' + mount], { stdio: 'ignore', detached: true })
+      var ffmpeg = spawn('ffmpeg', ['-f', 'jack', '-i', iceClient, '-acodec', 'libmp3lame', '-b:a', '48k', '-content_type', 'audio/mpeg', '-f', 'mp3', 'icecast://source:jamony2026ice@localhost:8000' + mount], { stdio: 'ignore', detached: true })
       ffmpeg.unref()
       st[k].ffmpegPid = ffmpeg.pid
       st[k].startedAt = new Date().toISOString()
       restarted++
+      // 连接 ffmpeg JACK 端口
+      try {
+        var jcTimer2 = setInterval(function(k2, client) {
+          try {
+            var found = execSync('jack_lsp 2>/dev/null | grep -c "' + client + ':input_1"', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).toString().trim()
+            if (parseInt(found) > 0) {
+              execSync('jack_connect "' + client + ':input_1" "Jamulus:output left"', { stdio: 'pipe' })
+              execSync('jack_connect "' + client + ':input_2" "Jamulus:output right"', { stdio: 'pipe' })
+              clearInterval(jcTimer2)
+            }
+          } catch(e) {}
+        }, 500, k, iceClient)
+        setTimeout(function() { clearInterval(jcTimer2) }, 15000)
+      } catch(e) {}
     }
   })
   saveState(st)

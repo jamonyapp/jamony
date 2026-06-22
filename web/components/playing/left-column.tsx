@@ -26,6 +26,7 @@ export function LeftColumn({
   roomName,
   roomPort,
   listenerActive,
+  listenerKey,
   onStartListening,
   onDisconnect,
   onReconnect,
@@ -41,6 +42,7 @@ export function LeftColumn({
   roomName?: string
   roomPort?: number
   listenerActive?: boolean
+  listenerKey?: number
   onStartListening?: () => void
   onDisconnect: () => void
   onReconnect: () => void
@@ -112,12 +114,12 @@ export function LeftColumn({
       {!isMusician ? (
         <section className="flex flex-1 flex-col items-center justify-center rounded-[10px] border p-6" style={{ borderColor: "#1A1A1A", background: "#0D0D0D" }}>
           <Headphones className="h-10 w-10" style={{ color: "#BBEE00" }} />
-          <p className="mt-4 text-lg font-bold text-white">{listenerActive ? "收听中" : "正在收听"}</p>
+          <p className="mt-4 text-lg font-bold text-white">{listenerActive ? "收听中" : ""}</p>
           <p className="mt-2 text-center text-sm" style={{ color: "#8A8A8A" }}>
             不过瘾？<br/>接上乐器，一起玩！
           </p>
 
-          <LevelMeter port={roomPort} active={listenerActive} />
+          {listenerActive && <LevelMeter key={listenerKey} port={roomPort} active={true} />}
 
           {onStartListening && (
             <button onClick={onStartListening}
@@ -125,10 +127,6 @@ export function LeftColumn({
               style={{ background: listenerActive ? "#FF5C5C" : "linear-gradient(90deg, #9933FF, #FF33AA)" }}>
               {listenerActive ? "断开收听" : "开始收听"}
             </button>
-          )}
-
-          {roomPort && (
-            <audio id="jam-audio-stream" preload="none" crossOrigin="anonymous" />
           )}
         </section>
       ) : roomGone ? null : (

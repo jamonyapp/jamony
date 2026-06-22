@@ -23,7 +23,7 @@ function pidAlive(pid) {
 function checkJackPorts() {
   try {
     var out = execSync('jack_lsp 2>/dev/null | grep -c ":output"', { encoding: "utf8", stdio: ["pipe", "pipe", "ignore"] }).toString().trim()
-    return parseInt(out) > 2
+    return parseInt(out) >= 2
   } catch { return false }
 }
 
@@ -36,12 +36,24 @@ function ensureFfmpeg(port, s) {
   if (!checkJackPorts()) return false
 
   console.log("Starting ffmpeg for room " + port)
-  var name = s.ghostName || "Jamulus"
+  var iceClient = "jm-stream-" + port
   var mount = s.mountPath || "/room-" + port
-  var ffmpeg = spawn("ffmpeg", ["-f", "jack", "-i", name, "-acodec", "libmp3lame", "-b:a", "48k", "-content_type", "audio/mpeg", "-f", "mp3", "icecast://source:jamony2026ice@localhost:8000" + mount], { stdio: "ignore", detached: true })
+  var ffmpeg = spawn("ffmpeg", ["-f", "jack", "-i", iceClient, "-acodec", "libmp3lame", "-b:a", "48k", "-content_type", "audio/mpeg", "-f", "mp3", "icecast://source:jamony2026ice@localhost:8000" + mount], { stdio: "ignore", detached: true })
   ffmpeg.unref()
   s.ffmpegPid = ffmpeg.pid
   s.startedAt = new Date().toISOString()
+  // 连接 ffmpeg JACK 端口
+  var jcTimer = setInterval(function() {
+    try {
+      var found = execSync('jack_lsp 2>/dev/null | grep -c "' + iceClient + ':input_1"', { encoding: "utf8", stdio: ["pipe", "pipe", "ignore"] }).toString().trim()
+      if (parseInt(found) > 0) {
+        execSync('jack_connect "' + iceClient + ':input_1" "Jamulus:output left"', { stdio: "pipe" })
+        execSync('jack_connect "' + iceClient + ':input_2" "Jamulus:output right"', { stdio: "pipe" })
+        clearInterval(jcTimer)
+      }
+    } catch(e) {}
+  }, 500)
+  setTimeout(function() { clearInterval(jcTimer) }, 15000)
   return true
 }
 

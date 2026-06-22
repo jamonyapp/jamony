@@ -18,6 +18,7 @@ if [ "$CMD" = "stop" ]; then
     DRUM_NAME="FluidSynth-Drums-${ROOM_PORT}"
     pkill -f "fluidsynth.*${DRUM_NAME}" 2>/dev/null
     rm -f "$STATE_FILE"
+    rm -f "/tmp/jamony-drum-cmd-${ROOM_PORT}.txt"
     echo "✅ 房间鼓机已停止"
     exit 0
 fi
@@ -68,7 +69,7 @@ sleep 3
 
 # 连接 JACK（房间隔离）
 # 找到当前活动的 fluidsynth 客户端（刚启动的那个）
-JACK_NAME=$(jack_lsp 2>/dev/null | grep -E "^fluidsynth" | head -1 | sed 's/:.*//')
+JACK_NAME=$(jack_lsp 2>/dev/null | grep -E "^fluidsynth" | tail -1 | sed 's/:.*//')
 if [ -z "$JACK_NAME" ]; then
   JACK_NAME="fluidsynth"
 fi
