@@ -110,16 +110,13 @@ export function LeftColumn({
             </button>
           </div>
         )}
-      </section>
+        </section>
 
       {/* 听众模式 */}
       {!isMusician ? (
-        <section className="flex flex-1 flex-col items-center justify-center rounded-[10px] border p-6" style={{ borderColor: "#1A1A1A", background: "#0D0D0D" }}>
+        <section className="flex flex-1 flex-col items-center justify-center rounded-[10px] border p-6 pt-16" style={{ borderColor: "#1A1A1A", background: "#0D0D0D" }}>
           <Headphones className="h-10 w-10" style={{ color: "#BBEE00" }} />
           <p className="mt-4 text-lg font-bold text-white">{listenerActive ? "收听中" : ""}</p>
-          <p className="mt-2 text-center text-sm" style={{ color: "#8A8A8A" }}>
-            不过瘾？<br/>接上乐器，一起玩！
-          </p>
 
           {listenerActive && <LevelMeter key={listenerKey} port={roomPort} active={true} />}
 
@@ -130,6 +127,9 @@ export function LeftColumn({
               {listenerActive ? "断开收听" : "开始收听"}
             </button>
           )}
+          <p className="mt-auto text-center text-sm" style={{ color: "#8A8A8A" }}>
+            不过瘾？接上乐器！<br/>点击下方按钮，一起嗨！
+          </p>
         </section>
       ) : roomGone ? null : (
         <section className="flex flex-1 flex-col rounded-[10px] border p-4" style={{ borderColor: "#1A1A1A", background: "#0D0D0D" }}>
