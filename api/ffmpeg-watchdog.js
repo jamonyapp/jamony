@@ -47,8 +47,8 @@ function ensureFfmpeg(port, s) {
     try {
       var found = execSync('jack_lsp 2>/dev/null | grep -c "' + iceClient + ':input_1"', { encoding: "utf8", stdio: ["pipe", "pipe", "ignore"] }).toString().trim()
       if (parseInt(found) > 0) {
-        execSync('jack_connect "' + iceClient + ':input_1" "Jamulus:output left"', { stdio: "pipe" })
-        execSync('jack_connect "' + iceClient + ':input_2" "Jamulus:output right"', { stdio: "pipe" })
+        execSync('jack_connect "' + iceClient + ':input_1" "Jamulus-" + port + ":output left"', { stdio: "pipe" })
+        execSync('jack_connect "' + iceClient + ':input_2" "Jamulus-" + port + ":output right"', { stdio: "pipe" })
         clearInterval(jcTimer)
       }
     } catch(e) {}

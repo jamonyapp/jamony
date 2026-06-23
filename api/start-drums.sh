@@ -39,11 +39,9 @@ pkill -f "fluidsynth.*${DRUM_NAME}" 2>/dev/null
 sleep 2
 
 # 找幽灵
-case "$ROOM_PORT" in
-    22125) GHOST_L="Jamulus-02:input left";  GHOST_R="Jamulus-02:input right" ;;
-    22126) GHOST_L="Jamulus-03:input left";  GHOST_R="Jamulus-03:input right" ;;
-    *)     GHOST_L="Jamulus:input left";     GHOST_R="Jamulus:input right" ;;
-esac
+# 找幽灵（按端口号动态匹配）
+GHOST_L="Jamulus-${ROOM_PORT}:input left"
+GHOST_R="Jamulus-${ROOM_PORT}:input right"
 
 # 生成循环配置文件（房间隔离）
 LOOP_CMD="/tmp/jamony-drum-cmd-${ROOM_PORT}.txt"
@@ -57,6 +55,7 @@ EOF
 nohup fluidsynth -f "$LOOP_CMD" \
     -a jack -j -i \
     -p "$DRUM_NAME" \
+    -o audio.jack.id="${DRUM_NAME}" \
     -o synth.sample-rate=48000 \
     -o synth.gain=3.0 \
     -o synth.polyphony=64 \
@@ -67,16 +66,10 @@ echo "$PID" > "$STATE_FILE"
 
 sleep 3
 
-# 连接 JACK（房间隔离）
-# 找到当前活动的 fluidsynth 客户端（刚启动的那个）
-JACK_NAME=$(jack_lsp 2>/dev/null | grep -E "^fluidsynth" | tail -1 | sed 's/:.*//')
-if [ -z "$JACK_NAME" ]; then
-  JACK_NAME="fluidsynth"
-fi
-
-jack_disconnect "${JACK_NAME}:left" "system:playback_1" 2>/dev/null
-jack_disconnect "${JACK_NAME}:right" "system:playback_2" 2>/dev/null
-jack_connect "${JACK_NAME}:left" "$GHOST_L" 2>/dev/null
-jack_connect "${JACK_NAME}:right" "$GHOST_R" 2>/dev/null
+# 连接 JACK（房间隔离，直接按端口号匹配）
+jack_disconnect "${DRUM_NAME}:left" "system:playback_1" 2>/dev/null
+jack_disconnect "${DRUM_NAME}:right" "system:playback_2" 2>/dev/null
+jack_connect "${DRUM_NAME}:left" "${GHOST_L}" 2>/dev/null
+jack_connect "${DRUM_NAME}:right" "${GHOST_R}" 2>/dev/null
 
 echo "✅ 鼓机启动 ($ROOM_PORT): $STYLE @ ${BPM}BPM ($(basename "$MIDI_FILE")) PID=$PID"

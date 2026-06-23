@@ -62,21 +62,16 @@ if (CMD === 'start-ghost') {
   var roomId = process.argv[4] || String(PORT)
   var mount = '/room-' + roomId
 
-  // List JACK output ports before
-  var before = []
-  try {
-    var lines = execSync('jack_lsp 2>/dev/null', { encoding: 'utf8' }).toString().split('\\n')
-    lines.forEach(function(l) { if (l.indexOf('output') >= 0) before.push(l.trim()) })
-  } catch {}
-
-  var ghost = spawn(GHOST_BIN, ['-n', '--connect', '127.0.0.1:' + PORT], { stdio: 'ignore', detached: true })
+  var ghost = spawn(GHOST_BIN, ['-n', '--connect', '127.0.0.1:' + PORT], {
+    stdio: 'ignore', detached: true,
+    env: Object.assign({}, process.env, { JAMULUS_JACK_NAME: 'Jamulus-' + PORT })
+  })
   ghost.unref()
 
-  // 后台每秒检测 JACK，就绪后立即启动 ffmpeg（不阻塞 API）
   var st = getState()
-  st[PORT] = { ghostPid: ghost.pid, ffmpegPid: 0, ghostName: "Jamulus", mountPath: mount, startedAt: new Date().toISOString() }
+  st[PORT] = { ghostPid: ghost.pid, ffmpegPid: 0, ghostName: 'Jamulus-' + PORT, mountPath: mount, startedAt: new Date().toISOString() }
   saveState(st)
-  console.log("GHOST " + PORT + " ghostPid=" + ghost.pid + " (JACK pending, watching)")
+  console.log('GHOST ' + PORT + ' ghostPid=' + ghost.pid + ' (JACK pending, watching)')
 
   var watchInterval = setInterval(function() {
     var curSt = getState()
@@ -87,40 +82,42 @@ if (CMD === 'start-ghost') {
       if (parseInt(out) < 2) return
     } catch(e) { return }
     clearInterval(watchInterval)
-    console.log("JACK ready for " + PORT + ", starting ffmpeg")
-    var iceClient = "jm-stream-" + PORT
-    var mount = "/room-" + PORT
-    var ffmpeg = spawn("ffmpeg", ["-f", "jack", "-i", iceClient, "-acodec", "libmp3lame", "-b:a", "48k", "-content_type", "audio/mpeg", "-f", "mp3", "icecast://source:jamony2026ice@localhost:8000" + mount], { stdio: "ignore", detached: true })
+    console.log('JACK ready for ' + PORT + ', starting ffmpeg')
+    var iceClient = 'jm-stream-' + PORT
+    var mount = '/room-' + PORT
+    var ffmpeg = spawn('ffmpeg', ['-f', 'jack', '-i', iceClient, '-acodec', 'libmp3lame', '-b:a', '48k', '-content_type', 'audio/mpeg', '-f', 'mp3', 'icecast://source:jamony2026ice@localhost:8000' + mount], { stdio: 'ignore', detached: true })
     ffmpeg.unref()
     curSt[PORT].ffmpegPid = ffmpeg.pid
     curSt[PORT].startedAt = new Date().toISOString()
     saveState(curSt)
-    console.log("FFMPEG started for " + PORT + " pid=" + ffmpeg.pid)
-    // 等待 ffmpeg JACK 端口出现，手动连接音频源
+    console.log('FFMPEG started for ' + PORT + ' pid=' + ffmpeg.pid)
     var jcTimer = setInterval(function() {
       try {
         var found = execSync('jack_lsp 2>/dev/null | grep -c "' + iceClient + ':input_1"', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).toString().trim()
         if (parseInt(found) > 0) {
-          execSync('jack_connect "' + iceClient + ':input_1" "Jamulus:output left"', { stdio: 'pipe' })
-          execSync('jack_connect "' + iceClient + ':input_2" "Jamulus:output right"', { stdio: 'pipe' })
+          execSync('jack_connect "' + iceClient + ':input_1" "Jamulus-' + PORT + ':output left"', { stdio: 'pipe' })
+          execSync('jack_connect "' + iceClient + ':input_2" "Jamulus-' + PORT + ':output right"', { stdio: 'pipe' })
           clearInterval(jcTimer)
-          console.log("JACK connections made for " + iceClient)
+          console.log('JACK connections made for ' + iceClient)
         }
       } catch(e) {}
     }, 500)
     setTimeout(function() { clearInterval(jcTimer) }, 15000)
   }, 1000)
-  // 保持进程存活，直到 ffmpeg 启动或 30 秒超时
   var keepAliveTimer = setInterval(function() {
     var curSt = getState()
-    if (curSt[PORT] && pidAlive(curSt[PORT].ffmpegPid)) {
-      console.log("FFMPEG confirmed for " + PORT + ", start-ghost exiting")
-      clearInterval(keepAliveTimer)
-      process.exit(0)
-    }
-  }, 500)
+    if (!curSt[PORT] || !pidAlive(curSt[PORT].ffmpegPid)) return
+    // 确认 JACK 连线已建立后再退出（防止竞态条件）
+    try {
+      var connOut = execSync('jack_lsp -c 2>/dev/null | grep -A1 "^jm-stream-' + PORT + ':input_1$" | tail -1', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).toString().trim()
+      if (connOut.indexOf('output') < 0) return
+    } catch(e) { return }
+    console.log('FFMPEG confirmed for ' + PORT + ', start-ghost exiting')
+    clearInterval(keepAliveTimer)
+    process.exit(0)
+  }, 1000)
   setTimeout(function() {
-    console.log("start-ghost timeout for " + PORT + ", exiting")
+    console.log('start-ghost timeout for ' + PORT + ', exiting')
     process.exit(0)
   }, 30000)
 }
@@ -194,8 +191,8 @@ if (CMD === 'health-check') {
           try {
             var found = execSync('jack_lsp 2>/dev/null | grep -c "' + client + ':input_1"', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).toString().trim()
             if (parseInt(found) > 0) {
-              execSync('jack_connect "' + client + ':input_1" "Jamulus:output left"', { stdio: 'pipe' })
-              execSync('jack_connect "' + client + ':input_2" "Jamulus:output right"', { stdio: 'pipe' })
+              execSync('jack_connect "' + client + ':input_1" "Jamulus-' + k2 + ':output left"', { stdio: 'pipe' })
+              execSync('jack_connect "' + client + ':input_2" "Jamulus-' + k2 + ':output right"', { stdio: 'pipe' })
               clearInterval(jcTimer2)
             }
           } catch(e) {}
