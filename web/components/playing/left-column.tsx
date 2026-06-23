@@ -27,6 +27,7 @@ export function LeftColumn({
   roomPort,
   listenerActive,
   listenerKey,
+  buildVersion,
   onStartListening,
   onDisconnect,
   onReconnect,
@@ -43,6 +44,7 @@ export function LeftColumn({
   roomPort?: number
   listenerActive?: boolean
   listenerKey?: number
+  buildVersion?: string
   onStartListening?: () => void
   onDisconnect: () => void
   onReconnect: () => void
@@ -218,6 +220,9 @@ export function LeftColumn({
           音频连接
         </button>
       )}
+
+      {/* debug version marker */}
+      <p className="mt-2 text-center text-[10px]" style={{ color: "#333" }}>{buildVersion || ""}</p>
     </aside>
   )
 }

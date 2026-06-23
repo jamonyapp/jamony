@@ -5,5 +5,10 @@ export function generateStaticParams() {
 }
 
 export default function Page() {
-  return <PlayingPage />
+  return (
+    <>
+      {/* BUILD:2026-06-23-v3 — 如果你在网页源码里看到这行注释，说明新代码已部署 */}
+      <PlayingPage />
+    </>
+  )
 }
