@@ -80,6 +80,9 @@ export type Track = {
   member: string
   instrumentEmoji: string
   duration: string
+  allowUse: boolean | null          // null = 未选择, true = 允许, false = 不允许
+  allowAttribution: boolean | null  // null = 未选择, true = 署名, false = 匿名
+  allowDownload: boolean | null     // null = 未选择, true = 可下载, false = 禁下载
 }
 
 export type RecordingSession = {
@@ -97,10 +100,10 @@ export const RECORDINGS: RecordingSession[] = [
     duration: "04:12",
     participants: 4,
     tracks: [
-      { member: "阿May", instrumentEmoji: "🎸", duration: "04:12" },
-      { member: "你", instrumentEmoji: "🎸", duration: "04:10" },
-      { member: "老K", instrumentEmoji: "🎻", duration: "04:12" },
-      { member: "小鼓手", instrumentEmoji: "🥁", duration: "04:11" },
+      { member: "阿May", instrumentEmoji: "🎸", duration: "04:12", allowUse: true, allowAttribution: true, allowDownload: true },
+      { member: "你", instrumentEmoji: "🎸", duration: "04:10", allowUse: null, allowAttribution: null, allowDownload: null },
+      { member: "老K", instrumentEmoji: "🎻", duration: "04:12", allowUse: true, allowAttribution: false, allowDownload: false },
+      { member: "小鼓手", instrumentEmoji: "🥁", duration: "04:11", allowUse: false, allowAttribution: null, allowDownload: null },
     ],
   },
   {
@@ -109,11 +112,11 @@ export const RECORDINGS: RecordingSession[] = [
     duration: "06:48",
     participants: 5,
     tracks: [
-      { member: "阿May", instrumentEmoji: "🎸", duration: "06:48" },
-      { member: "你", instrumentEmoji: "🎸", duration: "06:45" },
-      { member: "老K", instrumentEmoji: "🎻", duration: "06:48" },
-      { member: "小鼓手", instrumentEmoji: "🥁", duration: "06:47" },
-      { member: "Echo", instrumentEmoji: "🎹", duration: "06:40" },
+      { member: "阿May", instrumentEmoji: "🎸", duration: "06:48", allowUse: null, allowAttribution: null, allowDownload: null },
+      { member: "你", instrumentEmoji: "🎸", duration: "06:45", allowUse: null, allowAttribution: null, allowDownload: null },
+      { member: "老K", instrumentEmoji: "🎻", duration: "06:48", allowUse: null, allowAttribution: null, allowDownload: null },
+      { member: "小鼓手", instrumentEmoji: "🥁", duration: "06:47", allowUse: null, allowAttribution: null, allowDownload: null },
+      { member: "Echo", instrumentEmoji: "🎹", duration: "06:40", allowUse: null, allowAttribution: null, allowDownload: null },
     ],
   },
   {
@@ -122,9 +125,9 @@ export const RECORDINGS: RecordingSession[] = [
     duration: "02:35",
     participants: 3,
     tracks: [
-      { member: "阿May", instrumentEmoji: "🎸", duration: "02:35" },
-      { member: "老K", instrumentEmoji: "🎻", duration: "02:35" },
-      { member: "Echo", instrumentEmoji: "🎹", duration: "02:30" },
+      { member: "阿May", instrumentEmoji: "🎸", duration: "02:35", allowUse: null, allowAttribution: null, allowDownload: null },
+      { member: "老K", instrumentEmoji: "🎻", duration: "02:35", allowUse: null, allowAttribution: null, allowDownload: null },
+      { member: "Echo", instrumentEmoji: "🎹", duration: "02:30", allowUse: null, allowAttribution: null, allowDownload: null },
     ],
   },
 ]

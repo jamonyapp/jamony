@@ -1,8 +1,8 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { Circle, Square, ChevronDown, Play, Pause, Disc3, ArrowRight, Download } from "lucide-react"
-import { RECORDINGS, type RecordingSession } from "@/lib/jam-data"
+import { Circle, Square, ChevronDown, Disc3, ArrowRight, Download, Ban, Music, Check, X, ChevronUp } from "lucide-react"
+import { RECORDINGS, type RecordingSession, type Track } from "@/lib/jam-data"
 
 function parseDuration(d: string) {
   const [m, s] = d.split(":").map(Number)
@@ -13,6 +13,103 @@ function fmt(total: number) {
   const m = Math.floor(total / 60)
   const s = Math.floor(total % 60)
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+}
+
+// 帮助按钮 — 圆圈问号
+function HelpTip({ text }: { text: string }) {
+  const [show, setShow] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!show) return
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setShow(false)
+    }
+    document.addEventListener("mousedown", handleClick)
+    return () => document.removeEventListener("mousedown", handleClick)
+  }, [show])
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setShow((o) => !o)}
+        className="grid size-4 place-items-center rounded-full bg-accent text-[10px] text-muted-foreground transition-colors hover:bg-accent/80 hover:text-foreground"
+        aria-label="帮助"
+      >
+        ?
+      </button>
+      {show && (
+        <div className="absolute left-0 top-full z-20 mt-1 w-56 rounded-[8px] border border-border bg-popover p-2.5 text-[11px] leading-relaxed text-popover-foreground shadow-lg">
+          {text}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// 下拉选择器组件
+function DropdownSelect({
+  value,
+  options,
+  onChange,
+  disabled,
+  nullLabel,
+}: {
+  value: boolean | null
+  options: { label: string; value: boolean; className?: string }[]
+  onChange: (v: boolean) => void
+  disabled?: boolean
+  nullLabel?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener("mousedown", handleClick)
+    return () => document.removeEventListener("mousedown", handleClick)
+  }, [open])
+
+  const displayText = value === null ? (nullLabel || "未选择") : options.find((o) => o.value === value)?.label ?? "未选择"
+  const isDecided = value !== null
+  const activeOption = options.find((o) => o.value === value)
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => !disabled && setOpen((o) => !o)}
+        disabled={disabled}
+        className={`flex items-center gap-1 rounded-[6px] px-2 py-1 text-[11px] font-bold transition-colors ${
+          disabled
+            ? "cursor-not-allowed bg-accent/50 text-muted-foreground/40"
+            : isDecided
+              ? (activeOption?.className || "bg-accent text-foreground")
+              : "bg-accent text-muted-foreground hover:bg-accent/80 hover:text-foreground"
+        }`}
+      >
+        <span>{displayText}</span>
+        {!disabled && (open ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />)}
+      </button>
+      {open && !disabled && (
+        <div className="absolute left-0 top-full z-10 mt-1 flex flex-col overflow-hidden rounded-[8px] border border-border bg-popover py-1 shadow-lg">
+          {options.map((opt) => (
+            <button
+              key={String(opt.value)}
+              onClick={() => { onChange(opt.value); setOpen(false) }}
+              className={`whitespace-nowrap px-3 py-1.5 text-left text-[11px] font-bold transition-colors hover:bg-accent ${
+                value === opt.value ? (opt.className || "text-foreground") : "text-muted-foreground"
+              } ${value === opt.value ? "bg-accent" : ""}`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 export function CenterColumn({ chords, customTheme, currentBpm }: { chords: string[]; customTheme?: string; currentBpm?: number }) {
@@ -82,7 +179,6 @@ function ChordBoard({ chords }: { chords: string[] }) {
   }
   if (lines.length === 0) return null
 
-  // 行数越多字号越小，保证排列整齐
   const sizeClass =
     lines.length <= 2
       ? "text-xl sm:text-2xl lg:text-3xl"
@@ -101,7 +197,6 @@ function ChordBoard({ chords }: { chords: string[] }) {
     </p>
   )
 
-  // 超过 4 行（即 > 4 句）时左右分栏
   if (lines.length > 4) {
     const mid = Math.ceil(lines.length / 2)
     const left = lines.slice(0, mid)
@@ -152,10 +247,10 @@ function RecordingPanel() {
         duration: fmt(recTime),
         participants: 4,
         tracks: [
-          { member: "阿May", instrumentEmoji: "🎸", duration: fmt(recTime) },
-          { member: "你", instrumentEmoji: "🎸", duration: fmt(recTime) },
-          { member: "老K", instrumentEmoji: "🎻", duration: fmt(recTime) },
-          { member: "小鼓手", instrumentEmoji: "🥁", duration: fmt(recTime) },
+          { member: "阿May", instrumentEmoji: "🎸", duration: fmt(recTime), allowUse: null, allowAttribution: null, allowDownload: null },
+          { member: "你", instrumentEmoji: "🎸", duration: fmt(recTime), allowUse: null, allowAttribution: null, allowDownload: null },
+          { member: "老K", instrumentEmoji: "🎻", duration: fmt(recTime), allowUse: null, allowAttribution: null, allowDownload: null },
+          { member: "小鼓手", instrumentEmoji: "🥁", duration: fmt(recTime), allowUse: null, allowAttribution: null, allowDownload: null },
         ],
       }
       setSessions((s) => [...s, newSession])
@@ -165,6 +260,32 @@ function RecordingPanel() {
     } else {
       setRecording(true)
     }
+  }
+
+  function handleTrackChoice(sessionId: string, trackIndex: number, field: "allowUse" | "allowAttribution" | "allowDownload", value: boolean) {
+    setSessions((prev) =>
+      prev.map((s) => {
+        if (s.id !== sessionId) return s
+        const newTracks = s.tracks.map((t, i) => {
+          if (i !== trackIndex) return t
+          if (field === "allowUse" && value === false) {
+            // 如果拒绝使用音轨，同时重置署名（下载保持独立）
+            return { ...t, allowUse: false, allowAttribution: null }
+          }
+          return { ...t, [field]: value }
+        })
+        return { ...s, tracks: newTracks }
+      })
+    )
+  }
+
+  // 判断一个 session 的所有人是否都已作出授权选择
+  function sessionAllDecided(session: RecordingSession) {
+    return session.tracks.length > 0 && session.tracks.every((t) => t.allowUse !== null)
+  }
+  // 计算一个 session 中有几人同意发表
+  function sessionAgreedCount(session: RecordingSession) {
+    return session.tracks.filter((t) => t.allowUse === true).length
   }
 
   return (
@@ -225,6 +346,9 @@ function RecordingPanel() {
                 session={s}
                 open={expanded === s.id}
                 onToggle={() => setExpanded((e) => (e === s.id ? null : s.id))}
+                onTrackChoice={handleTrackChoice}
+                allDecided={sessionAllDecided(s)}
+                agreedCount={sessionAgreedCount(s)}
               />
             ))}
           </div>
@@ -238,66 +362,17 @@ function SessionCard({
   session,
   open,
   onToggle,
+  onTrackChoice,
+  allDecided,
+  agreedCount,
 }: {
   session: RecordingSession
   open: boolean
   onToggle: () => void
+  onTrackChoice: (sessionId: string, trackIndex: number, field: "allowUse" | "allowAttribution" | "allowDownload", value: boolean) => void
+  allDecided: boolean
+  agreedCount: number
 }) {
-  const total = parseDuration(session.duration)
-  const [playing, setPlaying] = useState(false)
-  const [pos, setPos] = useState(0)
-  const [muted, setMuted] = useState<Set<number>>(new Set())
-  const [solo, setSolo] = useState<Set<number>>(new Set())
-  const barRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!playing) return
-    const id = setInterval(() => {
-      setPos((p) => {
-        if (p + 1 >= total) {
-          setPlaying(false)
-          return total
-        }
-        return p + 1
-      })
-    }, 1000)
-    return () => clearInterval(id)
-  }, [playing, total])
-
-  function togglePlay() {
-    if (pos >= total) setPos(0)
-    setPlaying((p) => !p)
-  }
-
-  function stop() {
-    setPlaying(false)
-    setPos(0)
-  }
-
-  function seek(e: React.MouseEvent<HTMLDivElement>) {
-    const el = barRef.current
-    if (!el) return
-    const rect = el.getBoundingClientRect()
-    const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width))
-    setPos(Math.round(ratio * total))
-  }
-
-  function toggleSet(setter: typeof setMuted, idx: number) {
-    setter((prev) => {
-      const next = new Set(prev)
-      next.has(idx) ? next.delete(idx) : next.add(idx)
-      return next
-    })
-  }
-
-  // 判断某轨在当前回放中是否发声：有独奏时只有独奏轨发声；否则未静音即发声
-  function isAudible(idx: number) {
-    if (solo.size > 0) return solo.has(idx)
-    return !muted.has(idx)
-  }
-
-  const progress = total > 0 ? (pos / total) * 100 : 0
-
   return (
     <div className="overflow-hidden rounded-[10px] border border-border bg-secondary">
       <button
@@ -322,97 +397,167 @@ function SessionCard({
 
       {open && (
         <div className="border-t border-border px-3 py-3">
-          {/* 主播放控制 + 进度条 */}
-          <div className="flex items-center gap-3">
-            <button
-              onClick={togglePlay}
-              aria-label={playing ? "暂停" : "播放"}
-              className="grid size-9 shrink-0 place-items-center rounded-full bg-brand-blue text-white transition-opacity hover:opacity-90"
-            >
-              {playing ? <Pause className="size-4 fill-current" /> : <Play className="size-4 fill-current" />}
-            </button>
-            <button
-              onClick={stop}
-              aria-label="停止"
-              className="grid size-9 shrink-0 place-items-center rounded-full bg-secondary text-foreground ring-1 ring-border transition-colors hover:bg-accent"
-            >
-              <Square className="size-3.5 fill-current" />
-            </button>
-            <span className="font-mono text-xs text-muted-foreground">{fmt(pos)}</span>
-            <div
-              ref={barRef}
-              onClick={seek}
-              className="group relative h-2 flex-1 cursor-pointer rounded-full bg-white/15 ring-1 ring-inset ring-white/10"
-            >
-              <div
-                className="absolute inset-y-0 left-0 rounded-full brand-gradient"
-                style={{ width: `${progress}%` }}
+          {/* 分轨属性列表 */}
+          <div className="flex flex-col gap-2">
+            {session.tracks.map((t, i) => (
+              <TrackRow
+                key={i}
+                track={t}
+                index={i}
+                sessionId={session.id}
+                onTrackChoice={onTrackChoice}
               />
-              <div
-                className="absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow"
-                style={{ left: `${progress}%` }}
-              />
-            </div>
-            <span className="font-mono text-xs text-muted-foreground">{session.duration}</span>
-            <button
-              onClick={() => alert("下载功能即将上线，敬请期待！")}
-              aria-label="下载该段全部分轨"
-              title="即将开放"
-              className="group relative grid size-9 shrink-0 place-items-center rounded-full bg-secondary text-foreground ring-1 ring-border transition-colors hover:bg-accent"
-            >
-              <Download className="size-4" />
-              <span className="pointer-events-none absolute -top-7 right-0 whitespace-nowrap rounded-[6px] bg-popover px-2 py-1 text-[10px] text-popover-foreground opacity-0 ring-1 ring-border transition-opacity group-hover:opacity-100">
-                即将开放
-              </span>
-            </button>
+            ))}
           </div>
 
-          {/* 分轨列表 + M/S 控制 */}
-          <div className="mt-3 flex flex-col gap-1">
-            {session.tracks.map((t, i) => {
-              const audible = isAudible(i)
-              return (
-                <div
-                  key={i}
-                  className={`flex items-center gap-3 rounded-[8px] px-2 py-2 text-sm transition-opacity ${
-                    audible ? "" : "opacity-40"
-                  }`}
-                >
-                  <div className="flex shrink-0 items-center gap-1">
-                    <button
-                      onClick={() => toggleSet(setMuted, i)}
-                      aria-label="静音该轨"
-                      className={`grid size-6 place-items-center rounded-[6px] text-xs font-bold transition-colors ${
-                        muted.has(i)
-                          ? "bg-destructive text-white"
-                          : "bg-accent text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      M
-                    </button>
-                    <button
-                      onClick={() => toggleSet(setSolo, i)}
-                      aria-label="独奏该轨"
-                      className={`grid size-6 place-items-center rounded-[6px] text-xs font-bold transition-colors ${
-                        solo.has(i)
-                          ? "bg-brand-green text-black"
-                          : "bg-accent text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      S
-                    </button>
-                  </div>
-                  <span>{t.instrumentEmoji}</span>
-                  <span className="font-medium">{t.member}</span>
-                  <span className="ml-auto font-mono text-xs text-muted-foreground">
-                    {t.duration}.wav
-                  </span>
-                </div>
-              )
-            })}
+          {/* 去发表作品按钮 */}
+          {allDecided && agreedCount > 0 && (
+            <div className="mt-3 flex items-center justify-between rounded-[10px] border border-brand-blue/30 bg-brand-blue/5 px-4 py-3">
+              <div className="flex items-center gap-2 text-sm">
+                <Music className="size-4 text-brand-blue" />
+                <span>
+                  所有人已选择 · <span className="font-semibold text-brand-green">{agreedCount}</span> 人同意发表
+                  {agreedCount < session.tracks.length && (
+                    <span className="text-muted-foreground"> · {session.tracks.length - agreedCount} 人拒绝（音轨排除）</span>
+                  )}
+                </span>
+              </div>
+              <button
+                onClick={() => alert("🎵 进入混音台 → 调整各轨音量/声相 → 发布到作品库")}
+                className="flex items-center gap-2 rounded-full bg-brand-blue px-5 py-2 text-sm font-bold text-white transition-transform hover:scale-[1.03]"
+              >
+                <Music className="size-4" />
+                去发表作品
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TrackRow({
+  track,
+  index,
+  sessionId,
+  onTrackChoice,
+}: {
+  track: Track
+  index: number
+  sessionId: string
+  onTrackChoice: (sessionId: string, trackIndex: number, field: "allowUse" | "allowAttribution" | "allowDownload", value: boolean) => void
+}) {
+  const isSelf = track.member === "你"
+
+  return (
+    <div className="flex items-center gap-3 rounded-[8px] px-2 py-2 text-sm">
+      {/* 乐器 icon + 用户名 */}
+      <span>{track.instrumentEmoji}</span>
+      <span className="w-14 shrink-0 font-medium">{track.member}</span>
+
+      {/* 三个授权下拉选择器（只有自己可见） */}
+      {isSelf && (
+        <div className="flex items-center gap-4">
+          {/* 授权使用权 */}
+          <div className="flex items-center gap-1">
+            <DropdownSelect
+              value={track.allowUse}
+              nullLabel="请选择"
+              options={[
+                { label: "可使用", value: true, className: "text-brand-green" },
+                { label: "禁用", value: false, className: "text-destructive" },
+              ]}
+              onChange={(v) => onTrackChoice(sessionId, index, "allowUse", v)}
+            />
+            <HelpTip text="同意即可在发布的作品中使用你的分轨（不可撤销），禁用则不包含你的分轨" />
+          </div>
+          {/* 选择署名权 */}
+          <div className="flex items-center gap-1">
+            <DropdownSelect
+              value={track.allowAttribution}
+              nullLabel="请选择"
+              options={[
+                { label: "可署名", value: true, className: "text-brand-green" },
+                { label: "匿名", value: false, className: "text-muted-foreground" },
+              ]}
+              onChange={(v) => onTrackChoice(sessionId, index, "allowAttribution", v)}
+              disabled={track.allowUse !== true}
+            />
+            <HelpTip text="同意则在作品中展示你的用户名（不可撤销），匿名则隐藏用户名" />
+          </div>
+          {/* 选择下载权 */}
+          <div className="flex items-center gap-1">
+            <DropdownSelect
+              value={track.allowDownload}
+              nullLabel="请选择"
+              options={[
+                { label: "可下载", value: true, className: "text-brand-green" },
+                { label: "禁下载", value: false, className: "text-destructive" },
+              ]}
+              onChange={(v) => onTrackChoice(sessionId, index, "allowDownload", v)}
+            />
+            <HelpTip text="同意则他人可下载你的分轨，禁用则仅你自己可下载" />
           </div>
         </div>
       )}
+
+      {/* 非自己，只显示状态文本 */}
+      {!isSelf && (
+        <div className="flex items-center gap-1.5">
+          <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+            {track.allowUse === true && <span className="text-brand-green"><Check className="inline size-3" /> 可使用</span>}
+            {track.allowUse === false && <span className="text-destructive"><X className="inline size-3" /> 禁用</span>}
+            {track.allowUse === null && <span>⏳ 选择中</span>}
+          </span>
+          {/* 署名状态（仅允许使用时显示） */}
+          {track.allowUse === true && track.allowAttribution !== null && (
+            <>
+              <span className="text-[11px] text-muted-foreground">·</span>
+              <span className="text-[11px] text-muted-foreground">
+                {track.allowAttribution === true ? "可署名" : "匿名"}
+              </span>
+            </>
+          )}
+          {/* 下载状态（独立显示） */}
+          {track.allowDownload !== null && (
+            <>
+              <span className="text-[11px] text-muted-foreground">·</span>
+              <span className="text-[11px] text-muted-foreground">
+                {track.allowDownload === true ? <span className="text-brand-green">可下载</span> : <span className="text-destructive">禁下载</span>}
+              </span>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* 下载按钮 */}
+      <div className="ml-auto">
+        {isSelf ? (
+          <button
+            onClick={() => alert(`下载 ${track.member} 的分轨`)}
+            className="grid size-7 place-items-center rounded-[6px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            title="下载我的分轨"
+          >
+            <Download className="size-3.5" />
+          </button>
+        ) : track.allowDownload === true ? (
+          <button
+            onClick={() => alert(`下载 ${track.member} 的分轨`)}
+            className="grid size-7 place-items-center rounded-[6px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            title={`下载 ${track.member} 的分轨`}
+          >
+            <Download className="size-3.5" />
+          </button>
+        ) : (
+          <span
+            className="grid size-7 place-items-center text-muted-foreground/40"
+            title={track.allowDownload === false ? `${track.member} 禁止下载` : "待授权"}
+          >
+            <Ban className="size-3.5" />
+          </span>
+        )}
+      </div>
     </div>
   )
 }
