@@ -287,6 +287,10 @@ function RecordingPanel() {
   function sessionAgreedCount(session: RecordingSession) {
     return session.tracks.filter((t) => t.allowUse === true).length
   }
+  // 计算一个 session 中有几人拒绝
+  function sessionRefusedCount(session: RecordingSession) {
+    return session.tracks.filter((t) => t.allowUse === false).length
+  }
 
   return (
     <section className="flex min-h-0 flex-1 flex-col rounded-[10px] border border-border bg-card">
@@ -349,6 +353,7 @@ function RecordingPanel() {
                 onTrackChoice={handleTrackChoice}
                 allDecided={sessionAllDecided(s)}
                 agreedCount={sessionAgreedCount(s)}
+                refusedCount={sessionRefusedCount(s)}
               />
             ))}
           </div>
@@ -365,6 +370,7 @@ function SessionCard({
   onTrackChoice,
   allDecided,
   agreedCount,
+  refusedCount,
 }: {
   session: RecordingSession
   open: boolean
@@ -372,6 +378,7 @@ function SessionCard({
   onTrackChoice: (sessionId: string, trackIndex: number, field: "allowUse" | "allowAttribution" | "allowDownload", value: boolean) => void
   allDecided: boolean
   agreedCount: number
+  refusedCount: number
 }) {
   return (
     <div className="overflow-hidden rounded-[10px] border border-border bg-secondary">
@@ -397,17 +404,13 @@ function SessionCard({
         {allDecided && agreedCount > 0 && (
           <div className="flex items-center gap-3">
             <span className="text-xs text-muted-foreground">
-              所有人已选择 · <span className="font-semibold text-brand-green">{agreedCount}</span> 人同意发表
-              {agreedCount < session.tracks.length && (
-                <span> · {session.tracks.length - agreedCount} 人拒绝（音轨排除）</span>
-              )}
+              <span className="font-semibold text-brand-green">{agreedCount}人已授权</span> · {refusedCount}人拒绝使用分轨
             </span>
             <button
-              onClick={(e) => { e.stopPropagation(); alert("🎵 进入混音台 → 调整各轨音量/声相 → 发布到作品库") }}
-              className="flex items-center gap-2 rounded-full bg-brand-blue px-4 py-1.5 text-xs font-bold text-white transition-transform hover:scale-[1.03]"
+              onClick={(e) => { e.stopPropagation(); alert("你将为大家发表本次作品！你不会独占作品，并且没有额外权益，感谢你的付出——jamony") }}
+              className="rounded-full bg-brand-blue px-4 py-1.5 text-xs font-bold text-white transition-transform hover:scale-[1.03]"
             >
-              <Music className="size-3.5" />
-              去发表作品
+              去发表
             </button>
           </div>
         )}
