@@ -375,11 +375,13 @@ function SessionCard({
 }) {
   return (
     <div className="overflow-hidden rounded-[10px] border border-border bg-secondary">
-      <button
-        onClick={onToggle}
-        className="flex w-full items-center justify-between px-3 py-2.5 text-left text-sm transition-colors hover:bg-accent"
-      >
-        <span className="flex items-center gap-3">
+      {/* 头部：段落信息 + 发表状态卡片（收起时也可见） */}
+      <div className="flex items-center justify-between px-3 py-2.5">
+        {/* 左侧：段落序号 + 信息（点击展开/收起） */}
+        <button
+          onClick={onToggle}
+          className="flex items-center gap-3 text-left text-sm transition-colors hover:opacity-80"
+        >
           <span className="grid size-7 place-items-center rounded-[8px] bg-primary/20 text-xs font-bold text-brand-purple">
             {session.index}
           </span>
@@ -389,11 +391,34 @@ function SessionCard({
               {session.duration} · {session.participants} 人
             </span>
           </span>
-        </span>
-        <ChevronDown
-          className={`size-4 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
-        />
-      </button>
+        </button>
+
+        {/* 中间：发表状态卡片 —— 展开收起都可见 */}
+        {allDecided && agreedCount > 0 && (
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-muted-foreground">
+              所有人已选择 · <span className="font-semibold text-brand-green">{agreedCount}</span> 人同意发表
+              {agreedCount < session.tracks.length && (
+                <span> · {session.tracks.length - agreedCount} 人拒绝（音轨排除）</span>
+              )}
+            </span>
+            <button
+              onClick={(e) => { e.stopPropagation(); alert("🎵 进入混音台 → 调整各轨音量/声相 → 发布到作品库") }}
+              className="flex items-center gap-2 rounded-full bg-brand-blue px-4 py-1.5 text-xs font-bold text-white transition-transform hover:scale-[1.03]"
+            >
+              <Music className="size-3.5" />
+              去发表作品
+            </button>
+          </div>
+        )}
+
+        {/* 右侧：展开/收起箭头 */}
+        <button onClick={onToggle} className="text-muted-foreground transition-colors hover:text-foreground">
+          <ChevronDown
+            className={`size-4 transition-transform ${open ? "rotate-180" : ""}`}
+          />
+        </button>
+      </div>
 
       {open && (
         <div className="border-t border-border px-3 py-3">
@@ -409,28 +434,6 @@ function SessionCard({
               />
             ))}
           </div>
-
-          {/* 去发表作品按钮 */}
-          {allDecided && agreedCount > 0 && (
-            <div className="mt-3 flex items-center justify-between rounded-[10px] border border-brand-blue/30 bg-brand-blue/5 px-4 py-3">
-              <div className="flex items-center gap-2 text-sm">
-                <Music className="size-4 text-brand-blue" />
-                <span>
-                  所有人已选择 · <span className="font-semibold text-brand-green">{agreedCount}</span> 人同意发表
-                  {agreedCount < session.tracks.length && (
-                    <span className="text-muted-foreground"> · {session.tracks.length - agreedCount} 人拒绝（音轨排除）</span>
-                  )}
-                </span>
-              </div>
-              <button
-                onClick={() => alert("🎵 进入混音台 → 调整各轨音量/声相 → 发布到作品库")}
-                className="flex items-center gap-2 rounded-full bg-brand-blue px-5 py-2 text-sm font-bold text-white transition-transform hover:scale-[1.03]"
-              >
-                <Music className="size-4" />
-                去发表作品
-              </button>
-            </div>
-          )}
         </div>
       )}
     </div>
