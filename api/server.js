@@ -539,6 +539,21 @@ app.get('/api/rooms/:id', async (req, res) => {
   }
 })
 
+// 广播房间成员列表（身份/音频状态变化时调用，让房间内所有人实时同步右栏成员显示）
+async function broadcastMembers(roomId) {
+  try {
+    const result = await pool.query(
+      `SELECT rm.*, u.primary_instrument, u.instrument_category
+       FROM room_members rm JOIN users u ON u.id = rm.user_id
+       WHERE rm.room_id = $1 ORDER BY rm.joined_at`,
+      [roomId]
+    )
+    io.to(roomId).emit('members-update', { members: result.rows })
+  } catch (e) {
+    console.error('Broadcast members error:', e)
+  }
+}
+
 // 加入房间
 app.post('/api/rooms/:id/join', async (req, res) => {
   try {
@@ -581,6 +596,7 @@ app.post('/api/rooms/:id/join', async (req, res) => {
         'UPDATE room_members SET role = $1, last_active_at = NOW() WHERE room_id = $2 AND user_id = $3',
         [acceptedRole, id, userId]
       )
+      await broadcastMembers(id)
       return res.json({ ok: true, msg: '已更新身份', role: acceptedRole })
     }
 
@@ -600,6 +616,7 @@ app.post('/api/rooms/:id/join', async (req, res) => {
       [id, userId, userResult.rows[0].nickname, acceptedRole]
     )
 
+    await broadcastMembers(id)
     res.json({ ok: true, msg: '已加入房间', role: acceptedRole })
   } catch (err) {
     console.error('Room join error:', err)
@@ -646,6 +663,7 @@ app.post('/api/rooms/:id/leave', async (req, res) => {
     }
 
     res.json({ ok: true, msg: '已退出房间' })
+    await broadcastMembers(id)
   } catch (err) {
     console.error('Room leave error:', err)
     res.status(500).json({ ok: false, msg: '服务器错误' })
@@ -673,6 +691,7 @@ app.post('/api/rooms/:id/switch-role', async (req, res) => {
       [newRole, id, userId]
     )
 
+    await broadcastMembers(id)
     res.json({ ok: true, msg: '身份已切换' })
   } catch (err) {
     console.error('Role switch error:', err)
@@ -689,6 +708,7 @@ app.post('/api/rooms/:roomId/members/:userId/audio-status', async (req, res) => 
       'UPDATE room_members SET audio_status = $1, last_active_at = NOW() WHERE room_id = $2 AND user_id = $3',
       [audioStatus || 'connected', roomId, userId]
     )
+    await broadcastMembers(roomId)
     res.json({ ok: true })
   } catch (err) {
     console.error('Audio status error:', err)

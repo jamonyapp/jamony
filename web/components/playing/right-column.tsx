@@ -34,7 +34,7 @@ function latencyColor(ms: number): string {
   return "#FF33AA"
 }
 
-export function RightColumn({ roomId, room, refreshTrigger }: { roomId?: string; room: RoomInfo | null; refreshTrigger?: number }) {
+export function RightColumn({ roomId, room, refreshTrigger, realtimeMembers }: { roomId?: string; room: RoomInfo | null; refreshTrigger?: number; realtimeMembers?: Member[] }) {
   const [members, setMembers] = useState<Member[]>([])
 
   useEffect(() => {
@@ -47,8 +47,10 @@ export function RightColumn({ roomId, room, refreshTrigger }: { roomId?: string;
       .catch(() => {})
   }, [roomId, refreshTrigger])
 
-  const musicians = members.filter(m => m.role === "musician")
-  const listeners = members.filter(m => m.role === "listener")
+  // 优先用 socket 实时推送的成员列表（身份/音频状态变化即时同步），未推送时回退到 HTTP 拉取
+  const displayMembers = realtimeMembers && realtimeMembers.length > 0 ? realtimeMembers : members
+  const musicians = displayMembers.filter(m => m.role === "musician")
+  const listeners = displayMembers.filter(m => m.role === "listener")
 
   return (
     <aside className="flex h-full flex-col gap-3 overflow-hidden p-3" style={{ background: "#000" }}>
@@ -76,7 +78,7 @@ export function RightColumn({ roomId, room, refreshTrigger }: { roomId?: string;
       <section className="shrink-0 rounded-[10px] border p-3" style={{ borderColor: "#1A1A1A", background: "#0D0D0D" }}>
         <div className="flex items-center gap-1.5 text-xs font-semibold" style={{ color: "#8A8A8A" }}>
           <Users className="h-3.5 w-3.5" style={{ color: "#BBEE00" }} />
-          房间总人数 {members.length}
+          房间总人数 {displayMembers.length}
         </div>
 
         {musicians.length > 0 && (
@@ -137,7 +139,7 @@ export function RightColumn({ roomId, room, refreshTrigger }: { roomId?: string;
         </div>
         )}
 
-        {members.length === 0 && (
+        {displayMembers.length === 0 && (
           <p className="mt-2 text-xs" style={{ color: "#8A8A8A" }}>暂无成员</p>
         )}
       </section>

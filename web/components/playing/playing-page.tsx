@@ -38,7 +38,7 @@ export function PlayingPage() {
   const params = useParams()
   const router = useRouter()
   const { user } = useAuth()
-  const { realtimeChords, pushChords, realtimeTheme, pushTheme, realtimeBpm } = useChatSocket(params?.id as string, user?.nickname)
+  const { realtimeChords, pushChords, realtimeTheme, pushTheme, realtimeBpm, realtimeMembers } = useChatSocket(params?.id as string, user?.nickname)
   const [room, setRoom] = useState<RoomData | null>(null)
   const [chords, setChords] = useState<string[]>([])
   const [customTheme, setCustomTheme] = useState("")
@@ -236,7 +236,7 @@ export function PlayingPage() {
           <CenterColumn chords={chords} customTheme={customTheme} currentBpm={currentBpm} />
         </div>
         <div className="min-h-0">
-          <RightColumn roomId={params?.id as string} room={room} refreshTrigger={refreshTrigger} />
+          <RightColumn roomId={params?.id as string} room={room} refreshTrigger={refreshTrigger} realtimeMembers={realtimeMembers} />
         </div>
       </div>
 
