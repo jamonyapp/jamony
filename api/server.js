@@ -828,11 +828,11 @@ app.post('/api/rooms/:id/recording/stop', async (req, res) => {
     const cnt = await pool.query('SELECT COUNT(*) AS c FROM recording_sessions WHERE room_id=$1', [id])
     const index = parseInt(cnt.rows[0].c) + 1
 
-    // 创建 session，启动倒计时
+    // 创建 session，启动倒计时（$4 落 integer 列，$5 喂 make_interval 的 double secs，避免类型冲突）
     const sess = await pool.query(
       `INSERT INTO recording_sessions (room_id, index, duration, countdown_seconds, expires_at)
-       VALUES ($1, $2, $3, $4, NOW() + make_interval(secs => $4)) RETURNING *`,
-      [id, index, duration || '0:00', RECORDING_COUNTDOWN_SECONDS]
+       VALUES ($1, $2, $3, $4, NOW() + make_interval(secs => $5::double precision)) RETURNING *`,
+      [id, index, duration || '0:00', RECORDING_COUNTDOWN_SECONDS, RECORDING_COUNTDOWN_SECONDS]
     )
     const sessionId = sess.rows[0].id
 
