@@ -554,6 +554,77 @@ async function broadcastMembers(roomId) {
   }
 }
 
+// 检测房间鼓机（FluidSynth）进程是否在运行 —— 录音停止时判定 jamony-looper 分轨是否显示
+function isDrumsRunning(roomPort) {
+  try {
+    const pidStr = execSync('cat /tmp/jamony-drums-' + roomPort + '.pid 2>/dev/null', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).toString().trim()
+    if (pidStr) {
+      const pid = parseInt(pidStr)
+      try { process.kill(pid, 0); return true } catch { return false }
+    }
+    return false
+  } catch { return false }
+}
+
+// 计算单个 session 的汇总状态：全员 ①② 是否锁定、授权人数
+function summarizeSession(session, tracks) {
+  const realTracks = tracks.filter(t => !t.is_system)
+  const allLocked = realTracks.length > 0 && realTracks.every(t => t.use_locked && t.attribution_locked)
+  const agreedCount = realTracks.filter(t => t.allow_use === true).length
+  return { ...session, tracks, all_locked: allLocked, agreed_count: agreedCount }
+}
+
+// 懒处理：倒计时已到且仍授权中 → 未决定的 ① 默认授权、② 默认署名（仅当①=true），并写死锁定
+// 返回是否有改动
+async function applyExpiry(roomId) {
+  const sessions = await pool.query(
+    "SELECT id, expires_at FROM recording_sessions WHERE room_id=$1 AND status='authorizing'", [roomId]
+  )
+  let changed = false
+  for (const s of sessions.rows) {
+    if (!s.expires_at || new Date() <= new Date(s.expires_at)) continue
+    const tr = await pool.query('SELECT * FROM session_tracks WHERE session_id=$1 AND is_system=FALSE', [s.id])
+    for (const t of tr.rows) {
+      if (!t.use_locked) {
+        const useVal = t.allow_use === null ? true : t.allow_use
+        let attr = t.allow_attribution
+        let attrLocked = t.attribution_locked
+        if (useVal === true && !attrLocked) { attr = attr === null ? true : attr; attrLocked = true }
+        await pool.query(
+          'UPDATE session_tracks SET allow_use=$1, allow_attribution=$2, use_locked=TRUE, attribution_locked=$3 WHERE id=$4',
+          [useVal, attr, attrLocked, t.id]
+        )
+        changed = true
+      } else if (t.allow_use === true && !t.attribution_locked) {
+        const attr = t.allow_attribution === null ? true : t.allow_attribution
+        await pool.query('UPDATE session_tracks SET allow_attribution=$1, attribution_locked=TRUE WHERE id=$2', [attr, t.id])
+        changed = true
+      }
+    }
+  }
+  return changed
+}
+
+// 读取房间所有 session（已过 applyExpiry），返回带汇总的列表
+async function getRoomSessions(roomId) {
+  const sessions = await pool.query('SELECT * FROM recording_sessions WHERE room_id=$1 ORDER BY index', [roomId])
+  const result = []
+  for (const s of sessions.rows) {
+    const tr = await pool.query('SELECT * FROM session_tracks WHERE session_id=$1 ORDER BY is_system, created_at', [s.id])
+    result.push(summarizeSession(s, tr.rows))
+  }
+  return result
+}
+
+// 广播房间录音 session 列表（创建/授权变化/超时默认时调用，全员实时同步）
+async function broadcastSessions(roomId) {
+  try {
+    io.to(roomId).emit('sessions-update', { sessions: await getRoomSessions(roomId) })
+  } catch (e) {
+    console.error('Broadcast sessions error:', e)
+  }
+}
+
 // 加入房间
 app.post('/api/rooms/:id/join', async (req, res) => {
   try {
@@ -712,6 +783,141 @@ app.post('/api/rooms/:roomId/members/:userId/audio-status', async (req, res) => 
     res.json({ ok: true })
   } catch (err) {
     console.error('Audio status error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// ========== 录音 session（录音 → 授权 → 发表 全链路） ==========
+const RECORDING_COUNTDOWN_SECONDS = 60  // 倒计时秒数（测试用 60，后期改 600）
+
+// 开始录音（合奏者触发，一房一录）
+app.post('/api/rooms/:id/recording/start', async (req, res) => {
+  try {
+    const { id } = req.params
+    const { userId } = req.body
+    const member = await pool.query('SELECT role FROM room_members WHERE room_id=$1 AND user_id=$2', [id, userId])
+    if (member.rows.length === 0 || member.rows[0].role !== 'musician') {
+      return res.status(403).json({ ok: false, msg: '仅合奏者可录音' })
+    }
+    const room = await pool.query('SELECT recording_active FROM rooms WHERE id=$1', [id])
+    if (room.rows.length === 0) return res.status(404).json({ ok: false, msg: '房间不存在' })
+    if (room.rows[0].recording_active) return res.json({ ok: false, msg: '已在录音中' })
+    await pool.query('UPDATE rooms SET recording_active=TRUE WHERE id=$1', [id])
+    io.to(id).emit('recording-state', { roomId: id, active: true, userId })
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('Recording start error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// 停止录音 → 创建 session + 分轨快照 + jamony-looper 检测 + 启动倒计时
+app.post('/api/rooms/:id/recording/stop', async (req, res) => {
+  try {
+    const { id } = req.params
+    const { userId, duration } = req.body
+    const member = await pool.query('SELECT role FROM room_members WHERE room_id=$1 AND user_id=$2', [id, userId])
+    if (member.rows.length === 0 || member.rows[0].role !== 'musician') {
+      return res.status(403).json({ ok: false, msg: '仅合奏者可录音' })
+    }
+    const room = await pool.query('SELECT server_port, recording_active FROM rooms WHERE id=$1', [id])
+    if (room.rows.length === 0) return res.status(404).json({ ok: false, msg: '房间不存在' })
+    const roomPort = room.rows[0].server_port
+
+    // 段落序号 = 房间已有 session 数 + 1
+    const cnt = await pool.query('SELECT COUNT(*) AS c FROM recording_sessions WHERE room_id=$1', [id])
+    const index = parseInt(cnt.rows[0].c) + 1
+
+    // 创建 session，启动倒计时
+    const sess = await pool.query(
+      `INSERT INTO recording_sessions (room_id, index, duration, countdown_seconds, expires_at)
+       VALUES ($1, $2, $3, $4, NOW() + make_interval(secs => $4)) RETURNING *`,
+      [id, index, duration || '0:00', RECORDING_COUNTDOWN_SECONDS]
+    )
+    const sessionId = sess.rows[0].id
+
+    // 快照当前合奏者 → 分轨（每人一条，未决定）
+    const musicians = await pool.query(
+      `SELECT rm.user_id, rm.nickname, u.instrument_category FROM room_members rm
+       JOIN users u ON u.id = rm.user_id
+       WHERE rm.room_id = $1 AND rm.role = 'musician' ORDER BY rm.joined_at`,
+      [id]
+    )
+    for (const m of musicians.rows) {
+      await pool.query(
+        'INSERT INTO session_tracks (session_id, user_id, nickname, instrument_category) VALUES ($1, $2, $3, $4)',
+        [sessionId, m.user_id, m.nickname, m.instrument_category || '']
+      )
+    }
+
+    // jamony-looper：停止录音时检测鼓机进程，开着则加一条系统鼓轨
+    // （默认授权+署名，生而锁定，不参与倒计时；鼓机没开则不显示该轨）
+    if (isDrumsRunning(roomPort)) {
+      await pool.query(
+        `INSERT INTO session_tracks
+         (session_id, user_id, is_system, nickname, instrument_category, allow_use, allow_attribution, allow_download, use_locked, attribution_locked)
+         VALUES ($1, NULL, TRUE, 'jamony-looper', '打击乐器', TRUE, TRUE, TRUE, TRUE, TRUE)`,
+        [sessionId]
+      )
+    }
+
+    // 结束录音状态并广播
+    await pool.query('UPDATE rooms SET recording_active=FALSE WHERE id=$1', [id])
+    io.to(id).emit('recording-state', { roomId: id, active: false })
+    await broadcastSessions(id)
+    res.json({ ok: true, session: sess.rows[0] })
+  } catch (err) {
+    console.error('Recording stop error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// 读取房间所有 session（含超时懒处理）
+app.get('/api/rooms/:id/sessions', async (req, res) => {
+  try {
+    const changed = await applyExpiry(req.params.id)
+    if (changed) broadcastSessions(req.params.id)
+    const sessions = await getRoomSessions(req.params.id)
+    res.json({ ok: true, sessions })
+  } catch (err) {
+    console.error('Sessions list error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// 修改某条分轨的授权（①② 写死锁定，② 依赖 ①，③ 自由不锁）
+app.patch('/api/rooms/:id/sessions/:sid/tracks/:tid', async (req, res) => {
+  try {
+    const { id, sid, tid } = req.params
+    const { userId, field, value } = req.body  // field: allow_use | allow_attribution | allow_download
+    const tr = await pool.query('SELECT * FROM session_tracks WHERE id=$1 AND session_id=$2', [tid, sid])
+    if (tr.rows.length === 0) return res.status(404).json({ ok: false, msg: '分轨不存在' })
+    const t = tr.rows[0]
+    if (t.is_system) return res.status(400).json({ ok: false, msg: '系统轨不可修改' })
+    if (t.user_id !== parseInt(userId)) return res.status(403).json({ ok: false, msg: '只能修改自己的分轨' })
+
+    if (field === 'allow_use') {
+      if (t.use_locked) return res.status(400).json({ ok: false, msg: '已锁定，不可修改' })
+      if (value === false) {
+        // 拒绝使用 → 同时清空并锁定署名（轨不参与混音，署名无意义）
+        await pool.query('UPDATE session_tracks SET allow_use=FALSE, use_locked=TRUE, allow_attribution=NULL, attribution_locked=TRUE WHERE id=$1', [tid])
+      } else {
+        await pool.query('UPDATE session_tracks SET allow_use=TRUE, use_locked=TRUE WHERE id=$1', [tid])
+      }
+    } else if (field === 'allow_attribution') {
+      if (t.attribution_locked) return res.status(400).json({ ok: false, msg: '已锁定，不可修改' })
+      if (t.allow_use !== true) return res.status(400).json({ ok: false, msg: '请先授权使用' })
+      await pool.query('UPDATE session_tracks SET allow_attribution=$1, attribution_locked=TRUE WHERE id=$2', [!!value, tid])
+    } else if (field === 'allow_download') {
+      // ③ 自由修改，永不锁定
+      await pool.query('UPDATE session_tracks SET allow_download=$1 WHERE id=$2', [!!value, tid])
+    } else {
+      return res.status(400).json({ ok: false, msg: '未知字段' })
+    }
+    await broadcastSessions(id)
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('Track auth error:', err)
     res.status(500).json({ ok: false, msg: '服务器错误' })
   }
 })

@@ -77,60 +77,39 @@ export function generateProgression(style: string, phrases: number): string[] {
 }
 
 export type Track = {
-  member: string
-  instrumentEmoji: string
-  duration: string
-  allowUse: boolean | null          // null = 未选择, true = 允许, false = 不允许
-  allowAttribution: boolean | null  // null = 未选择, true = 署名, false = 匿名
-  allowDownload: boolean | null     // null = 未选择, true = 可下载, false = 禁下载
+  id: number
+  user_id: number | null            // null = jamony-looper 系统轨
+  is_system: boolean
+  nickname: string
+  instrument_category: string
+  allow_use: boolean | null         // ① null=未选 true=授权 false=不授权
+  allow_attribution: boolean | null // ② null=未选 true=署名 false=匿名
+  allow_download: boolean | null    // ③ null=未选 true=可下载 false=禁下载（永不锁定）
+  use_locked: boolean               // ① 写死
+  attribution_locked: boolean       // ② 写死
 }
 
 export type RecordingSession = {
-  id: string
+  id: number
   index: number
   duration: string
-  participants: number
+  status: string                    // authorizing / published / abandoned
+  countdown_seconds: number
+  expires_at: string | null
+  all_locked: boolean               // 全员 ①② 已写死（主动选完 或 倒计时默认）
+  agreed_count: number              // 授权人数
   tracks: Track[]
 }
 
-export const RECORDINGS: RecordingSession[] = [
-  {
-    id: "s1",
-    index: 1,
-    duration: "04:12",
-    participants: 4,
-    tracks: [
-      { member: "阿May", instrumentEmoji: "🎸", duration: "04:12", allowUse: true, allowAttribution: true, allowDownload: true },
-      { member: "你", instrumentEmoji: "🎸", duration: "04:10", allowUse: null, allowAttribution: null, allowDownload: null },
-      { member: "老K", instrumentEmoji: "🎻", duration: "04:12", allowUse: true, allowAttribution: false, allowDownload: false },
-      { member: "小鼓手", instrumentEmoji: "🥁", duration: "04:11", allowUse: false, allowAttribution: null, allowDownload: null },
-    ],
-  },
-  {
-    id: "s2",
-    index: 2,
-    duration: "06:48",
-    participants: 5,
-    tracks: [
-      { member: "阿May", instrumentEmoji: "🎸", duration: "06:48", allowUse: null, allowAttribution: null, allowDownload: null },
-      { member: "你", instrumentEmoji: "🎸", duration: "06:45", allowUse: null, allowAttribution: null, allowDownload: null },
-      { member: "老K", instrumentEmoji: "🎻", duration: "06:48", allowUse: null, allowAttribution: null, allowDownload: null },
-      { member: "小鼓手", instrumentEmoji: "🥁", duration: "06:47", allowUse: null, allowAttribution: null, allowDownload: null },
-      { member: "Echo", instrumentEmoji: "🎹", duration: "06:40", allowUse: null, allowAttribution: null, allowDownload: null },
-    ],
-  },
-  {
-    id: "s3",
-    index: 3,
-    duration: "02:35",
-    participants: 3,
-    tracks: [
-      { member: "阿May", instrumentEmoji: "🎸", duration: "02:35", allowUse: null, allowAttribution: null, allowDownload: null },
-      { member: "老K", instrumentEmoji: "🎻", duration: "02:35", allowUse: null, allowAttribution: null, allowDownload: null },
-      { member: "Echo", instrumentEmoji: "🎹", duration: "02:30", allowUse: null, allowAttribution: null, allowDownload: null },
-    ],
-  },
-]
+// 乐器分类 → emoji（与右栏成员卡片映射一致）
+export function instrumentEmoji(category: string): string {
+  const map: Record<string, string> = {
+    "原声吉他": "🎸", "电吉他": "🎸", "贝斯": "🎸",
+    "打击乐器": "🥁", "键盘乐器": "🎹", "主唱": "🎤",
+    "弦乐": "🎻", "管乐": "🎷", "民乐": "🪕", "其他": "🎵", "听众": "🎧",
+  }
+  return map[category] || "🎵"
+}
 
 export type ChatMessage = {
   id: string

@@ -19,6 +19,8 @@ export function useChatSocket(roomId?: string, nickname?: string) {
   const [realtimeTheme, setRealtimeTheme] = useState<string>("")
   const [realtimeBpm, setRealtimeBpm] = useState<number>(0)
   const [realtimeMembers, setRealtimeMembers] = useState<any[]>([])
+  const [realtimeSessions, setRealtimeSessions] = useState<any[] | null>(null)
+  const [realtimeRecordingActive, setRealtimeRecordingActive] = useState<boolean | null>(null)
 
   useEffect(() => {
     if (!roomId || !nickname) return
@@ -54,6 +56,14 @@ export function useChatSocket(roomId?: string, nickname?: string) {
       setRealtimeMembers(data.members || [])
     })
 
+    socket.on("sessions-update", (data: { sessions: any[] }) => {
+      setRealtimeSessions(data.sessions || [])
+    })
+
+    socket.on("recording-state", (data: { active: boolean }) => {
+      setRealtimeRecordingActive(!!data.active)
+    })
+
     socket.on("disconnect", () => {
       setConnected(false)
     })
@@ -83,5 +93,5 @@ export function useChatSocket(roomId?: string, nickname?: string) {
     setRealtimeTheme(theme)
   }
 
-  return { messages, sendMessage, connected, realtimeChords, pushChords, realtimeTheme, pushTheme, realtimeBpm, realtimeMembers }
+  return { messages, sendMessage, connected, realtimeChords, pushChords, realtimeTheme, pushTheme, realtimeBpm, realtimeMembers, realtimeSessions, realtimeRecordingActive }
 }
