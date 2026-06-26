@@ -9,6 +9,7 @@
 
 const { spawn, execSync } = require('child_process')
 const fs = require('fs')
+const crypto = require('crypto')
 
 const GHOST_BIN = '/usr/local/bin/jamulus-ghost'
 const HEADLESS_BIN = '/usr/bin/jamulus-headless'
@@ -37,9 +38,21 @@ if (CMD === 'start') {
   const CHANNELS = parseInt(process.argv[4]) || 6
   try { execSync('ss -ulnp | grep ' + PORT, { stdio: 'pipe' }); console.log('Port ' + PORT + ' already in use'); process.exit(0) } catch {}
   const finalCh = Math.max(CHANNELS, 2)
-  const p = spawn(HEADLESS_BIN, ['--port', String(PORT), '--server', '--nogui', '--numchannels', String(finalCh)], { stdio: 'ignore', detached: true })
+  const rpcSecret = crypto.randomBytes(32).toString('hex')
+  const rpcPort = PORT + 10000
+  const recDir = '/var/jamony/recordings/room-' + PORT + '-records/'
+  const secretFile = '/var/jamony/rpc-secrets/room-' + PORT + '.txt'
+  execSync('mkdir -p /var/jamony/recordings /var/jamony/rpc-secrets', { stdio: 'pipe' })
+  fs.writeFileSync(secretFile, rpcSecret)
+  const p = spawn(HEADLESS_BIN, [
+    '--port', String(PORT), '--server', '--nogui', '--numchannels', String(finalCh),
+    '--recording', recDir,
+    '--norecord',
+    '--jsonrpcport', String(rpcPort),
+    '--jsonrpcsecretfile', secretFile,
+  ], { stdio: 'ignore', detached: true })
   p.unref()
-  console.log('HEADLESS ' + PORT + ' ch=' + finalCh + ' PID=' + p.pid)
+  console.log('HEADLESS ' + PORT + ' ch=' + finalCh + ' PID=' + p.pid + ' RPC=' + rpcPort + ' rec=' + recDir)
 }
 
 if (CMD === 'stop') {
@@ -47,6 +60,8 @@ if (CMD === 'stop') {
     const out = execSync('ss -ulnp | grep ' + PORT + ' | grep -oP \'pid=\\K\\d+\'', { encoding: 'utf8' }).trim()
     out.split('\\n').forEach(function(p) { if (p) { try { process.kill(parseInt(p)); console.log('Killed headless ' + p) } catch {} } })
   } catch {}
+  // cleanup RPC secret
+  try { fs.unlinkSync('/var/jamony/rpc-secrets/room-' + PORT + '.txt') } catch {}
   // also kill ghost
   var st = getState()
   if (st[PORT]) {
@@ -62,7 +77,7 @@ if (CMD === 'start-ghost') {
   var roomId = process.argv[4] || String(PORT)
   var mount = '/room-' + roomId
 
-  var ghost = spawn(GHOST_BIN, ['-n', '--connect', '127.0.0.1:' + PORT], {
+  var ghost = spawn(GHOST_BIN, ['-n', '--clientname', 'jamony-looper', '--connect', '127.0.0.1:' + PORT], {
     stdio: 'ignore', detached: true,
     env: Object.assign({}, process.env, { JAMULUS_JACK_NAME: 'Jamulus-' + PORT })
   })

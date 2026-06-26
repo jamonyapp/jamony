@@ -421,7 +421,7 @@ function SessionCard({
   const refusedCount = session.tracks.filter(t => !t.is_system && t.allow_use === false).length
 
   return (
-    <div className="overflow-hidden rounded-[10px] border border-border bg-secondary">
+    <div className="rounded-[10px] border border-border bg-secondary">
       {/* 头部：段落信息 + 倒计时 + 发表按钮 + 展开 */}
       <div className="flex items-center justify-between px-3 py-2.5">
         <button onClick={onToggle} className="flex items-center gap-3 text-left text-sm transition-colors hover:opacity-80">
@@ -509,7 +509,7 @@ function TrackRow({
     : "确认你的选择吗？确认后不可修改。"
 
   return (
-    <div className="flex items-center gap-3 rounded-[8px] px-2 py-2 text-sm">
+    <div className="flex items-center gap-3 rounded-[8px] px-2 py-1 text-sm">
       <span>{emoji}</span>
       <span className="w-20 shrink-0 font-medium">{track.nickname}</span>
 

@@ -5,6 +5,9 @@ const http = require("http")
 const { Server } = require("socket.io")
 const { execSync, spawn } = require('child_process')
 const { Pool } = require('pg')
+const net = require('net')
+const fs = require('fs')
+const path = require('path')
 
 const app = express()
 const server = http.createServer(app)
@@ -554,6 +557,45 @@ async function broadcastMembers(roomId) {
   }
 }
 
+
+// JSON-RPC 调用 jamulus headless（原始 TCP，一发一收）
+function jsonRpcCall(roomPort, method, params = {}) {
+  return new Promise((resolve, reject) => {
+    const rpcPort = roomPort + 10000;
+    const secretFile = '/var/jamony/rpc-secrets/room-' + roomPort + '.txt';
+    let secret;
+    try { secret = fs.readFileSync(secretFile, 'utf8').trim(); } catch (e) {
+      return reject(new Error('RPC secret not found for port ' + roomPort));
+    }
+    const client = new net.Socket();
+    let buf = '';
+    let authed = false;
+    const t = setTimeout(() => { client.destroy(); reject(new Error('RPC timeout')); }, 5000);
+    client.connect(rpcPort, '127.0.0.1', () => {
+      client.write(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'jamulus/apiAuth', params: { secret } }) + '\n');
+    });
+    client.on('data', d => {
+      buf += d.toString();
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const r = JSON.parse(line);
+          if (r.error) { clearTimeout(t); client.destroy(); reject(new Error(r.error.message)); return; }
+          if (!authed) {
+            authed = true;
+            client.write(JSON.stringify({ jsonrpc: '2.0', id: 2, method, params }) + '\n');
+          } else {
+            clearTimeout(t); client.destroy(); resolve(r.result);
+          }
+        } catch(e) {}
+      }
+    });
+    client.on('error', err => { clearTimeout(t); reject(err); });
+  });
+}
+
 // 检测房间鼓机（FluidSynth）进程是否在运行 —— 录音停止时判定 jamony-looper 分轨是否显示
 function isDrumsRunning(roomPort) {
   try {
@@ -799,9 +841,15 @@ app.post('/api/rooms/:id/recording/start', async (req, res) => {
     if (member.rows.length === 0 || member.rows[0].role !== 'musician') {
       return res.status(403).json({ ok: false, msg: '仅合奏者可录音' })
     }
-    const room = await pool.query('SELECT recording_active FROM rooms WHERE id=$1', [id])
+    const room = await pool.query('SELECT server_port, recording_active FROM rooms WHERE id=$1', [id])
     if (room.rows.length === 0) return res.status(404).json({ ok: false, msg: '房间不存在' })
     if (room.rows[0].recording_active) return res.json({ ok: false, msg: '已在录音中' })
+    // JSON-RPC 通知 headless 开始录音
+    try {
+      await jsonRpcCall(room.rows[0].server_port, 'jamulusserver/startRecording')
+    } catch (e) {
+      return res.status(500).json({ ok: false, msg: 'headless 未就绪，无法录音' })
+    }
     await pool.query('UPDATE rooms SET recording_active=TRUE WHERE id=$1', [id])
     io.to(id).emit('recording-state', { roomId: id, active: true, userId })
     res.json({ ok: true })
@@ -824,11 +872,42 @@ app.post('/api/rooms/:id/recording/stop', async (req, res) => {
     if (room.rows.length === 0) return res.status(404).json({ ok: false, msg: '房间不存在' })
     const roomPort = room.rows[0].server_port
 
+    // JSON-RPC 获取录音目录并停止录音
+    let recDir = ''
+    try {
+      const status = await jsonRpcCall(roomPort, 'jamulusserver/getRecorderStatus')
+      recDir = (status && status.recordingDirectory) || ''
+    } catch (e) {
+      console.error('getRecorderStatus error:', e.message)
+    }
+    try {
+      await jsonRpcCall(roomPort, 'jamulusserver/stopRecording')
+    } catch (e) {
+      console.error('stopRecording error:', e.message)
+    }
+    // 等待 headless 写完 WAV 文件
+    await new Promise(r => setTimeout(r, 2000))
+
+    // 扫描 WAV 目录（找最新的 Jam-* 子目录）
+    const wavFiles = []
+    let recSessDir = ''
+    if (recDir && fs.existsSync(recDir)) {
+      const subdirs = fs.readdirSync(recDir).filter(d => d.startsWith('Jam-')).sort()
+      if (subdirs.length > 0) {
+        recSessDir = path.join(recDir, subdirs[subdirs.length - 1])
+        const files = fs.readdirSync(recSessDir).filter(f => f.endsWith('.wav')).sort()
+        for (const f of files) {
+          wavFiles.push({ filename: f, fullPath: path.join(recSessDir, f) })
+        }
+        console.log('WAV files found:', wavFiles.length, 'in', recSessDir)
+      }
+    }
+
     // 段落序号 = 房间已有 session 数 + 1
     const cnt = await pool.query('SELECT COUNT(*) AS c FROM recording_sessions WHERE room_id=$1', [id])
     const index = parseInt(cnt.rows[0].c) + 1
 
-    // 创建 session，启动倒计时（$4 落 integer 列，$5 喂 make_interval 的 double secs，避免类型冲突）
+    // 创建 session，启动倒计时
     const sess = await pool.query(
       `INSERT INTO recording_sessions (room_id, index, duration, countdown_seconds, expires_at)
        VALUES ($1, $2, $3, $4, NOW() + make_interval(secs => $5::double precision)) RETURNING *`,
@@ -836,28 +915,54 @@ app.post('/api/rooms/:id/recording/stop', async (req, res) => {
     )
     const sessionId = sess.rows[0].id
 
-    // 快照当前合奏者 → 分轨（每人一条，未决定）
+    // 快照当前合奏者 → 分轨，按顺序匹配 WAV 文件
     const musicians = await pool.query(
       `SELECT rm.user_id, rm.nickname, u.instrument_category FROM room_members rm
        JOIN users u ON u.id = rm.user_id
        WHERE rm.room_id = $1 AND rm.role = 'musician' ORDER BY rm.joined_at`,
       [id]
     )
+    // 重命名 WAV：统一为 {昵称}_record_{段号}.wav
+    const padIdx = String(index).padStart(3, '0')
+    // 先算好幽灵数量（循环内会改文件名，必须在循环前算）
+    const ghostCount = wavFiles.filter(w => w.filename.includes('127_0_0_1')).length
+    let humanIdx = 0
+    for (const w of wavFiles) {
+      const isGhost = w.filename.includes('127_0_0_1')
+      let nick = ''
+      if (isGhost) {
+        nick = 'jamony-looper'
+      } else {
+        nick = (musicians.rows[humanIdx]?.nickname || 'unknown').replace(/[\\/\0]/g, '_')
+        humanIdx++
+      }
+      const ext = path.extname(w.filename)
+      const newName = nick + '_record_' + padIdx + ext
+      const newPath = path.join(recSessDir, newName)
+      try { fs.renameSync(w.fullPath, newPath); console.log('  rename:', w.filename, '->', newName) } catch (e) {}
+      w.filename = newName
+      w.fullPath = newPath
+    }
+    // 筛选 WAV：排除 looper 轨，按顺序匹配真人成员
+    const userWavs = wavFiles.filter(w => !w.filename.startsWith('jamony-looper'))
+    let wavIdx = 0
     for (const m of musicians.rows) {
+      const filePath = wavIdx < userWavs.length ? userWavs[wavIdx].fullPath : ''
       await pool.query(
-        'INSERT INTO session_tracks (session_id, user_id, nickname, instrument_category) VALUES ($1, $2, $3, $4)',
-        [sessionId, m.user_id, m.nickname, m.instrument_category || '']
+        'INSERT INTO session_tracks (session_id, user_id, nickname, instrument_category, file_path) VALUES ($1, $2, $3, $4, $5)',
+        [sessionId, m.user_id, m.nickname, m.instrument_category || '', filePath]
       )
+      wavIdx++
     }
 
-    // jamony-looper：停止录音时检测鼓机进程，开着则加一条系统鼓轨
-    // （默认授权+署名，生而锁定，不参与倒计时；鼓机没开则不显示该轨）
+    // jamony-looper：检测鼓机，开着则加系统鼓轨
     if (isDrumsRunning(roomPort)) {
+      const looperWav = wavFiles.find(w => w.filename.startsWith('jamony-looper'))
       await pool.query(
         `INSERT INTO session_tracks
-         (session_id, user_id, is_system, nickname, instrument_category, allow_use, allow_attribution, allow_download, use_locked, attribution_locked)
-         VALUES ($1, NULL, TRUE, 'jamony-looper', '打击乐器', TRUE, TRUE, TRUE, TRUE, TRUE)`,
-        [sessionId]
+         (session_id, user_id, is_system, nickname, instrument_category, allow_use, allow_attribution, allow_download, use_locked, attribution_locked, file_path)
+         VALUES ($1, NULL, TRUE, 'jamony-looper', '打击乐器', TRUE, TRUE, TRUE, TRUE, TRUE, $2)`,
+        [sessionId, looperWav ? looperWav.fullPath : '']
       )
     }
 
@@ -871,7 +976,6 @@ app.post('/api/rooms/:id/recording/stop', async (req, res) => {
     res.status(500).json({ ok: false, msg: '服务器错误' })
   }
 })
-
 // 读取房间所有 session（含超时懒处理）
 app.get('/api/rooms/:id/sessions', async (req, res) => {
   try {

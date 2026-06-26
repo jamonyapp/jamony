@@ -40,8 +40,8 @@ sleep 2
 
 # 找幽灵
 # 找幽灵（按端口号动态匹配）
-GHOST_L="Jamulus-${ROOM_PORT}:input left"
-GHOST_R="Jamulus-${ROOM_PORT}:input right"
+GHOST_L="Jamulus-${ROOM_PORT} jamony-looper:input left"
+GHOST_R="Jamulus-${ROOM_PORT} jamony-looper:input right"
 
 # 生成循环配置文件（房间隔离）
 LOOP_CMD="/tmp/jamony-drum-cmd-${ROOM_PORT}.txt"
