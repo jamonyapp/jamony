@@ -767,11 +767,15 @@ app.post('/api/rooms/:id/leave', async (req, res) => {
       if (newHost.rows.length > 0) {
         await pool.query('UPDATE rooms SET host_id = $1 WHERE id = $2', [newHost.rows[0].user_id, id])
       } else {
-        // 没有合奏者了，解散房间
-        await pool.query("UPDATE rooms SET status = 'closed' WHERE id = $1", [id])
-        if (roomResult.rows[0]?.server_port) {
-          try { execSync(`node /var/www/jamony/api/manage-jamulus.js drums-stop ${roomResult.rows[0].server_port}`, { timeout: 5000, stdio: 'pipe' }) } catch {}; try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop ${roomResult.rows[0].server_port}`, { timeout: 5000, stdio: 'pipe' }); try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop-ghost ${roomResult.rows[0].server_port}`, { timeout: 5000, stdio: 'pipe' }) } catch {} } catch {}
+        // 解散房间：停进程 + 清录音 + 删 DB
+        const closePort = roomResult.rows[0]?.server_port
+        if (closePort) {
+          try { execSync(`node /var/www/jamony/api/manage-jamulus.js drums-stop ${closePort}`, { timeout: 5000, stdio: 'pipe' }) } catch {}
+          try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop ${closePort}`, { timeout: 5000, stdio: 'pipe' }) } catch {}
+          try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop-ghost ${closePort}`, { timeout: 5000, stdio: 'pipe' }) } catch {}
+          try { execSync(`rm -rf /var/jamony/recordings/room-${closePort}-records/`, { timeout: 5000, stdio: 'pipe' }) } catch {}
         }
+        await pool.query('DELETE FROM rooms WHERE id = $1', [id])
       }
     }
 
@@ -1026,6 +1030,35 @@ app.patch('/api/rooms/:id/sessions/:sid/tracks/:tid', async (req, res) => {
   }
 })
 
+
+// 下载分轨 WAV（自己始终可下载；他人需 allow_download=true）
+app.get('/api/rooms/:id/sessions/:sid/tracks/:tid/download', async (req, res) => {
+  try {
+    const { id, sid, tid } = req.params
+    const userId = parseInt(req.query.userId)
+    if (!userId) return res.status(400).json({ ok: false, msg: '缺少 userId' })
+    const tr = await pool.query('SELECT * FROM session_tracks WHERE id=$1 AND session_id=$2', [tid, sid])
+    if (tr.rows.length === 0) return res.status(404).json({ ok: false, msg: '分轨不存在' })
+    const t = tr.rows[0]
+    if (!t.file_path) return res.status(404).json({ ok: false, msg: '分轨文件暂不可用' })
+    // 权限：自己 或 对方允许下载
+    const isSelf = t.user_id === userId
+    if (!isSelf && t.allow_download !== true) {
+      return res.status(403).json({ ok: false, msg: '未开放下载' })
+    }
+    // 发送文件
+    if (!fs.existsSync(t.file_path)) return res.status(404).json({ ok: false, msg: '文件不存在' })
+    const fileName = path.basename(t.file_path)
+    res.setHeader('Content-Disposition', 'attachment; filename="' + fileName + '"')
+    res.setHeader('Content-Type', 'audio/wav')
+    const stream = fs.createReadStream(t.file_path)
+    stream.pipe(res)
+  } catch (err) {
+    console.error('Download error:', err)
+    res.status(500).json({ ok: false, msg: '下载失败' })
+  }
+})
+
 // ========== 鼓机控制 ==========
 const DRUM_STYLES = ['basic', 'rock', 'funk', 'jazz', 'blues', 'folk', 'metal', 'latin']
 const DRUM_BASE_DIR = '/var/www/jamony/drum-loops'
@@ -1191,10 +1224,14 @@ app.post('/api/users/:userId/leave-all-rooms', async (req, res) => {
       const remaining = await pool.query("SELECT COUNT(*) FROM room_members WHERE room_id = $1 AND role = 'musician'", [row.room_id])
       if (parseInt(remaining.rows[0].count) === 0) {
         const portResult = await pool.query('SELECT server_port FROM rooms WHERE id = $1 AND status != $2', [row.room_id, 'closed'])
-        await pool.query("UPDATE rooms SET status = 'closed' WHERE id = $1", [row.room_id])
-        if (portResult.rows[0]?.server_port) {
-          try { execSync(`node /var/www/jamony/api/manage-jamulus.js drums-stop ${portResult.rows[0].server_port}`, { timeout: 5000, stdio: 'pipe' }) } catch {}; try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop ${portResult.rows[0].server_port}`, { timeout: 5000, stdio: 'pipe' }); try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop-ghost ${portResult.rows[0].server_port}`, { timeout: 5000, stdio: 'pipe' }) } catch {} } catch {}
+        const closePort2 = portResult.rows[0]?.server_port
+        if (closePort2) {
+          try { execSync(`node /var/www/jamony/api/manage-jamulus.js drums-stop ${closePort2}`, { timeout: 5000, stdio: 'pipe' }) } catch {}
+          try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop ${closePort2}`, { timeout: 5000, stdio: 'pipe' }) } catch {}
+          try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop-ghost ${closePort2}`, { timeout: 5000, stdio: 'pipe' }) } catch {}
+          try { execSync(`rm -rf /var/jamony/recordings/room-${closePort2}-records/`, { timeout: 5000, stdio: 'pipe' }) } catch {}
         }
+        await pool.query('DELETE FROM rooms WHERE id = $1', [row.room_id])
       }
     }
     res.json({ ok: true })
