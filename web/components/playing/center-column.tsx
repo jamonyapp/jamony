@@ -441,17 +441,19 @@ function SessionCard({
             <span className="font-mono text-xs text-brand-pink">{fmt(remaining)} 后默认授权+署名</span>
           )}
           {/* 发表状态卡片 —— 全员 ①② 锁定后出现 */}
-          {canPublish && (
+          {session.all_locked && (
             <>
               <span className="text-xs text-muted-foreground">
                 <span className="font-semibold text-brand-green">{session.agreed_count}人已授权</span> · {refusedCount}人拒绝
               </span>
-              <button
-                onClick={() => setPublishOpen(true)}
-                className="rounded-full bg-brand-blue px-4 py-1.5 text-xs font-bold text-white transition-transform hover:scale-[1.03]"
-              >
-                去发表
-              </button>
+              {canPublish && (
+                <button
+                  onClick={() => setPublishOpen(true)}
+                  className="rounded-full bg-brand-blue px-4 py-1.5 text-xs font-bold text-white transition-transform hover:scale-[1.03]"
+                >
+                  去发表
+                </button>
+              )}
             </>
           )}
           <button onClick={onToggle} className="text-muted-foreground transition-colors hover:text-foreground">
