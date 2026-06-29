@@ -974,7 +974,34 @@ app.post('/api/rooms/:id/recording/stop', async (req, res) => {
     await pool.query('UPDATE rooms SET recording_active=FALSE WHERE id=$1', [id])
     io.to(id).emit('recording-state', { roomId: id, active: false })
     await broadcastSessions(id)
-    res.json({ ok: true, session: sess.rows[0] })
+    res.json({ ok: true, session: sess.rows[0] });
+    // 异步音量标准化（完成后 socket 通知前端）
+    setTimeout(() => {
+      (async () => {
+        try {
+          const tracks = await pool.query(
+            "SELECT id, file_path FROM session_tracks WHERE session_id=$1 AND file_path != ''",
+            [sess.rows[0].id]
+          );
+          for (const tr of tracks.rows) {
+            if (!tr.file_path || !require('fs').existsSync(tr.file_path)) continue;
+            const f = tr.file_path;
+            require('child_process').exec(
+              'node ' + __dirname + '/normalize-wav.js -14 -1 ' + JSON.stringify(f),
+              { timeout: 120000 },
+              async () => {
+                try {
+                  await pool.query('UPDATE session_tracks SET normalized=TRUE WHERE id=$1', [tr.id]);
+                  io.to(id).emit('normalize-done', { sessionId: sess.rows[0].id, trackId: tr.id });
+                } catch (e) {}
+              }
+            );
+          }
+        } catch (e) {
+          console.error('Normalize error:', e.message);
+        }
+      })();
+    }, 0);
   } catch (err) {
     console.error('Recording stop error:', err)
     res.status(500).json({ ok: false, msg: '服务器错误' })
@@ -1045,6 +1072,10 @@ app.get('/api/rooms/:id/sessions/:sid/tracks/:tid/download', async (req, res) =>
     const isSelf = t.user_id === userId
     if (!isSelf && t.allow_download !== true) {
       return res.status(403).json({ ok: false, msg: '未开放下载' })
+    }
+    // 音量标准化未完成则不可下载
+    if (!t.normalized) {
+      return res.status(403).json({ ok: false, msg: '音轨准备中' })
     }
     // 发送文件
     if (!fs.existsSync(t.file_path)) return res.status(404).json({ ok: false, msg: '文件不存在' })

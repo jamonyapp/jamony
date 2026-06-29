@@ -590,13 +590,25 @@ function TrackRow({
       {/* 下载按钮：自己始终可见；他人 ③=可下载见下载 icon，否则见禁下载 icon */}
       <div className="ml-auto">
         {isSelf ? (
-          <a href={`/api/rooms/${roomId}/sessions/${session.id}/tracks/${track.id}/download?userId=${currentUserId}`} className="grid size-7 place-items-center rounded-[6px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" title="下载我的分轨" download>
-            <Download className="size-3.5" />
-          </a>
+          track.normalized ? (
+            <a href={`/api/rooms/${roomId}/sessions/${session.id}/tracks/${track.id}/download?userId=${currentUserId}`} className="grid size-7 place-items-center rounded-[6px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" title="下载我的分轨" download>
+              <Download className="size-3.5" />
+            </a>
+          ) : (
+            <span className="grid size-7 place-items-center cursor-not-allowed text-muted-foreground/40" title="音轨准备中">
+              <span className="size-3.5 text-[9px] font-bold text-muted-foreground/30">⏳</span>
+            </span>
+          )
         ) : track.allow_download === true ? (
-          <a href={`/api/rooms/${roomId}/sessions/${session.id}/tracks/${track.id}/download?userId=${currentUserId}`} className="grid size-7 place-items-center rounded-[6px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" title={`下载 ${track.nickname} 的分轨`} download>
-            <Download className="size-3.5" />
-          </a>
+          track.normalized ? (
+            <a href={`/api/rooms/${roomId}/sessions/${session.id}/tracks/${track.id}/download?userId=${currentUserId}`} className="grid size-7 place-items-center rounded-[6px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" title={`下载 ${track.nickname} 的分轨`} download>
+              <Download className="size-3.5" />
+            </a>
+          ) : (
+            <span className="grid size-7 place-items-center cursor-not-allowed text-muted-foreground/40" title="音轨准备中">
+              <span className="size-3.5 text-[9px] font-bold text-muted-foreground/30">⏳</span>
+            </span>
+          )
         ) : (
           <span className="grid size-7 place-items-center text-muted-foreground/40" title={track.allow_download === false ? `${track.nickname} 禁止下载` : "待授权"}>
             <Ban className="size-3.5" />

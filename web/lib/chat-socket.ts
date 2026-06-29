@@ -64,6 +64,19 @@ export function useChatSocket(roomId?: string, nickname?: string) {
       setRealtimeRecordingActive(!!data.active)
     })
 
+    socket.on("normalize-done", (data: { sessionId: number; trackId: number }) => {
+      setRealtimeSessions((prev) => {
+        if (!prev) return prev;
+        return prev.map((s) =>
+          s.id === data.sessionId
+            ? { ...s, tracks: (s as any).tracks.map((t: any) =>
+                t.id === data.trackId ? { ...t, normalized: true } : t
+              )}
+            : s
+        );
+      });
+    })
+
     socket.on("disconnect", () => {
       setConnected(false)
     })

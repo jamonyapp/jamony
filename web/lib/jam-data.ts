@@ -86,7 +86,8 @@ export type Track = {
   allow_attribution: boolean | null // ② null=未选 true=署名 false=匿名
   allow_download: boolean | null    // ③ null=未选 true=可下载 false=禁下载（永不锁定）
   use_locked: boolean               // ① 写死
-  attribution_locked: boolean       // ② 写死
+  attribution_locked: boolean
+  normalized?: boolean       // ② 写死
 }
 
 export type RecordingSession = {
