@@ -320,11 +320,10 @@ function DrumMachineTool({ roomId, realtimeBpm }: { roomId?: string; realtimeBpm
     metal: "金属", folk: "民谣", latin: "拉丁", basic: "基础节奏",
   }
   const extName = (f: string) => {
-    const name = f.replace(/.mid$/, '').split('/').pop() || ''
-    return name.replace(/^(Beat|Vrs)\d+-/i, '')
+    return f.replace(/.mid$/, '').split('/').pop() || ''
   }
   const idx = files.indexOf(selectedFile)
-  const currentLabel = idx >= 0 ? String(idx + 1).padStart(3, '0') + '-' + extName(selectedFile) : ''
+  const currentLabel = idx >= 0 ? extName(selectedFile) : ''
 
   return (
     <div className="flex h-full flex-col gap-4 py-2">
@@ -351,8 +350,7 @@ function DrumMachineTool({ roomId, realtimeBpm }: { roomId?: string; realtimeBpm
             className="w-full rounded-[6px] border px-2 py-1.5 text-xs text-white outline-none disabled:opacity-50 truncate"
             style={{ borderColor: "#222", background: "#0D0D0D" }}>
             {files.map((f, i) => {
-              const n = String(i + 1).padStart(3, '0')
-              return <option key={f} value={f} className="bg-[#0D0D0D] text-white truncate">{n}-{extName(f)}</option>
+              return <option key={f} value={f} className="bg-[#0D0D0D] text-white truncate">{extName(f)}</option>
             })}
           </select>
         </div>
