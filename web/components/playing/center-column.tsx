@@ -1,8 +1,12 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { Circle, Square, ChevronDown, Disc3, ArrowRight, Download, Ban, Check, X, ChevronUp } from "lucide-react"
+import { Circle, Square, ChevronDown, Disc3, Headphones, ArrowRight, Download, Ban, Check, X, ChevronUp } from "lucide-react"
 import { instrumentEmoji, type RecordingSession, type Track } from "@/lib/jam-data"
+import { MixerFullscreen } from "@/components/mixer/mixer-fullscreen"
+import { MixerMini } from "@/components/mixer/mixer-mini"
+import { useMixerEngine } from "@/hooks/useMixerEngine"
+import { TRACK_COLORS, type MixerTrack } from "@/components/mixer/types"
 
 function fmt(total: number) {
   const m = Math.floor(total / 60)
@@ -249,6 +253,9 @@ function RecordingPanel({
 }) {
   const [sessions, setSessions] = useState<RecordingSession[]>([])
   const [expanded, setExpanded] = useState<number | null>(null)
+  const [mixerSessionId, setMixerSessionId] = useState<number | null>(null)
+  const [mixerMinimized, setMixerMinimized] = useState(false)
+  const mixerEngine = useMixerEngine()
   const [recording, setRecording] = useState(false)
   const [recordingMine, setRecordingMine] = useState(false)
   const [recTime, setRecTime] = useState(0)
@@ -338,7 +345,7 @@ function RecordingPanel({
     // 成功后由 socket sessions-update 推送新状态覆盖
   }
 
-  return (
+  return (<>
     <section className="flex min-h-0 flex-1 flex-col rounded-[10px] border border-border bg-card">
       {/* 录音控制栏 */}
       <div className="flex shrink-0 items-center justify-between gap-4 border-b border-border p-4">
@@ -391,12 +398,65 @@ function RecordingPanel({
                 currentUserId={currentUserId}
                 onToggle={() => setExpanded((e) => (e === s.id ? null : s.id))}
                 onPatch={patchTrack}
+                onPreview={() => { setMixerSessionId(s.id); setMixerMinimized(false) }}
               />
             ))}
           </div>
         )}
       </div>
     </section>
+
+    {/* 试听混音器 */}
+    {mixerSessionId !== null && (() => {
+      const mixerSession = sessions.find(s => s.id === mixerSessionId)
+      const humanTracks = mixerSession?.tracks.filter(t => !t.is_system) || []
+      const normalizedCount = humanTracks.filter(t => t.normalized).length
+      const totalCount = humanTracks.length
+      const loadingProgress = totalCount > 0 ? (normalizedCount / totalCount) * 100 : 100
+      const mixerTracks: MixerTrack[] = humanTracks.map((t, i) => ({
+        id: String(t.id),
+        name: t.nickname,
+        instrument: instrumentEmoji(t.instrument_category),
+        wavUrl: `/api/rooms/${roomId}/sessions/${mixerSessionId}/tracks/${t.id}/download?userId=${currentUserId}`,
+        duration: 0,
+        color: TRACK_COLORS[i % TRACK_COLORS.length],
+      }))
+
+      return (<>
+        {!mixerMinimized && (
+          <MixerFullscreen
+            sessionLabel={`段落 ${mixerSession?.index}`}
+            tracks={loadingProgress >= 100 ? mixerTracks : []}
+            isOpen={true}
+            isPlaying={false}
+            currentTime={0}
+            duration={0}
+            progress={0}
+            loadingProgress={loadingProgress}
+            onClose={() => { setMixerSessionId(null); setMixerMinimized(false) }}
+            onMinimize={() => setMixerMinimized(true)}
+            onPlayPause={() => {}}
+            onStop={() => {}}
+            onSeek={() => {}}
+          />
+        )}
+        {mixerMinimized && (
+          <MixerMini
+            sessionLabel={`段落 ${mixerSession?.index}`}
+            isPlaying={false}
+            currentTime={0}
+            duration={0}
+            progress={0}
+            loadingProgress={loadingProgress}
+            onTogglePlay={() => {}}
+            onSeek={() => {}}
+            onClose={() => setMixerSessionId(null)}
+            onFullscreen={() => setMixerMinimized(false)}
+          />
+        )}
+      </>)
+    })()}
+  </>
   )
 }
 
@@ -408,6 +468,7 @@ function SessionCard({
   currentUserId,
   onToggle,
   onPatch,
+  onPreview,
 }: {
   session: RecordingSession
   open: boolean
@@ -416,6 +477,7 @@ function SessionCard({
   currentUserId?: number
   onToggle: () => void
   onPatch: (sessionId: number, trackId: number, field: "allow_use" | "allow_attribution" | "allow_download", value: boolean) => void
+  onPreview?: () => void
 }) {
   const remaining = session.expires_at ? Math.max(0, Math.ceil((new Date(session.expires_at).getTime() - now) / 1000)) : 0
   const showCountdown = !session.all_locked && remaining > 0
@@ -427,13 +489,22 @@ function SessionCard({
     <div className="rounded-[10px] border border-border bg-secondary">
       {/* 头部：段落信息 + 倒计时 + 发表按钮 + 展开 */}
       <div className="flex items-center justify-between px-3 py-2.5">
-        <button onClick={onToggle} className="flex items-center gap-3 text-left text-sm transition-colors hover:opacity-80">
-          <span className="grid size-7 place-items-center rounded-[8px] bg-primary/20 text-xs font-bold text-brand-purple">{session.index}</span>
-          <span>
-            <span className="font-medium">段落 {session.index}</span>
-            <span className="ml-2 text-xs text-muted-foreground">{session.duration} · {session.tracks.filter(t => !t.is_system).length} 人</span>
-          </span>
-        </button>
+        <div className="flex items-center gap-1">
+          {onPreview && (
+            <button type="button" onClick={onPreview}
+              className="flex size-7 items-center justify-center rounded-full transition-all hover:scale-105"
+              style={{color:"#FFFFFF",background:"rgba(255,255,255,0.1)",boxShadow:"0 0 0 1px rgba(255,255,255,0.2)"}}
+              aria-label="试听混音">
+              <Headphones size={15} />
+            </button>
+          )}
+          <button onClick={onToggle} className="flex items-center gap-3 text-left text-sm transition-colors hover:opacity-80">
+            <span className="grid size-7 place-items-center rounded-[8px] bg-primary/20 text-xs font-bold text-brand-purple">{session.index}</span>
+            <span>
+              <span className="font-medium">段落 {session.index}</span>
+              <span className="ml-2 text-xs text-muted-foreground">{session.duration} · {session.tracks.filter(t => !t.is_system).length} 人</span>
+            </span>
+          </button></div>
 
         <div className="flex items-center gap-3">
           {/* 倒计时 —— 全员共看一个，显示在去发表按钮左边 */}
