@@ -5,6 +5,7 @@ export interface MixerTrack {
   wavUrl: string
   duration: number // 秒
   color: string // 轨颜色
+  peaks?: number[] // 波形峰值数据（0~1），加载后填充
 }
 
 export interface MixerFullscreenProps {
@@ -17,6 +18,11 @@ export interface MixerFullscreenProps {
   progress: number // 0~1
   /** 0~100，< 100 时显示加载遮罩层 */
   loadingProgress?: number
+  /** M/S 状态（trackId → boolean） */
+  mutes?: Record<string, boolean>
+  solos?: Record<string, boolean>
+  /** 实时电平（trackId → 0~1） */
+  levels?: Record<string, number>
   onClose: () => void
   onMinimize: () => void
   onPlayPause: () => void

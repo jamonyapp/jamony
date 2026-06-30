@@ -256,6 +256,7 @@ function RecordingPanel({
   const [mixerSessionId, setMixerSessionId] = useState<number | null>(null)
   const [mixerMinimized, setMixerMinimized] = useState(false)
   const mixerEngine = useMixerEngine()
+  const mixerTracksLoadedRef = useRef(false)
   const [recording, setRecording] = useState(false)
   const [recordingMine, setRecordingMine] = useState(false)
   const [recTime, setRecTime] = useState(0)
@@ -275,6 +276,30 @@ function RecordingPanel({
   useEffect(() => {
     if (realtimeSessions) setSessions(realtimeSessions)
   }, [realtimeSessions])
+
+  // 混音器：标准化完成后自动加载音轨
+  useEffect(() => {
+    if (mixerSessionId === null) {
+      mixerTracksLoadedRef.current = false
+      return
+    }
+    const mixerSession = sessions.find(s => s.id === mixerSessionId)
+    if (!mixerSession) return
+    const humanTracks = mixerSession.tracks.filter(t => !t.is_system)
+    const allNormalized = humanTracks.every(t => t.normalized)
+    if (allNormalized && humanTracks.length > 0 && !mixerTracksLoadedRef.current && roomId && currentUserId) {
+      mixerTracksLoadedRef.current = true
+      const tracks: MixerTrack[] = humanTracks.map((t, i) => ({
+        id: String(t.id),
+        name: t.nickname,
+        instrument: instrumentEmoji(t.instrument_category),
+        wavUrl: `/api/rooms/${roomId}/sessions/${mixerSessionId}/tracks/${t.id}/download?userId=${currentUserId}`,
+        duration: 0,
+        color: TRACK_COLORS[i % TRACK_COLORS.length],
+      }))
+      mixerEngine.loadTracks(tracks)
+    }
+  }, [mixerSessionId, sessions, roomId, currentUserId, mixerEngine])
 
   // 录音状态同步（他人开始/停止录音）
   useEffect(() => {
@@ -426,30 +451,37 @@ function RecordingPanel({
         {!mixerMinimized && (
           <MixerFullscreen
             sessionLabel={`段落 ${mixerSession?.index}`}
-            tracks={loadingProgress >= 100 ? mixerTracks : []}
+            tracks={mixerEngine.tracks}
             isOpen={true}
-            isPlaying={false}
-            currentTime={0}
-            duration={0}
-            progress={0}
+            isPlaying={mixerEngine.isPlaying}
+            currentTime={mixerEngine.currentTime}
+            duration={mixerEngine.duration}
+            progress={mixerEngine.progress}
             loadingProgress={loadingProgress}
+            mutes={mixerEngine.mutes}
+            solos={mixerEngine.solos}
+            levels={mixerEngine.levels}
             onClose={() => { setMixerSessionId(null); setMixerMinimized(false) }}
             onMinimize={() => setMixerMinimized(true)}
-            onPlayPause={() => {}}
-            onStop={() => {}}
-            onSeek={() => {}}
+            onPlayPause={mixerEngine.togglePlay}
+            onStop={mixerEngine.stop}
+            onSeek={mixerEngine.seek}
+            onVolumeChange={mixerEngine.onVolumeChange}
+            onPanChange={mixerEngine.onPanChange}
+            onMuteToggle={mixerEngine.onMuteToggle}
+            onSoloToggle={mixerEngine.onSoloToggle}
           />
         )}
         {mixerMinimized && (
           <MixerMini
             sessionLabel={`段落 ${mixerSession?.index}`}
-            isPlaying={false}
-            currentTime={0}
-            duration={0}
-            progress={0}
+            isPlaying={mixerEngine.isPlaying}
+            currentTime={mixerEngine.currentTime}
+            duration={mixerEngine.duration}
+            progress={mixerEngine.progress}
             loadingProgress={loadingProgress}
-            onTogglePlay={() => {}}
-            onSeek={() => {}}
+            onTogglePlay={mixerEngine.togglePlay}
+            onSeek={mixerEngine.seek}
             onClose={() => setMixerSessionId(null)}
             onFullscreen={() => setMixerMinimized(false)}
           />

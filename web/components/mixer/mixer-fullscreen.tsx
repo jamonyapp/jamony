@@ -16,6 +16,9 @@ export function MixerFullscreen({
   duration,
   progress,
   loadingProgress,
+  mutes,
+  solos,
+  levels,
   onClose,
   onMinimize,
   onPlayPause,
@@ -134,8 +137,9 @@ export function MixerFullscreen({
                 name={t.name}
                 instrument={t.instrument}
                 color={t.color}
+                peaks={t.peaks}
                 active={isPlaying}
-                muted={false}
+                muted={mutes?.[t.id] || false}
               />
             ))}
             {/* 波形点击跳转层：覆盖波形画布区域（左侧标签宽 160 + gap 12 + padding 12） */}
@@ -229,6 +233,7 @@ export function MixerFullscreen({
                 instrument={t.instrument}
                 color={t.color}
                 playing={isPlaying}
+                level={levels?.[t.id] ?? 0}
                 onVolumeChange={onVolumeChange}
                 onPanChange={onPanChange}
                 onMuteToggle={onMuteToggle}

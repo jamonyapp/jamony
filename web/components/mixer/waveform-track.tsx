@@ -11,28 +11,25 @@ interface WaveformTrackProps {
   /** 该轨是否正在发声（用于微光动效） */
   active: boolean
   muted: boolean
+  /** 真实波形峰值（0~1），有则优先使用，无则生成伪随机 */
+  peaks?: number[]
 }
 
-/** 基于 id 生成确定性的伪波形峰值，保证每次渲染一致 */
-function generatePeaks(seed: string, count: number): number[] {
-  let h = 2166136261
-  for (let i = 0; i < seed.length; i++) {
-    h ^= seed.charCodeAt(i)
-    h = Math.imul(h, 16777619)
+/** 将 peaks 重采样到 targetCount 个点 */
+function resamplePeaks(src: number[], target: number): number[] {
+  if (src.length === 0) return []
+  const out: number[] = []
+  for (let i = 0; i < target; i++) {
+    const idx = (i / target) * src.length
+    const lo = Math.floor(idx)
+    const hi = Math.min(lo + 1, src.length - 1)
+    const frac = idx - lo
+    out.push(src[lo] * (1 - frac) + src[hi] * frac)
   }
-  const peaks: number[] = []
-  let state = h >>> 0
-  for (let i = 0; i < count; i++) {
-    state = (Math.imul(state, 1103515245) + 12345) >>> 0
-    const r = state / 0xffffffff
-    // 制造一些起伏的包络
-    const envelope = 0.35 + 0.65 * Math.abs(Math.sin((i / count) * Math.PI * 6 + h))
-    peaks.push(Math.max(0.06, r * envelope))
-  }
-  return peaks
+  return out
 }
 
-function WaveformTrackImpl({ id, name, instrument, color, active, muted }: WaveformTrackProps) {
+function WaveformTrackImpl({ id, name, instrument, color, active, muted, peaks: realPeaks }: WaveformTrackProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
@@ -52,7 +49,7 @@ function WaveformTrackImpl({ id, name, instrument, color, active, muted }: Wavef
       ctx.clearRect(0, 0, w, h)
 
       const barCount = Math.max(40, Math.floor(w / 3))
-      const peaks = generatePeaks(id, barCount)
+      const peaks = realPeaks ? resamplePeaks(realPeaks, barCount) : []
       const gap = 1
       const barW = (w - gap * (barCount - 1)) / barCount
       const mid = h / 2
@@ -76,7 +73,7 @@ function WaveformTrackImpl({ id, name, instrument, color, active, muted }: Wavef
     const ro = new ResizeObserver(draw)
     ro.observe(canvas)
     return () => ro.disconnect()
-  }, [id, color, muted])
+  }, [id, color, muted, realPeaks])
 
   return (
     <div className="relative flex shrink-0 items-center gap-3 rounded-md px-3" style={{ height: 52 }}>

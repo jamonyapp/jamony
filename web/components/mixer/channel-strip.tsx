@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { memo, useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { MIXER_COLORS } from "./types"
 
 interface ChannelStripProps {
@@ -12,6 +12,8 @@ interface ChannelStripProps {
   isMaster?: boolean
   /** 是否在播放（电平条闪烁） */
   playing: boolean
+  /** 实时电平 0~1 */
+  level?: number
   onVolumeChange?: (id: string, value: number) => void
   onPanChange?: (id: string, value: number) => void
   onMuteToggle?: (id: string, muted: boolean) => void
@@ -77,13 +79,33 @@ function PanSlider({
   )
 }
 
-/** 消波(Clipping)阈值：电平峰值超过此值视为失真 */
-const CLIP_THRESHOLD = 0.96
+/** RMS 振幅 → dBFS */
+function rmsToDBFS(rms: number): number {
+  if (rms <= 0.000001) return -60
+  return Math.max(-60, Math.min(0, 20 * Math.log10(rms)))
+}
+
+/** dBFS → 槽内高度百分比（-60dB=0%, 0dB=100%） */
+function dBToPercent(db: number): number {
+  return ((db + 60) / 60) * 100
+}
+
+/** 刻度线定义 */
+const DB_TICKS = [
+  { db: 0, label: "0" },
+  { db: -6, label: "-6" },
+  { db: -12, label: "-12" },
+  { db: -18, label: "-18" },
+  { db: -30, label: "-30" },
+  { db: -42, label: "-42" },
+  { db: -60, label: "-60" },
+]
+
+const CLIP_THRESHOLD_DB = -1
 
 /**
  * Cubase 风格推子+电平一体槽：
- * 单一垂直槽内显示跳动电平，推子手柄横跨槽上拖动决定音量，
- * 槽顶有一个独立消波小方块，失真时亮红。
+ * 左侧 dBFS 刻度，右侧跳动电平 + 推子手柄
  */
 function FaderMeter({
   value,
@@ -94,6 +116,7 @@ function FaderMeter({
   onClip,
   onResetClip,
   accent,
+  realLevel = -1,
 }: {
   value: number
   onChange: (v: number) => void
@@ -103,32 +126,24 @@ function FaderMeter({
   onClip: () => void
   onResetClip: () => void
   accent: string
+  realLevel?: number
 }) {
   const trackRef = useRef<HTMLDivElement>(null)
   const draggingRef = useRef(false)
-  const [level, setLevel] = useState(0)
   const onClipRef = useRef(onClip)
   onClipRef.current = onClip
 
-  // 实时电平模拟
+  // RMS → dBFS → 高度百分比
+  const rawRMS = (!playing || muted) ? 0 : Math.max(0, realLevel >= 0 ? realLevel : 0)
+  const dbFS = rmsToDBFS(rawRMS)
+  const meterPercent = dBToPercent(dbFS)
+
+  // 消波：锁存到点击复位
   useEffect(() => {
-    if (!playing || muted) {
-      setLevel(0)
-      return
+    if (dbFS >= CLIP_THRESHOLD_DB && !clipped) {
+      onClipRef.current()
     }
-    let raf = 0
-    const tick = () => {
-      const target = value * (0.4 + Math.random() * 0.6)
-      setLevel((prev) => {
-        const next = prev + (target - prev) * 0.4
-        if (next >= CLIP_THRESHOLD) onClipRef.current()
-        return next
-      })
-      raf = requestAnimationFrame(tick)
-    }
-    raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
-  }, [playing, value, muted])
+  }, [dbFS, clipped])
 
   const updateFromClientY = useCallback(
     (clientY: number) => {
@@ -158,59 +173,87 @@ function FaderMeter({
 
   return (
     <div className="flex h-full flex-col items-center gap-1">
-      {/* 顶部独立消波小方块：失真亮红，点击复位 */}
+      {/* 顶部消波灯 */}
       <button
         type="button"
         onClick={onResetClip}
-        className="h-2.5 w-7 shrink-0 rounded-sm transition-colors"
+        className="h-2 w-5 shrink-0 rounded-sm transition-colors"
         style={{
           background: clipped ? MIXER_COLORS.red : "#1a1a1a",
-          boxShadow: clipped ? `0 0 8px ${MIXER_COLORS.red}` : "inset 0 0 0 1px #333",
+          boxShadow: clipped ? `0 0 6px ${MIXER_COLORS.red}` : "inset 0 0 0 1px #333",
         }}
-        aria-label={clipped ? "已消波失真，点击复位" : "消波指示，正常"}
+        aria-label={clipped ? "已削波，点击复位" : "削波指示"}
         aria-pressed={clipped}
       />
 
-      {/* 推子槽：内部跳动电平 + 横跨手柄 */}
-      <div
-        ref={trackRef}
-        className="relative w-7 flex-1 cursor-ns-resize overflow-hidden rounded-md"
-        style={{ background: "#0c0c0c", boxShadow: "inset 0 0 0 1px #2c2c2c" }}
-        onPointerDown={(e) => {
-          draggingRef.current = true
-          updateFromClientY(e.clientY)
-        }}
-      >
-        {/* 电平条（槽内跳动）：蓝→绿→黄渐变，填充不使用红色，失真仅靠顶部消波灯提示 */}
+      {/* 刻度 + 推子槽 并排 */}
+      <div className="flex min-h-0 flex-1 gap-0.5">
+        {/* 左侧刻度 */}
+        <div className="relative w-3 shrink-0">
+          {DB_TICKS.map((tick) => {
+            const top = 100 - dBToPercent(tick.db)
+            return (
+              <div key={tick.db}>
+                <div
+                  className="absolute right-0 h-px"
+                  style={{
+                    top: `${top}%`,
+                    width: tick.db % 6 === 0 ? 6 : 3,
+                    background: tick.db === 0 ? "#777" : "#444",
+                  }}
+                />
+                {tick.db % 6 === 0 && (
+                  <span
+                    className="absolute right-[7px] -translate-y-1/2 font-mono"
+                    style={{ top: `${top}%`, color: "#666", fontSize: 7, lineHeight: "7px" }}
+                  >
+                    {tick.label}
+                  </span>
+                )}
+              </div>
+            )
+          })}
+        </div>
+
+        {/* 推子槽 */}
         <div
-          className="absolute inset-x-0 bottom-0"
-          style={{
-            height: `${level * 100}%`,
-            background: `linear-gradient(to top, ${MIXER_COLORS.blue}, ${MIXER_COLORS.green} 70%, ${MIXER_COLORS.yellow})`,
-            transition: "height 0.05s linear",
-          }}
-        />
-        {/* 音量填充刻度线（半透明，标示推子设定值） */}
-        <div
-          className="pointer-events-none absolute inset-x-0"
-          style={{
-            bottom: 0,
-            height: `${value * 100}%`,
-            boxShadow: `inset 0 0 0 1px ${accent}33`,
-          }}
-        />
-        {/* 推子手柄：横跨槽宽 */}
-        <div
-          className="absolute left-1/2 h-3 w-9 -translate-x-1/2 rounded-sm"
-          style={{
-            bottom: `calc(${value * 100}% - 6px)`,
-            background: "#e8e8e8",
-            boxShadow: "0 1px 4px rgba(0,0,0,0.7)",
-            willChange: "bottom",
+          ref={trackRef}
+          className="relative w-5 flex-1 cursor-ns-resize overflow-hidden rounded-sm"
+          style={{ background: "#0c0c0c", boxShadow: "inset 0 0 0 1px #2c2c2c" }}
+          onPointerDown={(e) => {
+            draggingRef.current = true
+            updateFromClientY(e.clientY)
           }}
         >
-          {/* 手柄中线 */}
-          <div className="absolute left-1/2 top-1/2 h-px w-5 -translate-x-1/2 -translate-y-1/2" style={{ background: "#999" }} />
+          {/* 电平条 */}
+          <div
+            className="absolute inset-x-0 bottom-0"
+            style={{
+              height: `${meterPercent}%`,
+              background: `linear-gradient(to top, ${MIXER_COLORS.blue}, ${MIXER_COLORS.green} 70%, ${MIXER_COLORS.yellow})`,
+              transition: "height 0.05s linear",
+            }}
+          />
+          {/* 推子设定值指示线 */}
+          <div
+            className="pointer-events-none absolute inset-x-0"
+            style={{
+              bottom: 0,
+              height: `${dBToPercent(20 * Math.log10(Math.max(value, 0.000001)))}%`,
+              boxShadow: `inset 0 0 0 1px ${accent}44`,
+            }}
+          />
+          {/* 推子手柄 */}
+          <div
+            className="absolute left-1/2 h-3 w-[18px] -translate-x-1/2 rounded-sm"
+            style={{
+              bottom: `calc(${value * 100}% - 6px)`,
+              background: "#e8e8e8",
+              boxShadow: "0 1px 4px rgba(0,0,0,0.7)",
+            }}
+          >
+            <div className="absolute left-1/2 top-1/2 h-px w-3 -translate-x-1/2 -translate-y-1/2" style={{ background: "#999" }} />
+          </div>
         </div>
       </div>
     </div>
@@ -224,6 +267,7 @@ function ChannelStripImpl({
   color,
   isMaster = false,
   playing,
+  level,
   onVolumeChange,
   onPanChange,
   onMuteToggle,
@@ -342,6 +386,7 @@ function ChannelStripImpl({
           onClip={() => setClipped(true)}
           onResetClip={() => setClipped(false)}
           accent={color}
+          realLevel={level ?? -1}
         />
       </div>
 
@@ -430,5 +475,4 @@ function ChannelStripImpl({
   )
 }
 
-/** memo 化：播放走带时父组件每帧重渲染，调音台 props 不变则跳过，避免点击/拖动卡顿 */
-export const ChannelStrip = memo(ChannelStripImpl)
+export const ChannelStrip = ChannelStripImpl
