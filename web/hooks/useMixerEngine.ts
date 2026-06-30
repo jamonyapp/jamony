@@ -82,7 +82,10 @@ export function useMixerEngine() {
           const s = buf[i]
           sumSq += s * s
         }
-        lv[id] = Math.sqrt(sumSq / buf.length)
+        // 乘以推子增益，确保电平跟随推子
+        const rawRMS = Math.sqrt(sumSq / buf.length)
+        const gain = volumesRef.current[id] ?? 0.78
+        lv[id] = rawRMS * gain
       })
       setLevels(lv)
     }, 50)

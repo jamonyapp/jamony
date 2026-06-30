@@ -172,24 +172,12 @@ function FaderMeter({
   }, [updateFromClientY])
 
   return (
-    <div className="flex h-full flex-col items-center gap-1">
-      {/* 顶部消波灯 */}
-      <button
-        type="button"
-        onClick={onResetClip}
-        className="h-2 w-5 shrink-0 rounded-sm transition-colors"
-        style={{
-          background: clipped ? MIXER_COLORS.red : "#1a1a1a",
-          boxShadow: clipped ? `0 0 6px ${MIXER_COLORS.red}` : "inset 0 0 0 1px #333",
-        }}
-        aria-label={clipped ? "已削波，点击复位" : "削波指示"}
-        aria-pressed={clipped}
-      />
-
+    <div className="flex h-full flex-col items-center">
       {/* 刻度 + 推子槽 并排 */}
       <div className="flex min-h-0 flex-1 gap-0.5">
-        {/* 左侧刻度 */}
+        {/* 左侧刻度 + 消波灯对齐占位 */}
         <div className="relative w-3 shrink-0">
+          <div className="h-[10px]" /> {/* 与消波灯等高，对齐顶部 */}
           {DB_TICKS.map((tick) => {
             const top = 100 - dBToPercent(tick.db)
             return (
@@ -215,16 +203,30 @@ function FaderMeter({
           })}
         </div>
 
-        {/* 推子槽 */}
-        <div
-          ref={trackRef}
-          className="relative w-5 flex-1 cursor-ns-resize overflow-hidden rounded-sm"
-          style={{ background: "#0c0c0c", boxShadow: "inset 0 0 0 1px #2c2c2c" }}
-          onPointerDown={(e) => {
-            draggingRef.current = true
-            updateFromClientY(e.clientY)
-          }}
-        >
+        {/* 右列：消波灯 + 推子槽 */}
+        <div className="flex flex-1 flex-col items-center">
+          {/* 消波灯（对齐推子槽上方居中） */}
+          <button
+            type="button"
+            onClick={onResetClip}
+            className="mb-[2px] h-2 w-5 shrink-0 rounded-sm transition-colors"
+            style={{
+              background: clipped ? MIXER_COLORS.red : "#1a1a1a",
+              boxShadow: clipped ? `0 0 6px ${MIXER_COLORS.red}` : "inset 0 0 0 1px #333",
+            }}
+            aria-label={clipped ? "已削波，点击复位" : "削波指示"}
+            aria-pressed={clipped}
+          />
+          {/* 推子槽 */}
+          <div
+            ref={trackRef}
+            className="relative flex-1 w-5 cursor-ns-resize overflow-hidden rounded-sm"
+            style={{ background: "#0c0c0c", boxShadow: "inset 0 0 0 1px #2c2c2c" }}
+            onPointerDown={(e) => {
+              draggingRef.current = true
+              updateFromClientY(e.clientY)
+            }}
+          >
           {/* 电平条 */}
           <div
             className="absolute inset-x-0 bottom-0"
@@ -234,13 +236,11 @@ function FaderMeter({
               transition: "height 0.05s linear",
             }}
           />
-          {/* 推子设定值指示线 */}
+          {/* 推子设定值指示线（常驻满高，不随推子移动） */}
           <div
-            className="pointer-events-none absolute inset-x-0"
+            className="pointer-events-none absolute inset-0 rounded-sm"
             style={{
-              bottom: 0,
-              height: `${dBToPercent(20 * Math.log10(Math.max(value, 0.000001)))}%`,
-              boxShadow: `inset 0 0 0 1px ${accent}44`,
+              boxShadow: `inset 0 0 0 1px ${accent}22`,
             }}
           />
           {/* 推子手柄 */}
@@ -256,6 +256,7 @@ function FaderMeter({
           </div>
         </div>
       </div>
+    </div>
     </div>
   )
 }
@@ -278,9 +279,7 @@ function ChannelStripImpl({
   const [muted, setMuted] = useState(false)
   const [soloed, setSoloed] = useState(false)
   const [clipped, setClipped] = useState(false)
-  const [editingDb, setEditingDb] = useState(false)
   const [editingPan, setEditingPan] = useState(false)
-  const [dbDraft, setDbDraft] = useState("")
   const [panDraft, setPanDraft] = useState("")
 
   // 停止播放时清除消波锁存
@@ -307,19 +306,7 @@ function ChannelStripImpl({
     onSoloToggle?.(id, next)
   }
 
-  const dbValue = volume <= 0 ? Number.NEGATIVE_INFINITY : 20 * Math.log10(volume)
-  const dbLabel = volume <= 0 ? "-∞" : dbValue.toFixed(1)
-
-  // 提交手动输入的 dB（范围 -60~0 dB，对应音量 0~1）
-  const commitDb = () => {
-    setEditingDb(false)
-    const parsed = Number.parseFloat(dbDraft)
-    if (!Number.isFinite(parsed)) return
-    const clampedDb = Math.min(0, Math.max(-60, parsed))
-    handleVolume(Math.min(1, Math.max(0, Math.pow(10, clampedDb / 20))))
-  }
-
-  // 提��手动输入的声相（-100=L100, 0=C, 100=R100）
+  // 提交手动输入的声相（-100=L100, 0=C, 100=R100）
   const commitPan = () => {
     setEditingPan(false)
     const raw = panDraft.trim().toUpperCase()
@@ -343,37 +330,10 @@ function ChannelStripImpl({
         boxShadow: `inset 0 0 0 1px ${isMaster ? MIXER_COLORS.purple + "55" : "#2a2a2a"}`,
       }}
     >
-      {/* dB 值（可手动输入，双击/单击编辑） */}
-      {editingDb ? (
-        <input
-          autoFocus
-          value={dbDraft}
-          onChange={(e) => setDbDraft(e.target.value)}
-          onBlur={commitDb}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") commitDb()
-            if (e.key === "Escape") setEditingDb(false)
-          }}
-          inputMode="decimal"
-          className="w-12 rounded bg-black px-1 py-0.5 text-center font-mono text-[10px] outline-none"
-          style={{ color: MIXER_COLORS.text, boxShadow: `0 0 0 1px ${MIXER_COLORS.blue}` }}
-          aria-label="输入电平 dB 值"
-        />
-      ) : (
-        <button
-          type="button"
-          onClick={() => {
-            setDbDraft(volume <= 0 ? "-60" : dbValue.toFixed(1))
-            setEditingDb(true)
-          }}
-          className="rounded font-mono text-[10px] transition-colors hover:bg-white/10"
-          style={{ color: MIXER_COLORS.textMuted, padding: "1px 4px" }}
-          title="点击手动输入电平"
-        >
-          {dbLabel}
-          <span className="ml-0.5">dB</span>
-        </button>
-      )}
+      {/* dB 值（与下方刻度同一体系） */}
+      <div className="rounded px-1 font-mono text-[10px] tabular-nums" style={{ color: MIXER_COLORS.textMuted }}>
+        {volume <= 0 ? "-∞" : `${Math.min(0, Math.round(20 * Math.log10(volume) * 10) / 10).toFixed(1)}`}
+      </div>
 
       {/* 推子 + 电平一体槽（Cubase 风格） */}
       <div className="flex min-h-0 flex-1 items-stretch justify-center">

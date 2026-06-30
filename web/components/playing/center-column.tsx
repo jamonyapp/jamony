@@ -285,14 +285,14 @@ function RecordingPanel({
     }
     const mixerSession = sessions.find(s => s.id === mixerSessionId)
     if (!mixerSession) return
-    const humanTracks = mixerSession.tracks.filter(t => !t.is_system)
-    const allNormalized = humanTracks.every(t => t.normalized)
-    if (allNormalized && humanTracks.length > 0 && !mixerTracksLoadedRef.current && roomId && currentUserId) {
+    const allTracks = mixerSession.tracks
+    const allNormalized = allTracks.every(t => t.normalized)
+    if (allNormalized && allTracks.length > 0 && !mixerTracksLoadedRef.current && roomId && currentUserId) {
       mixerTracksLoadedRef.current = true
-      const tracks: MixerTrack[] = humanTracks.map((t, i) => ({
+      const tracks: MixerTrack[] = allTracks.map((t, i) => ({
         id: String(t.id),
         name: t.nickname,
-        instrument: instrumentEmoji(t.instrument_category),
+        instrument: t.is_system ? "🥁" : instrumentEmoji(t.instrument_category),
         wavUrl: `/api/rooms/${roomId}/sessions/${mixerSessionId}/tracks/${t.id}/download?userId=${currentUserId}`,
         duration: 0,
         color: TRACK_COLORS[i % TRACK_COLORS.length],
@@ -434,14 +434,14 @@ function RecordingPanel({
     {/* 试听混音器 */}
     {mixerSessionId !== null && (() => {
       const mixerSession = sessions.find(s => s.id === mixerSessionId)
-      const humanTracks = mixerSession?.tracks.filter(t => !t.is_system) || []
-      const normalizedCount = humanTracks.filter(t => t.normalized).length
-      const totalCount = humanTracks.length
+      const allTracks = mixerSession?.tracks || []
+      const normalizedCount = allTracks.filter(t => t.normalized).length
+      const totalCount = allTracks.length
       const loadingProgress = totalCount > 0 ? (normalizedCount / totalCount) * 100 : 100
-      const mixerTracks: MixerTrack[] = humanTracks.map((t, i) => ({
+      const mixerTracks: MixerTrack[] = allTracks.map((t, i) => ({
         id: String(t.id),
         name: t.nickname,
-        instrument: instrumentEmoji(t.instrument_category),
+        instrument: t.is_system ? "🥁" : instrumentEmoji(t.instrument_category),
         wavUrl: `/api/rooms/${roomId}/sessions/${mixerSessionId}/tracks/${t.id}/download?userId=${currentUserId}`,
         duration: 0,
         color: TRACK_COLORS[i % TRACK_COLORS.length],
