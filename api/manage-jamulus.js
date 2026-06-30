@@ -75,7 +75,7 @@ if (CMD === 'stop') {
 
 if (CMD === 'start-ghost') {
   var roomId = process.argv[4] || String(PORT)
-  var mount = '/room-' + roomId
+  var mount = '/room-' + PORT
 
   var ghost = spawn(GHOST_BIN, ['-n', '--clientname', 'jamony-looper', '--connect', '127.0.0.1:' + PORT], {
     stdio: 'ignore', detached: true,
@@ -110,8 +110,8 @@ if (CMD === 'start-ghost') {
       try {
         var found = execSync('jack_lsp 2>/dev/null | grep -c "' + iceClient + ':input_1"', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).toString().trim()
         if (parseInt(found) > 0) {
-          execSync('jack_connect "' + iceClient + ':input_1" "Jamulus-' + PORT + ':output left"', { stdio: 'pipe' })
-          execSync('jack_connect "' + iceClient + ':input_2" "Jamulus-' + PORT + ':output right"', { stdio: 'pipe' })
+          execSync('jack_connect "' + iceClient + ':input_1" "Jamulus-' + PORT + ' jamony-looper:output left"', { stdio: 'pipe' })
+          execSync('jack_connect "' + iceClient + ':input_2" "Jamulus-' + PORT + ' jamony-looper:output right"', { stdio: 'pipe' })
           clearInterval(jcTimer)
           console.log('JACK connections made for ' + iceClient)
         }
@@ -206,8 +206,8 @@ if (CMD === 'health-check') {
           try {
             var found = execSync('jack_lsp 2>/dev/null | grep -c "' + client + ':input_1"', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).toString().trim()
             if (parseInt(found) > 0) {
-              execSync('jack_connect "' + client + ':input_1" "Jamulus-' + k2 + ':output left"', { stdio: 'pipe' })
-              execSync('jack_connect "' + client + ':input_2" "Jamulus-' + k2 + ':output right"', { stdio: 'pipe' })
+              execSync('jack_connect "' + client + ':input_1" "Jamulus-' + k2 + ' jamony-looper:output left"', { stdio: 'pipe' })
+              execSync('jack_connect "' + client + ':input_2" "Jamulus-' + k2 + ' jamony-looper:output right"', { stdio: 'pipe' })
               clearInterval(jcTimer2)
             }
           } catch(e) {}
