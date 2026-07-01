@@ -240,6 +240,8 @@ export function PlayingPage() {
             roomId={params?.id as string}
             myRole={myRole}
             currentUserId={user?.id}
+            roomName={room?.name || ""}
+            roomStyle={room?.style || ""}
             realtimeSessions={realtimeSessions}
             realtimeRecordingActive={realtimeRecordingActive}
           />

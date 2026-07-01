@@ -7,6 +7,7 @@ import { MixerFullscreen } from "@/components/mixer/mixer-fullscreen"
 import { MixerMini } from "@/components/mixer/mixer-mini"
 import { useMixerEngine } from "@/hooks/useMixerEngine"
 import { TRACK_COLORS, type MixerTrack } from "@/components/mixer/types"
+import PublishWorkModal from "@/components/publishing/publish-work-modal"
 
 function fmt(total: number) {
   const m = Math.floor(total / 60)
@@ -133,6 +134,8 @@ export function CenterColumn({
   roomId,
   myRole,
   currentUserId,
+  roomName,
+  roomStyle,
   realtimeSessions,
   realtimeRecordingActive,
 }: {
@@ -142,6 +145,8 @@ export function CenterColumn({
   roomId?: string
   myRole?: "musician" | "listener"
   currentUserId?: number
+  roomName?: string
+  roomStyle?: string
   realtimeSessions?: RecordingSession[] | null
   realtimeRecordingActive?: boolean | null
 }) {
@@ -188,6 +193,8 @@ export function CenterColumn({
         <RecordingPanel
           roomId={roomId}
           currentUserId={currentUserId}
+          roomName={roomName}
+          roomStyle={roomStyle}
           realtimeSessions={realtimeSessions}
           realtimeRecordingActive={realtimeRecordingActive}
         />
@@ -243,11 +250,15 @@ function ChordBoard({ chords }: { chords: string[] }) {
 function RecordingPanel({
   roomId,
   currentUserId,
+  roomName,
+  roomStyle,
   realtimeSessions,
   realtimeRecordingActive,
 }: {
   roomId?: string
   currentUserId?: number
+  roomName?: string
+  roomStyle?: string
   realtimeSessions?: RecordingSession[] | null
   realtimeRecordingActive?: boolean | null
 }) {
@@ -420,6 +431,8 @@ function RecordingPanel({
                 open={expanded === s.id}
                 now={now}
                 roomId={roomId}
+                roomName={roomName}
+                roomStyle={roomStyle}
                 currentUserId={currentUserId}
                 onToggle={() => setExpanded((e) => (e === s.id ? null : s.id))}
                 onPatch={patchTrack}
@@ -497,6 +510,8 @@ function SessionCard({
   open,
   now,
   roomId,
+  roomName,
+  roomStyle,
   currentUserId,
   onToggle,
   onPatch,
@@ -506,6 +521,8 @@ function SessionCard({
   open: boolean
   now: number
   roomId?: string
+  roomName?: string
+  roomStyle?: string
   currentUserId?: number
   onToggle: () => void
   onPatch: (sessionId: number, trackId: number, field: "allow_use" | "allow_attribution" | "allow_download", value: boolean) => void
@@ -516,6 +533,19 @@ function SessionCard({
   const canPublish = session.all_locked && session.agreed_count > 0
   const [publishOpen, setPublishOpen] = useState(false)
   const refusedCount = session.tracks.filter(t => !t.is_system && t.allow_use === false).length
+
+  /* PublishWorkModal 数据映射 */
+  const authorizedTracks = session.tracks.filter(t => t.allow_use === true)
+  const publishAuthors = authorizedTracks
+    .filter(t => !t.is_system && t.allow_attribution !== false)
+    .map(t => ({
+      id: String(t.id),
+      name: t.nickname,
+      anonymous: false,
+      instrument: instrumentEmoji(t.instrument_category),
+    }))
+  const publishAnonymousCount = authorizedTracks.filter(t => !t.is_system && t.allow_attribution === false).length
+  const publishHasDrumTrack = authorizedTracks.some(t => t.is_system === true)
 
   return (
     <div className="rounded-[10px] border border-border bg-secondary">
@@ -546,16 +576,24 @@ function SessionCard({
           {/* 发表状态卡片 —— 全员 ①② 锁定后出现 */}
           {session.all_locked && (
             <>
-              <span className="text-xs text-muted-foreground">
-                <span className="font-semibold text-brand-green">{session.agreed_count}人已授权</span> · {refusedCount}人拒绝
-              </span>
-              {canPublish && (
-                <button
-                  onClick={() => setPublishOpen(true)}
-                  className="rounded-full bg-brand-blue px-4 py-1.5 text-xs font-bold text-white transition-transform hover:scale-[1.03]"
-                >
-                  去发表
-                </button>
+              {session.status === "published" ? (
+                <span className="rounded-full bg-brand-green/20 px-4 py-1.5 text-xs font-bold text-brand-green">
+                  ✓ 已发表
+                </span>
+              ) : (
+                <>
+                  <span className="text-xs text-muted-foreground">
+                    <span className="font-semibold text-brand-green">{session.agreed_count}人已授权</span> · {refusedCount}人拒绝
+                  </span>
+                  {canPublish && (
+                    <button
+                      onClick={() => setPublishOpen(true)}
+                      className="rounded-full bg-brand-blue px-4 py-1.5 text-xs font-bold text-white transition-transform hover:scale-[1.03]"
+                    >
+                      去发表
+                    </button>
+                  )}
+                </>
               )}
             </>
           )}
@@ -576,11 +614,15 @@ function SessionCard({
       )}
 
       {publishOpen && (
-        <ConfirmModal
-          text="你正代表所有乐手进入发表流程，感谢你的义务付出——jamony。"
-          confirmLabel="OK"
-          onConfirm={() => setPublishOpen(false)}
-          onCancel={() => setPublishOpen(false)}
+        <PublishWorkModal
+          open={publishOpen}
+          onClose={() => setPublishOpen(false)}
+          session={{ index: session.index, duration: session.duration }}
+          roomName={roomName || ""}
+          roomStyle={roomStyle || ""}
+          authors={publishAuthors}
+          anonymousCount={publishAnonymousCount}
+          hasDrumTrack={publishHasDrumTrack}
         />
       )}
     </div>
