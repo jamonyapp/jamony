@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import {
   X,
   Loader2,
@@ -15,7 +15,9 @@ import {
   ChevronDown,
   ChevronRight,
   AlertTriangle,
+  Headphones,
 } from "lucide-react"
+import { autoMix, type MixTrackInfo } from "@/lib/auto-mix"
 
 /* ============ 类型 ============ */
 interface Author {
@@ -34,6 +36,16 @@ interface PublishWorkModalProps {
   authors: Author[]
   anonymousCount: number
   hasDrumTrack: boolean
+  /* 真实混音 + 发表 */
+  roomId?: string
+  sessionId?: number
+  currentUserId?: number
+  /** 已授权分轨的 id 列表（allow_use === true），按此顺序取 WAV */
+  authorizedTrackIds?: number[]
+  /** 各分轨是否鼓机轨，与 authorizedTrackIds 一一对应 */
+  authorizedTrackIsDrums?: boolean[]
+  /** 发表成功后回调（通知父组件刷新 session 状态） */
+  onPublished?: () => void
   /* demo 用：初始注入错误态 */
   forceMixError?: boolean
   forcePublishFail?: boolean
@@ -97,8 +109,6 @@ function VinylRecord() {
   )
 }
 
-const TOTAL_SECONDS = 204 // 03:24
-
 function fmt(sec: number): string {
   const m = Math.floor(sec / 60)
   const s = Math.floor(sec % 60)
@@ -114,6 +124,12 @@ export default function PublishWorkModal({
   authors,
   anonymousCount,
   hasDrumTrack,
+  roomId,
+  sessionId,
+  currentUserId,
+  authorizedTrackIds,
+  authorizedTrackIsDrums,
+  onPublished,
   forceMixError,
   forcePublishFail,
   forceLockLost,
@@ -121,6 +137,11 @@ export default function PublishWorkModal({
   const [state, setState] = useState<State>("mixing")
   const [mixDone, setMixDone] = useState(false)
   const [mixError, setMixError] = useState(false)
+  const [mixProgress, setMixProgress] = useState("")
+  const isRealMix = !!(roomId && sessionId && currentUserId && authorizedTrackIds?.length)
+
+  /* 混音产出的 MP3 Blob */
+  const mp3BlobRef = useRef<Blob | null>(null)
 
   /* 封面 */
   const [gradient, setGradient] = useState<string>(() => randomGradient())
@@ -129,7 +150,43 @@ export default function PublishWorkModal({
   /* 播放器 */
   const [playing, setPlaying] = useState(false)
   const [current, setCurrent] = useState(0)
-  const playRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [duration, setDuration] = useState(0)
+  const [audioUrl, setAudioUrl] = useState<string | null>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+
+  /* 混音完成时创建 audio URL */
+  useEffect(() => {
+    if (mixDone && mp3BlobRef.current) {
+      const url = URL.createObjectURL(mp3BlobRef.current)
+      setAudioUrl(url)
+      setCurrent(0)
+      setPlaying(false)
+      if (audioRef.current) {
+        audioRef.current.src = url
+        audioRef.current.load()
+      }
+    }
+    return () => {
+      if (audioUrl) URL.revokeObjectURL(audioUrl)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mixDone])
+
+  /* 真实的音频播放器管理 */
+  const setupAudio = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.onloadedmetadata = () => {
+        setDuration(audioRef.current?.duration || 0)
+      }
+      audioRef.current.ontimeupdate = () => {
+        setCurrent(audioRef.current?.currentTime || 0)
+      }
+      audioRef.current.onended = () => {
+        setPlaying(false)
+      }
+    }
+  }, [])
+  useEffect(() => { setupAudio() }, [setupAudio])
 
   /* 表单 */
   const [name, setName] = useState("")
@@ -144,12 +201,62 @@ export default function PublishWorkModal({
 
   const nonAnonAuthors = authors.filter((a) => !a.anonymous)
 
-  /* 初始化：打开时重置 + 启动混音计时 */
-  useEffect(() => {
-    if (!open) return
-    setState(forceLockLost ? "lockLost" : "form")
+  /* 真实的自动混音 */
+  const startRealMix = useCallback(async () => {
+    if (!roomId || sessionId === undefined || !currentUserId || !authorizedTrackIds) return
     setMixDone(false)
     setMixError(false)
+    setMixProgress("")
+    mp3BlobRef.current = null
+
+    try {
+      setMixProgress("加载分轨…")
+
+      // 1. 拉取所有授权分轨的 WAV
+      const wavPromises = authorizedTrackIds.map(async (trackId) => {
+        const url = `/api/rooms/${roomId}/sessions/${sessionId}/tracks/${trackId}/download?userId=${currentUserId}`
+        const res = await fetch(url)
+        if (!res.ok) throw new Error(`分轨 ${trackId} 加载失败`)
+        return res.arrayBuffer()
+      })
+      const wavBuffers = await Promise.all(wavPromises)
+
+      // 2. 解码
+      const audioCtx = new AudioContext()
+      const decoded = await Promise.all(
+        wavBuffers.map((buf) => audioCtx.decodeAudioData(buf)),
+      )
+      audioCtx.close()
+
+      // 3. 构建 MixTrackInfo
+      const isDrums = authorizedTrackIsDrums ?? authorizedTrackIds.map(() => false)
+      const mixTracks: MixTrackInfo[] = decoded.map((buffer, i) => ({
+        buffer,
+        isDrum: isDrums[i],
+      }))
+
+      // 4. 自动混音
+      setMixProgress("自动混音中…")
+      const result = await autoMix(mixTracks, (msg) => setMixProgress(msg))
+
+      // 5. 存 Blob
+      mp3BlobRef.current = result.mp3Blob
+      setMixDone(true)
+      setMixProgress("")
+    } catch (err) {
+      console.error("[autoMix] 混音失败:", err)
+      setMixError(true)
+      setMixProgress("")
+    }
+  }, [roomId, sessionId, currentUserId, authorizedTrackIds, authorizedTrackIsDrums])
+
+  /* 初始化：打开时重置 + 启动混音 */
+  useEffect(() => {
+    if (!open) return
+    setState(forceLockLost ? "lockLost" : "mixing")
+    setMixDone(false)
+    setMixError(false)
+    setMixProgress("")
     setName(`jam-${roomName}`)
     setStyle(roomStyle)
     setCopyright("")
@@ -161,20 +268,32 @@ export default function PublishWorkModal({
     setDeclOpen(false)
     setPlaying(false)
     setCurrent(0)
+    setDuration(0)
+    setAudioUrl(null)
+    mp3BlobRef.current = null
+    if (audioRef.current) {
+      audioRef.current.pause()
+      audioRef.current.src = ""
+    }
 
     if (forceLockLost) return
 
-    if (forceMixError) {
+    if (isRealMix) {
+      // 真实混音
+      startRealMix()
+    } else if (forceMixError) {
+      // Demo：模拟混音失败
       const t = setTimeout(() => setMixError(true), 800)
       return () => clearTimeout(t)
+    } else {
+      // Demo：模拟混音完成
+      const t = setTimeout(() => setMixDone(true), 2500)
+      return () => clearTimeout(t)
     }
-
-    const t = setTimeout(() => setMixDone(true), 2500)
-    return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, roomName, roomStyle, forceMixError, forceLockLost])
+  }, [open, roomName, roomStyle, forceMixError, forceLockLost, isRealMix, startRealMix])
 
-  /* demo：注入发表失败 —— 在 form 就绪后直接进 failure 供预览 */
+  /* demo：注入发表失败 */
   useEffect(() => {
     if (open && forcePublishFail) {
       const t = setTimeout(() => setState("failure"), 400)
@@ -182,46 +301,90 @@ export default function PublishWorkModal({
     }
   }, [open, forcePublishFail])
 
-  /* 播放器计时 */
-  useEffect(() => {
-    if (playing) {
-      playRef.current = setInterval(() => {
-        setCurrent((c) => {
-          if (c >= TOTAL_SECONDS) {
-            setPlaying(false)
-            return TOTAL_SECONDS
-          }
-          return c + 1
-        })
-      }, 1000)
-    }
-    return () => {
-      if (playRef.current) clearInterval(playRef.current)
-    }
-  }, [playing])
-
   if (!open) return null
+
+  /* 播放/暂停 */
+  const togglePlay = () => {
+    const audio = audioRef.current
+    if (!audio || !audioUrl) return
+    if (playing) {
+      audio.pause()
+      setPlaying(false)
+    } else {
+      audio.play().then(() => setPlaying(true)).catch(() => {})
+    }
+  }
+
+  const handleStop = () => {
+    const audio = audioRef.current
+    if (audio) {
+      audio.pause()
+      audio.currentTime = 0
+    }
+    setPlaying(false)
+    setCurrent(0)
+  }
 
   /* 混音失败重试 */
   const retryMix = () => {
-    setMixError(false)
-    setMixDone(false)
-    setTimeout(() => setMixDone(true), 2000)
+    if (isRealMix) {
+      startRealMix()
+    } else {
+      setMixError(false)
+      setMixDone(false)
+      setTimeout(() => setMixDone(true), 2000)
+    }
   }
 
-  /* 发表 */
-  const handlePublish = () => {
-    setState("publishing")
-    setTimeout(() => setState("success"), 1500)
+  /* 发表（真实 POST 或 mock） */
+  const handlePublish = async () => {
+    if (isRealMix && mp3BlobRef.current && roomId && sessionId !== undefined) {
+      // 真实发表
+      setState("publishing")
+      try {
+        const fd = new FormData()
+        fd.append("mp3", mp3BlobRef.current, "mix.mp3")
+        fd.append("title", name.trim())
+        fd.append("style", style)
+        fd.append("copyright", copyright)
+        if (copyright === "翻唱" && coverName) {
+          fd.append("cover_song", coverName)
+          fd.append("cover_author", coverAuthor)
+        }
+        if (copyright === "Remix" && remixSource) {
+          fd.append("source", remixSource)
+        }
+        fd.append("description", intro)
+
+        const res = await fetch(`/api/rooms/${roomId}/sessions/${sessionId}/publish`, {
+          method: "POST",
+          body: fd,
+        })
+        if (!res.ok) throw new Error(`发表失败: ${res.status}`)
+
+        setState("success")
+        onPublished?.()
+      } catch (err) {
+        console.error("[publish] 发表失败:", err)
+        setState("failure")
+      }
+    } else {
+      // Demo：模拟发表
+      setState("publishing")
+      setTimeout(() => setState("success"), 1500)
+    }
   }
 
-  const progress = (current / TOTAL_SECONDS) * 100
+  const totalSecs = duration || 204 // 真实时长优先，fallback 给 demo
+  const progress = totalSecs > 0 ? (current / totalSecs) * 100 : 0
 
   const seek = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!mixDone) return
+    if (!mixDone || !audioRef.current) return
     const rect = e.currentTarget.getBoundingClientRect()
     const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width))
-    setCurrent(Math.round(ratio * TOTAL_SECONDS))
+    const newTime = ratio * totalSecs
+    audioRef.current.currentTime = newTime
+    setCurrent(newTime)
   }
 
   const publishDisabled =
@@ -231,6 +394,7 @@ export default function PublishWorkModal({
   const handleSuccessClose = () => {
     setState("mixing")
     setMixDone(false)
+    mp3BlobRef.current = null
     onClose()
   }
 
@@ -282,6 +446,7 @@ export default function PublishWorkModal({
             <MixNotice
               mixDone={mixDone}
               mixError={mixError}
+              mixProgress={mixProgress}
               onRetry={retryMix}
               onAbort={onClose}
             />
@@ -351,21 +516,19 @@ export default function PublishWorkModal({
                     混音完成后可试听成片
                   </div>
                 ) : (
+                  <>
                   <div
                     className="flex items-center gap-3"
                   >
                     <button
-                      onClick={() => setPlaying((p) => !p)}
+                      onClick={togglePlay}
                       className="rounded-lg p-1 text-white transition-all duration-200 hover:bg-white/10 active:scale-[0.97]"
                       aria-label={playing ? "暂停" : "播放"}
                     >
                       {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
                     </button>
                     <button
-                      onClick={() => {
-                        setPlaying(false)
-                        setCurrent(0)
-                      }}
+                      onClick={handleStop}
                       className="rounded-lg p-1 text-white transition-all duration-200 hover:bg-white/10 active:scale-[0.97]"
                       aria-label="停止"
                     >
@@ -385,9 +548,11 @@ export default function PublishWorkModal({
                       />
                     </div>
                     <span className="shrink-0 text-sm tabular-nums" style={{ color: "#8A8A8A" }}>
-                      {fmt(current)} / {fmt(TOTAL_SECONDS)}
+                      {fmt(current)} / {fmt(totalSecs)}
                     </span>
                   </div>
+                  <audio ref={audioRef} preload="auto" />
+                  </>
                 )}
 
                 {/* 段落信息 */}
@@ -642,11 +807,13 @@ export default function PublishWorkModal({
 function MixNotice({
   mixDone,
   mixError,
+  mixProgress,
   onRetry,
   onAbort,
 }: {
   mixDone: boolean
   mixError: boolean
+  mixProgress: string
   onRetry: () => void
   onAbort: () => void
 }) {
@@ -676,9 +843,9 @@ function MixNotice({
   }
 
   return (
-    <div className="flex items-center gap-2 text-xs" style={{ color: "#8A8A8A" }}>
+    <div className="flex items-center gap-2 text-xs" style={{ color: mixProgress ? "#9933FF" : "#8A8A8A" }}>
       <Loader2 className="h-3.5 w-3.5 animate-spin" />
-      正在自动混音…
+      {mixProgress || "正在自动混音…"}
     </div>
   )
 }

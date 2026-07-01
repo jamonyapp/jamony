@@ -623,6 +623,15 @@ function SessionCard({
           authors={publishAuthors}
           anonymousCount={publishAnonymousCount}
           hasDrumTrack={publishHasDrumTrack}
+          roomId={roomId}
+          sessionId={session.id}
+          currentUserId={currentUserId}
+          authorizedTrackIds={authorizedTracks.map(t => t.id)}
+          authorizedTrackIsDrums={authorizedTracks.map(t => t.is_system)}
+          onPublished={() => {
+            // 发表成功后，socket 会推 sessions-update，自动刷新
+            console.log(`session ${session.id} published`)
+          }}
         />
       )}
     </div>
