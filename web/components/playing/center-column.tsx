@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Circle, Square, ChevronDown, Disc3, Headphones, ArrowRight, Download, Ban, Check, X, ChevronUp } from "lucide-react"
 import { instrumentEmoji, type RecordingSession, type Track } from "@/lib/jam-data"
 import { MixerFullscreen } from "@/components/mixer/mixer-fullscreen"
@@ -534,18 +534,26 @@ function SessionCard({
   const [publishOpen, setPublishOpen] = useState(false)
   const refusedCount = session.tracks.filter(t => !t.is_system && t.allow_use === false).length
 
-  /* PublishWorkModal 数据映射 */
-  const authorizedTracks = session.tracks.filter(t => t.allow_use === true)
-  const publishAuthors = authorizedTracks
-    .filter(t => !t.is_system && t.allow_attribution !== false)
-    .map(t => ({
-      id: String(t.id),
-      name: t.nickname,
-      anonymous: false,
-      instrument: instrumentEmoji(t.instrument_category),
-    }))
+  /* PublishWorkModal 数据映射 — useMemo 防止引用变化导致混音无限循环 */
+  const authorizedTracks = useMemo(
+    () => session.tracks.filter(t => t.allow_use === true),
+    [session.tracks]
+  )
+  const publishAuthors = useMemo(
+    () => authorizedTracks
+      .filter(t => !t.is_system && t.allow_attribution !== false)
+      .map(t => ({
+        id: String(t.id),
+        name: t.nickname,
+        anonymous: false,
+        instrument: instrumentEmoji(t.instrument_category),
+      })),
+    [authorizedTracks]
+  )
   const publishAnonymousCount = authorizedTracks.filter(t => !t.is_system && t.allow_attribution === false).length
   const publishHasDrumTrack = authorizedTracks.some(t => t.is_system === true)
+  const authorizedTrackIds = useMemo(() => authorizedTracks.map(t => t.id), [authorizedTracks])
+  const authorizedTrackIsDrums = useMemo(() => authorizedTracks.map(t => t.is_system), [authorizedTracks])
 
   return (
     <div className="rounded-[10px] border border-border bg-secondary">
@@ -626,8 +634,8 @@ function SessionCard({
           roomId={roomId}
           sessionId={session.id}
           currentUserId={currentUserId}
-          authorizedTrackIds={authorizedTracks.map(t => t.id)}
-          authorizedTrackIsDrums={authorizedTracks.map(t => t.is_system)}
+          authorizedTrackIds={authorizedTrackIds}
+          authorizedTrackIsDrums={authorizedTrackIsDrums}
           onPublished={() => {
             // 发表成功后，socket 会推 sessions-update，自动刷新
             console.log(`session ${session.id} published`)

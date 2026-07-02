@@ -1007,6 +1007,48 @@ app.post('/api/rooms/:id/recording/stop', async (req, res) => {
     res.status(500).json({ ok: false, msg: '服务器错误' })
   }
 })
+// 下载分轨 WAV（混音/发表试听用）
+app.get('/api/rooms/:id/sessions/:sid/tracks/:tid/download', async (req, res) => {
+  try {
+    const { id: roomId, sid: sessionId, tid: trackId } = req.params
+    const userId = parseInt(req.query.userId)
+    if (!userId) return res.status(400).json({ ok: false, msg: '缺少 userId' })
+
+    const tr = await pool.query(
+      'SELECT * FROM session_tracks WHERE id=$1 AND session_id=$2',
+      [trackId, sessionId]
+    )
+    if (tr.rows.length === 0) return res.status(404).json({ ok: false, msg: '分轨不存在' })
+    const track = tr.rows[0]
+
+    // 验证用户是房间成员
+    const member = await pool.query(
+      'SELECT id FROM room_members WHERE room_id=$1 AND user_id=$2',
+      [roomId, userId]
+    )
+    if (member.rows.length === 0) return res.status(403).json({ ok: false, msg: '你不是该房间成员' })
+
+    // 验证已授权 allow_use=true，或是鼓机轨（is_system），或自己的轨
+    if (!track.allow_use && !track.is_system && track.user_id !== userId) {
+      return res.status(403).json({ ok: false, msg: '该分轨未授权使用' })
+    }
+
+    // 文件存在性检查
+    if (!track.file_path || !fs.existsSync(track.file_path)) {
+      return res.status(404).json({ ok: false, msg: 'WAV 文件不存在' })
+    }
+
+    // 流式发送 WAV
+    res.setHeader('Content-Type', 'audio/wav')
+    const stream = fs.createReadStream(track.file_path)
+    stream.pipe(res)
+    stream.on('error', () => { if (!res.headersSent) res.status(500).end() })
+  } catch (err) {
+    console.error('Track download error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
 // 读取房间所有 session（含超时懒处理）
 app.get('/api/rooms/:id/sessions', async (req, res) => {
   try {
