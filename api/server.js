@@ -508,7 +508,7 @@ app.get('/api/rooms', async (req, res) => {
         (SELECT COUNT(*) FROM room_members WHERE room_id = r.id) AS total_members
        FROM rooms r
        JOIN users u ON u.id = r.host_id
-       WHERE r.status != 'closed'
+       WHERE r.status NOT IN ('closed', 'archived')
        ORDER BY r.created_at DESC`
     )
     res.json({ ok: true, rooms: result.rows })
@@ -529,7 +529,7 @@ app.get('/api/rooms/:id', async (req, res) => {
         (SELECT COUNT(*) FROM room_members WHERE room_id = r.id) AS total_members
        FROM rooms r
        JOIN users u ON u.id = r.host_id
-       WHERE r.id = $1 AND r.status != 'closed'`,
+       WHERE r.id = $1 AND r.status NOT IN ('closed', 'archived')`,
       [id]
     )
     if (roomResult.rows.length === 0) {
@@ -686,7 +686,7 @@ app.post('/api/rooms/:id/join', async (req, res) => {
     const acceptedRole = role === 'musician' ? 'musician' : 'listener'
 
     // 查房间
-    const roomResult = await pool.query('SELECT * FROM rooms WHERE id = $1 AND status != $2', [id, 'closed'])
+    const roomResult = await pool.query("SELECT * FROM rooms WHERE id = $1 AND status NOT IN ('closed', 'archived')", [id])
     if (roomResult.rows.length === 0) {
       return res.status(404).json({ ok: false, msg: '房间不存在' })
     }
@@ -758,30 +758,52 @@ app.post('/api/rooms/:id/leave', async (req, res) => {
 
     await pool.query('DELETE FROM room_members WHERE room_id = $1 AND user_id = $2', [id, userId])
 
-    // 检查是否是房主
+    // 只看合奏者——没有合奏者则解散房间（听众自动踢出）
+    const musicianCount = await pool.query(
+      "SELECT COUNT(*) AS c FROM room_members WHERE room_id = $1 AND role = 'musician'", [id]
+    )
+    if (parseInt(musicianCount.rows[0].c) === 0) {
+      const roomInfo = await pool.query('SELECT server_port FROM rooms WHERE id = $1', [id])
+      const closePort = roomInfo.rows[0]?.server_port
+      if (closePort) {
+        try { execSync(`node /var/www/jamony/api/manage-jamulus.js drums-stop ${closePort}`, { timeout: 5000, stdio: 'pipe' }) } catch {}
+        try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop ${closePort}`, { timeout: 5000, stdio: 'pipe' }) } catch {}
+        try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop-ghost ${closePort}`, { timeout: 5000, stdio: 'pipe' }) } catch {}
+        try { execSync(`rm -rf /var/jamony/recordings/room-${closePort}-records/`, { timeout: 5000, stdio: 'pipe' }) } catch {}
+        // 杀掉 ffmpeg 推流进程
+        try {
+          const ghostState = JSON.parse(fs.readFileSync('/tmp/jamony-ghost.json', 'utf8').toString() || '{}')
+          const entry = ghostState[String(closePort)]
+          if (entry && entry.ffmpegPid) { try { process.kill(entry.ffmpegPid) } catch {} }
+          delete ghostState[String(closePort)]
+          fs.writeFileSync('/tmp/jamony-ghost.json', JSON.stringify(ghostState, null, 2))
+        } catch (e) { /* ignore */ }
+      }
+      // 踢出所有剩余成员（听众）
+      await pool.query('DELETE FROM room_members WHERE room_id = $1', [id])
+      // 有作品 → archived，无作品 → 硬删
+      const pubCount = await pool.query('SELECT COUNT(*) AS c FROM works WHERE room_id = $1', [id])
+      if (parseInt(pubCount.rows[0].c) > 0) {
+        await pool.query("UPDATE rooms SET status='archived' WHERE id=$1", [id])
+      } else {
+        await pool.query('DELETE FROM rooms WHERE id = $1', [id])
+      }
+      return res.json({ ok: true, msg: '已退出房间' })
+    }
+
+    // 房主离开，移交给在房间最久的合奏者
     const roomResult = await pool.query('SELECT host_id, server_port FROM rooms WHERE id = $1', [id])
     if (roomResult.rows.length === 0) {
       return res.json({ ok: true, msg: '房间已不存在' })
     }
 
     if (roomResult.rows[0].host_id === parseInt(userId)) {
-      // 房主离开，移交给在房间最久的合奏者
       const newHost = await pool.query(
         "SELECT user_id FROM room_members WHERE room_id = $1 AND role = 'musician' ORDER BY joined_at LIMIT 1",
         [id]
       )
       if (newHost.rows.length > 0) {
         await pool.query('UPDATE rooms SET host_id = $1 WHERE id = $2', [newHost.rows[0].user_id, id])
-      } else {
-        // 解散房间：停进程 + 清录音 + 删 DB
-        const closePort = roomResult.rows[0]?.server_port
-        if (closePort) {
-          try { execSync(`node /var/www/jamony/api/manage-jamulus.js drums-stop ${closePort}`, { timeout: 5000, stdio: 'pipe' }) } catch {}
-          try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop ${closePort}`, { timeout: 5000, stdio: 'pipe' }) } catch {}
-          try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop-ghost ${closePort}`, { timeout: 5000, stdio: 'pipe' }) } catch {}
-          try { execSync(`rm -rf /var/jamony/recordings/room-${closePort}-records/`, { timeout: 5000, stdio: 'pipe' }) } catch {}
-        }
-        await pool.query('DELETE FROM rooms WHERE id = $1', [id])
       }
     }
 
@@ -1389,8 +1411,20 @@ app.post('/api/users/:userId/leave-all-rooms', async (req, res) => {
           try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop ${closePort2}`, { timeout: 5000, stdio: 'pipe' }) } catch {}
           try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop-ghost ${closePort2}`, { timeout: 5000, stdio: 'pipe' }) } catch {}
           try { execSync(`rm -rf /var/jamony/recordings/room-${closePort2}-records/`, { timeout: 5000, stdio: 'pipe' }) } catch {}
+          try {
+            const gs = JSON.parse(fs.readFileSync('/tmp/jamony-ghost.json', 'utf8').toString() || '{}')
+            const ent = gs[String(closePort2)]
+            if (ent && ent.ffmpegPid) { try { process.kill(ent.ffmpegPid) } catch {} }
+            delete gs[String(closePort2)]
+            fs.writeFileSync('/tmp/jamony-ghost.json', JSON.stringify(gs, null, 2))
+          } catch (e) { /* ignore */ }
         }
-        await pool.query('DELETE FROM rooms WHERE id = $1', [row.room_id])
+        const pubCnt = await pool.query('SELECT COUNT(*) AS c FROM works WHERE room_id = $1', [row.room_id])
+        if (parseInt(pubCnt.rows[0].c) > 0) {
+          await pool.query("UPDATE rooms SET status='archived' WHERE id=$1", [row.room_id])
+        } else {
+          await pool.query('DELETE FROM rooms WHERE id = $1', [row.room_id])
+        }
       }
     }
     res.json({ ok: true })
