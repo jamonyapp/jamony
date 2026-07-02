@@ -58,6 +58,7 @@ export default function RootLayout({
     <html lang="zh-CN" className={`dark ${geistSans.variable} ${geistMono.variable}`} style={{ background: '#000000' }}>
       <head>
         <style dangerouslySetInnerHTML={{ __html: scrollbarStyle }} />
+        <script src="/lame.min.js" />
       </head>
       <body className="font-sans antialiased" style={{ background: '#000000' }}>
         <AuthProvider>

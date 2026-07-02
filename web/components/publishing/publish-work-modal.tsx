@@ -27,6 +27,14 @@ interface Author {
   instrument: string // emoji
 }
 
+/** 全量作者记录（含匿名，用于留档） */
+interface TrackAuthorRecord {
+  userId: number
+  nickname: string
+  instrumentCategory: string
+  isAnonymous: boolean
+}
+
 interface PublishWorkModalProps {
   open: boolean
   onClose: () => void
@@ -44,6 +52,8 @@ interface PublishWorkModalProps {
   authorizedTrackIds?: number[]
   /** 各分轨是否鼓机轨，与 authorizedTrackIds 一一对应 */
   authorizedTrackIsDrums?: boolean[]
+  /** 全量作者（含匿名 user_id/nickname/instrument_category），用于发表存档 */
+  allTrackAuthors?: TrackAuthorRecord[]
   /** 发表成功后回调（通知父组件刷新 session 状态） */
   onPublished?: () => void
   /* demo 用：初始注入错误态 */
@@ -129,6 +139,7 @@ export default function PublishWorkModal({
   currentUserId,
   authorizedTrackIds,
   authorizedTrackIsDrums,
+  allTrackAuthors,
   onPublished,
   forceMixError,
   forcePublishFail,
@@ -137,15 +148,32 @@ export default function PublishWorkModal({
   const [state, setState] = useState<State>("mixing")
   const [mixDone, setMixDone] = useState(false)
   const [mixError, setMixError] = useState(false)
+  const [mixErrorMessage, setMixErrorMessage] = useState("")
+  const [publishErrorMessage, setPublishErrorMessage] = useState("")
   const [mixProgress, setMixProgress] = useState("")
   const isRealMix = !!(roomId && sessionId && currentUserId && authorizedTrackIds?.length)
 
-  /* 混音产出的 MP3 Blob */
+  /* 混音产出的 MP3 Blob & 时长 */
   const mp3BlobRef = useRef<Blob | null>(null)
+  const mixDurationRef = useRef(0) // autoMix 返回的真实时长
 
   /* 封面 */
   const [gradient, setGradient] = useState<string>(() => randomGradient())
-  const [uploaded, setUploaded] = useState(false)
+  const [coverType, setCoverType] = useState<'gradient' | 'image'>('gradient')
+  const [coverImage, setCoverImage] = useState<string | null>(null)
+
+  /* 裁剪 */
+  const [cropOpen, setCropOpen] = useState(false)
+  const [cropImageSrc, setCropImageSrc] = useState<string | null>(null)
+  const [cropPan, setCropPan] = useState({ x: 50, y: 50 }) // 裁剪时图片位置（百分比）
+  const [cropZoom, setCropZoom] = useState(1) // 裁剪时缩放倍数，最小 1（填满封面框）
+  const [cropDrag, setCropDrag] = useState(false)
+  const cropDragRef = useRef({ startX: 0, startY: 0, panX: 50, panY: 50, zoom: 1 })
+  const cropOrientation = useRef<'portrait' | 'landscape'>('portrait')
+  const cropDragActiveRef = useRef(false) // 裁剪拖拽中，禁止背板关闭
+  const mouseDownOnCardRef = useRef(false) // 鼠标在卡片内按下，防拖出释放关闭弹窗
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const coverFileRef = useRef<File | null>(null) // 原始上传文件，用于提交
 
   /* 播放器 */
   const [playing, setPlaying] = useState(false)
@@ -154,14 +182,27 @@ export default function PublishWorkModal({
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
 
-  /* 混音完成时创建 audio URL */
+  /* 混音完成时创建 audio URL + 挂载播放器事件 */
   useEffect(() => {
     if (mixDone && mp3BlobRef.current) {
       const url = URL.createObjectURL(mp3BlobRef.current)
       setAudioUrl(url)
       setCurrent(0)
       setPlaying(false)
+      // 直接从混音结果设置时长（备用，以防 onloadedmetadata 跑在 React 之前）
+      if (mixDurationRef.current > 0) setDuration(mixDurationRef.current)
       if (audioRef.current) {
+        // 在此直接挂载回调，不再依赖 setupAudio（setupAudio 挂载时 <audio> 还没渲染）
+        audioRef.current.onloadedmetadata = () => {
+          const d = audioRef.current?.duration || mixDurationRef.current
+          if (d > 0) setDuration(d)
+        }
+        audioRef.current.ontimeupdate = () => {
+          setCurrent(audioRef.current?.currentTime || 0)
+        }
+        audioRef.current.onended = () => {
+          setPlaying(false)
+        }
         audioRef.current.src = url
         audioRef.current.load()
       }
@@ -206,6 +247,8 @@ export default function PublishWorkModal({
     if (!roomId || sessionId === undefined || !currentUserId || !authorizedTrackIds) return
     setMixDone(false)
     setMixError(false)
+    setMixErrorMessage("")
+    setPublishErrorMessage("")
     setMixProgress("")
     mp3BlobRef.current = null
 
@@ -241,11 +284,13 @@ export default function PublishWorkModal({
 
       // 5. 存 Blob
       mp3BlobRef.current = result.mp3Blob
+      mixDurationRef.current = result.duration
       setMixDone(true)
       setMixProgress("")
     } catch (err) {
       console.error("[autoMix] 混音失败:", err)
       setMixError(true)
+      setMixErrorMessage(err instanceof Error ? err.message : String(err))
       setMixProgress("")
     }
   }, [roomId, sessionId, currentUserId, authorizedTrackIds, authorizedTrackIsDrums])
@@ -253,10 +298,19 @@ export default function PublishWorkModal({
   /* 初始化：打开时重置 + 启动混音 */
   useEffect(() => {
     if (!open) return
+    // ⚠️ 防父组件因 socket 更新重渲染导致成功/发表中状态被重置
+    if (mixDone && (state === "success" || state === "publishing")) return
     setState(forceLockLost ? "lockLost" : "mixing")
     setMixDone(false)
     setMixError(false)
     setMixProgress("")
+    setCoverType('gradient')
+    setCoverImage(null)
+    setCropOpen(false)
+    setCropImageSrc(null)
+    setCropPan({ x: 50, y: 50 })
+    setCropZoom(1)
+    coverFileRef.current = null
     setName(`jam-${roomName}`)
     setStyle(roomStyle)
     setCopyright("")
@@ -336,6 +390,81 @@ export default function PublishWorkModal({
     }
   }
 
+  /* 文件选择 — 加载后计算宽高确定初始缩放 */
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    coverFileRef.current = file
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = reader.result as string
+      setCropImageSrc(dataUrl)
+      setCropPan({ x: 50, y: 50 })
+      // 判断横竖图（仅用于 backgroundSize 方向，zoom 统一从 1 开始）
+      const img = new Image()
+      img.onload = () => {
+        cropOrientation.current = img.naturalWidth > img.naturalHeight ? 'landscape' : 'portrait'
+        setCropZoom(1)
+      }
+      img.src = dataUrl
+      setCropOpen(true)
+    }
+    reader.readAsDataURL(file)
+    e.target.value = ''
+  }
+
+  /* 裁剪 — 拖拽（自然方向：向右拖 → 图片向右移） */
+  const startCropDrag = (e: React.MouseEvent) => {
+    e.preventDefault()
+    cropDragActiveRef.current = true
+    cropDragRef.current = { startX: e.clientX, startY: e.clientY, panX: cropPan.x, panY: cropPan.y, zoom: cropZoom }
+    setCropDrag(true)
+  }
+
+  useEffect(() => {
+    if (!cropDrag) return
+    const handleMove = (me: MouseEvent) => {
+      const dx = me.clientX - cropDragRef.current.startX
+      const dy = me.clientY - cropDragRef.current.startY
+      const size = 208 // w-52
+      // 随缩放调整灵敏度：放大越多，每像素移动的比例越小
+      const pctPerPx = 100 / (size * cropDragRef.current.zoom)
+      setCropPan({
+        x: Math.max(0, Math.min(100, cropDragRef.current.panX - dx * pctPerPx)),
+        y: Math.max(0, Math.min(100, cropDragRef.current.panY - dy * pctPerPx)),
+      })
+    }
+    const handleUp = () => { setCropDrag(false); cropDragActiveRef.current = false }
+    window.addEventListener('mousemove', handleMove)
+    window.addEventListener('mouseup', handleUp)
+    return () => { window.removeEventListener('mousemove', handleMove); window.removeEventListener('mouseup', handleUp) }
+  }, [cropDrag, cropZoom])
+
+  /* 滚轮缩放 */
+  const handleCropWheel = (e: React.WheelEvent) => {
+    e.preventDefault()
+    const delta = e.deltaY > 0 ? -0.15 : 0.15
+    const next = Math.max(1, Math.min(5, cropZoom + delta))
+    if (next !== cropZoom) {
+      cropDragRef.current = { ...cropDragRef.current, zoom: next, panX: cropPan.x, panY: cropPan.y }
+      setCropZoom(next)
+    }
+  }
+
+  const confirmCrop = () => {
+    setCoverType('image')
+    setCoverImage(cropImageSrc)
+    setCropPan(cropPan)
+    setCropZoom(cropZoom) // 保持缩放比例
+    setCropOpen(false)
+  }
+
+  const cancelCrop = () => {
+    setCropOpen(false)
+    setCropImageSrc(null)
+    setCropZoom(1)
+  }
+
   /* 发表（真实 POST 或 mock） */
   const handlePublish = async () => {
     if (isRealMix && mp3BlobRef.current && roomId && sessionId !== undefined) {
@@ -355,17 +484,37 @@ export default function PublishWorkModal({
           fd.append("source", remixSource)
         }
         fd.append("description", intro)
+        fd.append("duration", session.duration)
+
+        /* 封面 */
+        if (coverType === 'image' && coverFileRef.current) {
+          fd.append("cover_image", coverFileRef.current, "cover." + (coverFileRef.current.name.split('.').pop() || 'jpg'))
+        }
+        fd.append("cover_gradient", gradient)
+
+        /* 参与者（全量存档，含匿名） */
+        if (allTrackAuthors && allTrackAuthors.length > 0) {
+          fd.append("authors_json", JSON.stringify(allTrackAuthors))
+        }
+
+        fd.append("has_drum_track", hasDrumTrack ? "true" : "false")
+        fd.append("agreed", "true") // 点到发表必然已勾选
+        fd.append("publisher_user_id", String(currentUserId))
 
         const res = await fetch(`/api/rooms/${roomId}/sessions/${sessionId}/publish`, {
           method: "POST",
           body: fd,
         })
-        if (!res.ok) throw new Error(`发表失败: ${res.status}`)
+        if (!res.ok) {
+          const errBody = await res.text().catch(() => '')
+          throw new Error(`发表失败: ${res.status} ${errBody}`)
+        }
 
         setState("success")
         onPublished?.()
       } catch (err) {
         console.error("[publish] 发表失败:", err)
+        setPublishErrorMessage(err instanceof Error ? err.message : String(err))
         setState("failure")
       }
     } else {
@@ -398,11 +547,27 @@ export default function PublishWorkModal({
     onClose()
   }
 
+  const handleBackdropClick = () => {
+    if (cropDragActiveRef.current) return
+    if (mouseDownOnCardRef.current) {
+      mouseDownOnCardRef.current = false
+      return
+    }
+    onClose()
+  }
+
+  /* 全局：鼠标在卡片外释放 → 延迟清标记 */
+  useEffect(() => {
+    const handleUp = () => setTimeout(() => { mouseDownOnCardRef.current = false }, 200)
+    document.addEventListener('mouseup', handleUp)
+    return () => document.removeEventListener('mouseup', handleUp)
+  }, [])
+
   return (
     <div
       className="fixed inset-0 z-[70] flex items-center justify-center overflow-y-auto p-4"
       style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }}
-      onClick={onClose}
+      onClick={handleBackdropClick}
     >
       <style>{`
         @keyframes jamonyModalEnter {
@@ -420,7 +585,8 @@ export default function PublishWorkModal({
           borderColor: "#1A1A1A",
           fontFamily: "'Geist Sans', 'Noto Sans SC', sans-serif",
         }}
-        onClick={(e) => e.stopPropagation()}
+        onClick={(e) => { e.stopPropagation(); mouseDownOnCardRef.current = false }}
+        onMouseDown={() => { mouseDownOnCardRef.current = true }}
       >
         {/* 头部 */}
         <div
@@ -446,6 +612,7 @@ export default function PublishWorkModal({
             <MixNotice
               mixDone={mixDone}
               mixError={mixError}
+              mixErrorMessage={mixErrorMessage}
               mixProgress={mixProgress}
               onRetry={retryMix}
               onAbort={onClose}
@@ -455,65 +622,137 @@ export default function PublishWorkModal({
             <div className="mt-4 flex gap-5">
               {/* ===== 左栏：封面+播放器+信息 ===== */}
               <div className="w-80 shrink-0 flex flex-col gap-3">
-                {/* 封面 + 乐器 emoji 并排 */}
-                <div className="flex gap-3">
-                  {/* 封面图 */}
-                  <div
-                    className="relative flex aspect-square w-52 shrink-0 items-center justify-center overflow-hidden rounded-[10px]"
-                    style={
-                      uploaded
-                        ? { backgroundColor: "#161616" }
-                        : { background: gradient }
-                    }
-                  >
-                    {uploaded ? (
-                      <span className="text-sm" style={{ color: "#8A8A8A" }}>
-                        已上传
-                      </span>
-                    ) : (
-                      <VinylRecord />
-                    )}
-                    {/* 操作按钮叠加在封面底部 */}
-                    <div className="absolute bottom-0 left-0 right-0 flex justify-center gap-1.5 bg-gradient-to-t from-black/70 to-transparent px-2 pb-2 pt-5">
+                {cropOpen && cropImageSrc ? (
+                  /* ── 裁剪模式：滚轮缩放 + 自由拖动 ── */
+                  <div className="flex gap-3">
+                    {/* 裁剪区域（background-image 原生支持任意方向拖动） */}
+                    <div
+                      className="aspect-square w-52 shrink-0 rounded-[10px]"
+                      style={{
+                        cursor: cropDrag ? 'grabbing' : 'grab',
+                        backgroundImage: `url(${cropImageSrc})`,
+                        backgroundSize: cropOrientation.current === 'landscape'
+                          ? `auto ${cropZoom * 100}%`
+                          : `${cropZoom * 100}% auto`,
+                        backgroundPosition: `${cropPan.x}% ${cropPan.y}%`,
+                        backgroundRepeat: 'no-repeat',
+                      }}
+                      onWheel={handleCropWheel}
+                      onMouseDown={startCropDrag}
+                      data-crop-area
+                    />
+                    <div className="flex flex-wrap content-start justify-center gap-x-5 gap-y-2">
+                      {authors.map((a) => (
+                        <span key={a.id} className="text-xl leading-none">{a.instrument}</span>
+                      ))}
+                      {hasDrumTrack && <span className="text-xl leading-none">🥁</span>}
+                    </div>
+                  </div>
+                ) : (
+                  /* ── 封面 + 乐器 emoji ── */
+                  <div className="flex gap-3">
+                    {/* 封面图 */}
+                    <div
+                      className="relative flex aspect-square w-52 shrink-0 items-center justify-center overflow-hidden rounded-[10px]"
+                      style={
+                        coverType === 'image' && coverImage
+                          ? { backgroundColor: '#161616' }
+                          : { background: gradient }
+                      }
+                    >
+                      {coverType === 'image' && coverImage ? (
+                        <div
+                          className="absolute inset-0 h-full w-full"
+                          style={{
+                            backgroundImage: `url(${coverImage})`,
+                            backgroundSize: cropOrientation.current === 'landscape'
+                              ? `auto ${cropZoom * 100}%`
+                              : `${cropZoom * 100}% auto`,
+                            backgroundPosition: `${cropPan.x}% ${cropPan.y}%`,
+                            backgroundRepeat: 'no-repeat',
+                          }}
+                        />
+                      ) : (
+                        <>
+                          <VinylRecord />
+                        </>
+                      )}
+                      {/* 操作按钮叠加在封面底部 */}
+                      <div className="absolute bottom-0 left-0 right-0 flex justify-center gap-1.5 bg-gradient-to-t from-black/70 to-transparent px-2 pb-2 pt-5">
+                        <button
+                          onClick={() => {
+                            setCoverType('gradient')
+                            setCoverImage(null)
+                            setGradient(randomGradient())
+                          }}
+                          className="flex items-center gap-0.5 rounded-lg border px-2 py-0.5 text-[10px] text-white transition-all duration-200 hover:bg-white/10 active:scale-[0.97]"
+                          style={{ borderColor: "rgba(255,255,255,0.25)" }}
+                        >
+                          <RefreshCw className="h-2.5 w-2.5" />
+                          换一张
+                        </button>
+                        <button
+                          onClick={() => fileInputRef.current?.click()}
+                          className="flex items-center gap-0.5 rounded-lg border px-2 py-0.5 text-[10px] text-white transition-all duration-200 hover:bg-white/10 active:scale-[0.97]"
+                          style={{ borderColor: "rgba(255,255,255,0.25)" }}
+                        >
+                          <Upload className="h-2.5 w-2.5" />
+                          上传
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* 乐器 emoji · 居中排列，多个时自然对齐 */}
+
+                  <div className="flex flex-wrap justify-center content-start gap-x-5 gap-y-2 w-full">
+                    {authors.map((a) => (
+                      <span key={a.id} className="text-xl leading-none">{a.instrument}</span>
+                    ))}
+                    {hasDrumTrack && <span className="text-xl leading-none">🥁</span>}
+                  </div>
+                </div>
+                )}
+
+                {/* 裁剪确认/取消 — 与封面图（w-52）居中对齐 */}
+                {cropOpen && cropImageSrc && (
+                  <div className="flex flex-col items-center gap-2 w-52">
+                    <p className="text-xs" style={{ color: "#FFFFFF" }}>滚轮缩放 · 拖动调整位置</p>
+                    <div className="flex gap-3">
                       <button
-                        onClick={() => {
-                          setUploaded(false)
-                          setGradient(randomGradient())
-                        }}
-                        className="flex items-center gap-0.5 rounded-lg border px-2 py-0.5 text-[10px] text-white transition-all duration-200 hover:bg-white/10 active:scale-[0.97]"
-                        style={{ borderColor: "rgba(255,255,255,0.25)" }}
+                        onClick={confirmCrop}
+                        className="rounded-[10px] px-5 py-1.5 text-xs font-semibold text-white transition-all duration-200 hover:opacity-90 active:scale-[0.97]"
+                        style={{ background: "linear-gradient(90deg,#9933FF,#FF33AA)" }}
                       >
-                        <RefreshCw className="h-2.5 w-2.5" />
-                        换一张
+                        确认
                       </button>
                       <button
-                        onClick={() => setUploaded((u) => !u)}
-                        className="flex items-center gap-0.5 rounded-lg border px-2 py-0.5 text-[10px] text-white transition-all duration-200 hover:bg-white/10 active:scale-[0.97]"
-                        style={{ borderColor: "rgba(255,255,255,0.25)" }}
+                        onClick={cancelCrop}
+                        className="rounded-lg border px-5 py-1.5 text-xs transition-all duration-200 hover:text-white active:scale-[0.97]"
+                        style={{ borderColor: "#2A2A2A", color: "#8A8A8A" }}
                       >
-                        <Upload className="h-2.5 w-2.5" />
-                        上传
+                        取消
                       </button>
                     </div>
                   </div>
+                )}
 
-                  {/* 乐器 emoji 两列网格 —— 仅图标，顶齐 */}
-                  <div className="grid w-full grid-cols-2 content-start gap-x-0 gap-y-2">
-                    {authors.map((a) => (
-                      <span key={a.id} className="flex items-center text-xl leading-none">{a.instrument}</span>
-                    ))}
-                    {hasDrumTrack && <span className="flex items-center text-xl leading-none">🥁</span>}
-                  </div>
-                </div>
+                {/* hidden file input */}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="hidden"
+                  onChange={handleFileSelect}
+                />
 
                 {/* 播放器 */}
                 {!mixDone ? (
                   <div
-                    className="flex items-center gap-2 text-sm"
+                    className="flex items-center gap-1.5 text-xs"
                     style={{ color: "#5A5A5A" }}
                   >
-                    <Shield className="h-4 w-4 shrink-0" />
-                    混音完成后可试听成片
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                    混音完成后可试听作品
                   </div>
                 ) : (
                   <>
@@ -558,7 +797,7 @@ export default function PublishWorkModal({
                 {/* 段落信息 */}
                 <p className="text-xs" style={{ color: "#8A8A8A" }}>
                   段落 {session.index} · {session.duration} ·{" "}
-                  {nonAnonAuthors.length + anonymousCount} 轨
+                  {nonAnonAuthors.length + anonymousCount + (hasDrumTrack ? 1 : 0)} 轨
                 </p>
 
                 {/* 作者 chips */}
@@ -794,8 +1033,9 @@ export default function PublishWorkModal({
           mixDone={mixDone}
           onClose={onClose}
           onPublish={handlePublish}
-          onRetry={() => setState("publishing")}
-          onBack={() => setState("form")}
+          onRetry={handlePublish}
+          onBack={() => { setPublishErrorMessage(""); setState("form") }}
+          publishErrorMessage={publishErrorMessage}
         />
       </div>
     </div>
@@ -807,12 +1047,14 @@ export default function PublishWorkModal({
 function MixNotice({
   mixDone,
   mixError,
+  mixErrorMessage,
   mixProgress,
   onRetry,
   onAbort,
 }: {
   mixDone: boolean
   mixError: boolean
+  mixErrorMessage: string
   mixProgress: string
   onRetry: () => void
   onAbort: () => void
@@ -823,7 +1065,7 @@ function MixNotice({
     return (
       <div className="flex flex-wrap items-center gap-2 text-xs" style={{ color: "#FF3B5C" }}>
         <AlertTriangle className="h-4 w-4" />
-        混音失败，请重试
+        <span>混音失败：{mixErrorMessage || "请重试"}</span>
         <button
           onClick={onRetry}
           className="rounded-lg border px-2.5 py-1 text-white transition-all duration-200 hover:bg-white/5 active:scale-[0.97]"
@@ -879,6 +1121,7 @@ function Footer({
   onPublish,
   onRetry,
   onBack,
+  publishErrorMessage,
 }: {
   state: State
   publishDisabled: boolean
@@ -887,6 +1130,7 @@ function Footer({
   onPublish: () => void
   onRetry: () => void
   onBack: () => void
+  publishErrorMessage?: string
 }) {
   if (state === "success") return null
 
@@ -908,7 +1152,7 @@ function Footer({
       <div className="flex flex-col items-center gap-3 border-t px-5 py-4" style={border}>
         <div className="flex items-center gap-2 text-sm" style={{ color: "#FF3B5C" }}>
           <AlertTriangle className="h-4 w-4" />
-          发表失败：网络编码上传中断
+          发表失败：{publishErrorMessage || "网络编码上传中断"}
         </div>
         <div className="flex gap-3">
           <button

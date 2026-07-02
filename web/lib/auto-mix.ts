@@ -1,15 +1,23 @@
 /* ============ 自动混音引擎 ============
  *
  * 输入：N 条分轨 AudioBuffer（已 -14 LUFS 标准化）
- * 流程：FFT 频谱重心分析 → 声像分配 → OfflineAudioContext 渲染 → lamejs MP3 编码
+ * 流程：FFT 频谱重心分析 → 声像分配 → OfflineAudioContext 渲染 → MP3 编码
  * 输出：MP3 Blob
  *
  * V1 哲学：不做分类 EQ、不做混响、不做频率避让。
  * 只做：响度保持、频谱铺开、总线粘合、原汁原味。
+ *
+ * 注意：MP3 编码使用 lame.all.js（通过 <script> 全局注入 window.lamejs），
+ * 避免 ESM 打包时 MPEGMode 闭包丢失的问题。
  */
 
-import lamejs from "lamejs"
-const { Mp3Encoder } = lamejs
+// @ts-ignore — window.lamejs 由 public/lame.all.js 注入
+const lamejs = (typeof window !== "undefined" ? window.lamejs : null) as {
+  Mp3Encoder: new (channels: number, sampleRate: number, kbps: number) => {
+    encodeBuffer(left: Int16Array, right?: Int16Array): Int8Array
+    flush(): Int8Array
+  }
+} | null
 
 /* ============ 类型 ============ */
 
@@ -262,6 +270,9 @@ function assignPans(centroids: number[], isDrum: boolean[]): number[] {
  * 将 AudioBuffer 编码为 MP3 Blob（128kbps CBR）
  */
 function encodeMp3(audioBuffer: AudioBuffer): Blob {
+  const Mp3Encoder = lamejs?.Mp3Encoder
+  if (!Mp3Encoder) throw new Error("MP3 编码器未加载（lame.all.js 未注入）")
+
   const channels = audioBuffer.numberOfChannels
   const sampleRate = audioBuffer.sampleRate
   const bitRate = 128

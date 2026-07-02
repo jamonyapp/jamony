@@ -8,6 +8,7 @@ const { Pool } = require('pg')
 const net = require('net')
 const fs = require('fs')
 const path = require('path')
+const multer = require('multer')
 
 const app = express()
 const server = http.createServer(app)
@@ -24,6 +25,11 @@ const pool = new Pool({
 
 app.use(cors({ origin: true, credentials: true }))
 app.use(express.json())
+
+/* multer — 发表作品文件上传 */
+const worksDir = '/var/jamony/works'
+try { if (!fs.existsSync(worksDir)) fs.mkdirSync(worksDir, { recursive: true }) } catch (e) { console.error('Works dir error:', e) }
+const upload = multer({ dest: worksDir, limits: { fileSize: 50 * 1024 * 1024 } })
 
 function verifyPassword(password, hashStr) {
   const parts = hashStr.split(':')
@@ -1045,6 +1051,86 @@ app.get('/api/rooms/:id/sessions/:sid/tracks/:tid/download', async (req, res) =>
     stream.on('error', () => { if (!res.headersSent) res.status(500).end() })
   } catch (err) {
     console.error('Track download error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// 发表作品
+app.post('/api/rooms/:id/sessions/:sid/publish', upload.fields([{ name: 'mp3', maxCount: 1 }, { name: 'cover_image', maxCount: 1 }]), async (req, res) => {
+  try {
+    const { id: roomId, sid: sessionId } = req.params
+
+    // 验证 session 存在
+    const sess = await pool.query('SELECT * FROM recording_sessions WHERE id=$1 AND room_id=$2', [sessionId, roomId])
+    if (sess.rows.length === 0) return res.status(404).json({ ok: false, msg: 'Session 不存在' })
+    if (sess.rows[0].status === 'published') return res.status(400).json({ ok: false, msg: '该段落已发表' })
+
+    const { title, style, copyright, cover_song, cover_author, source, description, duration, cover_gradient, has_drum_track, agreed, publisher_user_id, authors_json } = req.body
+
+    if (!title || !style || !copyright || !publisher_user_id) {
+      return res.status(400).json({ ok: false, msg: '缺少必填字段' })
+    }
+
+    // 先插入 works 获取 workId
+    const work = await pool.query(
+      `INSERT INTO works (room_id, session_id, publisher_user_id, title, style, copyright_type, cover_song, cover_author, source, description, duration, cover_gradient, has_drum_track, agreed, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'published') RETURNING id`,
+      [roomId, sessionId, publisher_user_id, title, style, copyright, cover_song || '', cover_author || '', source || '', description || '', duration || '', cover_gradient || '', has_drum_track === 'true', agreed === 'true']
+    )
+    const workId = work.rows[0].id
+
+    // 创建作品专属文件夹 /var/jamony/works/YYYYMMDDHHmm_userId_作品名称_sessionId/
+    const now = new Date()
+    const ts = String(now.getFullYear()) +
+      String(now.getMonth() + 1).padStart(2, '0') +
+      String(now.getDate()).padStart(2, '0') +
+      String(now.getHours()).padStart(2, '0') +
+      String(now.getMinutes()).padStart(2, '0')
+    const safeTitle = title.replace(/[\\/:*?"<>|\[\]()\s]+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '').substring(0, 20)
+    const folderName = `${ts}_user${publisher_user_id}_${safeTitle}_${sessionId}`
+    const workDir = path.join(worksDir, folderName)
+    try { fs.mkdirSync(workDir, { recursive: true }) } catch (e) {}
+
+    // 保存 MP3
+    let mp3Path = ''
+    const mp3File = (req.files?.mp3)?.[0]
+    if (mp3File) {
+      mp3Path = path.join(workDir, 'mix.mp3')
+      fs.renameSync(mp3File.path, mp3Path)
+    }
+
+    // 保存封面
+    let coverImagePath = ''
+    const coverFile = req.files?.cover_image?.[0]
+    if (coverFile) {
+      const ext = path.extname(coverFile.originalname) || '.jpg'
+      coverImagePath = path.join(workDir, 'cover' + ext)
+      fs.renameSync(coverFile.path, coverImagePath)
+    }
+
+    // 回填文件路径
+    await pool.query('UPDATE works SET mp3_path=$1, cover_image_path=$2 WHERE id=$3', [mp3Path, coverImagePath, workId])
+
+    // 入库 work_authors
+    if (authors_json) {
+      const authors = JSON.parse(authors_json)
+      for (const a of authors) {
+        await pool.query(
+          'INSERT INTO work_authors (work_id, user_id, nickname, instrument_category, is_anonymous) VALUES ($1, $2, $3, $4, $5)',
+          [workId, a.userId || null, a.nickname || '', a.instrumentCategory || '', a.isAnonymous || false]
+        )
+      }
+    }
+
+    // 标记 session status = 'published'
+    await pool.query("UPDATE recording_sessions SET status='published' WHERE id=$1", [sessionId])
+
+    // socket 广播 sessions 刷新
+    await broadcastSessions(roomId)
+
+    res.json({ ok: true, workId })
+  } catch (err) {
+    console.error('Publish error:', err)
     res.status(500).json({ ok: false, msg: '服务器错误' })
   }
 })

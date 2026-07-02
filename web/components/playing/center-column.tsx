@@ -554,6 +554,18 @@ function SessionCard({
   const publishHasDrumTrack = authorizedTracks.some(t => t.is_system === true)
   const authorizedTrackIds = useMemo(() => authorizedTracks.map(t => t.id), [authorizedTracks])
   const authorizedTrackIsDrums = useMemo(() => authorizedTracks.map(t => t.is_system), [authorizedTracks])
+  /** 全量作者数据（含匿名参与者），用于发表时存档 */
+  const allTrackAuthors = useMemo(
+    () => authorizedTracks
+      .filter(t => !t.is_system)
+      .map(t => ({
+        userId: t.user_id ?? 0,
+        nickname: t.nickname,
+        instrumentCategory: t.instrument_category,
+        isAnonymous: t.allow_attribution === false,
+      })),
+    [authorizedTracks]
+  )
 
   return (
     <div className="rounded-[10px] border border-border bg-secondary">
@@ -636,6 +648,7 @@ function SessionCard({
           currentUserId={currentUserId}
           authorizedTrackIds={authorizedTrackIds}
           authorizedTrackIsDrums={authorizedTrackIsDrums}
+          allTrackAuthors={allTrackAuthors}
           onPublished={() => {
             // 发表成功后，socket 会推 sessions-update，自动刷新
             console.log(`session ${session.id} published`)
