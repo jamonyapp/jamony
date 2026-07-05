@@ -1,12 +1,42 @@
 "use client"
 
-import { highlights, type Highlight } from "@/lib/jamony-data"
 import { Heart, Pause, Play, SkipBack, SkipForward, X, ExternalLink, ListMusic, MessageCircle } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { SectionHeader } from "./section-header"
 import { useAuth } from "@/lib/auth-context"
+import { PlayerProvider, usePlayer } from "@/components/jamony/player-context"
+import type { Track } from "@/lib/jamony-data"
+
+type Highlight = {
+  id: string
+  title: string
+  players: string
+  likes: number
+  duration: string
+  gradient: string
+  date: string
+  members: { name: string; instrument: string }[]
+  style: string
+  trackId: string
+  mp3Url?: string
+}
 
 const DISC_ANGLES = [-2.0, 1.6, -1.4, 2.2]
+
+const GRADIENTS = [
+  "linear-gradient(135deg, #00AAFF, #9933FF)",
+  "linear-gradient(135deg, #9933FF, #FF33AA)",
+  "linear-gradient(135deg, #FF33AA, #BBEE00)",
+  "linear-gradient(135deg, #00AAFF, #BBEE00)",
+]
+
+// 乐器 → emoji 映射（跟 work-detail-page 保持一致）
+const instrumentEmojis: Record<string, string> = {
+  "电吉他": "🎸", "木吉他": "🎸", "贝斯": "🎸",
+  "鼓·小打": "🥁", "键盘乐器": "🎹", "主唱": "🎤",
+  "管乐": "🎷", "弦乐": "🎻", "电子": "🎛️",
+  "民乐": "🪕", "其他": "🎵",
+}
 
 function VinylRecord() {
   return (
@@ -69,12 +99,48 @@ function HighlightCard({ item, angle, onOpen }: { item: Highlight; angle: number
   )
 }
 
+function formatHighlightTime(sec: number): string {
+  const m = Math.floor(sec / 60)
+  const s = Math.floor(sec % 60)
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+}
+
 function DetailModal({ item, onClose }: { item: Highlight; onClose: () => void }) {
-  const [playing, setPlaying] = useState(true)
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [feedbackText, setFeedbackText] = useState("")
   const [feedbackSent, setFeedbackSent] = useState(false)
   const { loggedIn, setShowLoginModal } = useAuth()
+  const { playTrack, addToPlaylist, isPlaying, current, togglePlay, currentTime, duration } = usePlayer()
+
+  const isThisTrack = current?.id === item.trackId
+  const isThisPlaying = isThisTrack && isPlaying
+
+  function handlePlayToggle() {
+    if (isThisTrack) {
+      togglePlay()
+    } else if (item.mp3Url) {
+      const track: Track = {
+        id: item.trackId,
+        title: item.title,
+        author: item.players,
+        type: "jam",
+        scale: "ensemble",
+        nature: "original",
+        styles: item.style ? [item.style] : [],
+        instruments: [],
+        plays: item.likes,
+        likes: item.likes,
+        comments: 0,
+        duration: item.duration,
+        gradient: item.gradient,
+        date: item.date,
+        members: item.members.map(m => m.name),
+        coverImage: "",
+        mp3Url: item.mp3Url,
+      }
+      playTrack(track)
+    }
+  }
 
   return (
     <div
@@ -110,9 +176,9 @@ function DetailModal({ item, onClose }: { item: Highlight; onClose: () => void }
               <button
                 className="relative flex h-14 w-14 items-center justify-center rounded-full text-white transition-transform active:scale-95 sm:h-16 sm:w-16"
                 style={{ background: "#9933FF", boxShadow: "0 0 20px rgba(153,51,255,0.6)" }}
-                onClick={() => setPlaying((p) => !p)}
+                onClick={handlePlayToggle}
               >
-                {playing ? <Pause className="h-5 w-5 sm:h-6 sm:w-6" fill="currentColor" /> : <Play className="h-5 w-5 sm:h-6 sm:w-6" fill="currentColor" />}
+                {isThisPlaying ? <Pause className="h-5 w-5 sm:h-6 sm:w-6" fill="currentColor" /> : <Play className="h-5 w-5 sm:h-6 sm:w-6" fill="currentColor" />}
               </button>
             </div>
           </div>
@@ -164,7 +230,29 @@ function DetailModal({ item, onClose }: { item: Highlight; onClose: () => void }
               </button>
               <button
                 type="button"
-                onClick={() => console.log("[highlights] add to playlist:", item.title)}
+                onClick={() => {
+                  if (!loggedIn) { setShowLoginModal(true); return }
+                  const track: Track = {
+                    id: item.trackId,
+                    title: item.title,
+                    author: item.players,
+                    type: "jam",
+                    scale: "ensemble",
+                    nature: "original",
+                    styles: item.style ? [item.style] : [],
+                    instruments: [],
+                    plays: item.likes,
+                    likes: item.likes,
+                    comments: 0,
+                    duration: item.duration,
+                    gradient: item.gradient,
+                    date: item.date,
+                    members: item.members.map(m => m.name),
+                    coverImage: "",
+                    mp3Url: item.mp3Url,
+                  }
+                  addToPlaylist(track)
+                }}
                 className="flex items-center gap-1 rounded-lg border border-[#1A1A1A] px-2.5 py-1 text-[11px] text-white transition-colors hover:bg-white/5 sm:text-[12px]"
               >
                 <ListMusic className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
@@ -189,21 +277,24 @@ function DetailModal({ item, onClose }: { item: Highlight; onClose: () => void }
           </button>
           <button
             className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-black sm:h-9 sm:w-9"
-            onClick={() => setPlaying((p) => !p)}
+            onClick={handlePlayToggle}
           >
-            {playing ? <Pause className="h-3.5 w-3.5 sm:h-4 sm:w-4" fill="currentColor" /> : <Play className="h-3.5 w-3.5 sm:h-4 sm:w-4" fill="currentColor" />}
+            {isThisPlaying ? <Pause className="h-3.5 w-3.5 sm:h-4 sm:w-4" fill="currentColor" /> : <Play className="h-3.5 w-3.5 sm:h-4 sm:w-4" fill="currentColor" />}
           </button>
           <button className="text-white/70 transition-colors hover:text-white" onClick={() => console.log("[v0] next")}>
             <SkipForward className="h-4 w-4 sm:h-5 sm:w-5" fill="currentColor" />
           </button>
           <div className="relative mx-1 h-1 flex-1 rounded-full bg-white/15 sm:mx-2 sm:h-1.5">
             <span
-              className="absolute inset-y-0 left-0 w-3/5 rounded-full"
-              style={{ background: "linear-gradient(90deg, #00AAFF, #9933FF)" }}
+              className="absolute inset-y-0 left-0 rounded-full"
+              style={{
+                width: isThisTrack && duration > 0 ? `${(currentTime / duration) * 100}%` : '0%',
+                background: "linear-gradient(90deg, #00AAFF, #9933FF)",
+              }}
             />
           </div>
           <span className="text-[11px] tabular-nums sm:text-[12px]" style={{ color: "#8A8A8A" }}>
-            03:24 / {item.duration}
+            {isThisTrack ? formatHighlightTime(currentTime) : "00:00"} / {item.duration}
           </span>
         </div>
 
@@ -252,13 +343,49 @@ function DetailModal({ item, onClose }: { item: Highlight; onClose: () => void }
   )
 }
 
-export function HighlightsScreen() {
+function HighlightsInner() {
   const [active, setActive] = useState<Highlight | null>(null)
+  const [works, setWorks] = useState<Highlight[]>([])
+
+  useEffect(() => {
+    fetch("/api/works?limit=4&sort=likes")
+      .then(r => r.json())
+      .then(data => {
+        if (!data.ok) return
+        const mapped: Highlight[] = data.works.map((w: any, i: number) => {
+          const authors = w.authors || []
+          const namedAuthors = authors.filter((a: any) => !a.is_anonymous)
+          const members = namedAuthors.map((a: any) => ({
+            name: a.nickname,
+            instrument: instrumentEmojis[a.instrument_category] || "🎵",
+          }))
+          return {
+            id: String(w.id),
+            title: w.title,
+            players: w.author,
+            likes: w.likes,
+            duration: w.duration || "0:00",
+            gradient: w.coverGradient || GRADIENTS[i % GRADIENTS.length],
+            date: w.date || "",
+            members,
+            style: w.styles?.[0] || "",
+            trackId: String(w.id),
+            mp3Url: w.mp3Url || "",
+          }
+        })
+        setWorks(mapped)
+      })
+      .catch(() => {})
+  }, [])
+
   return (
     <section>
       <SectionHeader title="高光时刻" linkLabel="作品库" onLink={() => window.location.href = "/library"} />
+      {works.length === 0 ? (
+        <p className="text-sm py-8 text-center" style={{ color: "#8A8A8A" }}>暂无高光作品</p>
+      ) : (
       <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 lg:grid-cols-4">
-        {highlights.map((item, i) => (
+        {works.map((item, i) => (
           <HighlightCard
             key={item.id}
             item={item}
@@ -267,7 +394,16 @@ export function HighlightsScreen() {
           />
         ))}
       </div>
+      )}
       {active && <DetailModal item={active} onClose={() => setActive(null)} />}
     </section>
+  )
+}
+
+export function HighlightsScreen() {
+  return (
+    <PlayerProvider>
+      <HighlightsInner />
+    </PlayerProvider>
   )
 }

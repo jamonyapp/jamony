@@ -277,6 +277,69 @@ app.get('/api/users/:userId/tracks', async (req, res) => {
   }
 })
 
+// ========== 获取某用户参与的作品（work_authors → works）==========
+app.get('/api/users/:userId/works', async (req, res) => {
+  try {
+    const { userId } = req.params
+    const result = await pool.query(`
+      SELECT w.*, (
+        SELECT COALESCE(json_agg(row_to_json(wa_sub) ORDER BY wa_sub.id), '[]'::json)
+        FROM (
+          SELECT wa.id, wa.user_id, wa.nickname, wa.instrument_category, wa.is_anonymous
+          FROM work_authors wa WHERE wa.work_id = w.id
+        ) wa_sub
+      ) AS authors
+      FROM works w
+      WHERE w.status = 'published'
+      AND w.id IN (SELECT work_id FROM work_authors WHERE user_id = $1)
+      ORDER BY w.created_at DESC
+    `, [userId])
+
+    const works = result.rows.map(row => {
+      const authors = row.authors || []
+      const namedAuthors = authors.filter(a => !a.is_anonymous)
+      const anonymousCount = authors.filter(a => a.is_anonymous).length
+      const members = namedAuthors.map(a => a.nickname)
+      const instruments = [...new Set(authors.map(a => a.instrument_category).filter(Boolean))]
+      let scale = 'solo'
+      if (authors.length === 2) scale = 'duo'
+      else if (authors.length === 3) scale = 'trio'
+      else if (authors.length >= 4) scale = 'ensemble'
+      const nature = (row.copyright_type === '原创') ? 'original' : 'cover'
+      const mp3Url = row.mp3_path ? row.mp3_path.replace('/var/jamony/works', '/works') : ''
+      const coverUrl = row.cover_image_path ? row.cover_image_path.replace('/var/jamony/works', '/works') : ''
+      const gradient = row.cover_gradient || 'linear-gradient(135deg, #00AAFF, #9933FF)'
+      let author = ''
+      if (namedAuthors.length === 0) {
+        author = `${authors.length}位匿名乐手`
+      } else if (namedAuthors.length === 1) {
+        author = namedAuthors[0].nickname
+      } else {
+        author = `${namedAuthors.length}位乐手`
+      }
+      return {
+        id: row.id,
+        title: row.title,
+        author, type: 'jam', scale, nature,
+        styles: row.style ? [row.style] : [],
+        instruments, plays: row.plays || 0, likes: row.likes || 0, comments: 0,
+        duration: row.duration || '', gradient,
+        date: row.created_at ? row.created_at.toISOString().slice(0, 10) : '',
+        members, coverImage: coverUrl,
+        mp3Url, anonymousCount, style: row.style || '',
+        copyrightType: row.copyright_type || '', coverGradient: gradient,
+        hasDrumTrack: row.has_drum_track || false,
+        authors,
+      }
+    })
+
+    res.json({ ok: true, works })
+  } catch (err) {
+    console.error('User works error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
 // ========== 按作者名获取作品 ==========
 app.get('/api/tracks/by-author/:authorName', async (req, res) => {
   try {
@@ -1153,6 +1216,255 @@ app.post('/api/rooms/:id/sessions/:sid/publish', upload.fields([{ name: 'mp3', m
     res.json({ ok: true, workId })
   } catch (err) {
     console.error('Publish error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// ========== 作品列表（works 表，含作者聚合）==========
+app.get('/api/works', async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1
+    const limit = parseInt(req.query.limit) || 20
+    const offset = (page - 1) * limit
+    const sort = req.query.sort || 'newest'
+
+    let order = 'ORDER BY w.created_at DESC, w.id DESC'
+    if (sort === 'plays') order = 'ORDER BY w.plays DESC, w.id DESC'
+    if (sort === 'likes') order = 'ORDER BY w.likes DESC, w.id DESC'
+
+    const countResult = await pool.query("SELECT COUNT(*) FROM works WHERE status = 'published'")
+    const total = parseInt(countResult.rows[0].count)
+
+    const result = await pool.query(`
+      SELECT w.*, (
+        SELECT COALESCE(json_agg(row_to_json(wa_sub) ORDER BY wa_sub.id), '[]'::json)
+        FROM (
+          SELECT wa.id, wa.user_id, wa.nickname, wa.instrument_category, wa.is_anonymous
+          FROM work_authors wa WHERE wa.work_id = w.id
+        ) wa_sub
+      ) AS authors
+      FROM works w
+      WHERE w.status = 'published'
+      ${order}
+      LIMIT $1 OFFSET $2
+    `, [limit, offset])
+
+    const works = result.rows.map(row => {
+      const authors = row.authors || []
+      const namedAuthors = authors.filter(a => !a.is_anonymous)
+      const anonymousCount = authors.filter(a => a.is_anonymous).length
+
+      // 聚合字段
+      const members = namedAuthors.map(a => a.nickname)
+      const instruments = [...new Set(authors.map(a => a.instrument_category).filter(Boolean))]
+
+      // 规模推导
+      let scale = 'solo'
+      if (authors.length === 2) scale = 'duo'
+      else if (authors.length === 3) scale = 'trio'
+      else if (authors.length >= 4) scale = 'ensemble'
+
+      // 性质映射
+      const nature = (row.copyright_type === '原创') ? 'original' : 'cover'
+
+      // 文件路径 → URL
+      const mp3Url = row.mp3_path ? row.mp3_path.replace('/var/jamony/works', '/works') : ''
+      const coverUrl = row.cover_image_path ? row.cover_image_path.replace('/var/jamony/works', '/works') : ''
+
+      const gradient = row.cover_gradient || 'linear-gradient(135deg, #00AAFF, #9933FF)'
+
+      // author 显示名
+      let author = ''
+      if (namedAuthors.length === 0) {
+        author = `${authors.length}位匿名乐手`
+      } else if (namedAuthors.length === 1) {
+        author = namedAuthors[0].nickname
+      } else {
+        author = `${namedAuthors.length}位乐手`
+      }
+
+      return {
+        id: row.id,
+        title: row.title,
+        author,
+        type: 'jam',
+        scale,
+        nature,
+        styles: row.style ? [row.style] : [],
+        instruments,
+        plays: row.plays || 0,
+        likes: row.likes || 0,
+        comments: 0,
+        duration: row.duration || '',
+        gradient,
+        date: row.created_at ? row.created_at.toISOString().slice(0, 10) : '',
+        members,
+        coverImage: coverUrl,
+        // works 专有字段
+        mp3Url,
+        anonymousCount,
+        style: row.style || '',
+        copyrightType: row.copyright_type || '',
+        coverGradient: gradient,
+        hasDrumTrack: row.has_drum_track || false,
+        authors,
+      }
+    })
+
+    res.json({
+      ok: true,
+      works,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+    })
+  } catch (err) {
+    console.error('Works list error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// ========== 单个作品详情 ==========
+app.get('/api/works/:id', async (req, res) => {
+  try {
+    const { id } = req.params
+    const result = await pool.query(`
+      SELECT w.*, (
+        SELECT COALESCE(json_agg(row_to_json(wa_sub) ORDER BY wa_sub.id), '[]'::json)
+        FROM (
+          SELECT wa.id, wa.user_id, wa.nickname, wa.instrument_category, wa.is_anonymous
+          FROM work_authors wa WHERE wa.work_id = w.id
+        ) wa_sub
+      ) AS authors
+      FROM works w
+      WHERE w.id = $1 AND w.status = 'published'
+    `, [id])
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ ok: false, msg: '作品不存在' })
+    }
+
+    const row = result.rows[0]
+    const authors = row.authors || []
+    const namedAuthors = authors.filter(a => !a.is_anonymous)
+    const anonymousCount = authors.filter(a => a.is_anonymous).length
+
+    const members = namedAuthors.map(a => a.nickname)
+    const instruments = [...new Set(authors.map(a => a.instrument_category).filter(Boolean))]
+
+    let scale = 'solo'
+    if (authors.length === 2) scale = 'duo'
+    else if (authors.length === 3) scale = 'trio'
+    else if (authors.length >= 4) scale = 'ensemble'
+
+    const nature = (row.copyright_type === '原创') ? 'original' : 'cover'
+    const mp3Url = row.mp3_path ? row.mp3_path.replace('/var/jamony/works', '/works') : ''
+    const coverUrl = row.cover_image_path ? row.cover_image_path.replace('/var/jamony/works', '/works') : ''
+    const gradient = row.cover_gradient || 'linear-gradient(135deg, #00AAFF, #9933FF)'
+
+    let author = ''
+    if (namedAuthors.length === 0) {
+      author = `${authors.length}位匿名乐手`
+    } else if (namedAuthors.length === 1) {
+      author = namedAuthors[0].nickname
+    } else {
+      author = `${namedAuthors.length}位乐手`
+    }
+
+    const work = {
+      id: row.id,
+      title: row.title,
+      author,
+      type: 'jam',
+      scale,
+      nature,
+      styles: row.style ? [row.style] : [],
+      instruments,
+      plays: row.plays || 0,
+      likes: row.likes || 0,
+      comments: 0,
+      duration: row.duration || '',
+      gradient,
+      date: row.created_at ? row.created_at.toISOString().slice(0, 10) : '',
+      members,
+      coverImage: coverUrl,
+      mp3Url,
+      anonymousCount,
+      style: row.style || '',
+      copyrightType: row.copyright_type || '',
+      coverGradient: gradient,
+      hasDrumTrack: row.has_drum_track || false,
+      authors,
+    }
+
+    res.json({ ok: true, work })
+  } catch (err) {
+    console.error('Work detail error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// ========== 播放计数 ==========
+app.post('/api/works/:id/play', async (req, res) => {
+  try {
+    const { id } = req.params
+    await pool.query('UPDATE works SET plays = COALESCE(plays, 0) + 1 WHERE id = $1', [id])
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('Work play error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// ========== 点赞/取消点赞 ==========
+app.post('/api/works/:id/like', async (req, res) => {
+  try {
+    const { id } = req.params
+    const { userId, action } = req.body
+
+    if (!userId || !action) {
+      return res.status(400).json({ ok: false, msg: '缺少 userId 或 action' })
+    }
+
+    if (action === 'like') {
+      await pool.query(
+        'INSERT INTO works_likes (work_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+        [id, userId]
+      )
+      await pool.query('UPDATE works SET likes = (SELECT COUNT(*) FROM works_likes WHERE work_id = $1) WHERE id = $1', [id])
+    } else if (action === 'unlike') {
+      await pool.query('DELETE FROM works_likes WHERE work_id = $1 AND user_id = $2', [id, userId])
+      await pool.query('UPDATE works SET likes = (SELECT COUNT(*) FROM works_likes WHERE work_id = $1) WHERE id = $1', [id])
+    } else {
+      return res.status(400).json({ ok: false, msg: 'action 必须是 like 或 unlike' })
+    }
+
+    const result = await pool.query('SELECT likes FROM works WHERE id = $1', [id])
+    res.json({ ok: true, likes: result.rows[0]?.likes || 0 })
+  } catch (err) {
+    console.error('Work like error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// ========== 取消署名（不可恢复）==========
+app.patch('/api/works/:id/anonymize', async (req, res) => {
+  try {
+    const { id } = req.params
+    const { userId } = req.body
+    if (!userId) return res.status(400).json({ ok: false, msg: '缺少 userId' })
+
+    const result = await pool.query(
+      'UPDATE work_authors SET is_anonymous = TRUE WHERE work_id = $1 AND user_id = $2 AND is_anonymous = FALSE RETURNING id',
+      [id, userId]
+    )
+    if (result.rows.length === 0) {
+      return res.status(404).json({ ok: false, msg: '未找到该作者的记录或已是匿名' })
+    }
+
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('Anonymize error:', err)
     res.status(500).json({ ok: false, msg: '服务器错误' })
   }
 })

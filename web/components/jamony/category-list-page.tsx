@@ -111,27 +111,28 @@ function CategoryListInner() {
 
   // 从 API 读取作品
   useEffect(() => {
-    fetch("/api/tracks?limit=50")
+    fetch("/api/works")
       .then(r => r.json())
       .then(data => {
         if (!data.ok) return
-        const mapped: Track[] = data.tracks.map((t: any, i: number) => ({
-          id: String(t.id),
-          title: t.title,
-          author: t.author_name,
-          type: t.type,
-          scale: t.scale,
-          nature: t.nature,
-          styles: t.styles || [],
-          instruments: t.instruments || [],
-          plays: t.plays,
-          likes: t.likes,
-          comments: t.comments,
-          duration: t.duration,
-          gradient: GRADIENTS[i % GRADIENTS.length],
-          date: t.date ? t.date.slice(0, 10) : "",
-          members: t.members || [],
-          coverImage: t.cover_image || "",
+        const mapped: Track[] = data.works.map((w: any, i: number) => ({
+          id: String(w.id),
+          title: w.title,
+          author: w.author,
+          type: w.type,
+          scale: w.scale,
+          nature: w.nature,
+          styles: w.styles || [],
+          instruments: w.instruments || [],
+          plays: w.plays,
+          likes: w.likes,
+          comments: w.comments,
+          duration: w.duration,
+          gradient: w.coverGradient || GRADIENTS[i % GRADIENTS.length],
+          date: w.date || "",
+          members: w.members || [],
+          coverImage: w.coverImage || "",
+          mp3Url: w.mp3Url || "",
         }))
         setAllTracks(mapped)
         setQueue(mapped)

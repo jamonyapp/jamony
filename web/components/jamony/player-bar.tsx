@@ -30,9 +30,12 @@ export function PlayerBar() {
     isPlaying,
     repeatMode,
     playlist,
+    currentTime,
+    duration,
     togglePlay,
     playNext,
     playPrev,
+    seekTo,
     cycleRepeatMode,
     playTrack,
     removeFromPlaylist,
@@ -40,6 +43,12 @@ export function PlayerBar() {
 
   const [listOpen, setListOpen] = useState(false)
   const hasTrack = Boolean(current)
+
+  function formatTime(sec: number): string {
+    const m = Math.floor(sec / 60)
+    const s = Math.floor(sec % 60)
+    return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+  }
   const modeActive = repeatMode !== "sequential"
 
   return (
@@ -191,17 +200,27 @@ export function PlayerBar() {
 
           {/* 中间：进度条 */}
           <div className="flex flex-1 items-center gap-3">
-            <div className="relative h-1 flex-1 overflow-hidden rounded-full bg-white/15">
-              <div
-                className="absolute inset-y-0 left-0 rounded-full"
-                style={{
-                  width: hasTrack ? "33%" : "0%",
-                  background: "linear-gradient(90deg, #00AAFF, #9933FF)",
-                }}
-              />
+            <div
+              className="relative h-1 flex-1 cursor-pointer overflow-hidden rounded-full bg-white/15"
+              onClick={(e) => {
+                if (!hasTrack || duration <= 0) return
+                const rect = e.currentTarget.getBoundingClientRect()
+                const ratio = (e.clientX - rect.left) / rect.width
+                seekTo(ratio * duration)
+              }}
+            >
+              {hasTrack && duration > 0 && (
+                <div
+                  className="absolute inset-y-0 left-0 rounded-full"
+                  style={{
+                    width: `${(currentTime / duration) * 100}%`,
+                    background: "linear-gradient(90deg, #00AAFF, #9933FF)",
+                  }}
+                />
+              )}
             </div>
             <span className="hidden shrink-0 text-xs tabular-nums text-[#9A9A9A] sm:block">
-              {hasTrack ? "01:50" : "00:00"} / {current ? current.duration : "00:00"}
+              {hasTrack ? formatTime(currentTime) : "00:00"} / {hasTrack ? formatTime(duration) : "00:00"}
             </span>
           </div>
 

@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react"
 import { Search, Guitar, Disc3, ChevronRight, Target } from "lucide-react"
 import { TopNav } from "@/components/jamony/top-nav"
 import { TrackCard } from "@/components/jamony/track-card"
-import { ActiveMusicians } from "@/components/jamony/active-musicians"
 import { PlayerBar } from "@/components/jamony/player-bar"
 import { PlayerProvider, usePlayer } from "@/components/jamony/player-context"
 import { type Track } from "@/lib/jamony-data"
@@ -78,29 +77,30 @@ function LibraryInner() {
   const [allTracks, setAllTracks] = useState<Track[]>([])
   const { setQueue } = usePlayer()
 
-  // 从 API 读取作品
+  // 从 /api/works 读取作品
   useEffect(() => {
-    fetch("/api/tracks?limit=50")
+    fetch("/api/works")
       .then(r => r.json())
       .then(data => {
         if (!data.ok) return
-        const mapped: Track[] = data.tracks.map((t: any, i: number) => ({
-          id: String(t.id),
-          title: t.title,
-          author: t.author_name,
-          type: t.type,
-          scale: t.scale,
-          nature: t.nature,
-          styles: t.styles || [],
-          instruments: t.instruments || [],
-          plays: t.plays,
-          likes: t.likes,
-          comments: t.comments,
-          duration: t.duration,
-          gradient: GRADIENTS[i % GRADIENTS.length],
-          date: t.date ? t.date.slice(0, 10) : "",
-          members: t.members || [],
-          coverImage: t.cover_image || "",
+        const mapped: Track[] = data.works.map((w: any, i: number) => ({
+          id: String(w.id),
+          title: w.title,
+          author: w.author,
+          type: w.type as Track["type"],
+          scale: w.scale as Track["scale"],
+          nature: w.nature as Track["nature"],
+          styles: w.styles || [],
+          instruments: w.instruments || [],
+          plays: w.plays,
+          likes: w.likes,
+          comments: w.comments,
+          duration: w.duration,
+          gradient: w.coverGradient || GRADIENTS[i % GRADIENTS.length],
+          date: w.date || "",
+          members: w.members || [],
+          coverImage: w.coverImage || "",
+          mp3Url: w.mp3Url || "",
         }))
         setAllTracks(mapped)
         setQueue(mapped)
@@ -165,7 +165,6 @@ function LibraryInner() {
               tracks={filteredJam}
               href="/library/category?tab=jam"
             />
-            {!query && <ActiveMusicians />}
           </>
         )}
       </div>

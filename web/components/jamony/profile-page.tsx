@@ -55,15 +55,11 @@ export function ProfilePage({ nickname }: { nickname: string }) {
         const data = await res.json()
         if (data.ok) {
           setProfile(data.user)
-          // 加载该用户参与的作品
-          const tracksRes = await fetch(`/api/tracks?limit=50`)
-          const tracksData = await tracksRes.json()
-          if (tracksData.ok) {
-            const name = data.user.nickname
-            const myTracks = tracksData.tracks.filter((t: any) =>
-              t.members && t.members.includes(name) || t.author_name === name
-            )
-            setUserWorks(myTracks)
+          // 加载该用户参与的 works
+          const worksRes = await fetch(`/api/users/${data.user.id}/works`)
+          const worksData = await worksRes.json()
+          if (worksData.ok) {
+            setUserWorks(worksData.works)
           }
         }
       } catch { /* ignore */ }

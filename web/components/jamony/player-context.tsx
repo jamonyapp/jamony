@@ -4,7 +4,9 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react"
@@ -31,10 +33,13 @@ interface PlayerContextValue {
   isPlaying: boolean
   repeatMode: RepeatMode
   playlist: Track[]
+  currentTime: number
+  duration: number
   playTrack: (track: Track) => void
   togglePlay: () => void
   playNext: () => void
   playPrev: () => void
+  seekTo: (time: number) => void
   setQueue: (tracks: Track[]) => void
   cycleRepeatMode: () => void
   addToPlaylist: (track: Track) => void
@@ -49,35 +54,70 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [isPlaying, setIsPlaying] = useState(false)
   const [repeatMode, setRepeatMode] = useState<RepeatMode>("sequential")
   const [playlist, setPlaylist] = useState<Track[]>([])
+  const [currentTime, setCurrentTime] = useState(0)
+  const [duration, setDuration] = useState(0)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
 
-  const playTrack = useCallback(
-    (track: Track) => {
-      if (current?.id === track.id) {
-        console.log("[v0] 重新从头播放:", track.title)
-        setIsPlaying(true)
-        return
+  // 当前曲目变化时 → 创建新 Audio
+  useEffect(() => {
+    if (!current?.mp3Url) {
+      if (audioRef.current) {
+        audioRef.current.pause()
+        audioRef.current.src = ""
       }
-      console.log("[v0] 播放作品:", track.title)
-      setCurrent(track)
-      setIsPlaying(true)
-    },
-    [current],
-  )
+      setCurrentTime(0)
+      setDuration(0)
+      setIsPlaying(false)
+      return
+    }
 
-  const togglePlay = useCallback(() => {
-    setCurrent((c) => {
-      if (!c) {
-        console.log("[v0] 暂无加载作品，无法播放")
-        return c
-      }
-      setIsPlaying((p) => {
-        console.log("[v0] 切换播放/暂停:", !p)
-        return !p
-      })
-      return c
+    const audio = new Audio(current.mp3Url)
+    audio.preload = "auto"
+    audioRef.current = audio
+
+    audio.addEventListener("loadedmetadata", () => {
+      setDuration(audio.duration)
     })
-  }, [])
 
+    audio.addEventListener("timeupdate", () => {
+      setCurrentTime(audio.currentTime)
+    })
+
+    audio.addEventListener("ended", () => {
+      // 自动下一首
+      playNextRef.current?.()
+    })
+
+    audio.addEventListener("error", () => {
+      console.error("[player] 音频加载失败:", current.mp3Url)
+      setIsPlaying(false)
+    })
+
+    if (isPlaying) {
+      audio.play().catch((e) => console.warn("[player] 播放失败:", e))
+    }
+
+    return () => {
+      audio.pause()
+      audio.src = ""
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [current?.id])
+
+  // 播放/暂停切换时控制 Audio
+  useEffect(() => {
+    const audio = audioRef.current
+    if (!audio || !current?.mp3Url) return
+
+    if (isPlaying) {
+      audio.play().catch((e) => console.warn("[player] 播放失败:", e))
+    } else {
+      audio.pause()
+    }
+  }, [isPlaying, current?.mp3Url])
+
+  // ref 版的 playNext 供 ended 事件使用
+  const playNextRef = useRef<() => void>(() => {})
   const pickNext = useCallback(
     (dir: 1 | -1) => {
       if (!current || queue.length === 0) return null
@@ -99,63 +139,76 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const playNext = useCallback(() => {
     const next = pickNext(1)
     if (!next) return
-    console.log("[v0] 下一首:", next.title)
     setCurrent(next)
     setIsPlaying(true)
   }, [pickNext])
 
+  playNextRef.current = playNext
+
   const playPrev = useCallback(() => {
     const prev = pickNext(-1)
     if (!prev) return
-    console.log("[v0] 上一首:", prev.title)
     setCurrent(prev)
     setIsPlaying(true)
   }, [pickNext])
 
+  const playTrack = useCallback(
+    (track: Track) => {
+      if (current?.id === track.id) {
+        // 同曲 → 从头再放
+        if (audioRef.current) {
+          audioRef.current.currentTime = 0
+        }
+        setCurrentTime(0)
+        setIsPlaying(true)
+        return
+      }
+      setCurrent(track)
+      setIsPlaying(true)
+    },
+    [current],
+  )
+
+  const togglePlay = useCallback(() => {
+    if (!current) return
+    setIsPlaying((p) => !p)
+  }, [current])
+
   const cycleRepeatMode = useCallback(() => {
     setRepeatMode((m) => {
       const next = REPEAT_MODES[(REPEAT_MODES.indexOf(m) + 1) % REPEAT_MODES.length]
-      console.log("[v0] 切换播放模式:", REPEAT_MODE_LABEL[next])
       return next
     })
   }, [])
 
+  const seekTo = useCallback((time: number) => {
+    const audio = audioRef.current
+    if (!audio) return
+    audio.currentTime = time
+    setCurrentTime(time)
+  }, [])
+
   const addToPlaylist = useCallback((track: Track) => {
     setPlaylist((list) => {
-      if (list.some((t) => t.id === track.id)) {
-        console.log("[v0] 作品已在播放列表:", track.title)
-        return list
-      }
-      console.log("[v0] 加入播放列表:", track.title)
+      if (list.some((t) => t.id === track.id)) return list
       return [...list, track]
     })
   }, [])
 
   const removeFromPlaylist = useCallback((id: string) => {
-    setPlaylist((list) => {
-      console.log("[v0] 从播放列表移除:", id)
-      return list.filter((t) => t.id !== id)
-    })
+    setPlaylist((list) => list.filter((t) => t.id !== id))
   }, [])
 
   const value = useMemo(
     () => ({
-      current,
-      isPlaying,
-      repeatMode,
-      playlist,
-      playTrack,
-      togglePlay,
-      playNext,
-      playPrev,
-      setQueue,
-      cycleRepeatMode,
-      addToPlaylist,
-      removeFromPlaylist,
+      current, isPlaying, repeatMode, playlist,
+      currentTime, duration,
+      playTrack, togglePlay, playNext, playPrev, seekTo,
+      setQueue, cycleRepeatMode, addToPlaylist, removeFromPlaylist,
     }),
     [
-      current, isPlaying, repeatMode, playlist,
-      playTrack, togglePlay, playNext, playPrev,
+      current, isPlaying, repeatMode, playlist, currentTime, duration,
+      playTrack, togglePlay, playNext, playPrev, seekTo,
       cycleRepeatMode, addToPlaylist, removeFromPlaylist,
     ],
   )

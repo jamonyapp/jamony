@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, Play, Heart, MessageCircle, Guitar, Check } from "lucide-react"
+import { ArrowLeft, Play, Heart, MessageCircle, Guitar, Check, ListMusic } from "lucide-react"
 import { TopNav } from "@/components/jamony/top-nav"
 import { PlayerBar } from "@/components/jamony/player-bar"
 import { PlayerProvider, usePlayer } from "@/components/jamony/player-context"
@@ -118,12 +118,14 @@ function resolveId(): string {
 
 function WorkDetailInner() {
   const router = useRouter()
-  const { setQueue, playTrack, current, isPlaying, togglePlay } = usePlayer()
+  const { setQueue, playTrack, current, isPlaying, togglePlay, addToPlaylist } = usePlayer()
   const [liked, setLiked] = useState(false)
   const [likeCount, setLikeCount] = useState(0)
   const [commentText, setCommentText] = useState("")
   const [fromFilter, setFromFilter] = useState(false)
   const [track, setTrack] = useState<Track | null>(null)
+  const [workAuthors, setWorkAuthors] = useState<any[]>([])
+  const [anonymousCount, setAnonymousCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const { loggedIn, setShowLoginModal } = useAuth()
 
@@ -141,56 +143,60 @@ function WorkDetailInner() {
     setCommentText("")
   }
 
-  // 从 API 读取作品
+  // 从 /api/works 读取作品
   useEffect(() => {
     const id = resolveId()
     if (!id) { setLoading(false); return }
 
     Promise.all([
-      fetch(`/api/tracks/${id}`).then(r => r.json()),
-      fetch("/api/tracks?limit=50").then(r => r.json()),
-    ]).then(([trackData, allData]) => {
-      if (trackData.ok) {
-        const t = trackData.track
+      fetch(`/api/works/${id}`).then(r => r.json()),
+      fetch("/api/works").then(r => r.json()),
+    ]).then(([workData, allData]) => {
+      if (workData.ok) {
+        const w = workData.work
         const mapped: Track = {
-          id: String(t.id),
-          title: t.title,
-          author: t.author_name,
-          type: t.type,
-          scale: t.scale,
-          nature: t.nature,
-          styles: t.styles || [],
-          instruments: t.instruments || [],
-          plays: t.plays,
-          likes: t.likes,
-          comments: t.comments,
-          duration: t.duration,
-          gradient: GRADIENTS[t.id % GRADIENTS.length],
-          date: t.date ? t.date.slice(0, 10) : "",
-          members: t.members || [],
-          coverImage: t.cover_image || "",
+          id: String(w.id),
+          title: w.title,
+          author: w.author,
+          type: w.type,
+          scale: w.scale,
+          nature: w.nature,
+          styles: w.styles || [],
+          instruments: w.instruments || [],
+          plays: w.plays,
+          likes: w.likes,
+          comments: w.comments,
+          duration: w.duration,
+          gradient: w.coverGradient || GRADIENTS[w.id % GRADIENTS.length],
+          date: w.date || "",
+          members: w.members || [],
+          coverImage: w.coverImage || "",
+          mp3Url: w.mp3Url || "",
         }
         setTrack(mapped)
-        setLikeCount(t.likes)
+        setLikeCount(w.likes)
+        setWorkAuthors(w.authors || [])
+        setAnonymousCount(w.anonymousCount || 0)
       }
       if (allData.ok) {
-        const queue: Track[] = allData.tracks.map((tr: any, i: number) => ({
-          id: String(tr.id),
-          title: tr.title,
-          author: tr.author_name,
-          type: tr.type,
-          scale: tr.scale,
-          nature: tr.nature,
-          styles: tr.styles || [],
-          instruments: tr.instruments || [],
-          plays: tr.plays,
-          likes: tr.likes,
-          comments: tr.comments,
-          duration: tr.duration,
-          gradient: GRADIENTS[i % GRADIENTS.length],
-          date: tr.date ? tr.date.slice(0, 10) : "",
-          members: tr.members || [],
-          coverImage: tr.cover_image || "",
+        const queue: Track[] = allData.works.map((wr: any, i: number) => ({
+          id: String(wr.id),
+          title: wr.title,
+          author: wr.author,
+          type: wr.type,
+          scale: wr.scale,
+          nature: wr.nature,
+          styles: wr.styles || [],
+          instruments: wr.instruments || [],
+          plays: wr.plays,
+          likes: wr.likes,
+          comments: wr.comments,
+          duration: wr.duration,
+          gradient: wr.coverGradient || GRADIENTS[i % GRADIENTS.length],
+          date: wr.date || "",
+          members: wr.members || [],
+          coverImage: wr.coverImage || "",
+          mp3Url: wr.mp3Url || "",
         }))
         setQueue(queue)
       }
@@ -347,6 +353,14 @@ function WorkDetailInner() {
                 <MessageCircle className="h-4 w-4" />
                 {track.comments}
               </span>
+              <button
+                type="button"
+                onClick={() => addToPlaylist(track)}
+                className="flex items-center gap-1.5 text-sm text-white/70 transition-colors hover:text-white"
+              >
+                <ListMusic className="h-4 w-4" />
+                加入播放列表
+              </button>
             </div>
 
             {/* CTA — 放在右侧空白处 */}
@@ -384,17 +398,28 @@ function WorkDetailInner() {
         {/* 参与乐手区 */}
         <section className="mt-10">
           <SectionTitle>参与乐手</SectionTitle>
-          <div className="mt-3 flex flex-wrap gap-x-6 gap-y-4">
-            {track.members.map((name, i) => (
-              <div key={name} className="flex items-center gap-2">
-                <Avatar name={name} gradient={musicianGradients[i % musicianGradients.length]} size={36} />
-                <span className="text-sm text-white"><UserPopover nickname={name}>{name}</UserPopover></span>
-                <span className="text-base leading-none">
-                  {track.instruments[i] ? instrumentEmojis[track.instruments[i]] ?? "🎵" : "🎵"}
-                </span>
-              </div>
-            ))}
-          </div>
+
+          {/* 署名乐手 */}
+          {workAuthors.filter((a: any) => !a.is_anonymous).length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-x-6 gap-y-4">
+              {workAuthors.filter((a: any) => !a.is_anonymous).map((a: any, i: number) => (
+                <div key={a.user_id || `anon-${i}`} className="flex items-center gap-2">
+                  <Avatar name={a.nickname} gradient={musicianGradients[i % musicianGradients.length]} size={36} />
+                  <span className="text-sm text-white"><UserPopover nickname={a.nickname}>{a.nickname}</UserPopover></span>
+                  <span className="text-base leading-none">
+                    {instrumentEmojis[a.instrument_category] ?? "🎵"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* 匿名乐手 */}
+          {anonymousCount > 0 && (
+            <p className="mt-3 text-sm" style={{ color: "#8A8A8A" }}>
+              {anonymousCount}位匿名乐手
+            </p>
+          )}
         </section>
 
         {/* 评论区 — 可滚动 + 时间戳 + 输入框 */}

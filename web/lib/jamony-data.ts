@@ -197,6 +197,7 @@ export interface Track {
   date: string
   members: string[]
   coverImage?: string
+  mp3Url?: string
 }
 
 const G = {
