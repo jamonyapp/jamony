@@ -16,6 +16,7 @@ import {
   ChevronRight,
   AlertTriangle,
   Headphones,
+  Volume2,
 } from "lucide-react"
 import { autoMix, type MixTrackInfo } from "@/lib/auto-mix"
 
@@ -236,6 +237,11 @@ export default function PublishWorkModal({
   const [duration, setDuration] = useState(0)
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  const [volume, setVolume] = useState(1)
+  const [seeking, setSeeking] = useState(false)
+  const [volDragging, setVolDragging] = useState(false)
+  const seekBarRef = useRef<HTMLDivElement>(null)
+  const volBarRef = useRef<HTMLDivElement>(null)
 
   /* 混音完成时创建 audio URL + 挂载播放器事件 */
   useEffect(() => {
@@ -283,6 +289,11 @@ export default function PublishWorkModal({
     }
   }, [])
   useEffect(() => { setupAudio() }, [setupAudio])
+
+  // 音量同步到 audio
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.volume = volume
+  }, [volume, mixDone, audioUrl])
 
   /* 表单 */
   const [name, setName] = useState("")
@@ -582,14 +593,45 @@ export default function PublishWorkModal({
   const totalSecs = duration || 204 // 真实时长优先，fallback 给 demo
   const progress = totalSecs > 0 ? (current / totalSecs) * 100 : 0
 
-  const seek = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!mixDone || !audioRef.current) return
-    const rect = e.currentTarget.getBoundingClientRect()
-    const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width))
+  const seekFromClientX = useCallback((clientX: number) => {
+    if (!mixDone || !audioRef.current || !seekBarRef.current) return
+    const rect = seekBarRef.current.getBoundingClientRect()
+    const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width))
     const newTime = ratio * totalSecs
     audioRef.current.currentTime = newTime
     setCurrent(newTime)
-  }
+  }, [mixDone, totalSecs])
+
+  const volFromClientX = useCallback((clientX: number) => {
+    if (!volBarRef.current) return
+    const rect = volBarRef.current.getBoundingClientRect()
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
+    setVolume(ratio)
+  }, [])
+
+  useEffect(() => {
+    if (!seeking) return
+    const onMove = (e: MouseEvent) => seekFromClientX(e.clientX)
+    const onUp = () => setSeeking(false)
+    window.addEventListener("mousemove", onMove)
+    window.addEventListener("mouseup", onUp)
+    return () => {
+      window.removeEventListener("mousemove", onMove)
+      window.removeEventListener("mouseup", onUp)
+    }
+  }, [seeking, seekFromClientX])
+
+  useEffect(() => {
+    if (!volDragging) return
+    const onMove = (e: MouseEvent) => volFromClientX(e.clientX)
+    const onUp = () => setVolDragging(false)
+    window.addEventListener("mousemove", onMove)
+    window.addEventListener("mouseup", onUp)
+    return () => {
+      window.removeEventListener("mousemove", onMove)
+      window.removeEventListener("mouseup", onUp)
+    }
+  }, [volDragging, volFromClientX])
 
   const publishDisabled =
     !mixDone || !name.trim() || !style || !copyright || !agreed
@@ -829,9 +871,14 @@ export default function PublishWorkModal({
                       <Square className="h-4 w-4" />
                     </button>
                     <div
+                      ref={seekBarRef}
                       className="relative h-1.5 flex-1 cursor-pointer rounded-full"
                       style={{ backgroundColor: "rgba(255,255,255,0.15)" }}
-                      onClick={seek}
+                      onMouseDown={(e) => {
+                        if (!mixDone) return
+                        setSeeking(true)
+                        seekFromClientX(e.clientX)
+                      }}
                     >
                       <div
                         className="absolute inset-y-0 left-0 rounded-full"
@@ -844,6 +891,24 @@ export default function PublishWorkModal({
                     <span className="shrink-0 text-sm tabular-nums" style={{ color: "#8A8A8A" }}>
                       {fmt(current)} / {fmt(totalSecs)}
                     </span>
+                    {/* 音量 */}
+                    <div className="flex items-center gap-1.5">
+                      <Volume2 className="h-3.5 w-3.5" style={{ color: "#8A8A8A" }} />
+                      <div
+                        ref={volBarRef}
+                        className="relative h-1 w-12 cursor-pointer overflow-hidden rounded-full"
+                        style={{ backgroundColor: "rgba(255,255,255,0.15)" }}
+                        onMouseDown={(e) => {
+                          setVolDragging(true)
+                          volFromClientX(e.clientX)
+                        }}
+                      >
+                        <div
+                          className="absolute inset-y-0 left-0 rounded-full bg-white/70"
+                          style={{ width: `${volume * 100}%` }}
+                        />
+                      </div>
+                    </div>
                   </div>
                   <audio ref={audioRef} preload="auto" />
                   </>

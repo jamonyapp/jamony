@@ -35,6 +35,8 @@ interface PlayerContextValue {
   playlist: Track[]
   currentTime: number
   duration: number
+  volume: number
+  setVolume: (v: number) => void
   playTrack: (track: Track) => void
   togglePlay: () => void
   playNext: () => void
@@ -56,6 +58,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [playlist, setPlaylist] = useState<Track[]>([])
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
+  const [volume, setVolume] = useState(1)
   const audioRef = useRef<HTMLAudioElement | null>(null)
 
   // 当前曲目变化时 → 创建新 Audio
@@ -73,6 +76,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
     const audio = new Audio(current.mp3Url)
     audio.preload = "auto"
+    audio.volume = volume
     audioRef.current = audio
 
     audio.addEventListener("loadedmetadata", () => {
@@ -138,7 +142,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const playNext = useCallback(() => {
     const next = pickNext(1)
-    if (!next) return
+    if (!next) {
+      // 无下一首：回到停止状态，进度归零
+      setIsPlaying(false)
+      setCurrentTime(0)
+      if (audioRef.current) audioRef.current.currentTime = 0
+      return
+    }
     setCurrent(next)
     setIsPlaying(true)
   }, [pickNext])
@@ -188,6 +198,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setCurrentTime(time)
   }, [])
 
+  // 音量变化 → 同步到 audio
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.volume = volume
+  }, [volume])
+
   const addToPlaylist = useCallback((track: Track) => {
     setPlaylist((list) => {
       if (list.some((t) => t.id === track.id)) return list
@@ -202,12 +217,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const value = useMemo(
     () => ({
       current, isPlaying, repeatMode, playlist,
-      currentTime, duration,
+      currentTime, duration, volume, setVolume,
       playTrack, togglePlay, playNext, playPrev, seekTo,
       setQueue, cycleRepeatMode, addToPlaylist, removeFromPlaylist,
     }),
     [
-      current, isPlaying, repeatMode, playlist, currentTime, duration,
+      current, isPlaying, repeatMode, playlist, currentTime, duration, volume,
       playTrack, togglePlay, playNext, playPrev, seekTo,
       cycleRepeatMode, addToPlaylist, removeFromPlaylist,
     ],

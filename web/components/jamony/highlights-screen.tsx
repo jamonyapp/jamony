@@ -1,7 +1,7 @@
 "use client"
 
-import { Heart, Pause, Play, SkipBack, SkipForward, X, ExternalLink, ListMusic, MessageCircle } from "lucide-react"
-import { useEffect, useState } from "react"
+import { Heart, Pause, Play, SkipBack, SkipForward, X, ExternalLink, ListMusic, MessageCircle, Volume2 } from "lucide-react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { SectionHeader } from "./section-header"
 import { useAuth } from "@/lib/auth-context"
 import { PlayerProvider, usePlayer } from "@/components/jamony/player-context"
@@ -19,6 +19,7 @@ type Highlight = {
   style: string
   trackId: string
   mp3Url?: string
+  coverImage?: string
 }
 
 const DISC_ANGLES = [-2.0, 1.6, -1.4, 2.2]
@@ -63,7 +64,9 @@ function HighlightCard({ item, angle, onOpen }: { item: Highlight; angle: number
     <button
       className="jamony-disc group relative aspect-square w-full overflow-hidden rounded-[10px] text-left"
       style={{
-        background: item.gradient,
+        background: item.coverImage
+          ? `url(${item.coverImage}) center/cover`
+          : item.gradient,
         transform: `rotate(${angle}deg)`,
         boxShadow: "0 10px 28px rgba(0,0,0,0.5)",
       }}
@@ -110,10 +113,54 @@ function DetailModal({ item, onClose }: { item: Highlight; onClose: () => void }
   const [feedbackText, setFeedbackText] = useState("")
   const [feedbackSent, setFeedbackSent] = useState(false)
   const { loggedIn, setShowLoginModal } = useAuth()
-  const { playTrack, addToPlaylist, isPlaying, current, togglePlay, currentTime, duration } = usePlayer()
+  const { playTrack, addToPlaylist, isPlaying, current, togglePlay, currentTime, duration, volume, setVolume, seekTo } = usePlayer()
 
   const isThisTrack = current?.id === item.trackId
   const isThisPlaying = isThisTrack && isPlaying
+
+  /* 进度条：点击 + 拖拽 */
+  const [seeking, setSeeking] = useState(false)
+  const seekBarRef = useRef<HTMLDivElement>(null)
+  const seekFromClientX = useCallback((clientX: number) => {
+    const el = seekBarRef.current
+    if (!el || duration <= 0) return
+    const rect = el.getBoundingClientRect()
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
+    seekTo(ratio * duration)
+  }, [duration, seekTo])
+  useEffect(() => {
+    if (!seeking) return
+    const onMove = (e: MouseEvent) => seekFromClientX(e.clientX)
+    const onUp = () => setSeeking(false)
+    window.addEventListener("mousemove", onMove)
+    window.addEventListener("mouseup", onUp)
+    return () => {
+      window.removeEventListener("mousemove", onMove)
+      window.removeEventListener("mouseup", onUp)
+    }
+  }, [seeking, seekFromClientX])
+
+  /* 音量：点击 + 拖拽 */
+  const [volDragging, setVolDragging] = useState(false)
+  const volBarRef = useRef<HTMLDivElement>(null)
+  const volFromClientX = useCallback((clientX: number) => {
+    const el = volBarRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
+    setVolume(ratio)
+  }, [setVolume])
+  useEffect(() => {
+    if (!volDragging) return
+    const onMove = (e: MouseEvent) => volFromClientX(e.clientX)
+    const onUp = () => setVolDragging(false)
+    window.addEventListener("mousemove", onMove)
+    window.addEventListener("mouseup", onUp)
+    return () => {
+      window.removeEventListener("mousemove", onMove)
+      window.removeEventListener("mouseup", onUp)
+    }
+  }, [volDragging, volFromClientX])
 
   function handlePlayToggle() {
     if (isThisTrack) {
@@ -135,7 +182,7 @@ function DetailModal({ item, onClose }: { item: Highlight; onClose: () => void }
         gradient: item.gradient,
         date: item.date,
         members: item.members.map(m => m.name),
-        coverImage: "",
+        coverImage: item.coverImage || "",
         mp3Url: item.mp3Url,
       }
       playTrack(track)
@@ -167,7 +214,9 @@ function DetailModal({ item, onClose }: { item: Highlight; onClose: () => void }
             <div
               className="relative flex h-36 w-36 items-center justify-center rounded-full sm:h-44 sm:w-44"
               style={{
-                background: `${item.gradient}, repeating-radial-gradient(circle at center, rgba(0,0,0,0.35) 0 2px, transparent 2px 5px)`,
+                background: item.coverImage
+                  ? `url(${item.coverImage}) center/cover, repeating-radial-gradient(circle at center, rgba(0,0,0,0.35) 0 2px, transparent 2px 5px)`
+                  : `${item.gradient}, repeating-radial-gradient(circle at center, rgba(0,0,0,0.35) 0 2px, transparent 2px 5px)`,
                 backgroundBlendMode: "overlay",
                 boxShadow: "0 12px 30px rgba(0,0,0,0.6)",
               }}
@@ -284,7 +333,15 @@ function DetailModal({ item, onClose }: { item: Highlight; onClose: () => void }
           <button className="text-white/70 transition-colors hover:text-white" onClick={() => console.log("[v0] next")}>
             <SkipForward className="h-4 w-4 sm:h-5 sm:w-5" fill="currentColor" />
           </button>
-          <div className="relative mx-1 h-1 flex-1 rounded-full bg-white/15 sm:mx-2 sm:h-1.5">
+          <div
+            ref={seekBarRef}
+            className="relative mx-1 h-1 flex-1 cursor-pointer rounded-full bg-white/15 sm:mx-2 sm:h-1.5"
+            onMouseDown={(e) => {
+              if (!isThisTrack || duration <= 0) return
+              setSeeking(true)
+              seekFromClientX(e.clientX)
+            }}
+          >
             <span
               className="absolute inset-y-0 left-0 rounded-full"
               style={{
@@ -296,6 +353,23 @@ function DetailModal({ item, onClose }: { item: Highlight; onClose: () => void }
           <span className="text-[11px] tabular-nums sm:text-[12px]" style={{ color: "#8A8A8A" }}>
             {isThisTrack ? formatHighlightTime(currentTime) : "00:00"} / {item.duration}
           </span>
+          {/* 音量 */}
+          <div className="ml-1 hidden items-center gap-1.5 sm:flex">
+            <Volume2 className="h-3.5 w-3.5" style={{ color: "#8A8A8A" }} />
+            <div
+              ref={volBarRef}
+              className="relative h-1 w-14 cursor-pointer overflow-hidden rounded-full bg-white/15"
+              onMouseDown={(e) => {
+                setVolDragging(true)
+                volFromClientX(e.clientX)
+              }}
+            >
+              <span
+                className="absolute inset-y-0 left-0 rounded-full bg-white/70"
+                style={{ width: `${volume * 100}%` }}
+              />
+            </div>
+          </div>
         </div>
 
         {/* 反馈输入框 */}
@@ -371,6 +445,7 @@ function HighlightsInner() {
             style: w.styles?.[0] || "",
             trackId: String(w.id),
             mp3Url: w.mp3Url || "",
+            coverImage: w.coverImage || "",
           }
         })
         setWorks(mapped)

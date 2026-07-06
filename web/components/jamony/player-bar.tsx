@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import {
   Pause,
   Play,
@@ -32,6 +32,8 @@ export function PlayerBar() {
     playlist,
     currentTime,
     duration,
+    volume,
+    setVolume,
     togglePlay,
     playNext,
     playPrev,
@@ -50,6 +52,50 @@ export function PlayerBar() {
     return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
   }
   const modeActive = repeatMode !== "sequential"
+
+  /* 进度条：点击 + 拖拽 */
+  const [seeking, setSeeking] = useState(false)
+  const seekBarRef = useRef<HTMLDivElement>(null)
+  const seekFromClientX = useCallback((clientX: number) => {
+    const el = seekBarRef.current
+    if (!el || duration <= 0) return
+    const rect = el.getBoundingClientRect()
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
+    seekTo(ratio * duration)
+  }, [duration, seekTo])
+  useEffect(() => {
+    if (!seeking) return
+    const onMove = (e: MouseEvent) => seekFromClientX(e.clientX)
+    const onUp = () => setSeeking(false)
+    window.addEventListener("mousemove", onMove)
+    window.addEventListener("mouseup", onUp)
+    return () => {
+      window.removeEventListener("mousemove", onMove)
+      window.removeEventListener("mouseup", onUp)
+    }
+  }, [seeking, seekFromClientX])
+
+  /* 音量：点击 + 拖拽 */
+  const [volDragging, setVolDragging] = useState(false)
+  const volBarRef = useRef<HTMLDivElement>(null)
+  const volFromClientX = useCallback((clientX: number) => {
+    const el = volBarRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
+    setVolume(ratio)
+  }, [setVolume])
+  useEffect(() => {
+    if (!volDragging) return
+    const onMove = (e: MouseEvent) => volFromClientX(e.clientX)
+    const onUp = () => setVolDragging(false)
+    window.addEventListener("mousemove", onMove)
+    window.addEventListener("mouseup", onUp)
+    return () => {
+      window.removeEventListener("mousemove", onMove)
+      window.removeEventListener("mouseup", onUp)
+    }
+  }, [volDragging, volFromClientX])
 
   return (
     <>
@@ -145,13 +191,22 @@ export function PlayerBar() {
           {/* 左侧：色块 + 信息 */}
           <div className="flex min-w-0 items-center gap-3">
             <div
-              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md"
+              className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-md"
               style={{
-                background: current ? current.gradient : "#1A1A1A",
+                background: current
+                  ? current.coverImage
+                    ? "#161616"
+                    : current.gradient
+                  : "#1A1A1A",
               }}
               aria-hidden
             >
-              {!current && <ListMusic className="h-5 w-5 text-[#555]" />}
+              {current?.coverImage ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={current.coverImage} alt="" className="h-full w-full object-cover" />
+              ) : !current ? (
+                <ListMusic className="h-5 w-5 text-[#555]" />
+              ) : null}
             </div>
             <div className="min-w-0">
               <p className="truncate text-sm font-bold text-white">
@@ -201,12 +256,12 @@ export function PlayerBar() {
           {/* 中间：进度条 */}
           <div className="flex flex-1 items-center gap-3">
             <div
+              ref={seekBarRef}
               className="relative h-1 flex-1 cursor-pointer overflow-hidden rounded-full bg-white/15"
-              onClick={(e) => {
+              onMouseDown={(e) => {
                 if (!hasTrack || duration <= 0) return
-                const rect = e.currentTarget.getBoundingClientRect()
-                const ratio = (e.clientX - rect.left) / rect.width
-                seekTo(ratio * duration)
+                setSeeking(true)
+                seekFromClientX(e.clientX)
               }}
             >
               {hasTrack && duration > 0 && (
@@ -255,8 +310,18 @@ export function PlayerBar() {
             </button>
             <div className="ml-1 hidden items-center gap-2 md:flex">
               <Volume2 className="h-4 w-4 text-[#9A9A9A]" />
-              <div className="relative h-1 w-20 overflow-hidden rounded-full bg-white/15">
-                <div className="absolute inset-y-0 left-0 w-2/3 rounded-full bg-white/70" />
+              <div
+                ref={volBarRef}
+                className="relative h-1 w-20 cursor-pointer overflow-hidden rounded-full bg-white/15"
+                onMouseDown={(e) => {
+                  setVolDragging(true)
+                  volFromClientX(e.clientX)
+                }}
+              >
+                <div
+                  className="absolute inset-y-0 left-0 rounded-full bg-white/70"
+                  style={{ width: `${volume * 100}%` }}
+                />
               </div>
             </div>
           </div>

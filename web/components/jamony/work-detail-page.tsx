@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, Play, Heart, MessageCircle, Guitar, Check, ListMusic } from "lucide-react"
+import { Play, Pause, Heart, MessageCircle, Guitar, Check, ListMusic } from "lucide-react"
 import { TopNav } from "@/components/jamony/top-nav"
 import { PlayerBar } from "@/components/jamony/player-bar"
 import { PlayerProvider, usePlayer } from "@/components/jamony/player-context"
@@ -53,11 +53,6 @@ function VinylCover({ track }: { track: Track }) {
         // eslint-disable-next-line @next/next/no-img-element
         <img src={track.coverImage} alt={track.title} className="absolute inset-0 h-full w-full object-cover" />
       )}
-      <div className="absolute inset-0 flex items-center justify-center">
-        <span className="max-w-[40%] text-center text-[10px] font-semibold leading-tight text-white/80">
-          {track.title}
-        </span>
-      </div>
     </div>
   )
 }
@@ -248,7 +243,7 @@ function WorkDetailInner() {
     { label: "性质", value: track.nature === "original" ? "Original" : "Cover" },
     { label: "风格", value: track.styles.join(" · ") },
     { label: "乐器", value: track.instruments.join(" · ") },
-    { label: "录制时间", value: track.date },
+    { label: "发表时间", value: track.date },
     { label: "时长", value: track.duration },
   ]
 
@@ -283,18 +278,6 @@ function WorkDetailInner() {
       />
 
       <div className="mx-auto w-full max-w-3xl px-4 pb-32 pt-[3.75rem]">
-        {/* 顶部返回 */}
-        <header className="sticky top-11 z-30 -mx-4 bg-black/90 px-4 py-4 backdrop-blur">
-          <button
-            type="button"
-            onClick={() => router.push("/library")}
-            className="flex items-center gap-1.5 text-sm text-white/80 transition-colors hover:text-white"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            返回
-          </button>
-        </header>
-
         {/* 主视觉区 */}
         <section className="flex flex-col gap-5 pt-2 sm:flex-row sm:items-start">
           <button
@@ -304,10 +287,16 @@ function WorkDetailInner() {
             aria-label={isCurrentPlaying ? "暂停" : "播放"}
           >
             <VinylCover track={track} />
-            <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/0 transition-colors group-hover:bg-black/30">
-              <span className="flex h-12 w-12 scale-90 items-center justify-center rounded-full bg-black/60 text-white opacity-0 backdrop-blur transition-all group-hover:scale-100 group-hover:opacity-100">
+            <div className={`absolute inset-0 flex items-center justify-center rounded-xl transition-colors ${isCurrentPlaying ? "bg-black/30" : "bg-black/0 group-hover:bg-black/30"}`}>
+              <span
+                className={`flex h-12 w-12 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur transition-all ${
+                  isCurrentPlaying
+                    ? "scale-100 opacity-100"
+                    : "scale-90 opacity-0 group-hover:scale-100 group-hover:opacity-100"
+                }`}
+              >
                 {isCurrentPlaying ? (
-                  <Play className="ml-0.5 h-5 w-5 fill-white" />
+                  <Pause className="h-5 w-5 fill-white" />
                 ) : (
                   <Play className="ml-0.5 h-5 w-5 fill-white" />
                 )}
