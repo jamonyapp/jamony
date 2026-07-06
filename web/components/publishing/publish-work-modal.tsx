@@ -60,6 +60,8 @@ interface PublishWorkModalProps {
   forceMixError?: boolean
   forcePublishFail?: boolean
   forceLockLost?: boolean
+  /** 当前 session 的最新 publisher_user_id（socket 实时更新，用于检测锁丢失） */
+  livePublisherUserId?: number | null
 }
 
 type State = "mixing" | "form" | "publishing" | "success" | "failure" | "lockLost"
@@ -144,6 +146,7 @@ export default function PublishWorkModal({
   forceMixError,
   forcePublishFail,
   forceLockLost,
+  livePublisherUserId,
 }: PublishWorkModalProps) {
   const [state, setState] = useState<State>("mixing")
   const [mixDone, setMixDone] = useState(false)
@@ -152,6 +155,58 @@ export default function PublishWorkModal({
   const [publishErrorMessage, setPublishErrorMessage] = useState("")
   const [mixProgress, setMixProgress] = useState("")
   const isRealMix = !!(roomId && sessionId && currentUserId && authorizedTrackIds?.length)
+
+  /* 发表锁检测：标记是否已确认抢到锁 */
+  const [acquired, setAcquired] = useState(false)
+
+  /* 打开时重置 acquired，确认锁归自己后标记 */
+  useEffect(() => {
+    if (!open) { setAcquired(false); return }
+    if (livePublisherUserId === currentUserId && !acquired) {
+      setAcquired(true)
+    }
+  }, [open, livePublisherUserId, currentUserId, acquired])
+
+  /* 5 分钟超时自动释放锁 */
+  const lockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const clearLockTimer = useCallback(() => {
+    if (lockTimerRef.current) { clearTimeout(lockTimerRef.current); lockTimerRef.current = null }
+  }, [])
+
+  const startLockTimer = useCallback(() => {
+    clearLockTimer()
+    lockTimerRef.current = setTimeout(() => {
+      if (roomId && sessionId !== undefined && currentUserId) {
+        // 释放锁
+        fetch(`/api/rooms/${roomId}/sessions/${sessionId}/release-claim`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: currentUserId }),
+        }).catch(() => {})
+      }
+      setState("lockLost")
+    }, 5 * 60 * 1000)
+  }, [roomId, sessionId, currentUserId, clearLockTimer])
+
+  /* 监听 acquired + state → 启动/取消 5分钟计时 */
+  useEffect(() => {
+    if (!open) { clearLockTimer(); return }
+    if (!acquired) { clearLockTimer(); return }
+    if (state === "success" || state === "publishing" || state === "lockLost") { clearLockTimer(); return }
+    startLockTimer()
+    return () => clearLockTimer()
+  }, [open, acquired, state, startLockTimer, clearLockTimer])
+
+  /* 监听 publisher_user_id 变化 → 锁被释放/抢走 */
+  useEffect(() => {
+    if (!open) return
+    if (!acquired) return
+    if (state === "success" || state === "publishing" || state === "lockLost") return
+    if (livePublisherUserId !== currentUserId) {
+      clearLockTimer()
+      setState("lockLost")
+    }
+  }, [open, acquired, livePublisherUserId, currentUserId, state, clearLockTimer])
 
   /* 混音产出的 MP3 Blob & 时长 */
   const mp3BlobRef = useRef<Blob | null>(null)

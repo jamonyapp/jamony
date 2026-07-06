@@ -677,12 +677,35 @@ function isDrumsRunning(roomPort) {
   } catch { return false }
 }
 
-// 计算单个 session 的汇总状态：全员 ①② 是否锁定、授权人数
-function summarizeSession(session, tracks) {
+// 计算单个 session 的汇总状态：全员 ①② 是否锁定、授权人数、发表人
+async function summarizeSession(session, tracks) {
   const realTracks = tracks.filter(t => !t.is_system)
   const allLocked = realTracks.length > 0 && realTracks.every(t => t.use_locked && t.attribution_locked)
   const agreedCount = realTracks.filter(t => t.allow_use === true).length
-  return { ...session, tracks, all_locked: allLocked, agreed_count: agreedCount }
+
+  // 自动释放超过5分钟的发表锁
+  if (session.publisher_user_id && session.claimed_at && session.status !== 'published') {
+    const claimedAt = new Date(session.claimed_at)
+    const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000)
+    if (claimedAt < fiveMinAgo) {
+      await pool.query(
+        'UPDATE recording_sessions SET publisher_user_id=NULL, claimed_at=NULL WHERE id=$1',
+        [session.id]
+      )
+      session.publisher_user_id = null
+      session.claimed_at = null
+    }
+  }
+
+  // 发表人昵称懒查询
+  let publisherNickname = null
+  if (session.publisher_user_id) {
+    try {
+      const u = await pool.query('SELECT nickname FROM users WHERE id=$1', [session.publisher_user_id])
+      if (u.rows.length > 0) publisherNickname = u.rows[0].nickname
+    } catch (e) {}
+  }
+  return { ...session, tracks, all_locked: allLocked, agreed_count: agreedCount, publisher_nickname: publisherNickname }
 }
 
 // 懒处理：倒计时已到且仍授权中 → 未决定的 ① 默认授权、② 默认署名（仅当①=true），并写死锁定
@@ -722,7 +745,7 @@ async function getRoomSessions(roomId) {
   const result = []
   for (const s of sessions.rows) {
     const tr = await pool.query('SELECT * FROM session_tracks WHERE session_id=$1 ORDER BY is_system, created_at', [s.id])
-    result.push(summarizeSession(s, tr.rows))
+    result.push(await summarizeSession(s, tr.rows))
   }
   return result
 }
@@ -1136,6 +1159,66 @@ app.get('/api/rooms/:id/sessions/:sid/tracks/:tid/download', async (req, res) =>
     stream.on('error', () => { if (!res.headersSent) res.status(500).end() })
   } catch (err) {
     console.error('Track download error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// 抢发表锁（先到先得）
+app.post('/api/rooms/:id/sessions/:sid/claim-publish', async (req, res) => {
+  try {
+    const { id: roomId, sid: sessionId } = req.params
+    const { userId } = req.body
+
+    if (!userId) return res.status(400).json({ ok: false, msg: '缺少 userId' })
+
+    // 原子化更新：只有 publisher_user_id 为 NULL 时才能写入
+    const result = await pool.query(
+      "UPDATE recording_sessions SET publisher_user_id=$1, claimed_at=NOW() WHERE id=$2 AND publisher_user_id IS NULL AND status='authorizing' RETURNING *",
+      [userId, sessionId]
+    )
+
+    if (result.rows.length === 0) {
+      // 已经被别人抢了或 session 已发表 — 查是谁
+      const sess = await pool.query('SELECT publisher_user_id FROM recording_sessions WHERE id=$1', [sessionId])
+      if (sess.rows.length === 0) return res.status(404).json({ ok: false, msg: 'Session 不存在' })
+      if (sess.rows[0].publisher_user_id === null) {
+        return res.status(409).json({ ok: false, msg: '抢锁失败' })
+      }
+      const pid = sess.rows[0].publisher_user_id
+      const u = await pool.query('SELECT nickname FROM users WHERE id=$1', [pid])
+      const nick = u.rows.length > 0 ? u.rows[0].nickname : '未知用户'
+      return res.json({ ok: true, claimed: false, publisher_user_id: pid, publisher_nickname: nick })
+    }
+
+    // 抢锁成功，广播 sessions 更新
+    await broadcastSessions(roomId)
+    const u = await pool.query('SELECT nickname FROM users WHERE id=$1', [userId])
+    const nick = u.rows.length > 0 ? u.rows[0].nickname : '未知用户'
+    res.json({ ok: true, claimed: true, publisher_user_id: userId, publisher_nickname: nick })
+  } catch (err) {
+    console.error('Claim publish error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// 释放发表锁（关闭发表卡片但未发表时调用）
+app.post('/api/rooms/:id/sessions/:sid/release-claim', async (req, res) => {
+  try {
+    const { id: roomId, sid: sessionId } = req.params
+    const { userId } = req.body
+
+    if (!userId) return res.status(400).json({ ok: false, msg: '缺少 userId' })
+
+    await pool.query(
+      'UPDATE recording_sessions SET publisher_user_id=NULL WHERE id=$1 AND publisher_user_id=$2',
+      [sessionId, userId]
+    )
+
+    // 广播 sessions 更新
+    await broadcastSessions(roomId)
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('Release claim error:', err)
     res.status(500).json({ ok: false, msg: '服务器错误' })
   }
 })

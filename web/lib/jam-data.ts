@@ -99,6 +99,8 @@ export type RecordingSession = {
   expires_at: string | null
   all_locked: boolean               // 全员 ①② 已写死（主动选完 或 倒计时默认）
   agreed_count: number              // 授权人数
+  publisher_user_id: number | null  // 当前进入发表流程的人
+  publisher_nickname: string | null // 发表人昵称
   tracks: Track[]
 }
 

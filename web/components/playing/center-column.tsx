@@ -532,6 +532,10 @@ function SessionCard({
   const showCountdown = !session.all_locked && remaining > 0
   const canPublish = session.all_locked && session.agreed_count > 0
   const [publishOpen, setPublishOpen] = useState(false)
+  const [claiming, setClaiming] = useState(false)
+  const [claimTaken, setClaimTaken] = useState<{ userId: number; nickname: string } | null>(null)
+  const [showClaimConfirm, setShowClaimConfirm] = useState(false) // 抢锁成功后确认弹窗
+  const publishClaimedRef = useRef(false) // 跟踪当前用户是否抢到锁
   const refusedCount = session.tracks.filter(t => !t.is_system && t.allow_use === false).length
 
   /* PublishWorkModal 数据映射 — useMemo 防止引用变化导致混音无限循环 */
@@ -605,14 +609,7 @@ function SessionCard({
                   <span className="text-xs text-muted-foreground">
                     <span className="font-semibold text-brand-green">{session.agreed_count}人已授权</span> · {refusedCount}人拒绝
                   </span>
-                  {canPublish && (
-                    <button
-                      onClick={() => setPublishOpen(true)}
-                      className="rounded-full bg-brand-blue px-4 py-1.5 text-xs font-bold text-white transition-transform hover:scale-[1.03]"
-                    >
-                      去发表
-                    </button>
-                  )}
+                  {canPublish && handlePublishButton()}
                 </>
               )}
             </>
@@ -636,7 +633,18 @@ function SessionCard({
       {publishOpen && (
         <PublishWorkModal
           open={publishOpen}
-          onClose={() => setPublishOpen(false)}
+          onClose={() => {
+            setPublishOpen(false)
+            // 关闭发表卡片但未发表 → 释放锁
+            if (currentUserId && publishClaimedRef.current && session.status !== "published") {
+              publishClaimedRef.current = false
+              fetch(`/api/rooms/${roomId}/sessions/${session.id}/release-claim`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ userId: currentUserId }),
+              }).catch(() => {})
+            }
+          }}
           session={{ index: session.index, duration: session.duration }}
           roomName={roomName || ""}
           roomStyle={roomStyle || ""}
@@ -649,14 +657,174 @@ function SessionCard({
           authorizedTrackIds={authorizedTrackIds}
           authorizedTrackIsDrums={authorizedTrackIsDrums}
           allTrackAuthors={allTrackAuthors}
+          livePublisherUserId={session.publisher_user_id}
           onPublished={() => {
             // 发表成功后，socket 会推 sessions-update，自动刷新
             console.log(`session ${session.id} published`)
           }}
         />
       )}
+
+      {/* 手慢一步弹窗 */}
+      {claimTaken && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }}
+          onClick={() => setClaimTaken(null)}
+        >
+          <div
+            className="jamony-modal-enter relative w-full max-w-xs rounded-2xl border px-5 py-5 text-center"
+            style={{ backgroundColor: "#0D0D0D", borderColor: "#1A1A1A" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-xs leading-relaxed text-white" style={{ lineHeight: 1.7 }}>
+              手慢一步！<span style={{ color: "#00AAFF" }}>{claimTaken.nickname}</span>正在帮大家发表作品，请稍候。
+            </p>
+            <button
+              onClick={() => setClaimTaken(null)}
+              className="mt-4 rounded-[8px] px-5 py-1.5 text-xs font-semibold text-white transition-all duration-200 hover:opacity-90 active:scale-[0.97]"
+              style={{ background: "linear-gradient(90deg,#9933FF,#FF33AA)" }}
+            >
+              知道了
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 抢锁成功确认弹窗 */}
+      {showClaimConfirm && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }}
+          onClick={() => {
+            setShowClaimConfirm(false)
+            // 用户点背板关闭 → 释放锁
+            if (currentUserId && roomId) {
+              publishClaimedRef.current = false
+              fetch(`/api/rooms/${roomId}/sessions/${session.id}/release-claim`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ userId: currentUserId }),
+              }).catch(() => {})
+            }
+          }}
+        >
+          <div
+            className="jamony-modal-enter relative w-full max-w-xs rounded-2xl border px-5 py-5 text-center"
+            style={{ backgroundColor: "#0D0D0D", borderColor: "#1A1A1A" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-xs leading-relaxed text-white" style={{ lineHeight: 1.7 }}>
+              兵贵神速！感谢你为大家发表作品，请在5分钟内完成发表。超时将自动释放权限。
+            </p>
+            <div className="mt-4 flex items-center justify-center gap-2.5">
+              <button
+                onClick={() => {
+                  setShowClaimConfirm(false)
+                  // 放弃发表 → 释放锁
+                  if (currentUserId && roomId) {
+                    publishClaimedRef.current = false
+                    fetch(`/api/rooms/${roomId}/sessions/${session.id}/release-claim`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ userId: currentUserId }),
+                    }).catch(() => {})
+                  }
+                }}
+                className="rounded-lg border px-4 py-1.5 text-xs transition-all duration-200 hover:text-white active:scale-[0.97]"
+                style={{ borderColor: "#2A2A2A", color: "#8A8A8A" }}
+              >
+                暂不发表
+              </button>
+              <button
+                onClick={() => {
+                  setShowClaimConfirm(false)
+                  setPublishOpen(true)
+                }}
+                className="rounded-[8px] px-5 py-1.5 text-xs font-semibold text-white transition-all duration-200 hover:opacity-90 active:scale-[0.97]"
+                style={{ background: "linear-gradient(90deg,#9933FF,#FF33AA)" }}
+              >
+                开始发表
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
+
+  /** 发表按钮：先到先得抢锁逻辑 */
+  function handlePublishButton() {
+    const isClaimed = session.publisher_user_id !== null && session.publisher_user_id !== undefined
+    const isMine = isClaimed && session.publisher_user_id === currentUserId
+    const isOthers = isClaimed && !isMine
+
+    return (
+      <button
+        onClick={async () => {
+          if (!currentUserId || !roomId) return
+
+          // 已被别人占着 → 弹手慢一步
+          if (isOthers) {
+            setClaimTaken({
+              userId: session.publisher_user_id!,
+              nickname: session.publisher_nickname || "未知用户",
+            })
+            return
+          }
+
+          // 原本就是我抢到的 → 标记一下确保 release-claim 能走
+          if (isMine) {
+            publishClaimedRef.current = true
+            setPublishOpen(true)
+            return
+          }
+
+          // 第一次点击 → 先抢锁
+          if (!isClaimed) {
+            setClaiming(true)
+            try {
+              const res = await fetch(`/api/rooms/${roomId}/sessions/${session.id}/claim-publish`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ userId: currentUserId }),
+              })
+              const data = await res.json()
+              if (!data.claimed) {
+                // 被别人抢了
+                setClaimTaken({
+                  userId: data.publisher_user_id,
+                  nickname: data.publisher_nickname || "未知用户",
+                })
+                return
+              }
+              publishClaimedRef.current = true
+              // 抢锁成功，先弹确认框再打开发表卡片
+              setShowClaimConfirm(true)
+              return
+            } catch (e) {
+              console.error("抢锁失败:", e)
+              return
+            } finally {
+              setClaiming(false)
+            }
+          }
+
+          // 已抢到或原本就是我 → 打开发表卡片
+          setPublishOpen(true)
+        }}
+        disabled={claiming || isOthers}
+        className={`rounded-full px-4 py-1.5 text-xs font-bold text-white transition-all duration-200
+          ${claiming ? "animate-pulse opacity-50" : ""}
+          ${isOthers ? "cursor-not-allowed opacity-40" : "hover:scale-[1.03]"}
+          ${isMine ? "bg-brand-green" : ""}
+          ${!isClaimed ? "bg-brand-blue" : ""}`}
+      >
+        {claiming ? "抢占中…" : isMine ? "继续发表" : "去发表"}
+      </button>
+    )
+  }
+
 }
 
 function TrackRow({
