@@ -60,9 +60,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [duration, setDuration] = useState(0)
   const [volume, setVolume] = useState(1)
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  // 跟踪当前曲目 id：切歌时旧 audio 被清空 src 也会触发 error，需据此忽略非当前曲目的 error
+  const currentIdRef = useRef<string | undefined>(undefined)
 
   // 当前曲目变化时 → 创建新 Audio
   useEffect(() => {
+    currentIdRef.current = current?.id
     if (!current?.mp3Url) {
       if (audioRef.current) {
         audioRef.current.pause()
@@ -93,14 +96,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     })
 
     audio.addEventListener("error", () => {
+      // 切歌时 cleanup 清空旧 audio 的 src 同样触发 error —— 只处理当前曲目的真实加载失败
+      if (currentIdRef.current !== current?.id) return
       console.error("[player] 音频加载失败:", current.mp3Url)
       setIsPlaying(false)
     })
 
-    if (isPlaying) {
-      audio.play().catch((e) => console.warn("[player] 播放失败:", e))
-    }
-
+    // 播放/暂停统一交给下面的 isPlaying effect 处理，避免双 effect 竞态
     return () => {
       audio.pause()
       audio.src = ""
@@ -108,7 +110,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current?.id])
 
-  // 播放/暂停切换时控制 Audio
+  // 播放/暂停统一控制：isPlaying 变化或切歌(current?.id 变)时触发
   useEffect(() => {
     const audio = audioRef.current
     if (!audio || !current?.mp3Url) return
@@ -118,7 +120,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     } else {
       audio.pause()
     }
-  }, [isPlaying, current?.mp3Url])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPlaying, current?.id])
 
   // ref 版的 playNext 供 ended 事件使用
   const playNextRef = useRef<() => void>(() => {})
