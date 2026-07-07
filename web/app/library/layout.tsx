@@ -1,13 +1,12 @@
 import type { ReactNode } from "react"
-import { PlayerProvider } from "@/components/jamony/player-context"
 import { PlayerBar } from "@/components/jamony/player-bar"
 
-// 作品库共享 PlayerProvider + PlayerBar：跨页面（一级/筛选/详情）不卸载，播放不中断
+// PlayerProvider 已在根 layout 全局提供（首页↔作品库↔详情页共享，跨页面不卸载）
 export default function LibraryLayout({ children }: { children: ReactNode }) {
   return (
-    <PlayerProvider>
+    <>
       {children}
       <PlayerBar />
-    </PlayerProvider>
+    </>
   )
 }

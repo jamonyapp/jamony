@@ -2,9 +2,10 @@
 
 import { Heart, Pause, Play, SkipBack, SkipForward, X, ExternalLink, ListMusic, MessageCircle, Volume2 } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
+import { useRouter } from "next/navigation"
 import { SectionHeader } from "./section-header"
 import { useAuth } from "@/lib/auth-context"
-import { PlayerProvider, usePlayer } from "@/components/jamony/player-context"
+import { usePlayer } from "@/components/jamony/player-context"
 import type { Track } from "@/lib/jamony-data"
 
 type Highlight = {
@@ -60,6 +61,8 @@ function VinylRecord() {
 }
 
 function HighlightCard({ item, angle, onOpen }: { item: Highlight; angle: number; onOpen: () => void }) {
+  const { current, isPlaying } = usePlayer()
+  const isThisPlaying = current?.id === item.trackId && isPlaying
   return (
     <button
       className="jamony-disc group relative aspect-square w-full overflow-hidden rounded-[10px] text-left"
@@ -92,7 +95,19 @@ function HighlightCard({ item, angle, onOpen }: { item: Highlight; angle: number
       </div>
 
       <span className="jamony-play absolute bottom-3 right-3 flex h-9 w-9 items-center justify-center rounded-full text-white transition-colors">
-        <Play className="h-4 w-4" fill="currentColor" />
+        {isThisPlaying ? (
+          <span className="flex h-5 w-5 items-center justify-center gap-[2px]">
+            {[0, 1, 2, 3].map((i) => (
+              <span
+                key={i}
+                className="w-[2px] rounded-full"
+                style={{ background: "#fff", animation: `jamony-wave 0.9s ease-in-out ${i * 0.15}s infinite` }}
+              />
+            ))}
+          </span>
+        ) : (
+          <Play className="h-4 w-4" fill="currentColor" />
+        )}
       </span>
 
       <span className="jamony-progress absolute inset-x-3 bottom-1.5 h-1 rounded-full" aria-hidden>
@@ -114,6 +129,7 @@ function DetailModal({ item, onClose }: { item: Highlight; onClose: () => void }
   const [feedbackSent, setFeedbackSent] = useState(false)
   const { loggedIn, setShowLoginModal } = useAuth()
   const { playTrack, addToPlaylist, isPlaying, current, togglePlay, currentTime, duration, volume, setVolume, seekTo } = usePlayer()
+  const router = useRouter()
 
   const isThisTrack = current?.id === item.trackId
   const isThisPlaying = isThisTrack && isPlaying
@@ -268,7 +284,7 @@ function DetailModal({ item, onClose }: { item: Highlight; onClose: () => void }
                 type="button"
                 onClick={() => {
                   if (!loggedIn) { setShowLoginModal(true); return }
-                  if (item.trackId) window.location.href = `/library/${item.trackId}`
+                  if (item.trackId) router.push(`/library/${item.trackId}`)
                   else console.log("[highlights] no matching track for", item.title)
                 }}
                 className="flex items-center gap-1 rounded-lg border border-[#1A1A1A] px-2.5 py-1 text-[11px] text-white transition-colors hover:bg-white/5 sm:text-[12px]"
@@ -474,9 +490,5 @@ function HighlightsInner() {
 }
 
 export function HighlightsScreen() {
-  return (
-    <PlayerProvider>
-      <HighlightsInner />
-    </PlayerProvider>
-  )
+  return <HighlightsInner />
 }

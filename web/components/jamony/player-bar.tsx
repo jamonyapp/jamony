@@ -224,7 +224,7 @@ export function PlayerBar() {
               type="button"
               aria-label="上一首"
               onClick={playPrev}
-              disabled={!hasTrack}
+              disabled={!hasTrack || playlist.length === 0}
               className="flex h-8 w-8 items-center justify-center rounded-full text-white/70 transition-colors hover:text-white disabled:opacity-30"
             >
               <SkipBack className="h-4 w-4 fill-current" />
@@ -246,7 +246,7 @@ export function PlayerBar() {
               type="button"
               aria-label="下一首"
               onClick={playNext}
-              disabled={!hasTrack}
+              disabled={!hasTrack || playlist.length === 0}
               className="flex h-8 w-8 items-center justify-center rounded-full text-white/70 transition-colors hover:text-white disabled:opacity-30"
             >
               <SkipForward className="h-4 w-4 fill-current" />

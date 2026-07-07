@@ -55,7 +55,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [current, setCurrent] = useState<Track | null>(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [repeatMode, setRepeatMode] = useState<RepeatMode>("sequential")
+  const repeatModeRef = useRef(repeatMode)
+  useEffect(() => { repeatModeRef.current = repeatMode }, [repeatMode])
   const [playlist, setPlaylist] = useState<Track[]>([])
+  const playlistRef = useRef(playlist)
+  useEffect(() => { playlistRef.current = playlist }, [playlist])
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [volume, setVolume] = useState(1)
@@ -91,7 +95,17 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     })
 
     audio.addEventListener("ended", () => {
-      // 自动下一首
+      // 播放列表空：停止；有作品：按模式自动下一首
+      if (playlistRef.current.length === 0) {
+        setIsPlaying(false)
+        setCurrentTime(0)
+        return
+      }
+      if (repeatModeRef.current === "repeat-one") {
+        audio.currentTime = 0
+        audio.play().catch((e) => console.warn("[player] 单曲循环重播失败:", e))
+        return
+      }
       playNextRef.current?.()
     })
 
@@ -123,30 +137,38 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPlaying, current?.id])
 
-  // ref 版的 playNext 供 ended 事件使用
-  const playNextRef = useRef<() => void>(() => {})
   const pickNext = useCallback(
     (dir: 1 | -1) => {
-      if (!current || queue.length === 0) return null
+      if (!current || playlist.length === 0) return null
       if (repeatMode === "shuffle") {
-        if (queue.length === 1) return queue[0]
+        if (playlist.length === 1) return playlist[0]
         let next = current
         while (next.id === current.id) {
-          next = queue[Math.floor(Math.random() * queue.length)]
+          next = playlist[Math.floor(Math.random() * playlist.length)]
         }
         return next
       }
-      const idx = queue.findIndex((t) => t.id === current.id)
-      const nextIdx = (idx + dir + queue.length) % queue.length
-      return queue[nextIdx]
+      const idx = playlist.findIndex((t) => t.id === current.id)
+      // 当前曲不在播放列表内：下一首取列表头，上一首取列表尾
+      if (idx === -1) return dir === 1 ? playlist[0] : playlist[playlist.length - 1]
+      const nextIdx = idx + dir
+      if (nextIdx < 0 || nextIdx >= playlist.length) {
+        // 越界：列表循环回到另一端，顺序播放返回 null
+        return repeatMode === "repeat-all"
+          ? playlist[(nextIdx + playlist.length) % playlist.length]
+          : null
+      }
+      return playlist[nextIdx]
     },
-    [current, queue, repeatMode],
+    [current, playlist, repeatMode],
   )
 
+  // ref 版的 playNext 供 ended 事件使用
+  const playNextRef = useRef<() => void>(() => {})
   const playNext = useCallback(() => {
     const next = pickNext(1)
     if (!next) {
-      // 无下一首：回到停止状态，进度归零
+      // 无下一首：停止
       setIsPlaying(false)
       setCurrentTime(0)
       if (audioRef.current) audioRef.current.currentTime = 0
@@ -155,7 +177,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setCurrent(next)
     setIsPlaying(true)
   }, [pickNext])
-
   playNextRef.current = playNext
 
   const playPrev = useCallback(() => {

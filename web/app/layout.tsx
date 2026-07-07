@@ -4,6 +4,7 @@ import { Geist, Geist_Mono } from 'next/font/google'
 import './globals.css'
 import { AuthProvider } from '@/lib/auth-context'
 import { LoginModal } from '@/components/jamony/login-modal'
+import { PlayerProvider } from '@/components/jamony/player-context'
 
 const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] })
 const geistMono = Geist_Mono({
@@ -62,7 +63,9 @@ export default function RootLayout({
       </head>
       <body className="font-sans antialiased" style={{ background: '#000000' }}>
         <AuthProvider>
-          {children}
+          <PlayerProvider>
+            {children}
+          </PlayerProvider>
           <LoginModal />
         </AuthProvider>
         {process.env.NODE_ENV === 'production' && <Analytics />}
