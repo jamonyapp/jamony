@@ -49,21 +49,22 @@ export function TrackCard({ track }: { track: Track }) {
     return () => document.removeEventListener("mousedown", onClick)
   }, [menuOpen, feedbackOpen])
 
-  function handleCardClick() {
-    if (isCurrent) {
-      playTrack(track)
-    } else {
-      playTrack(track)
-    }
-  }
-
-  function handleCenterButton(e: React.MouseEvent) {
-    e.stopPropagation()
+  // 卡片任意位置与中央按钮共用一套逻辑：当前曲 → 暂停/续播，非当前曲 → 播放
+  function toggleThis() {
     if (isCurrent) {
       togglePlay()
     } else {
       playTrack(track)
     }
+  }
+
+  function handleCardClick() {
+    toggleThis()
+  }
+
+  function handleCenterButton(e: React.MouseEvent) {
+    e.stopPropagation()
+    toggleThis()
   }
 
   function handleMenuItem(action: string) {

@@ -1,11 +1,13 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { Search, Guitar, Disc3, ChevronRight, Target } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { Search, Disc3, ChevronRight, Target } from "lucide-react"
 import { TopNav } from "@/components/jamony/top-nav"
 import { TrackCard } from "@/components/jamony/track-card"
 import { PlayerBar } from "@/components/jamony/player-bar"
 import { PlayerProvider, usePlayer } from "@/components/jamony/player-context"
+import { TracksSkeleton } from "@/components/jamony/tracks-skeleton"
 import { type Track } from "@/lib/jamony-data"
 
 const GRADIENTS = [
@@ -24,7 +26,6 @@ function matchTrack(t: Track, q: string): boolean {
     t.author,
     t.type === "rehearsal" ? "排练" : "Jam",
     t.nature === "original" ? "Original" : "Cover",
-    t.scale,
     ...t.styles,
     ...t.instruments,
     ...t.members,
@@ -45,6 +46,7 @@ function Section({
   tracks: Track[]
   href?: string
 }) {
+  const router = useRouter()
   if (tracks.length === 0) return null
 
   return (
@@ -56,7 +58,7 @@ function Section({
         </h2>
         <button
           type="button"
-          onClick={() => (href ? window.location.href = href : console.log("[v0] 查看更多:", title))}
+          onClick={() => (href ? router.push(href) : console.log("[v0] 查看更多:", title))}
           className="flex items-center gap-0.5 text-sm text-[#9A9A9A] transition-colors hover:text-white"
         >
           更多
@@ -75,6 +77,7 @@ function Section({
 function LibraryInner() {
   const [query, setQuery] = useState("")
   const [allTracks, setAllTracks] = useState<Track[]>([])
+  const [loading, setLoading] = useState(true)
   const { setQueue } = usePlayer()
 
   // 从 /api/works 读取作品
@@ -88,7 +91,6 @@ function LibraryInner() {
           title: w.title,
           author: w.author,
           type: w.type as Track["type"],
-          scale: w.scale as Track["scale"],
           nature: w.nature as Track["nature"],
           styles: w.styles || [],
           instruments: w.instruments || [],
@@ -105,6 +107,7 @@ function LibraryInner() {
         setAllTracks(mapped)
         setQueue(mapped)
       })
+      .finally(() => setLoading(false))
   }, [setQueue])
 
   const rehearsalTracks = allTracks.filter(t => t.type === "rehearsal")
@@ -130,7 +133,6 @@ function LibraryInner() {
         <div className="mb-8 flex flex-col gap-4 pt-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">作品库</h1>
-            <p className="mt-1 text-sm text-[#9A9A9A]">听不过瘾？来玩真的！</p>
           </div>
           <div className="relative w-full sm:w-80">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#666]" />
@@ -143,7 +145,20 @@ function LibraryInner() {
           </div>
         </div>
 
-        {noResults ? (
+        {loading ? (
+          <>
+            <div className="mb-4 h-6 w-28 animate-pulse rounded bg-[#141414]" />
+            <TracksSkeleton count={8} />
+          </>
+        ) : allTracks.length === 0 ? (
+          <div className="flex flex-col items-center justify-center rounded-2xl border border-[#1A1A1A] bg-[#0D0D0D] py-20 text-center">
+            <Disc3 className="mb-4 h-12 w-12 text-[#333]" />
+            <p className="text-base font-medium text-white">作品库还没有作品</p>
+            <p className="mt-1 text-sm text-[#9A9A9A]">
+              去房间里录一首，成为第一个发表作品的人吧！
+            </p>
+          </div>
+        ) : noResults ? (
           <div className="flex flex-col items-center justify-center rounded-2xl border border-[#1A1A1A] bg-[#0D0D0D] py-20 text-center">
             <Disc3 className="mb-4 h-12 w-12 text-[#333]" />
             <p className="text-base font-medium text-white">没有找到相关作品</p>
@@ -160,7 +175,7 @@ function LibraryInner() {
               href="/library/category?tab=rehearsal"
             />
             <Section
-              icon={<Guitar className="h-5 w-5" style={{ color: "#FF33AA" }} />}
+              icon={null}
               title="Jam 时刻"
               tracks={filteredJam}
               href="/library/category?tab=jam"

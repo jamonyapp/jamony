@@ -19,13 +19,6 @@ const GRADIENTS = [
 ]
 import { UserPopover } from "@/components/jamony/user-popover"
 
-const SCALE_LABEL: Record<string, string> = {
-  solo: "Solo · 单人",
-  duo: "Duo · 双人",
-  trio: "Trio · 三人",
-  ensemble: "Ensemble · 多人",
-}
-
 function VinylCover({ track }: { track: Track }) {
   return (
     <div
@@ -154,7 +147,6 @@ function WorkDetailInner() {
           title: w.title,
           author: w.author,
           type: w.type,
-          scale: w.scale,
           nature: w.nature,
           styles: w.styles || [],
           instruments: w.instruments || [],
@@ -179,7 +171,6 @@ function WorkDetailInner() {
           title: wr.title,
           author: wr.author,
           type: wr.type,
-          scale: wr.scale,
           nature: wr.nature,
           styles: wr.styles || [],
           instruments: wr.instruments || [],
@@ -239,7 +230,6 @@ function WorkDetailInner() {
   // 详情行
   const detailRows = [
     { label: "创作类型", value: track.type === "rehearsal" ? "排练作品" : "Jam 时刻" },
-    { label: "规模", value: `${SCALE_LABEL[track.scale] ?? track.scale} · ${track.members.length} 位乐手` },
     { label: "性质", value: track.nature === "original" ? "Original" : "Cover" },
     { label: "风格", value: track.styles.join(" · ") },
     { label: "乐器", value: track.instruments.join(" · ") },
@@ -314,7 +304,6 @@ function WorkDetailInner() {
               {track.styles.map((s) => (
                 <Tag key={s} text={s} color="#00AAFF" />
               ))}
-              <Tag text={SCALE_LABEL[track.scale]?.split(" · ")[0] ?? track.scale} color="#9933FF" />
               <Tag text={track.nature === "original" ? "Original" : "Cover"} color="#FF33AA" />
             </div>
 

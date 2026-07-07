@@ -1,10 +1,12 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
+import { useRouter } from "next/navigation"
 import { ChevronDown, Search } from "lucide-react"
 import { TrackCard } from "@/components/jamony/track-card"
 import { PlayerBar } from "@/components/jamony/player-bar"
 import { PlayerProvider, usePlayer } from "@/components/jamony/player-context"
+import { TracksSkeleton } from "@/components/jamony/tracks-skeleton"
 import { TopNav } from "@/components/jamony/top-nav"
 import { type Track } from "@/lib/jamony-data"
 
@@ -22,7 +24,6 @@ const ALL = "全部"
 
 type Tab = "全部作品" | "排练作品" | "Jam 时刻"
 const TABS: Tab[] = ["全部作品", "排练作品", "Jam 时刻"]
-const SCALE_OPTIONS = ["Solo", "2-3players", "4-5players", ">5players"]
 const NATURE_OPTIONS = ["Original", "Cover"]
 
 function FilterSelect({
@@ -70,23 +71,6 @@ function matchTrack(t: Track, q: string): boolean {
   return haystack.includes(query)
 }
 
-function passScaleFilter(t: Track, scale: string): boolean {
-  if (scale === ALL) return true
-  const count = t.members.length
-  switch (scale) {
-    case "Solo":
-      return count === 1
-    case "2-3players":
-      return count >= 2 && count <= 3
-    case "4-5players":
-      return count >= 4 && count <= 5
-    case ">5players":
-      return count > 5
-    default:
-      return true
-  }
-}
-
 function resolveTabFromUrl(): Tab {
   if (typeof window === "undefined") return "全部作品"
   const params = new URLSearchParams(window.location.search)
@@ -97,17 +81,25 @@ function resolveTabFromUrl(): Tab {
 }
 
 function CategoryListInner() {
+  const router = useRouter()
   const { setQueue } = usePlayer()
   const [allTracks, setAllTracks] = useState<Track[]>([])
   const [loaded, setLoaded] = useState(false)
   const [tab, setTab] = useState<Tab>(resolveTabFromUrl)
   const [query, setQuery] = useState("")
   const [style, setStyle] = useState(ALL)
-  const [scale, setScale] = useState(ALL)
   const [nature, setNature] = useState(ALL)
   const [instrument, setInstrument] = useState(ALL)
   const [visible, setVisible] = useState(PAGE_SIZE)
   const sentinelRef = useRef<HTMLDivElement | null>(null)
+
+  // 切 Tab 同步到 URL（刷新/后退可还原状态）
+  function changeTab(next: Tab) {
+    setTab(next)
+    const param = next === "排练作品" ? "rehearsal" : next === "Jam 时刻" ? "jam" : ""
+    const qs = param ? `?tab=${param}` : ""
+    router.replace(`/library/category${qs}`, { scroll: false })
+  }
 
   // 从 API 读取作品
   useEffect(() => {
@@ -120,7 +112,6 @@ function CategoryListInner() {
           title: w.title,
           author: w.author,
           type: w.type,
-          scale: w.scale,
           nature: w.nature,
           styles: w.styles || [],
           instruments: w.instruments || [],
@@ -148,19 +139,18 @@ function CategoryListInner() {
       if (tab === "排练作品" && t.type !== "rehearsal") return false
       if (tab === "Jam 时刻" && t.type !== "jam") return false
       if (style !== ALL && !t.styles.includes(style)) return false
-      if (!passScaleFilter(t, scale)) return false
       if (nature !== ALL && t.nature !== (nature === "Original" ? "original" : "cover"))
         return false
       if (instrument !== ALL && !t.instruments.includes(instrument)) return false
       if (query && !matchTrack(t, query)) return false
       return true
     })
-  }, [allTracks, tab, query, style, scale, nature, instrument])
+  }, [allTracks, tab, query, style, nature, instrument])
 
   // 筛选条件变化时重置页码
   useEffect(() => {
     setVisible(PAGE_SIZE)
-  }, [tab, query, style, scale, nature, instrument])
+  }, [tab, query, style, nature, instrument])
 
   const shown = filtered.slice(0, visible)
   const hasMore = visible < filtered.length
@@ -194,7 +184,7 @@ function CategoryListInner() {
               <button
                 key={t}
                 type="button"
-                onClick={() => setTab(t)}
+                onClick={() => changeTab(t)}
                 className={`relative pb-1.5 text-sm font-medium transition-colors ${
                   tab === t ? "text-white" : "text-[#9A9A9A] hover:text-white"
                 }`}
@@ -221,17 +211,22 @@ function CategoryListInner() {
         {/* 第二行：筛选器 */}
         <div className="mb-6 flex flex-wrap items-center gap-3">
           <FilterSelect label="风格" value={style} options={STYLE_OPTIONS} onChange={setStyle} />
-          <FilterSelect label="规模" value={scale} options={SCALE_OPTIONS} onChange={setScale} />
           <FilterSelect label="性质" value={nature} options={NATURE_OPTIONS} onChange={setNature} />
           <FilterSelect label="乐器" value={instrument} options={INSTRUMENT_OPTIONS} onChange={setInstrument} />
         </div>
 
         {/* 作品网格 — 直接用现有的 TrackCard（已含 icon） */}
-        {shown.length > 0 ? (
+        {!loaded ? (
+          <TracksSkeleton count={12} />
+        ) : shown.length > 0 ? (
           <div className="grid grid-cols-2 gap-5 md:grid-cols-3 lg:grid-cols-4">
             {shown.map((t) => (
               <TrackCard key={t.id} track={t} />
             ))}
+          </div>
+        ) : allTracks.length === 0 ? (
+          <div className="py-[60px] text-center text-sm text-[#9A9A9A]">
+            作品库还没有作品，去房间里录第一首吧！
           </div>
         ) : (
           <div className="py-[60px] text-center text-sm text-[#9A9A9A]">

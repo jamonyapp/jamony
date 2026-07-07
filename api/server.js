@@ -301,10 +301,6 @@ app.get('/api/users/:userId/works', async (req, res) => {
       const anonymousCount = authors.filter(a => a.is_anonymous).length
       const members = namedAuthors.map(a => a.nickname)
       const instruments = [...new Set(authors.map(a => a.instrument_category).filter(Boolean))]
-      let scale = 'solo'
-      if (authors.length === 2) scale = 'duo'
-      else if (authors.length === 3) scale = 'trio'
-      else if (authors.length >= 4) scale = 'ensemble'
       const nature = (row.copyright_type === '原创') ? 'original' : 'cover'
       const mp3Url = row.mp3_path ? row.mp3_path.replace('/var/jamony/works', '/works') : ''
       const coverUrl = row.cover_image_path ? row.cover_image_path.replace('/var/jamony/works', '/works') : ''
@@ -320,7 +316,7 @@ app.get('/api/users/:userId/works', async (req, res) => {
       return {
         id: row.id,
         title: row.title,
-        author, type: 'jam', scale, nature,
+        author, type: 'jam', nature,
         styles: row.style ? [row.style] : [],
         instruments, plays: row.plays || 0, likes: row.likes || 0, comments: 0,
         duration: row.duration || '', gradient,
@@ -1341,13 +1337,6 @@ app.get('/api/works', async (req, res) => {
       const members = namedAuthors.map(a => a.nickname)
       const instruments = [...new Set(authors.map(a => a.instrument_category).filter(Boolean))]
 
-      // 规模推导
-      let scale = 'solo'
-      if (authors.length === 2) scale = 'duo'
-      else if (authors.length === 3) scale = 'trio'
-      else if (authors.length >= 4) scale = 'ensemble'
-
-      // 性质映射
       const nature = (row.copyright_type === '原创') ? 'original' : 'cover'
 
       // 文件路径 → URL
@@ -1371,7 +1360,6 @@ app.get('/api/works', async (req, res) => {
         title: row.title,
         author,
         type: 'jam',
-        scale,
         nature,
         styles: row.style ? [row.style] : [],
         instruments,
@@ -1435,11 +1423,6 @@ app.get('/api/works/:id', async (req, res) => {
     const members = namedAuthors.map(a => a.nickname)
     const instruments = [...new Set(authors.map(a => a.instrument_category).filter(Boolean))]
 
-    let scale = 'solo'
-    if (authors.length === 2) scale = 'duo'
-    else if (authors.length === 3) scale = 'trio'
-    else if (authors.length >= 4) scale = 'ensemble'
-
     const nature = (row.copyright_type === '原创') ? 'original' : 'cover'
     const mp3Url = row.mp3_path ? row.mp3_path.replace('/var/jamony/works', '/works') : ''
     const coverUrl = row.cover_image_path ? row.cover_image_path.replace('/var/jamony/works', '/works') : ''
@@ -1459,7 +1442,6 @@ app.get('/api/works/:id', async (req, res) => {
       title: row.title,
       author,
       type: 'jam',
-      scale,
       nature,
       styles: row.style ? [row.style] : [],
       instruments,
