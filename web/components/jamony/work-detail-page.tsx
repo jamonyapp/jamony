@@ -4,8 +4,7 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Play, Pause, Heart, MessageCircle, Guitar, Check, ListMusic } from "lucide-react"
 import { TopNav } from "@/components/jamony/top-nav"
-import { PlayerBar } from "@/components/jamony/player-bar"
-import { PlayerProvider, usePlayer } from "@/components/jamony/player-context"
+import { usePlayer } from "@/components/jamony/player-context"
 import { type Track } from "@/lib/jamony-data"
 import { useAuth } from "@/lib/auth-context"
 
@@ -117,10 +116,10 @@ function WorkDetailInner() {
   const [loading, setLoading] = useState(true)
   const { loggedIn, setShowLoginModal } = useAuth()
 
-  // 检测来源是否为列表页筛选
+  // 检测来源是否为筛选页（track-card 跳转前在 sessionStorage 标记；客户端导航下 document.referrer 不更新）
   useEffect(() => {
-    if (typeof document !== "undefined") {
-      setFromFilter(document.referrer.includes("/library/category"))
+    if (typeof window !== "undefined") {
+      setFromFilter(sessionStorage.getItem("libFrom") === "filter")
     }
   }, [])
 
@@ -466,15 +465,10 @@ function WorkDetailInner() {
 
       </div>
 
-      <PlayerBar />
     </div>
   )
 }
 
 export function WorkDetailPage() {
-  return (
-    <PlayerProvider>
-      <WorkDetailInner />
-    </PlayerProvider>
-  )
+  return <WorkDetailInner />
 }

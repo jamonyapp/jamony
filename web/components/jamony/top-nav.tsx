@@ -1,7 +1,7 @@
 "use client"
 
 import { ChevronDown, LogOut, Megaphone, RefreshCw, Settings, User, LogIn } from "lucide-react"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
 import { useAuth } from "@/lib/auth-context"
 
@@ -26,6 +26,7 @@ function BackLinkButton({
   link: { label: string; href: string }
   onClick?: () => void
 }) {
+  const router = useRouter()
   const [show, setShow] = useState(false)
   useEffect(() => {
     const t = setTimeout(() => setShow(true), 30)
@@ -37,7 +38,7 @@ function BackLinkButton({
     if (onClick) {
       setTimeout(onClick, 350)
     } else {
-      setTimeout(() => { window.location.href = link.href }, 350)
+      setTimeout(() => { router.push(link.href) }, 350)
     }
   }
 

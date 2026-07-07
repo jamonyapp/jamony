@@ -5,8 +5,7 @@ import { useRouter } from "next/navigation"
 import { Search, Disc3, ChevronRight, Target } from "lucide-react"
 import { TopNav } from "@/components/jamony/top-nav"
 import { TrackCard } from "@/components/jamony/track-card"
-import { PlayerBar } from "@/components/jamony/player-bar"
-import { PlayerProvider, usePlayer } from "@/components/jamony/player-context"
+import { usePlayer } from "@/components/jamony/player-context"
 import { TracksSkeleton } from "@/components/jamony/tracks-skeleton"
 import { type Track } from "@/lib/jamony-data"
 
@@ -184,15 +183,10 @@ function LibraryInner() {
         )}
       </div>
 
-      <PlayerBar />
     </div>
   )
 }
 
 export function LibraryPage() {
-  return (
-    <PlayerProvider>
-      <LibraryInner />
-    </PlayerProvider>
-  )
+  return <LibraryInner />
 }

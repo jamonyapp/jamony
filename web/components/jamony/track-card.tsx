@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import { useRouter, usePathname } from "next/navigation"
 import { MoreHorizontal, Pause, Play, Heart, MessageCircle } from "lucide-react"
 import { VinylRecord } from "@/components/jamony/vinyl-record"
 import { usePlayer } from "@/components/jamony/player-context"
@@ -28,6 +29,8 @@ function WaveBars() {
 export function TrackCard({ track }: { track: Track }) {
   const { current, isPlaying, playTrack, togglePlay, addToPlaylist } = usePlayer()
   const { loggedIn, setShowLoginModal } = useAuth()
+  const router = useRouter()
+  const pathname = usePathname()
   const [menuOpen, setMenuOpen] = useState(false)
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [feedbackText, setFeedbackText] = useState("")
@@ -71,7 +74,13 @@ export function TrackCard({ track }: { track: Track }) {
     console.log("[v0] 菜单操作:", action, "-", track.title)
     if (action === "detail") {
       if (!loggedIn) { setShowLoginModal(true); return }
-      window.location.href = `/library/${track.id}`
+      // 标记来源为筛选页（客户端导航下 document.referrer 不更新，用 sessionStorage 传递）
+      if (pathname.startsWith("/library/category")) {
+        sessionStorage.setItem("libFrom", "filter")
+      } else {
+        sessionStorage.removeItem("libFrom")
+      }
+      router.push(`/library/${track.id}`)
       return
     }
     if (action === "feedback") {
