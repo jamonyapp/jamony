@@ -318,7 +318,7 @@ app.get('/api/users/:userId/works', async (req, res) => {
         title: row.title,
         author, type: 'jam', nature,
         styles: row.style ? [row.style] : [],
-        instruments, plays: row.plays || 0, likes: row.likes || 0, comments: 0,
+        instruments, plays: row.plays || 0, likes: row.likes || 0, comments: row.comments || 0,
         duration: row.duration || '', gradient,
         date: row.created_at ? row.created_at.toISOString().slice(0, 10) : '',
         members, coverImage: coverUrl,
@@ -1371,7 +1371,7 @@ app.get('/api/works', async (req, res) => {
         instruments,
         plays: row.plays || 0,
         likes: row.likes || 0,
-        comments: 0,
+        comments: row.comments || 0,
         duration: row.duration || '',
         gradient,
         date: row.created_at ? row.created_at.toISOString().slice(0, 10) : '',
@@ -1456,7 +1456,7 @@ app.get('/api/works/:id', async (req, res) => {
       instruments,
       plays: row.plays || 0,
       likes: row.likes || 0,
-      comments: 0,
+      comments: row.comments || 0,
       duration: row.duration || '',
       gradient,
       date: row.created_at ? row.created_at.toISOString().slice(0, 10) : '',
@@ -1522,6 +1522,96 @@ app.post('/api/works/:id/like', async (req, res) => {
     res.json({ ok: true, likes: result.rows[0]?.likes || 0 })
   } catch (err) {
     console.error('Work like error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// ========== 作品评论 ==========
+// 列表（一级评论 + 回复分组，时间倒序）
+app.get('/api/works/:id/comments', async (req, res) => {
+  try {
+    const { id } = req.params
+    const topResult = await pool.query(`
+      SELECT id, user_id, nickname, content, parent_id, reply_to_nickname, created_at
+      FROM work_comments WHERE work_id = $1 AND parent_id IS NULL
+      ORDER BY created_at DESC
+    `, [id])
+    const replyResult = await pool.query(`
+      SELECT id, user_id, nickname, content, parent_id, reply_to_nickname, created_at
+      FROM work_comments WHERE work_id = $1 AND parent_id IS NOT NULL
+      ORDER BY created_at ASC
+    `, [id])
+    const repliesByParent = {}
+    replyResult.rows.forEach(r => {
+      ;(repliesByParent[r.parent_id] = repliesByParent[r.parent_id] || []).push(r)
+    })
+    const comments = topResult.rows.map(r => ({ ...r, replies: repliesByParent[r.id] || [] }))
+    res.json({ ok: true, comments })
+  } catch (err) {
+    console.error('Comments list error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// 发表评论（parentId 有值=回复，NULL=一级；replyToNickname 回复某用户时的昵称）
+app.post('/api/works/:id/comments', async (req, res) => {
+  try {
+    const { id } = req.params
+    const { userId, content, parentId, replyToNickname } = req.body
+    if (!userId || !content || !content.trim()) {
+      return res.status(400).json({ ok: false, msg: '缺少 userId 或 content' })
+    }
+    if (content.length > 200) {
+      return res.status(400).json({ ok: false, msg: '评论不超过200字' })
+    }
+    const userRow = await pool.query('SELECT nickname FROM users WHERE id=$1', [userId])
+    if (userRow.rows.length === 0) return res.status(400).json({ ok: false, msg: '用户不存在' })
+    const nickname = userRow.rows[0].nickname
+    const ins = await pool.query(
+      `INSERT INTO work_comments (work_id, user_id, nickname, content, parent_id, reply_to_nickname)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, created_at`,
+      [id, userId, nickname, content.trim(), parentId || null, replyToNickname || null]
+    )
+    // 一级评论才 +1 works.comments（回复不计入主评论数）
+    if (!parentId) {
+      await pool.query('UPDATE works SET comments = COALESCE(comments, 0) + 1 WHERE id = $1', [id])
+    }
+    res.json({
+      ok: true,
+      comment: {
+        id: ins.rows[0].id,
+        user_id: userId,
+        nickname,
+        content: content.trim(),
+        parent_id: parentId || null,
+        reply_to_nickname: replyToNickname || null,
+        created_at: ins.rows[0].created_at,
+        replies: [],
+      },
+    })
+  } catch (err) {
+    console.error('Comment create error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// 删除评论（仅作者删自己的；一级评论删除会 CASCADE 删回复，并 -1 works.comments）
+app.delete('/api/works/:id/comments/:commentId', async (req, res) => {
+  try {
+    const { id, commentId } = req.params
+    const userId = req.query.userId
+    if (!userId) return res.status(400).json({ ok: false, msg: '缺少 userId' })
+    const row = await pool.query('SELECT user_id, parent_id FROM work_comments WHERE id=$1 AND work_id=$2', [commentId, id])
+    if (row.rows.length === 0) return res.status(404).json({ ok: false, msg: '评论不存在' })
+    if (row.rows[0].user_id !== parseInt(userId)) return res.status(403).json({ ok: false, msg: '只能删除自己的评论' })
+    const isTop = !row.rows[0].parent_id
+    await pool.query('DELETE FROM work_comments WHERE id=$1', [commentId])
+    if (isTop) {
+      await pool.query('UPDATE works SET comments = GREATEST(COALESCE(comments, 0) - 1, 0) WHERE id = $1', [id])
+    }
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('Comment delete error:', err)
     res.status(500).json({ ok: false, msg: '服务器错误' })
   }
 })

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Play, Pause, Heart, MessageCircle, Check, ListMusic } from "lucide-react"
+import { Play, Pause, Heart, MessageCircle, Check, ListMusic, Trash2 } from "lucide-react"
 import { TopNav } from "@/components/jamony/top-nav"
 import { usePlayer } from "@/components/jamony/player-context"
 import { LikeButton } from "@/components/jamony/like-button"
@@ -82,21 +82,30 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   )
 }
 
-// 假评论池 — 带时间戳
-interface MockComment {
-  emoji: string
-  name: string
-  text: string
-  time: string
+// 评论类型（一级评论含 replies；5.3 先用一级，5.4 接入 replies 展示）
+interface Comment {
+  id: number
+  user_id: number
+  nickname: string
+  content: string
+  parent_id: number | null
+  reply_to_nickname: string | null
+  created_at: string
+  replies: Comment[]
 }
-const COMMENT_POOLS: Record<string, MockComment[]> = {
-  default: [
-    { emoji: "🎸", name: "小明", text: "第一次合奏放克，太爽了！", time: "Jun 17, 2026 · 13:59" },
-    { emoji: "🥁", name: "阿强", text: "这节奏稳啊 👍 下次可以试试更快的 tempo，我已经练好了 16 分音符的节奏型，随时可以再来一次！", time: "Jun 16, 2026 · 21:30" },
-    { emoji: "🎤", name: "小美", text: "下次再来一首！", time: "Jun 16, 2026 · 20:12" },
-    { emoji: "🎹", name: "Nina", text: "groove 太舒服了！这把键盘的音色选得真好 😊", time: "Jun 15, 2026 · 09:45" },
-    { emoji: "🎸", name: "老张", text: "大家的配合越来越默契了，下周末继续！", time: "Jun 14, 2026 · 23:05" },
-  ],
+
+// 相对时间格式化（刚刚 / X分钟前 / X小时前 / X天前 / 日期）
+function formatRelativeTime(iso: string): string {
+  const t = new Date(iso).getTime()
+  const diff = Math.max(0, Date.now() - t)
+  const min = Math.floor(diff / 60000)
+  if (min < 1) return "刚刚"
+  if (min < 60) return `${min}分钟前`
+  const hr = Math.floor(min / 60)
+  if (hr < 24) return `${hr}小时前`
+  const day = Math.floor(hr / 24)
+  if (day < 30) return `${day}天前`
+  return new Date(iso).toLocaleDateString("zh-CN")
 }
 
 function resolveId(): string {
@@ -119,6 +128,8 @@ function WorkDetailInner() {
   const [coverSong, setCoverSong] = useState("")
   const [coverAuthor, setCoverAuthor] = useState("")
   const [remixSource, setRemixSource] = useState("")
+  const [comments, setComments] = useState<Comment[]>([])
+  const [pendingDelete, setPendingDelete] = useState<Comment | null>(null)
   const { loggedIn, setShowLoginModal, user } = useAuth()
 
   // 检测来源是否为筛选页（track-card 跳转前在 sessionStorage 标记；客户端导航下 document.referrer 不更新）
@@ -128,11 +139,33 @@ function WorkDetailInner() {
     }
   }, [])
 
-  const handleSendComment = () => {
+  const handleSendComment = async () => {
     if (!loggedIn) { setShowLoginModal(true); return }
-    if (!commentText.trim()) return
-    console.log("[library] send comment:", commentText)
+    if (!commentText.trim() || !user || !track) return
+    const content = commentText.trim()
     setCommentText("")
+    try {
+      const r = await fetch(`/api/works/${track.id}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id, content }),
+      })
+      const data = await r.json()
+      if (data.ok) {
+        setComments((cs) => [data.comment, ...cs])  // 时间倒序，新评论在最上
+      }
+    } catch {}
+  }
+
+  const handleDeleteComment = async (commentId: number) => {
+    if (!user || !track) return
+    try {
+      const r = await fetch(`/api/works/${track.id}/comments/${commentId}?userId=${user.id}`, { method: 'DELETE' })
+      const data = await r.json()
+      if (data.ok) {
+        setComments((cs) => cs.filter((c) => c.id !== commentId))
+      }
+    } catch {}
   }
 
   // 从 /api/works 读取作品
@@ -200,6 +233,16 @@ function WorkDetailInner() {
     }).catch(() => setLoading(false))
   }, [setQueue, user?.id])
 
+  // 拉取评论列表
+  useEffect(() => {
+    if (!track) return
+    const uidQ = user?.id ? `?userId=${user.id}` : ""
+    fetch(`/api/works/${track.id}/comments${uidQ}`)
+      .then((r) => r.json())
+      .then((data) => { if (data.ok) setComments(data.comments) })
+      .catch(() => {})
+  }, [track?.id, user?.id])
+
   // 加载中
   if (loading) {
     return <div className="min-h-screen bg-black text-white flex items-center justify-center"><p className="text-[#8A8A8A]">加载中...</p></div>
@@ -228,7 +271,6 @@ function WorkDetailInner() {
     }
   }
 
-  const comments = COMMENT_POOLS.default
 
   // 乐器 → emoji（发表时刻乐器快照，固化不受今后改主力乐器影响）
   const instrumentEmojis: Record<string, string> = {
@@ -412,7 +454,12 @@ function WorkDetailInner() {
 
         {/* 评论区 — 可滚动 + 时间戳 + 输入框 */}
         <section className="mt-10">
-          <SectionTitle>评论区</SectionTitle>
+          <div className="mb-3 flex items-center gap-3">
+            <h2 className="text-[13px] text-[#8A8A8A]">评论区</h2>
+            <span className="h-px flex-1 bg-white/10" />
+            <span className="text-[11px]" style={{ color: "#666" }}>你可以摇滚，但文明永不过时。</span>
+            <span className="h-px flex-1 bg-white/10" />
+          </div>
 
           {/* 评论输入框 */}
           <div className="mb-4 flex gap-3">
@@ -420,7 +467,7 @@ function WorkDetailInner() {
               className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white"
               style={{ background: "linear-gradient(135deg, #00AAFF, #9933FF)" }}
             >
-              U
+              {user?.nickname?.charAt(0) || "U"}
             </span>
             <div className="flex flex-1 flex-col gap-2">
               <textarea
@@ -445,34 +492,77 @@ function WorkDetailInner() {
           </div>
 
           {/* 评论列表 */}
-          <div className="max-h-[320px] overflow-y-auto rounded-xl border border-white/10">
-            <ul>
-              {comments.map((c, i) => (
-                <li
-                  key={i}
-                  className="border-b border-white/10 px-4 py-3 last:border-b-0"
-                >
-                  <div className="flex items-start gap-2.5">
-                    <span className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full bg-white/10 text-xs">
-                      {c.emoji}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-baseline gap-2">
-                        <span className="text-sm font-medium text-white"><UserPopover nickname={c.name}>{c.name}</UserPopover></span>
-                        <span className="text-[11px] text-[#666]">{c.time}</span>
+          {comments.length === 0 ? (
+            <p className="py-8 text-center text-sm text-[#8A8A8A]">还没有评论，来抢沙发吧</p>
+          ) : (
+            <div className="max-h-[440px] overflow-y-auto rounded-xl border border-white/10">
+              <ul>
+                {comments.map((c) => (
+                  <li key={c.id} className="border-b border-white/10 px-4 py-3 last:border-b-0">
+                    <div className="flex items-start gap-2.5">
+                      <Avatar name={c.nickname} gradient={musicianGradients[0]} size={28} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-sm font-medium text-white"><UserPopover nickname={c.nickname}>{c.nickname}</UserPopover></span>
+                          <span className="text-[11px] text-[#666]">{formatRelativeTime(c.created_at)}</span>
+                          {c.user_id === user?.id && (
+                            <button
+                              type="button"
+                              onClick={() => setPendingDelete(c)}
+                              className="ml-auto text-[#999] transition-colors hover:text-[#FF33AA]"
+                              aria-label="删除评论"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
+                        <p className="mt-0.5 text-sm text-[#C9C9C9]">{c.content}</p>
                       </div>
-                      <p className="mt-0.5 text-sm text-[#C9C9C9]">{c.text}</p>
                     </div>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <p className="mt-4 text-center text-xs text-[#8A8A8A]">
-            评论区功能即将开放，敬请期待
-          </p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </section>
+
+        {/* 删除评论确认弹窗 */}
+        {pendingDelete && (
+          <div
+            className="fixed inset-0 z-[60] flex items-center justify-center p-6"
+            style={{ background: "rgba(0,0,0,0.6)" }}
+            onClick={() => setPendingDelete(null)}
+          >
+            <div
+              className="w-full max-w-sm rounded-2xl border p-5"
+              style={{ background: "#0D0D0D", borderColor: "#1A1A1A" }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <p className="text-sm text-white">确认删除这条评论吗？</p>
+              <p className="mt-1 text-xs text-[#8A8A8A] line-clamp-2">{pendingDelete.content}</p>
+              <div className="mt-4 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPendingDelete(null)}
+                  className="px-4 py-1.5 text-xs text-[#9A9A9A] transition-colors hover:text-white"
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await handleDeleteComment(pendingDelete.id)
+                    setPendingDelete(null)
+                  }}
+                  className="rounded-full px-4 py-1.5 text-xs font-medium text-white"
+                  style={{ background: "linear-gradient(135deg, #FF33AA, #9933FF)" }}
+                >
+                  删除
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
       </div>
 
