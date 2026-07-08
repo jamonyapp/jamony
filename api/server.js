@@ -964,7 +964,10 @@ app.post('/api/rooms/:id/recording/start', async (req, res) => {
     } catch (e) {
       return res.status(500).json({ ok: false, msg: 'headless 未就绪，无法录音' })
     }
-    await pool.query('UPDATE rooms SET recording_active=TRUE WHERE id=$1', [id])
+    // 录音开始时捕获鼓机是否已在运行（覆盖录音前就开鼓机的场景）；
+    // 录音中才开鼓机由 drums/start API 把标志置 true
+    const drumsAlreadyRunning = isDrumsRunning(room.rows[0].server_port)
+    await pool.query('UPDATE rooms SET recording_active=TRUE, drums_used_this_recording=$2 WHERE id=$1', [id, drumsAlreadyRunning])
     io.to(id).emit('recording-state', { roomId: id, active: true, userId })
     res.json({ ok: true })
   } catch (err) {
@@ -982,7 +985,7 @@ app.post('/api/rooms/:id/recording/stop', async (req, res) => {
     if (member.rows.length === 0 || member.rows[0].role !== 'musician') {
       return res.status(403).json({ ok: false, msg: '仅合奏者可录音' })
     }
-    const room = await pool.query('SELECT server_port, recording_active FROM rooms WHERE id=$1', [id])
+    const room = await pool.query('SELECT server_port, recording_active, drums_used_this_recording FROM rooms WHERE id=$1', [id])
     if (room.rows.length === 0) return res.status(404).json({ ok: false, msg: '房间不存在' })
     const roomPort = room.rows[0].server_port
 
@@ -1069,8 +1072,9 @@ app.post('/api/rooms/:id/recording/stop', async (req, res) => {
       wavIdx++
     }
 
-    // jamony-looper：检测鼓机，开着则加系统鼓轨
-    if (isDrumsRunning(roomPort)) {
+    // jamony-looper：录音期间只要启动过鼓机，looper 分轨里就必然有鼓声，应展示
+    const drumsUsedThisRecording = room.rows[0].drums_used_this_recording
+    if (drumsUsedThisRecording) {
       const looperWav = wavFiles.find(w => w.filename.startsWith('jamony-looper'))
       await pool.query(
         `INSERT INTO session_tracks
@@ -1081,7 +1085,7 @@ app.post('/api/rooms/:id/recording/stop', async (req, res) => {
     }
 
     // 结束录音状态并广播
-    await pool.query('UPDATE rooms SET recording_active=FALSE WHERE id=$1', [id])
+    await pool.query('UPDATE rooms SET recording_active=FALSE, drums_used_this_recording=FALSE WHERE id=$1', [id])
     io.to(id).emit('recording-state', { roomId: id, active: false })
     await broadcastSessions(id)
     res.json({ ok: true, session: sess.rows[0] });
@@ -1656,7 +1660,7 @@ app.post('/api/rooms/:roomId/drums/start', async (req, res) => {
     
         const portRow = await pool.query('SELECT server_port FROM rooms WHERE id = $1', [req.params.roomId]);
     const roomPort = portRow.rows[0]?.server_port || req.params.roomId; execSync('node /var/www/jamony/api/manage-jamulus.js drums-start ' + validStyle + ' ' + validBpm + ' "' + validFile + '" ' + roomPort, { timeout: 15000, stdio: 'pipe' })
-    await pool.query('UPDATE rooms SET current_bpm = $1 WHERE id = $2', [validBpm, req.params.roomId])
+    await pool.query('UPDATE rooms SET current_bpm = $1, drums_used_this_recording = TRUE WHERE id = $2', [validBpm, req.params.roomId])
     io.to(req.params.roomId).emit('bpm-update', { bpm: validBpm })
     
     res.json({ ok: true, msg: '鼓机已启动', style: validStyle, bpm: validBpm })
