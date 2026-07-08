@@ -1,18 +1,22 @@
 "use client"
 
-import { Heart, Pause, Play, SkipBack, SkipForward, X, ExternalLink, ListMusic, MessageCircle, Volume2 } from "lucide-react"
+import { Pause, Play, SkipBack, SkipForward, X, ExternalLink, ListMusic, MessageCircle, Volume2 } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { SectionHeader } from "./section-header"
 import { useAuth } from "@/lib/auth-context"
 import { usePlayer } from "@/components/jamony/player-context"
+import { LikeButton } from "@/components/jamony/like-button"
 import type { Track } from "@/lib/jamony-data"
 
 type Highlight = {
   id: string
   title: string
   players: string
+  plays: number
   likes: number
+  comments: number
+  isLiked: boolean
   duration: string
   gradient: string
   date: string
@@ -62,10 +66,11 @@ function VinylRecord() {
 
 function HighlightCard({ item, angle, onOpen }: { item: Highlight; angle: number; onOpen: () => void }) {
   const { current, isPlaying } = usePlayer()
+  const router = useRouter()
   const isThisPlaying = current?.id === item.trackId && isPlaying
   return (
-    <button
-      className="jamony-disc group relative aspect-square w-full overflow-hidden rounded-[10px] text-left"
+    <div
+      className="jamony-disc group relative aspect-square w-full cursor-pointer overflow-hidden rounded-[10px] text-left"
       style={{
         background: item.coverImage
           ? `url(${item.coverImage}) center/cover`
@@ -74,6 +79,9 @@ function HighlightCard({ item, angle, onOpen }: { item: Highlight; angle: number
         boxShadow: "0 10px 28px rgba(0,0,0,0.5)",
       }}
       onClick={onOpen}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen() } }}
     >
       <VinylRecord />
 
@@ -88,9 +96,20 @@ function HighlightCard({ item, angle, onOpen }: { item: Highlight; angle: number
         <span className="text-[12px]" style={{ color: "#D0D0D0" }}>
           {item.players}
         </span>
-        <div className="flex items-center gap-1 text-[12px] text-white">
-          <Heart className="h-3.5 w-3.5" fill="currentColor" />
-          {item.likes}
+        <div className="flex items-center gap-2 text-[12px] text-white">
+          <span className="flex items-center gap-0.5">
+            <Play className="h-3 w-3 fill-white" />
+            {item.plays}
+          </span>
+          <LikeButton workId={item.trackId} isLiked={item.isLiked} likes={item.likes} iconClass="h-3 w-3" stopClick />
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); router.push(`/library/${item.trackId}`) }}
+            className="flex items-center gap-0.5"
+          >
+            <MessageCircle className="h-3 w-3" />
+            {item.comments}
+          </button>
         </div>
       </div>
 
@@ -113,7 +132,7 @@ function HighlightCard({ item, angle, onOpen }: { item: Highlight; angle: number
       <span className="jamony-progress absolute inset-x-3 bottom-1.5 h-1 rounded-full" aria-hidden>
         <span className="block h-full w-1/3 rounded-full bg-white/80" />
       </span>
-    </button>
+    </div>
   )
 }
 
@@ -190,9 +209,9 @@ function DetailModal({ item, onClose }: { item: Highlight; onClose: () => void }
         nature: "original",
         styles: item.style ? [item.style] : [],
         instruments: [],
-        plays: item.likes,
+        plays: item.plays,
         likes: item.likes,
-        comments: 0,
+        comments: item.comments,
         duration: item.duration,
         gradient: item.gradient,
         date: item.date,
@@ -249,14 +268,7 @@ function DetailModal({ item, onClose }: { item: Highlight; onClose: () => void }
 
           {/* Info + Members + Actions */}
           <div className="flex flex-1 flex-col gap-2 min-w-0">
-            <div className="flex items-center gap-3">
-              <h3 className="text-xl font-bold text-white sm:text-2xl">{item.title}</h3>
-              {/* 点赞放在名字后面 */}
-              <span className="flex shrink-0 items-center gap-1 text-[13px] text-white">
-                <Heart className="h-4 w-4" style={{ color: "#FF33AA" }} fill="currentColor" />
-                {item.likes}
-              </span>
-            </div>
+            <h3 className="text-xl font-bold text-white sm:text-2xl">{item.title}</h3>
 
             {/* 风格标签紧随名称 */}
             <span
@@ -276,6 +288,23 @@ function DetailModal({ item, onClose }: { item: Highlight; onClose: () => void }
                   <span>{m.name}</span>
                 </span>
               ))}
+            </div>
+
+            {/* 播放量(纯展示) / 点赞量(可点) / 评论量(可点→详情页) — 作者下一行 */}
+            <div className="flex items-center gap-4 text-[13px] text-white">
+              <span className="flex items-center gap-1">
+                <Play className="h-3.5 w-3.5" fill="currentColor" />
+                {item.plays}
+              </span>
+              <LikeButton workId={item.trackId} isLiked={item.isLiked} likes={item.likes} iconClass="h-3.5 w-3.5" />
+              <button
+                type="button"
+                onClick={() => router.push(`/library/${item.trackId}`)}
+                className="flex items-center gap-1 transition-opacity hover:opacity-80"
+              >
+                <MessageCircle className="h-3.5 w-3.5" />
+                {item.comments}
+              </button>
             </div>
 
             {/* 3 个操作按钮 */}
@@ -304,9 +333,9 @@ function DetailModal({ item, onClose }: { item: Highlight; onClose: () => void }
                     nature: "original",
                     styles: item.style ? [item.style] : [],
                     instruments: [],
-                    plays: item.likes,
+                    plays: item.plays,
                     likes: item.likes,
-                    comments: 0,
+                    comments: item.comments,
                     duration: item.duration,
                     gradient: item.gradient,
                     date: item.date,
@@ -432,11 +461,13 @@ function DetailModal({ item, onClose }: { item: Highlight; onClose: () => void }
 }
 
 function HighlightsInner() {
+  const { user } = useAuth()
   const [active, setActive] = useState<Highlight | null>(null)
   const [works, setWorks] = useState<Highlight[]>([])
 
   useEffect(() => {
-    fetch("/api/works?limit=4&sort=likes")
+    const qs = user?.id ? `&userId=${user.id}` : ""
+    fetch(`/api/works?limit=4&sort=likes${qs}`)
       .then(r => r.json())
       .then(data => {
         if (!data.ok) return
@@ -451,7 +482,10 @@ function HighlightsInner() {
             id: String(w.id),
             title: w.title,
             players: w.author,
+            plays: w.plays || 0,
             likes: w.likes,
+            comments: w.comments || 0,
+            isLiked: w.isLiked || false,
             duration: w.duration || "0:00",
             gradient: w.coverGradient || GRADIENTS[i % GRADIENTS.length],
             date: w.date || "",
@@ -465,7 +499,7 @@ function HighlightsInner() {
         setWorks(mapped)
       })
       .catch(() => {})
-  }, [])
+  }, [user?.id])
 
   return (
     <section>

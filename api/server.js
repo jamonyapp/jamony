@@ -1318,6 +1318,7 @@ app.get('/api/works', async (req, res) => {
     const countResult = await pool.query("SELECT COUNT(*) FROM works WHERE status = 'published'")
     const total = parseInt(countResult.rows[0].count)
 
+    const currentUserId = req.query.userId ? parseInt(req.query.userId) : null
     const result = await pool.query(`
       SELECT w.*, (
         SELECT COALESCE(json_agg(row_to_json(wa_sub) ORDER BY wa_sub.id), '[]'::json)
@@ -1325,12 +1326,13 @@ app.get('/api/works', async (req, res) => {
           SELECT wa.id, wa.user_id, wa.nickname, wa.instrument_category, wa.is_anonymous
           FROM work_authors wa WHERE wa.work_id = w.id
         ) wa_sub
-      ) AS authors
+      ) AS authors,
+      EXISTS(SELECT 1 FROM works_likes WHERE work_id = w.id AND user_id = $3) AS is_liked
       FROM works w
       WHERE w.status = 'published'
       ${order}
       LIMIT $1 OFFSET $2
-    `, [limit, offset])
+    `, [limit, offset, currentUserId])
 
     const works = result.rows.map(row => {
       const authors = row.authors || []
@@ -1383,6 +1385,7 @@ app.get('/api/works', async (req, res) => {
         coverGradient: gradient,
         hasDrumTrack: row.has_drum_track || false,
         authors,
+        isLiked: row.is_liked || false,
       }
     })
 
@@ -1403,6 +1406,7 @@ app.get('/api/works', async (req, res) => {
 app.get('/api/works/:id', async (req, res) => {
   try {
     const { id } = req.params
+    const currentUserId = req.query.userId ? parseInt(req.query.userId) : null
     const result = await pool.query(`
       SELECT w.*, (
         SELECT COALESCE(json_agg(row_to_json(wa_sub) ORDER BY wa_sub.id), '[]'::json)
@@ -1410,10 +1414,11 @@ app.get('/api/works/:id', async (req, res) => {
           SELECT wa.id, wa.user_id, wa.nickname, wa.instrument_category, wa.is_anonymous
           FROM work_authors wa WHERE wa.work_id = w.id
         ) wa_sub
-      ) AS authors
+      ) AS authors,
+      EXISTS(SELECT 1 FROM works_likes WHERE work_id = w.id AND user_id = $2) AS is_liked
       FROM works w
       WHERE w.id = $1 AND w.status = 'published'
-    `, [id])
+    `, [id, currentUserId])
 
     if (result.rows.length === 0) {
       return res.status(404).json({ ok: false, msg: '作品不存在' })
@@ -1468,6 +1473,7 @@ app.get('/api/works/:id', async (req, res) => {
       coverGradient: gradient,
       hasDrumTrack: row.has_drum_track || false,
       authors,
+      isLiked: row.is_liked || false,
     }
 
     res.json({ ok: true, work })

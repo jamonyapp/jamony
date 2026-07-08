@@ -6,6 +6,7 @@ import { Search, Disc3, ChevronRight, Target } from "lucide-react"
 import { TopNav } from "@/components/jamony/top-nav"
 import { TrackCard } from "@/components/jamony/track-card"
 import { usePlayer } from "@/components/jamony/player-context"
+import { useAuth } from "@/lib/auth-context"
 import { TracksSkeleton } from "@/components/jamony/tracks-skeleton"
 import { type Track } from "@/lib/jamony-data"
 
@@ -78,10 +79,12 @@ function LibraryInner() {
   const [allTracks, setAllTracks] = useState<Track[]>([])
   const [loading, setLoading] = useState(true)
   const { setQueue } = usePlayer()
+  const { user } = useAuth()
 
   // 从 /api/works 读取作品
   useEffect(() => {
-    fetch("/api/works")
+    const uidQ = user?.id ? `?userId=${user.id}` : ""
+    fetch(`/api/works${uidQ}`)
       .then(r => r.json())
       .then(data => {
         if (!data.ok) return
@@ -102,12 +105,13 @@ function LibraryInner() {
           members: w.members || [],
           coverImage: w.coverImage || "",
           mp3Url: w.mp3Url || "",
+          isLiked: w.isLiked || false,
         }))
         setAllTracks(mapped)
         setQueue(mapped)
       })
       .finally(() => setLoading(false))
-  }, [setQueue])
+  }, [setQueue, user?.id])
 
   const rehearsalTracks = allTracks.filter(t => t.type === "rehearsal")
   const jamTracks = allTracks.filter(t => t.type === "jam")

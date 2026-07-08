@@ -190,6 +190,7 @@ export interface Track {
   plays: number
   likes: number
   comments: number
+  isLiked?: boolean
   duration: string
   gradient: string
   date: string

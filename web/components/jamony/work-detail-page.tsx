@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { Play, Pause, Heart, MessageCircle, Check, ListMusic } from "lucide-react"
 import { TopNav } from "@/components/jamony/top-nav"
 import { usePlayer } from "@/components/jamony/player-context"
+import { LikeButton } from "@/components/jamony/like-button"
 import { type Track } from "@/lib/jamony-data"
 import { useAuth } from "@/lib/auth-context"
 
@@ -118,7 +119,7 @@ function WorkDetailInner() {
   const [coverSong, setCoverSong] = useState("")
   const [coverAuthor, setCoverAuthor] = useState("")
   const [remixSource, setRemixSource] = useState("")
-  const { loggedIn, setShowLoginModal } = useAuth()
+  const { loggedIn, setShowLoginModal, user } = useAuth()
 
   // 检测来源是否为筛选页（track-card 跳转前在 sessionStorage 标记；客户端导航下 document.referrer 不更新）
   useEffect(() => {
@@ -139,9 +140,10 @@ function WorkDetailInner() {
     const id = resolveId()
     if (!id) { setLoading(false); return }
 
+    const uidQ = user?.id ? `?userId=${user.id}` : ""
     Promise.all([
-      fetch(`/api/works/${id}`).then(r => r.json()),
-      fetch("/api/works").then(r => r.json()),
+      fetch(`/api/works/${id}${uidQ}`).then(r => r.json()),
+      fetch(`/api/works${uidQ}`).then(r => r.json()),
     ]).then(([workData, allData]) => {
       if (workData.ok) {
         const w = workData.work
@@ -165,6 +167,7 @@ function WorkDetailInner() {
         }
         setTrack(mapped)
         setLikeCount(w.likes)
+        setLiked(w.isLiked || false)
         setWorkAuthors(w.authors || [])
         setAnonymousCount(w.anonymousCount || 0)
         setIntro(w.description || "")
@@ -195,7 +198,7 @@ function WorkDetailInner() {
       }
       setLoading(false)
     }).catch(() => setLoading(false))
-  }, [setQueue])
+  }, [setQueue, user?.id])
 
   // 加载中
   if (loading) {
@@ -216,15 +219,6 @@ function WorkDetailInner() {
 
   const isCurrent = current?.id === track.id
   const isCurrentPlaying = isCurrent && isPlaying
-
-  function toggleLike() {
-    if (!loggedIn) { setShowLoginModal(true); return }
-    setLiked((prev) => {
-      const next = !prev
-      setLikeCount((c) => c + (next ? 1 : -1))
-      return next
-    })
-  }
 
   function handlePlay() {
     if (isCurrent) {
@@ -335,17 +329,7 @@ function WorkDetailInner() {
                     <Play className="h-4 w-4" fill="currentColor" />
                     {track.plays}
                   </button>
-                  <button
-                    type="button"
-                    onClick={toggleLike}
-                    aria-pressed={liked}
-                    aria-label="点赞"
-                    className="flex items-center gap-1.5 transition-colors"
-                    style={{ color: liked ? "#FF33AA" : undefined }}
-                  >
-                    <Heart className="h-4 w-4" fill={liked ? "#FF33AA" : "none"} />
-                    {likeCount}
-                  </button>
+                  <LikeButton workId={track.id} isLiked={liked} likes={likeCount} iconClass="h-4 w-4" />
                   <span className="flex items-center gap-1.5">
                     <MessageCircle className="h-4 w-4" />
                     {track.comments}

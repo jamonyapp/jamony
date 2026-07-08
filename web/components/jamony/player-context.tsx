@@ -67,10 +67,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const audioRef = useRef<HTMLAudioElement | null>(null)
   // 跟踪当前曲目 id：切歌时旧 audio 被清空 src 也会触发 error，需据此忽略非当前曲目的 error
   const currentIdRef = useRef<string | undefined>(undefined)
+  // 当前曲目这次播放是否已计入播放量（防同一播放多次 +1；切歌/循环/重播时重置）
+  const countedRef = useRef(false)
 
   // 当前曲目变化时 → 创建新 Audio
   useEffect(() => {
     currentIdRef.current = current?.id
+    countedRef.current = false  // 切歌 → 新一轮播放，重新计计数
     if (!current?.mp3Url) {
       if (audioRef.current) {
         audioRef.current.pause()
@@ -104,6 +107,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
       if (repeatModeRef.current === "repeat-one") {
         audio.currentTime = 0
+        countedRef.current = false  // 单曲循环重播 → 新一轮，重新计计数
         audio.play().catch((e) => console.warn("[player] 单曲循环重播失败:", e))
         return
       }
@@ -137,6 +141,17 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPlaying, current?.id])
+
+  // 播放量计数：播满门槛（min(30秒, 50%总时长)）才 +1，每首每次播放只计一次
+  useEffect(() => {
+    if (!current?.id || !isPlaying) return
+    if (countedRef.current) return
+    const threshold = duration > 0 ? Math.min(30, duration * 0.5) : 30
+    if (currentTime >= threshold) {
+      countedRef.current = true
+      fetch(`/api/works/${current.id}/play`, { method: 'POST' }).catch(() => {})
+    }
+  }, [currentTime, isPlaying, current?.id, duration])
 
   const pickNext = useCallback(
     (dir: 1 | -1) => {
@@ -190,16 +205,18 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const playTrack = useCallback(
     (track: Track) => {
       if (current?.id === track.id) {
-        // 同曲 → 从头再放
+        // 同曲 → 从头再放（算新一轮播放，重新计计数）
         if (audioRef.current) {
           audioRef.current.currentTime = 0
         }
         setCurrentTime(0)
+        countedRef.current = false
         setIsPlaying(true)
         return
       }
       setCurrent(track)
       setIsPlaying(true)
+      // 播放量计数改由门槛 effect 触发（播满 min(30秒, 50%总时长) 才 +1）
     },
     [current],
   )

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { ChevronDown, Search } from "lucide-react"
 import { TrackCard } from "@/components/jamony/track-card"
 import { usePlayer } from "@/components/jamony/player-context"
+import { useAuth } from "@/lib/auth-context"
 import { TracksSkeleton } from "@/components/jamony/tracks-skeleton"
 import { TopNav } from "@/components/jamony/top-nav"
 import { type Track } from "@/lib/jamony-data"
@@ -82,6 +83,7 @@ function resolveTabFromUrl(): Tab {
 function CategoryListInner() {
   const router = useRouter()
   const { setQueue } = usePlayer()
+  const { user } = useAuth()
   const [allTracks, setAllTracks] = useState<Track[]>([])
   const [loaded, setLoaded] = useState(false)
   const [tab, setTab] = useState<Tab>(resolveTabFromUrl)
@@ -102,7 +104,8 @@ function CategoryListInner() {
 
   // 从 API 读取作品
   useEffect(() => {
-    fetch("/api/works")
+    const uidQ = user?.id ? `?userId=${user.id}` : ""
+    fetch(`/api/works${uidQ}`)
       .then(r => r.json())
       .then(data => {
         if (!data.ok) return
@@ -123,12 +126,13 @@ function CategoryListInner() {
           members: w.members || [],
           coverImage: w.coverImage || "",
           mp3Url: w.mp3Url || "",
+          isLiked: w.isLiked || false,
         }))
         setAllTracks(mapped)
         setQueue(mapped)
         setLoaded(true)
       })
-  }, [setQueue])
+  }, [setQueue, user?.id])
 
   const STYLE_OPTIONS = [...new Set(allTracks.flatMap((t) => t.styles))].sort()
   const INSTRUMENT_OPTIONS = [...new Set(allTracks.flatMap((t) => t.instruments))].sort()
