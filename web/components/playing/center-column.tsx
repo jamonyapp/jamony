@@ -558,10 +558,9 @@ function SessionCard({
   const publishHasDrumTrack = authorizedTracks.some(t => t.is_system === true)
   const authorizedTrackIds = useMemo(() => authorizedTracks.map(t => t.id), [authorizedTracks])
   const authorizedTrackIsDrums = useMemo(() => authorizedTracks.map(t => t.is_system), [authorizedTracks])
-  /** 全量作者数据（含匿名参与者），用于发表时存档 */
+  /** 全量作者数据（含匿名参与者 + jamony-looper 系统鼓轨），用于发表时存档 */
   const allTrackAuthors = useMemo(
     () => authorizedTracks
-      .filter(t => !t.is_system)
       .map(t => ({
         userId: t.user_id ?? 0,
         nickname: t.nickname,

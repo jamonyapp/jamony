@@ -1337,7 +1337,7 @@ app.get('/api/works', async (req, res) => {
       const members = namedAuthors.map(a => a.nickname)
       const instruments = [...new Set(authors.map(a => a.instrument_category).filter(Boolean))]
 
-      const nature = (row.copyright_type === '原创') ? 'original' : 'cover'
+      const nature = row.copyright_type === '原创' ? 'original' : row.copyright_type === '翻唱' ? 'cover' : 'remix'
 
       // 文件路径 → URL
       const mp3Url = row.mp3_path ? row.mp3_path.replace('/var/jamony/works', '/works') : ''
@@ -1423,7 +1423,7 @@ app.get('/api/works/:id', async (req, res) => {
     const members = namedAuthors.map(a => a.nickname)
     const instruments = [...new Set(authors.map(a => a.instrument_category).filter(Boolean))]
 
-    const nature = (row.copyright_type === '原创') ? 'original' : 'cover'
+    const nature = row.copyright_type === '原创' ? 'original' : row.copyright_type === '翻唱' ? 'cover' : 'remix'
     const mp3Url = row.mp3_path ? row.mp3_path.replace('/var/jamony/works', '/works') : ''
     const coverUrl = row.cover_image_path ? row.cover_image_path.replace('/var/jamony/works', '/works') : ''
     const gradient = row.cover_gradient || 'linear-gradient(135deg, #00AAFF, #9933FF)'
@@ -1457,6 +1457,10 @@ app.get('/api/works/:id', async (req, res) => {
       anonymousCount,
       style: row.style || '',
       copyrightType: row.copyright_type || '',
+      description: row.description || '',
+      coverSong: row.cover_song || '',
+      coverAuthor: row.cover_author || '',
+      source: row.source || '',
       coverGradient: gradient,
       hasDrumTrack: row.has_drum_track || false,
       authors,

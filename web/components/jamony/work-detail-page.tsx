@@ -114,6 +114,10 @@ function WorkDetailInner() {
   const [workAuthors, setWorkAuthors] = useState<any[]>([])
   const [anonymousCount, setAnonymousCount] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [intro, setIntro] = useState("")
+  const [coverSong, setCoverSong] = useState("")
+  const [coverAuthor, setCoverAuthor] = useState("")
+  const [remixSource, setRemixSource] = useState("")
   const { loggedIn, setShowLoginModal } = useAuth()
 
   // 检测来源是否为筛选页（track-card 跳转前在 sessionStorage 标记；客户端导航下 document.referrer 不更新）
@@ -163,6 +167,10 @@ function WorkDetailInner() {
         setLikeCount(w.likes)
         setWorkAuthors(w.authors || [])
         setAnonymousCount(w.anonymousCount || 0)
+        setIntro(w.description || "")
+        setCoverSong(w.coverSong || "")
+        setCoverAuthor(w.coverAuthor || "")
+        setRemixSource(w.source || "")
       }
       if (allData.ok) {
         const queue: Track[] = allData.works.map((wr: any, i: number) => ({
@@ -226,25 +234,25 @@ function WorkDetailInner() {
     }
   }
 
-  // 详情行
-  const detailRows = [
-    { label: "创作类型", value: track.type === "rehearsal" ? "排练作品" : "Jam 时刻" },
-    { label: "性质", value: track.nature === "original" ? "Original" : "Cover" },
-    { label: "风格", value: track.styles.join(" · ") },
-    { label: "乐器", value: track.instruments.join(" · ") },
-    { label: "发表时间", value: track.date },
-    { label: "时长", value: track.duration },
-  ]
-
   const comments = COMMENT_POOLS.default
 
-  // 根据乐器分配假 emoji
+  // 乐器 → emoji（发表时刻乐器快照，固化不受今后改主力乐器影响）
   const instrumentEmojis: Record<string, string> = {
     "电吉他": "🎸", "木吉他": "🎸", "贝斯": "🎸",
-    "鼓·小打": "🥁", "键盘乐器": "🎹", "主唱": "🎤",
+    "鼓·小打": "🥁", "打击乐器": "🥁", "键盘乐器": "🎹", "主唱": "🎤",
     "管乐": "🎷", "弦乐": "🎻", "电子": "🎛️",
     "民乐": "🪕", "其他": "🎵",
   }
+
+  // 详情行
+  const detailRows = [
+    { label: "创作类型", value: track.type === "rehearsal" ? "排练作品" : "Jam 时刻" },
+    { label: "性质", value: track.nature === "original" ? "原创" : track.nature === "cover" ? "翻唱" : "Remix" },
+    { label: "风格", value: track.styles.join(" · ") },
+    { label: "乐器", value: track.instruments.map(cat => instrumentEmojis[cat] ?? "🎵").join("  ") },
+    { label: "发表时间", value: track.date },
+    { label: "时长", value: track.duration },
+  ]
 
   // 给乐手分配假渐变和乐器
   const musicianGradients = [
@@ -268,11 +276,11 @@ function WorkDetailInner() {
 
       <div className="mx-auto w-full max-w-3xl px-4 pb-32 pt-[3.75rem]">
         {/* 主视觉区 */}
-        <section className="flex flex-col gap-5 pt-2 sm:flex-row sm:items-start">
+        <section className="flex flex-col gap-5 pt-2 sm:flex-row sm:items-stretch">
           <button
             type="button"
             onClick={handlePlay}
-            className="group relative w-44 shrink-0 sm:w-48"
+            className="group relative w-44 shrink-0 self-start sm:w-48"
             aria-label={isCurrentPlaying ? "暂停" : "播放"}
           >
             <VinylCover track={track} />
@@ -293,69 +301,88 @@ function WorkDetailInner() {
             </div>
           </button>
 
+          {/* 右侧：上半（信息列 + CTA）+ 下半（简介框拉通到最右） */}
           <div className="flex flex-1 flex-col gap-3 pt-1">
-            <h1 className="text-2xl font-bold text-white sm:text-[28px]">
-              {track.title}
-            </h1>
-            <p className="text-sm text-[#C9C9C9]">{track.author}</p>
+            <div className="flex gap-5 sm:items-start">
+              <div className="flex flex-1 flex-col gap-3">
+                <h1 className="text-2xl font-bold text-white sm:text-[28px]">
+                  {track.title}
+                </h1>
 
-            <div className="flex flex-wrap gap-2">
-              {track.styles.map((s) => (
-                <Tag key={s} text={s} color="#00AAFF" />
-              ))}
-              <Tag text={track.nature === "original" ? "Original" : "Cover"} color="#FF33AA" />
+                <div className="flex flex-wrap gap-2">
+                  {track.styles.map((s) => (
+                    <Tag key={s} text={s} color="#00AAFF" />
+                  ))}
+                  <Tag text={track.nature === "original" ? "原创" : track.nature === "cover" ? "翻唱" : "Remix"} color="#FF33AA" />
+                </div>
+
+                {/* 翻唱/Remix 来源（发表时若填写则显示） */}
+                {track.nature === "cover" && (coverSong || coverAuthor) && (
+                  <p className="text-xs text-[#8A8A8A]">
+                    翻唱自{coverSong ? `《${coverSong}》` : ""}{coverAuthor ? ` - ${coverAuthor}` : ""}
+                  </p>
+                )}
+                {track.nature === "remix" && remixSource && (
+                  <p className="text-xs text-[#8A8A8A]">素材来源：{remixSource}</p>
+                )}
+
+                <div className="flex items-center gap-5 pt-1 text-sm text-white">
+                  <button
+                    type="button"
+                    onClick={handlePlay}
+                    className="flex items-center gap-1.5"
+                  >
+                    <Play className="h-4 w-4" fill="currentColor" />
+                    {track.plays}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={toggleLike}
+                    aria-pressed={liked}
+                    aria-label="点赞"
+                    className="flex items-center gap-1.5 transition-colors"
+                    style={{ color: liked ? "#FF33AA" : undefined }}
+                  >
+                    <Heart className="h-4 w-4" fill={liked ? "#FF33AA" : "none"} />
+                    {likeCount}
+                  </button>
+                  <span className="flex items-center gap-1.5">
+                    <MessageCircle className="h-4 w-4" />
+                    {track.comments}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => addToPlaylist(track)}
+                    className="flex items-center gap-1.5 text-sm text-white/70 transition-colors hover:text-white"
+                  >
+                    <ListMusic className="h-4 w-4" />
+                    加入播放列表
+                  </button>
+                </div>
+              </div>
+
+              {/* CTA — 右上角小卡片 */}
+              <div className="flex shrink-0 flex-col items-center gap-3 rounded-xl border border-white/10 bg-[#0D0D0D] px-5 py-4 sm:w-56">
+                <p className="text-sm font-bold text-white">听不过瘾？来玩真的！</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    // 先同步停止播放，再跳转去房间大厅（与顶栏"返回首页"效果一致）
+                    stop()
+                    window.location.href = "/lobby"
+                  }}
+                  className="flex items-center justify-center gap-2 rounded-full px-5 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-80"
+                  style={{ background: "linear-gradient(135deg, #9933FF, #FF33AA)" }}
+                >
+                  去房间大厅
+                </button>
+              </div>
             </div>
 
-            <div className="flex items-center gap-5 pt-1 text-sm text-white">
-              <button
-                type="button"
-                onClick={handlePlay}
-                className="flex items-center gap-1.5"
-              >
-                <Play className="h-4 w-4" fill="currentColor" />
-                {track.plays}
-              </button>
-              <button
-                type="button"
-                onClick={toggleLike}
-                aria-pressed={liked}
-                aria-label="点赞"
-                className="flex items-center gap-1.5 transition-colors"
-                style={{ color: liked ? "#FF33AA" : undefined }}
-              >
-                <Heart className="h-4 w-4" fill={liked ? "#FF33AA" : "none"} />
-                {likeCount}
-              </button>
-              <span className="flex items-center gap-1.5">
-                <MessageCircle className="h-4 w-4" />
-                {track.comments}
-              </span>
-              <button
-                type="button"
-                onClick={() => addToPlaylist(track)}
-                className="flex items-center gap-1.5 text-sm text-white/70 transition-colors hover:text-white"
-              >
-                <ListMusic className="h-4 w-4" />
-                加入播放列表
-              </button>
-            </div>
-          </div>
-
-          {/* CTA — 放在右侧空白处，上下排版，横向居中 */}
-          <div className="flex shrink-0 flex-col items-center gap-3 rounded-xl border border-white/10 bg-[#0D0D0D] px-5 py-4 sm:w-56">
-            <p className="text-sm font-bold text-white">听不过瘾？来玩真的！</p>
-            <button
-              type="button"
-              onClick={() => {
-                // 先同步停止播放，再跳转去房间大厅（与顶栏"返回首页"效果一致）
-                stop()
-                window.location.href = "/lobby"
-              }}
-              className="flex items-center justify-center gap-2 rounded-full px-5 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-80"
-              style={{ background: "linear-gradient(135deg, #9933FF, #FF33AA)" }}
-            >
-              去房间大厅
-            </button>
+            {/* 作品简介 — 去框纯文字，统一字号，预设 2 行空间，从第一行左端开始，贴齐封面底 */}
+            <p className="mt-auto line-clamp-2 min-h-[2.875rem] text-sm leading-relaxed text-[#C9C9C9]">
+              <span className="text-[#8A8A8A]">作品简介</span>　　{intro || "考验悟性的时刻到了！这些随性的乐手什么都不想说。"}
+            </p>
           </div>
         </section>
 
@@ -386,9 +413,6 @@ function WorkDetailInner() {
                 <div key={a.user_id || `anon-${i}`} className="flex items-center gap-2">
                   <Avatar name={a.nickname} gradient={musicianGradients[i % musicianGradients.length]} size={36} />
                   <span className="text-sm text-white"><UserPopover nickname={a.nickname}>{a.nickname}</UserPopover></span>
-                  <span className="text-base leading-none">
-                    {instrumentEmojis[a.instrument_category] ?? "🎵"}
-                  </span>
                 </div>
               ))}
             </div>
