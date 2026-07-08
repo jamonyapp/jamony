@@ -1211,11 +1211,10 @@ app.post('/api/rooms/:id/recording/stop', requireAuth, async (req, res) => {
   }
 })
 // 下载分轨 WAV（混音/发表试听用）
-app.get('/api/rooms/:id/sessions/:sid/tracks/:tid/download', async (req, res) => {
+app.get('/api/rooms/:id/sessions/:sid/tracks/:tid/download', requireAuth, async (req, res) => {
   try {
     const { id: roomId, sid: sessionId, tid: trackId } = req.params
-    const userId = parseInt(req.query.userId)
-    if (!userId) return res.status(400).json({ ok: false, msg: '缺少 userId' })
+    const userId = req.userId
 
     const tr = await pool.query(
       'SELECT * FROM session_tracks WHERE id=$1 AND session_id=$2',
@@ -1309,7 +1308,7 @@ app.post('/api/rooms/:id/sessions/:sid/release-claim', requireAuth, async (req, 
 })
 
 // 发表作品
-app.post('/api/rooms/:id/sessions/:sid/publish', upload.fields([{ name: 'mp3', maxCount: 1 }, { name: 'cover_image', maxCount: 1 }]), async (req, res) => {
+app.post('/api/rooms/:id/sessions/:sid/publish', requireAuth, upload.fields([{ name: 'mp3', maxCount: 1 }, { name: 'cover_image', maxCount: 1 }]), async (req, res) => {
   try {
     const { id: roomId, sid: sessionId } = req.params
 
@@ -1318,9 +1317,10 @@ app.post('/api/rooms/:id/sessions/:sid/publish', upload.fields([{ name: 'mp3', m
     if (sess.rows.length === 0) return res.status(404).json({ ok: false, msg: 'Session 不存在' })
     if (sess.rows[0].status === 'published') return res.status(400).json({ ok: false, msg: '该段落已发表' })
 
-    const { title, style, copyright, cover_song, cover_author, source, description, duration, cover_gradient, has_drum_track, agreed, publisher_user_id, authors_json } = req.body
+    const { title, style, copyright, cover_song, cover_author, source, description, duration, cover_gradient, has_drum_track, agreed, authors_json } = req.body
+    const publisher_user_id = req.userId
 
-    if (!title || !style || !copyright || !publisher_user_id) {
+    if (!title || !style || !copyright) {
       return res.status(400).json({ ok: false, msg: '缺少必填字段' })
     }
 
@@ -1581,10 +1581,11 @@ app.post('/api/works/:id/play', async (req, res) => {
 })
 
 // ========== 点赞/取消点赞 ==========
-app.post('/api/works/:id/like', async (req, res) => {
+app.post('/api/works/:id/like', requireAuth, async (req, res) => {
   try {
     const { id } = req.params
-    const { userId, action } = req.body
+    const { action } = req.body
+    const userId = req.userId
 
     if (!userId || !action) {
       return res.status(400).json({ ok: false, msg: '缺少 userId 或 action' })
@@ -1644,11 +1645,12 @@ app.get('/api/works/:id/comments', async (req, res) => {
 })
 
 // 发表评论（parentId 有值=回复，NULL=一级；replyToNickname 回复某用户时的昵称）
-app.post('/api/works/:id/comments', async (req, res) => {
+app.post('/api/works/:id/comments', requireAuth, async (req, res) => {
   try {
     const { id } = req.params
-    const { userId, content, parentId, replyToNickname } = req.body
-    if (!userId || !content || !content.trim()) {
+    const { content, parentId, replyToNickname } = req.body
+    const userId = req.userId
+    if (!content || !content.trim()) {
       return res.status(400).json({ ok: false, msg: '缺少 userId 或 content' })
     }
     if (content.length > 200) {
@@ -1688,11 +1690,10 @@ app.post('/api/works/:id/comments', async (req, res) => {
 })
 
 // 删除评论（仅作者删自己的；一级评论删除会 CASCADE 删回复，并 -1 works.comments）
-app.delete('/api/works/:id/comments/:commentId', async (req, res) => {
+app.delete('/api/works/:id/comments/:commentId', requireAuth, async (req, res) => {
   try {
     const { id, commentId } = req.params
-    const userId = req.query.userId
-    if (!userId) return res.status(400).json({ ok: false, msg: '缺少 userId' })
+    const userId = req.userId
     const row = await pool.query('SELECT user_id, parent_id FROM work_comments WHERE id=$1 AND work_id=$2', [commentId, id])
     if (row.rows.length === 0) return res.status(404).json({ ok: false, msg: '评论不存在' })
     if (row.rows[0].user_id !== parseInt(userId)) return res.status(403).json({ ok: false, msg: '只能删除自己的评论' })
@@ -1709,11 +1710,12 @@ app.delete('/api/works/:id/comments/:commentId', async (req, res) => {
 })
 
 // 评论点赞/取消点赞（一级评论与回复通用，按 comment_id）
-app.post('/api/works/:id/comments/:commentId/like', async (req, res) => {
+app.post('/api/works/:id/comments/:commentId/like', requireAuth, async (req, res) => {
   try {
     const { commentId } = req.params
-    const { userId, action } = req.body
-    if (!userId || !action) return res.status(400).json({ ok: false, msg: '缺少 userId 或 action' })
+    const { action } = req.body
+    const userId = req.userId
+    if (!action) return res.status(400).json({ ok: false, msg: '缺少 action' })
     if (action === 'like') {
       await pool.query('INSERT INTO comment_likes (comment_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [commentId, userId])
     } else if (action === 'unlike') {
@@ -1730,11 +1732,11 @@ app.post('/api/works/:id/comments/:commentId/like', async (req, res) => {
 })
 
 // 举报评论（记录到 comment_reports，后台审核）
-app.post('/api/works/:id/comments/:commentId/report', async (req, res) => {
+app.post('/api/works/:id/comments/:commentId/report', requireAuth, async (req, res) => {
   try {
     const { commentId } = req.params
-    const { userId, reason } = req.body
-    if (!userId) return res.status(400).json({ ok: false, msg: '缺少 userId' })
+    const { reason } = req.body
+    const userId = req.userId
     await pool.query(
       'INSERT INTO comment_reports (comment_id, reporter_user_id, reason) VALUES ($1, $2, $3)',
       [commentId, userId, (reason || '').slice(0, 100)]
@@ -1747,11 +1749,10 @@ app.post('/api/works/:id/comments/:commentId/report', async (req, res) => {
 })
 
 // ========== 取消署名（不可恢复）==========
-app.patch('/api/works/:id/anonymize', async (req, res) => {
+app.patch('/api/works/:id/anonymize', requireAuth, async (req, res) => {
   try {
     const { id } = req.params
-    const { userId } = req.body
-    if (!userId) return res.status(400).json({ ok: false, msg: '缺少 userId' })
+    const userId = req.userId
 
     const result = await pool.query(
       'UPDATE work_authors SET is_anonymous = TRUE WHERE work_id = $1 AND user_id = $2 AND is_anonymous = FALSE RETURNING id',
@@ -1782,10 +1783,11 @@ app.get('/api/rooms/:id/sessions', async (req, res) => {
 })
 
 // 修改某条分轨的授权（①② 写死锁定，② 依赖 ①，③ 自由不锁）
-app.patch('/api/rooms/:id/sessions/:sid/tracks/:tid', async (req, res) => {
+app.patch('/api/rooms/:id/sessions/:sid/tracks/:tid', requireAuth, async (req, res) => {
   try {
     const { id, sid, tid } = req.params
-    const { userId, field, value } = req.body  // field: allow_use | allow_attribution | allow_download
+    const { field, value } = req.body  // field: allow_use | allow_attribution | allow_download
+    const userId = req.userId
     const tr = await pool.query('SELECT * FROM session_tracks WHERE id=$1 AND session_id=$2', [tid, sid])
     if (tr.rows.length === 0) return res.status(404).json({ ok: false, msg: '分轨不存在' })
     const t = tr.rows[0]
@@ -1866,8 +1868,11 @@ app.get('/api/drums/styles', (req, res) => {
   res.json({ ok: true, styles })
 })
 
-app.post('/api/rooms/:roomId/drums/start', async (req, res) => {
+app.post('/api/rooms/:roomId/drums/start', requireAuth, async (req, res) => {
   try {
+    if (!(await isRoomMusician(req.userId, req.params.roomId))) {
+      return res.status(403).json({ ok: false, msg: '仅合奏者可操作鼓机' })
+    }
     const { style, bpm, file } = req.body
     const validStyle = DRUM_STYLES.includes(style) ? style : 'rock'
     const validBpm = Math.min(200, Math.max(40, parseInt(bpm) || 120))
@@ -1913,8 +1918,11 @@ app.get('/api/rooms/:roomId/drums/status', async (req, res) => {
   }
 });
 
-app.post('/api/rooms/:roomId/drums/stop', async (req, res) => {
+app.post('/api/rooms/:roomId/drums/stop', requireAuth, async (req, res) => {
   try {
+    if (!(await isRoomMusician(req.userId, req.params.roomId))) {
+      return res.status(403).json({ ok: false, msg: '仅合奏者可操作鼓机' })
+    }
     const portRow = await pool.query('SELECT server_port FROM rooms WHERE id = $1', [req.params.roomId]);
     const roomPort = portRow.rows[0]?.server_port || req.params.roomId;
     execSync('node /var/www/jamony/api/manage-jamulus.js drums-stop ' + roomPort, { timeout: 5000, stdio: 'pipe' })
@@ -1944,7 +1952,27 @@ app.get('/api/daily-theme', (req, res) => {
   res.json({ ok: true, theme })
 })
 
+// 校验用户是否某房间的合奏者（room_members.role === 'musician'）
+async function isRoomMusician(userId, roomId) {
+  const r = await pool.query("SELECT role FROM room_members WHERE room_id=$1 AND user_id=$2", [roomId, userId])
+  return r.rows.length > 0 && r.rows[0].role === 'musician'
+}
+
 // ========== WebSocket (Socket.IO) ==========
+// 握手认证：验 httpOnly cookie JWT → socket.userId（同域 cookie 自动携带，前端零改动）
+io.use((socket, next) => {
+  const token = parseCookies(socket.request)[COOKIE_NAME]
+  if (!token) return next(new Error('未登录'))
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET)
+    socket.userId = decoded.id
+    socket.nickname = decoded.nickname
+    next()
+  } catch (e) {
+    next(new Error('登录已过期'))
+  }
+})
+
 io.on("connection", (socket) => {
   socket.on("join-room", (roomId) => {
     socket.join(roomId)
@@ -1957,10 +1985,10 @@ io.on("connection", (socket) => {
   })
 
   socket.on("chat-message", (data) => {
-    const { roomId, message, author } = data
+    const { roomId, message } = data
     io.to(roomId).emit("chat-message", {
       id: Date.now().toString(),
-      author,
+      author: socket.nickname,
       content: message,
       time: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
       isSelf: false,
@@ -1969,7 +1997,9 @@ io.on("connection", (socket) => {
 
   socket.on("push-chords", async (data) => {
     const { roomId, chords } = data
-    if (roomId && chords) {
+    if (!roomId || !socket.userId) return
+    if (!(await isRoomMusician(socket.userId, roomId))) return  // 仅合奏者可推和弦
+    if (chords) {
       try { await pool.query('UPDATE rooms SET current_chords = $1 WHERE id = $2', [chords.join(' '), roomId]) }
       catch (e) { console.error('Chords persist error:', e) }
     }
@@ -1978,7 +2008,9 @@ io.on("connection", (socket) => {
 
   socket.on("push-theme", async (data) => {
     const { roomId, theme } = data
-    if (roomId && theme) {
+    if (!roomId || !socket.userId) return
+    if (!(await isRoomMusician(socket.userId, roomId))) return  // 仅合奏者可推主题
+    if (theme) {
       try {
         await pool.query('UPDATE rooms SET current_theme = $1 WHERE id = $2', [theme, roomId])
       } catch (e) { console.error('Theme persist error:', e) }
@@ -1992,8 +2024,11 @@ io.on("connection", (socket) => {
 })
 
 // ========== 房间主题 ==========
-app.post('/api/rooms/:roomId/theme', async (req, res) => {
+app.post('/api/rooms/:roomId/theme', requireAuth, async (req, res) => {
   try {
+    if (!(await isRoomMusician(req.userId, req.params.roomId))) {
+      return res.status(403).json({ ok: false, msg: '仅合奏者可设置主题' })
+    }
     const { theme } = req.body
     if (!theme || !theme.trim()) {
       return res.status(400).json({ ok: false, msg: '主题不能为空' })
