@@ -35,15 +35,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false)
   const [showLoginModal, setShowLoginModal] = useState(false)
 
-  // 页面加载时从 localStorage 恢复登录状态
+  // 页面加载：先从 localStorage 读缓存（快速展示，避免未登录态闪烁），再调 /api/me 校验 httpOnly cookie 凭证
   useEffect(() => {
-    const saved = localStorage.getItem("jamony_user")
-    if (saved) {
-      try {
-        setUser(JSON.parse(saved))
-      } catch { /* ignore */ }
-    }
-    setReady(true)
+    try {
+      const saved = localStorage.getItem("jamony_user")
+      if (saved) setUser(JSON.parse(saved))
+    } catch { /* ignore */ }
+    fetch("/api/me", { credentials: "include" })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data && data.ok) {
+          setUser(data.user)
+          localStorage.setItem("jamony_user", JSON.stringify(data.user))
+        } else {
+          setUser(null)
+          localStorage.removeItem("jamony_user")
+        }
+        setReady(true)
+      })
+      .catch(() => setReady(true))
   }, [])
 
   const login = useCallback(async (nickname: string, password: string): Promise<string | null> => {
@@ -52,6 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ nickname, password }),
+        credentials: "include",
       })
       const data = await res.json()
       if (!data.ok) return data.msg || "登录失败"
@@ -69,6 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ nickname, password, primaryInstrument, instrumentCategory }),
+        credentials: "include",
       })
       const data = await res.json()
       if (!data.ok) return data.msg || "注册失败"
@@ -91,10 +103,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(() => {
     const uId = user?.id
+    fetch("/api/logout", { method: "POST", credentials: "include" }).catch(() => {})
     setUser(null)
     localStorage.removeItem("jamony_user")
     if (uId) {
-      fetch(`/api/users/${uId}/leave-all-rooms`, { method: "POST" }).catch(() => {})
+      fetch(`/api/users/${uId}/leave-all-rooms`, { method: "POST", credentials: "include" }).catch(() => {})
     }
   }, [user])
 

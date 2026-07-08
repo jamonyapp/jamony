@@ -49,6 +49,54 @@ function hashPassword(password) {
   return `pbkdf2:sha256:${iterations}:${salt}:${key.toString('base64')}`
 }
 
+// ========== JWT 鉴权基础设施 ==========
+const jwt = require('jsonwebtoken')
+const JWT_SECRET = process.env.JWT_SECRET || 'jamony-dev-secret-change-in-prod'
+const COOKIE_NAME = 'jamony_token'
+const TOKEN_MAX_AGE = 7 * 24 * 3600 * 1000  // 7 天
+
+// 解析 cookie（express 不内置，手写避免装 cookie-parser）
+function parseCookies(req) {
+  const list = {}
+  const rc = req.headers.cookie
+  if (!rc) return list
+  rc.split(';').forEach(c => {
+    const [k, ...v] = c.trim().split('=')
+    if (k) list[k] = v.join('=')
+  })
+  return list
+}
+
+// 签 JWT + Set httpOnly cookie
+function setAuthCookie(res, user) {
+  const token = jwt.sign({ id: user.id, nickname: user.nickname }, JWT_SECRET, { expiresIn: '7d' })
+  res.cookie(COOKIE_NAME, token, {
+    httpOnly: true,
+    maxAge: TOKEN_MAX_AGE,
+    sameSite: 'lax',
+    // secure: true,  // 公测 HTTPS 启用
+  })
+}
+
+// 鉴权中间件：验 cookie JWT → req.userId；滑动续期（剩余<1天重签 cookie）
+function requireAuth(req, res, next) {
+  const token = parseCookies(req)[COOKIE_NAME]
+  if (!token) return res.status(401).json({ ok: false, msg: '未登录' })
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET)
+    req.userId = decoded.id
+    req.nickname = decoded.nickname
+    const remaining = decoded.exp * 1000 - Date.now()
+    if (remaining < 24 * 3600 * 1000) {
+      const newToken = jwt.sign({ id: decoded.id, nickname: decoded.nickname }, JWT_SECRET, { expiresIn: '7d' })
+      res.cookie(COOKIE_NAME, newToken, { httpOnly: true, maxAge: TOKEN_MAX_AGE, sameSite: 'lax' })
+    }
+    next()
+  } catch (e) {
+    return res.status(401).json({ ok: false, msg: '登录已过期' })
+  }
+}
+
 // ========== 登录 ==========
 app.post('/api/login', async (req, res) => {
   try {
@@ -67,21 +115,20 @@ app.post('/api/login', async (req, res) => {
       return res.status(401).json({ ok: false, msg: '用户名或密码错误' })
     }
 
-    res.json({
-      ok: true,
-      user: {
-        id: user.id,
-        nickname: user.nickname,
-        avatarIndex: user.avatar_index,
-        bio: user.bio,
-        city: user.city,
-        primaryInstrument: user.primary_instrument,
-        instrumentCategory: user.instrument_category || '',
-        secondaryInstrument: user.secondary_instrument || '',
-        level: user.level,
-        points: user.points,
-      }
-    })
+    const userPayload = {
+      id: user.id,
+      nickname: user.nickname,
+      avatarIndex: user.avatar_index,
+      bio: user.bio,
+      city: user.city,
+      primaryInstrument: user.primary_instrument,
+      instrumentCategory: user.instrument_category || '',
+      secondaryInstrument: user.secondary_instrument || '',
+      level: user.level,
+      points: user.points,
+    }
+    setAuthCookie(res, userPayload)
+    res.json({ ok: true, user: userPayload })
   } catch (err) {
     console.error('Login error:', err)
     res.status(500).json({ ok: false, msg: '服务器错误' })
@@ -120,23 +167,58 @@ app.post('/api/register', async (req, res) => {
     )
 
     const user = result.rows[0]
+    const userPayload = {
+      id: user.id,
+      nickname: user.nickname,
+      avatarIndex: user.avatar_index,
+      bio: user.bio || '',
+      city: user.city || '',
+      primaryInstrument: user.primary_instrument,
+      instrumentCategory: user.instrument_category || '',
+      secondaryInstrument: '',
+      level: user.level,
+      points: user.points,
+    }
+    setAuthCookie(res, userPayload)
+    res.json({ ok: true, user: userPayload })
+  } catch (err) {
+    console.error('Register error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// ========== 登出（清 cookie）==========
+app.post('/api/logout', (req, res) => {
+  res.clearCookie(COOKIE_NAME)
+  res.json({ ok: true })
+})
+
+// ========== 当前登录态（前端刷新恢复用）==========
+app.get('/api/me', requireAuth, async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT id, nickname, avatar_index, bio, city, primary_instrument, instrument_category, secondary_instrument, level, points FROM users WHERE id=$1',
+      [req.userId]
+    )
+    if (result.rows.length === 0) return res.status(401).json({ ok: false, msg: '用户不存在' })
+    const u = result.rows[0]
     res.json({
       ok: true,
       user: {
-        id: user.id,
-        nickname: user.nickname,
-        avatarIndex: user.avatar_index,
-        bio: user.bio || '',
-        city: user.city || '',
-        primaryInstrument: user.primary_instrument,
-        instrumentCategory: user.instrument_category || '',
-        secondaryInstrument: '',
-        level: user.level,
-        points: user.points,
+        id: u.id,
+        nickname: u.nickname,
+        avatarIndex: u.avatar_index,
+        bio: u.bio || '',
+        city: u.city || '',
+        primaryInstrument: u.primary_instrument,
+        instrumentCategory: u.instrument_category || '',
+        secondaryInstrument: u.secondary_instrument || '',
+        level: u.level,
+        points: u.points,
       }
     })
   } catch (err) {
-    console.error('Register error:', err)
+    console.error('Me error:', err)
     res.status(500).json({ ok: false, msg: '服务器错误' })
   }
 })
