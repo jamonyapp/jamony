@@ -11,6 +11,7 @@ const path = require('path')
 const multer = require('multer')
 
 const app = express()
+app.set('trust proxy', 1)  // nginx 反代，从 X-Forwarded-For 取真实 IP（限频用）
 const server = http.createServer(app)
 const io = new Server(server, { cors: { origin: true, credentials: true } })
 const PORT = 3001
@@ -47,6 +48,34 @@ function hashPassword(password) {
   const iterations = 600000
   const key = crypto.pbkdf2Sync(password, salt, iterations, 32, 'sha256')
   return `pbkdf2:sha256:${iterations}:${salt}:${key.toString('base64')}`
+}
+
+// ========== 频率限制（内存计数器，内测期够用；公测可换 Redis）==========
+const rateBuckets = new Map()  // key -> {count, resetAt}
+function rateCheck(key, limit, windowMs) {
+  const now = Date.now()
+  const b = rateBuckets.get(key)
+  if (!b || b.resetAt < now) {
+    rateBuckets.set(key, { count: 1, resetAt: now + windowMs })
+    return true
+  }
+  b.count++
+  return b.count <= limit
+}
+
+const loginFailBuckets = new Map()  // nickname -> {count, lockUntil}
+function recordLoginFail(nickname) {
+  const f = loginFailBuckets.get(nickname) || { count: 0, lockUntil: 0 }
+  f.count++
+  if (f.count >= 5) f.lockUntil = Date.now() + 15 * 60 * 1000  // 连续失败5次锁15分钟
+  loginFailBuckets.set(nickname, f)
+}
+function isAccountLocked(nickname) {
+  const f = loginFailBuckets.get(nickname)
+  return !!(f && f.lockUntil && f.lockUntil > Date.now())
+}
+function clearLoginFail(nickname) {
+  loginFailBuckets.delete(nickname)
 }
 
 // ========== JWT 鉴权基础设施 ==========
@@ -100,21 +129,32 @@ function requireAuth(req, res, next) {
 // ========== 登录 ==========
 app.post('/api/login', async (req, res) => {
   try {
+    if (!rateCheck(`login:${req.ip}`, 10, 3600 * 1000)) {
+      return res.status(429).json({ ok: false, msg: '尝试过于频繁，请1小时后再试' })
+    }
     const { nickname, password } = req.body
     if (!nickname || !password) {
       return res.status(400).json({ ok: false, msg: '请输入用户名和密码' })
     }
+    if (isAccountLocked(nickname)) {
+      const f = loginFailBuckets.get(nickname)
+      const min = Math.ceil((f.lockUntil - Date.now()) / 60000)
+      return res.status(429).json({ ok: false, msg: `账号已锁定，${min}分钟后重试` })
+    }
 
     const result = await pool.query('SELECT * FROM users WHERE nickname = $1', [nickname])
     if (result.rows.length === 0) {
+      recordLoginFail(nickname)
       return res.status(401).json({ ok: false, msg: '用户名或密码错误' })
     }
 
     const user = result.rows[0]
     if (!verifyPassword(password, user.password_hash)) {
+      recordLoginFail(nickname)
       return res.status(401).json({ ok: false, msg: '用户名或密码错误' })
     }
 
+    clearLoginFail(nickname)
     const userPayload = {
       id: user.id,
       nickname: user.nickname,
@@ -138,6 +178,9 @@ app.post('/api/login', async (req, res) => {
 // ========== 注册 ==========
 app.post('/api/register', async (req, res) => {
   try {
+    if (!rateCheck(`register:${req.ip}`, 5, 3600 * 1000)) {
+      return res.status(429).json({ ok: false, msg: '注册过于频繁，请1小时后再试' })
+    }
     const { nickname, password, primaryInstrument, instrumentCategory } = req.body
     if (!nickname || !password || !primaryInstrument) {
       return res.status(400).json({ ok: false, msg: '请填写所有必填项' })
