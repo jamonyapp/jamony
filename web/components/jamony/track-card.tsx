@@ -6,6 +6,7 @@ import { MoreHorizontal, Pause, Play, Heart, MessageCircle } from "lucide-react"
 import { VinylRecord } from "@/components/jamony/vinyl-record"
 import { usePlayer } from "@/components/jamony/player-context"
 import { LikeButton } from "@/components/jamony/like-button"
+import { CommentCount } from "@/components/jamony/comment-count"
 import { formatCount, type Track } from "@/lib/jamony-data"
 import { useAuth } from "@/lib/auth-context"
 import { UserPopover } from "@/components/jamony/user-popover"
@@ -276,10 +277,7 @@ export function TrackCard({ track }: { track: Track }) {
             {formatCount(track.plays)}
           </span>
           <LikeButton workId={track.id} isLiked={track.isLiked ?? false} likes={track.likes} iconClass="h-3 w-3" stopClick />
-          <span className="flex items-center gap-0.5">
-            <MessageCircle className="h-3 w-3" />
-            {track.comments}
-          </span>
+          <CommentCount workId={track.id} count={track.comments} iconClass="h-3 w-3" />
         </div>
       </div>
     </div>

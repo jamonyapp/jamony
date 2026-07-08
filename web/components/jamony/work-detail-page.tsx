@@ -2,10 +2,12 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Play, Pause, Heart, MessageCircle, Check, ListMusic, Trash2 } from "lucide-react"
+import { Play, Pause, ThumbsUp, MessageCircle, Check, ListMusic, Trash2 } from "lucide-react"
 import { TopNav } from "@/components/jamony/top-nav"
 import { usePlayer } from "@/components/jamony/player-context"
 import { LikeButton } from "@/components/jamony/like-button"
+import { CommentCount } from "@/components/jamony/comment-count"
+import { useComments } from "@/lib/comments-context"
 import { type Track } from "@/lib/jamony-data"
 import { useAuth } from "@/lib/auth-context"
 
@@ -92,6 +94,8 @@ interface Comment {
   reply_to_nickname: string | null
   created_at: string
   replies: Comment[]
+  likes: number
+  is_liked: boolean
 }
 
 // 相对时间格式化（刚刚 / X分钟前 / X小时前 / X天前 / 日期）
@@ -107,6 +111,9 @@ function formatRelativeTime(iso: string): string {
   if (day < 30) return `${day}天前`
   return new Date(iso).toLocaleDateString("zh-CN")
 }
+
+// 举报预设理由
+const REPORT_REASONS = ["垃圾广告", "辱骂攻击", "色情低俗", "诈骗信息", "其他"]
 
 function resolveId(): string {
   if (typeof window === "undefined") return ""
@@ -130,7 +137,13 @@ function WorkDetailInner() {
   const [remixSource, setRemixSource] = useState("")
   const [comments, setComments] = useState<Comment[]>([])
   const [pendingDelete, setPendingDelete] = useState<Comment | null>(null)
+  const [replyTo, setReplyTo] = useState<{ parentId: number; nickname: string } | null>(null)
+  const [pendingReport, setPendingReport] = useState<Comment | null>(null)
+  const [reportReason, setReportReason] = useState("")
+  const [reportCustom, setReportCustom] = useState("")
+  const [reportSent, setReportSent] = useState(false)
   const { loggedIn, setShowLoginModal, user } = useAuth()
+  const { adjustCount } = useComments()
 
   // 检测来源是否为筛选页（track-card 跳转前在 sessionStorage 标记；客户端导航下 document.referrer 不更新）
   useEffect(() => {
@@ -143,28 +156,98 @@ function WorkDetailInner() {
     if (!loggedIn) { setShowLoginModal(true); return }
     if (!commentText.trim() || !user || !track) return
     const content = commentText.trim()
+    const parentId = replyTo?.parentId || null
+    const replyToNickname = replyTo?.nickname || null
     setCommentText("")
+    setReplyTo(null)
     try {
       const r = await fetch(`/api/works/${track.id}/comments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: user.id, content }),
+        body: JSON.stringify({ userId: user.id, content, parentId, replyToNickname }),
       })
       const data = await r.json()
       if (data.ok) {
-        setComments((cs) => [data.comment, ...cs])  // 时间倒序，新评论在最上
+        if (parentId) {
+          // 回复：追加到父评论 replies（回复不计入 works.comments）
+          setComments((cs) => cs.map((c) => c.id === parentId ? { ...c, replies: [...c.replies, data.comment] } : c))
+        } else {
+          // 一级评论：顶部 + 评论数 +1
+          setComments((cs) => [data.comment, ...cs])
+          adjustCount(track.id, 1, track.comments)
+        }
       }
     } catch {}
   }
 
-  const handleDeleteComment = async (commentId: number) => {
+  const handleDeleteComment = async (commentId: number, parentId: number | null) => {
     if (!user || !track) return
     try {
       const r = await fetch(`/api/works/${track.id}/comments/${commentId}?userId=${user.id}`, { method: 'DELETE' })
       const data = await r.json()
       if (data.ok) {
-        setComments((cs) => cs.filter((c) => c.id !== commentId))
+        if (parentId) {
+          // 删除回复：从父评论 replies 移除（回复不计入 works.comments）
+          setComments((cs) => cs.map((c) => c.id === parentId ? { ...c, replies: c.replies.filter((r) => r.id !== commentId) } : c))
+        } else {
+          // 删除一级评论：移除 + 评论数 -1
+          setComments((cs) => cs.filter((c) => c.id !== commentId))
+          adjustCount(track.id, -1, track.comments)
+        }
       }
+    } catch {}
+  }
+
+  // 评论点赞/取消（一级评论与回复通用，遍历 comments + replies 更新）
+  const handleLikeComment = async (commentId: number, isLiked: boolean) => {
+    if (!loggedIn) { setShowLoginModal(true); return }
+    if (!user || !track) return
+    const action = isLiked ? 'unlike' : 'like'
+    const delta = isLiked ? -1 : 1
+    // 乐观更新
+    setComments((cs) => cs.map((c) => {
+      if (c.id === commentId) return { ...c, is_liked: !isLiked, likes: c.likes + delta }
+      if (c.replies.some((r) => r.id === commentId)) {
+        return { ...c, replies: c.replies.map((r) => r.id === commentId ? { ...r, is_liked: !isLiked, likes: r.likes + delta } : r) }
+      }
+      return c
+    }))
+    try {
+      const r = await fetch(`/api/works/${track.id}/comments/${commentId}/like`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id, action }),
+      })
+      const data = await r.json()
+      if (data.ok) {
+        // 后端准确值校正
+        setComments((cs) => cs.map((c) => {
+          if (c.id === commentId) return { ...c, likes: data.likes }
+          if (c.replies.some((r) => r.id === commentId)) {
+            return { ...c, replies: c.replies.map((r) => r.id === commentId ? { ...r, likes: data.likes } : r) }
+          }
+          return c
+        }))
+      }
+    } catch {}
+  }
+
+  // 举报评论
+  const handleReport = async () => {
+    if (!user || !track || !pendingReport) return
+    const reason = reportReason === "其他" ? reportCustom.trim() : reportReason
+    if (!reason) return
+    try {
+      await fetch(`/api/works/${track.id}/comments/${pendingReport.id}/report`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id, reason }),
+      })
+      setPendingReport(null)
+      setReportReason("")
+      setReportCustom("")
+      setReportSent(true)
+      setTimeout(() => setReportSent(false), 2000)
     } catch {}
   }
 
@@ -372,10 +455,12 @@ function WorkDetailInner() {
                     {track.plays}
                   </button>
                   <LikeButton workId={track.id} isLiked={liked} likes={likeCount} iconClass="h-4 w-4" />
-                  <span className="flex items-center gap-1.5">
-                    <MessageCircle className="h-4 w-4" />
-                    {track.comments}
-                  </span>
+                  <CommentCount
+                    workId={track.id}
+                    count={track.comments}
+                    iconClass="h-4 w-4"
+                    onClick={() => document.getElementById('comments')?.scrollIntoView({ behavior: 'smooth' })}
+                  />
                   <button
                     type="button"
                     onClick={() => addToPlaylist(track)}
@@ -453,7 +538,7 @@ function WorkDetailInner() {
         </section>
 
         {/* 评论区 — 可滚动 + 时间戳 + 输入框 */}
-        <section className="mt-10">
+        <section id="comments" className="mt-10">
           <div className="mb-3 flex items-center gap-3">
             <h2 className="text-[13px] text-[#8A8A8A]">评论区</h2>
             <span className="h-px flex-1 bg-white/10" />
@@ -470,11 +555,24 @@ function WorkDetailInner() {
               {user?.nickname?.charAt(0) || "U"}
             </span>
             <div className="flex flex-1 flex-col gap-2">
+              {replyTo && (
+                <div className="flex items-center gap-2 text-xs" style={{ color: "#8A8A8A" }}>
+                  <span>回复 {replyTo.nickname}</span>
+                  <button
+                    type="button"
+                    onClick={() => setReplyTo(null)}
+                    className="text-[#666] transition-colors hover:text-white"
+                  >
+                    取消
+                  </button>
+                </div>
+              )}
               <textarea
                 value={commentText}
                 onChange={(e) => setCommentText(e.target.value)}
-                placeholder="说点什么…"
+                placeholder={replyTo ? `回复 ${replyTo.nickname}…` : "说点什么…"}
                 rows={2}
+                maxLength={200}
                 className="w-full resize-none rounded-lg border border-[#1A1A1A] bg-[#0D0D0D] px-3 py-2 text-sm text-white placeholder:text-[#666] outline-none transition-colors focus:border-[#00AAFF]"
               />
               <div className="flex justify-end">
@@ -517,6 +615,93 @@ function WorkDetailInner() {
                           )}
                         </div>
                         <p className="mt-0.5 text-sm text-[#C9C9C9]">{c.content}</p>
+                        <div className="mt-1 flex items-center gap-4">
+                          <button
+                            type="button"
+                            onClick={() => handleLikeComment(c.id, c.is_liked)}
+                            className="flex items-center gap-1 text-[11px] transition-transform active:scale-125"
+                            style={{ color: c.is_liked ? "#00AAFF" : "#666" }}
+                            aria-label="点赞"
+                          >
+                            <ThumbsUp className="h-3 w-3" fill={c.is_liked ? "#00AAFF" : "none"} />
+                            {c.likes}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setReplyTo({ parentId: c.id, nickname: c.nickname })}
+                            className="text-[11px] text-[#666] transition-colors hover:text-white"
+                          >
+                            回复
+                          </button>
+                          {c.user_id !== user?.id && (
+                            <button
+                              type="button"
+                              onClick={() => setPendingReport(c)}
+                              className="ml-auto text-[11px] text-[#666] transition-colors hover:text-[#FF33AA]"
+                            >
+                              举报
+                            </button>
+                          )}
+                        </div>
+
+                        {/* 回复列表（字号小颜色暗） */}
+                        {c.replies.length > 0 && (
+                          <div className="mt-2 space-y-2 border-l border-white/10 pl-3">
+                            {c.replies.map((r) => (
+                              <div key={r.id} className="flex items-start gap-2">
+                                <Avatar name={r.nickname} gradient={musicianGradients[0]} size={22} />
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-baseline gap-2">
+                                    <span className="text-xs font-medium text-white"><UserPopover nickname={r.nickname}>{r.nickname}</UserPopover></span>
+                                    <span className="text-[10px] text-[#666]">{formatRelativeTime(r.created_at)}</span>
+                                    {r.user_id === user?.id && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setPendingDelete(r)}
+                                        className="ml-auto text-[#999] transition-colors hover:text-[#FF33AA]"
+                                        aria-label="删除回复"
+                                      >
+                                        <Trash2 className="h-3 w-3" />
+                                      </button>
+                                    )}
+                                  </div>
+                                  <p className="mt-0.5 text-xs text-[#A0A0A0]">
+                                    {r.reply_to_nickname && <span className="text-[#666]">回复 {r.reply_to_nickname}：</span>}
+                                    {r.content}
+                                  </p>
+                                  <div className="mt-1 flex items-center gap-3">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleLikeComment(r.id, r.is_liked)}
+                                      className="flex items-center gap-1 text-[10px] transition-transform active:scale-125"
+                                      style={{ color: r.is_liked ? "#00AAFF" : "#666" }}
+                                      aria-label="点赞"
+                                    >
+                                      <ThumbsUp className="h-2.5 w-2.5" fill={r.is_liked ? "#00AAFF" : "none"} />
+                                      {r.likes}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setReplyTo({ parentId: c.id, nickname: r.nickname })}
+                                      className="text-[10px] text-[#666] transition-colors hover:text-white"
+                                    >
+                                      回复
+                                    </button>
+                                    {r.user_id !== user?.id && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setPendingReport(r)}
+                                        className="ml-auto text-[10px] text-[#666] transition-colors hover:text-[#FF33AA]"
+                                      >
+                                        举报
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </li>
@@ -551,7 +736,7 @@ function WorkDetailInner() {
                 <button
                   type="button"
                   onClick={async () => {
-                    await handleDeleteComment(pendingDelete.id)
+                    await handleDeleteComment(pendingDelete.id, pendingDelete.parent_id)
                     setPendingDelete(null)
                   }}
                   className="rounded-full px-4 py-1.5 text-xs font-medium text-white"
@@ -561,6 +746,74 @@ function WorkDetailInner() {
                 </button>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* 举报评论弹窗 */}
+        {pendingReport && (
+          <div
+            className="fixed inset-0 z-[60] flex items-center justify-center p-6"
+            style={{ background: "rgba(0,0,0,0.6)" }}
+            onClick={() => { setPendingReport(null); setReportReason(""); setReportCustom("") }}
+          >
+            <div
+              className="w-full max-w-sm rounded-2xl border p-5"
+              style={{ background: "#0D0D0D", borderColor: "#1A1A1A" }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <p className="text-sm text-white">举报这条评论</p>
+              <p className="mt-1 text-xs text-[#8A8A8A] line-clamp-2">{pendingReport.content}</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {REPORT_REASONS.map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setReportReason(r)}
+                    className="rounded-full px-3 py-1 text-xs transition-colors"
+                    style={reportReason === r
+                      ? { background: "linear-gradient(135deg, #FF33AA, #9933FF)", color: "#fff" }
+                      : { background: "#161616", color: "#8A8A8A" }}
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+              {reportReason === "其他" && (
+                <textarea
+                  value={reportCustom}
+                  onChange={(e) => setReportCustom(e.target.value)}
+                  placeholder="说明原因…"
+                  rows={2}
+                  maxLength={100}
+                  className="mt-2 w-full resize-none rounded-lg border border-[#1A1A1A] bg-black px-3 py-2 text-xs text-white outline-none focus:border-[#00AAFF]"
+                />
+              )}
+              <div className="mt-4 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setPendingReport(null); setReportReason(""); setReportCustom("") }}
+                  className="px-4 py-1.5 text-xs text-[#9A9A9A] transition-colors hover:text-white"
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  disabled={!reportReason || (reportReason === "其他" && !reportCustom.trim())}
+                  onClick={handleReport}
+                  className="rounded-full px-4 py-1.5 text-xs font-medium text-white disabled:opacity-30"
+                  style={{ background: "linear-gradient(135deg, #FF33AA, #9933FF)" }}
+                >
+                  提交举报
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 举报成功提示 */}
+        {reportSent && (
+          <div className="fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 rounded-full px-4 py-2 text-xs text-white" style={{ background: "linear-gradient(135deg, #00AAFF, #9933FF)" }}>
+            举报已提交，感谢反馈
           </div>
         )}
 

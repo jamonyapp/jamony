@@ -1531,16 +1531,21 @@ app.post('/api/works/:id/like', async (req, res) => {
 app.get('/api/works/:id/comments', async (req, res) => {
   try {
     const { id } = req.params
+    const currentUserId = req.query.userId ? parseInt(req.query.userId) : null
     const topResult = await pool.query(`
-      SELECT id, user_id, nickname, content, parent_id, reply_to_nickname, created_at
-      FROM work_comments WHERE work_id = $1 AND parent_id IS NULL
-      ORDER BY created_at DESC
-    `, [id])
+      SELECT c.id, c.user_id, c.nickname, c.content, c.parent_id, c.reply_to_nickname, c.created_at,
+        (SELECT COUNT(*) FROM comment_likes WHERE comment_id = c.id) AS likes,
+        EXISTS(SELECT 1 FROM comment_likes WHERE comment_id = c.id AND user_id = $2) AS is_liked
+      FROM work_comments c WHERE c.work_id = $1 AND c.parent_id IS NULL
+      ORDER BY c.created_at DESC
+    `, [id, currentUserId])
     const replyResult = await pool.query(`
-      SELECT id, user_id, nickname, content, parent_id, reply_to_nickname, created_at
-      FROM work_comments WHERE work_id = $1 AND parent_id IS NOT NULL
-      ORDER BY created_at ASC
-    `, [id])
+      SELECT c.id, c.user_id, c.nickname, c.content, c.parent_id, c.reply_to_nickname, c.created_at,
+        (SELECT COUNT(*) FROM comment_likes WHERE comment_id = c.id) AS likes,
+        EXISTS(SELECT 1 FROM comment_likes WHERE comment_id = c.id AND user_id = $2) AS is_liked
+      FROM work_comments c WHERE c.work_id = $1 AND c.parent_id IS NOT NULL
+      ORDER BY c.created_at ASC
+    `, [id, currentUserId])
     const repliesByParent = {}
     replyResult.rows.forEach(r => {
       ;(repliesByParent[r.parent_id] = repliesByParent[r.parent_id] || []).push(r)
@@ -1587,6 +1592,8 @@ app.post('/api/works/:id/comments', async (req, res) => {
         reply_to_nickname: replyToNickname || null,
         created_at: ins.rows[0].created_at,
         replies: [],
+        likes: 0,
+        is_liked: false,
       },
     })
   } catch (err) {
@@ -1612,6 +1619,44 @@ app.delete('/api/works/:id/comments/:commentId', async (req, res) => {
     res.json({ ok: true })
   } catch (err) {
     console.error('Comment delete error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// 评论点赞/取消点赞（一级评论与回复通用，按 comment_id）
+app.post('/api/works/:id/comments/:commentId/like', async (req, res) => {
+  try {
+    const { commentId } = req.params
+    const { userId, action } = req.body
+    if (!userId || !action) return res.status(400).json({ ok: false, msg: '缺少 userId 或 action' })
+    if (action === 'like') {
+      await pool.query('INSERT INTO comment_likes (comment_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [commentId, userId])
+    } else if (action === 'unlike') {
+      await pool.query('DELETE FROM comment_likes WHERE comment_id = $1 AND user_id = $2', [commentId, userId])
+    } else {
+      return res.status(400).json({ ok: false, msg: 'action 必须是 like 或 unlike' })
+    }
+    const result = await pool.query('SELECT COUNT(*) AS likes FROM comment_likes WHERE comment_id = $1', [commentId])
+    res.json({ ok: true, likes: parseInt(result.rows[0].likes) })
+  } catch (err) {
+    console.error('Comment like error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// 举报评论（记录到 comment_reports，后台审核）
+app.post('/api/works/:id/comments/:commentId/report', async (req, res) => {
+  try {
+    const { commentId } = req.params
+    const { userId, reason } = req.body
+    if (!userId) return res.status(400).json({ ok: false, msg: '缺少 userId' })
+    await pool.query(
+      'INSERT INTO comment_reports (comment_id, reporter_user_id, reason) VALUES ($1, $2, $3)',
+      [commentId, userId, (reason || '').slice(0, 100)]
+    )
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('Comment report error:', err)
     res.status(500).json({ ok: false, msg: '服务器错误' })
   }
 })

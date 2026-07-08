@@ -7,6 +7,7 @@ import { SectionHeader } from "./section-header"
 import { useAuth } from "@/lib/auth-context"
 import { usePlayer } from "@/components/jamony/player-context"
 import { LikeButton } from "@/components/jamony/like-button"
+import { CommentCount } from "@/components/jamony/comment-count"
 import type { Track } from "@/lib/jamony-data"
 
 type Highlight = {
@@ -102,14 +103,13 @@ function HighlightCard({ item, angle, onOpen }: { item: Highlight; angle: number
             {item.plays}
           </span>
           <LikeButton workId={item.trackId} isLiked={item.isLiked} likes={item.likes} iconClass="h-3 w-3" stopClick />
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); router.push(`/library/${item.trackId}`) }}
-            className="flex items-center gap-0.5"
-          >
-            <MessageCircle className="h-3 w-3" />
-            {item.comments}
-          </button>
+          <CommentCount
+            workId={item.trackId}
+            count={item.comments}
+            iconClass="h-3 w-3"
+            onClick={() => router.push(`/library/${item.trackId}`)}
+            stopClick
+          />
         </div>
       </div>
 
@@ -297,14 +297,12 @@ function DetailModal({ item, onClose }: { item: Highlight; onClose: () => void }
                 {item.plays}
               </span>
               <LikeButton workId={item.trackId} isLiked={item.isLiked} likes={item.likes} iconClass="h-3.5 w-3.5" />
-              <button
-                type="button"
+              <CommentCount
+                workId={item.trackId}
+                count={item.comments}
+                iconClass="h-3.5 w-3.5"
                 onClick={() => router.push(`/library/${item.trackId}`)}
-                className="flex items-center gap-1 transition-opacity hover:opacity-80"
-              >
-                <MessageCircle className="h-3.5 w-3.5" />
-                {item.comments}
-              </button>
+              />
             </div>
 
             {/* 3 个操作按钮 */}
