@@ -39,6 +39,7 @@ interface PlayerContextValue {
   setVolume: (v: number) => void
   playTrack: (track: Track) => void
   togglePlay: () => void
+  stop: () => void
   playNext: () => void
   playPrev: () => void
   seekTo: (time: number) => void
@@ -208,6 +209,21 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setIsPlaying((p) => !p)
   }, [current])
 
+  // 完全停止：同步暂停 audio + 清空当前曲目（用于离开播放场景，如跳转去房间大厅）
+  // 同步操作 audioRef 立即停声，不依赖 isPlaying effect，避免跳转打断 effect 导致继续播放
+  const stop = useCallback(() => {
+    const audio = audioRef.current
+    if (audio) {
+      audio.pause()
+      audio.src = ""
+      audioRef.current = null
+    }
+    setIsPlaying(false)
+    setCurrent(null)
+    setCurrentTime(0)
+    setDuration(0)
+  }, [])
+
   const cycleRepeatMode = useCallback(() => {
     setRepeatMode((m) => {
       const next = REPEAT_MODES[(REPEAT_MODES.indexOf(m) + 1) % REPEAT_MODES.length]
@@ -242,12 +258,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     () => ({
       current, isPlaying, repeatMode, playlist,
       currentTime, duration, volume, setVolume,
-      playTrack, togglePlay, playNext, playPrev, seekTo,
+      playTrack, togglePlay, stop, playNext, playPrev, seekTo,
       setQueue, cycleRepeatMode, addToPlaylist, removeFromPlaylist,
     }),
     [
       current, isPlaying, repeatMode, playlist, currentTime, duration, volume,
-      playTrack, togglePlay, playNext, playPrev, seekTo,
+      playTrack, togglePlay, stop, playNext, playPrev, seekTo,
       cycleRepeatMode, addToPlaylist, removeFromPlaylist,
     ],
   )

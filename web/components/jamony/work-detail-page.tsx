@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Play, Pause, Heart, MessageCircle, Guitar, Check, ListMusic } from "lucide-react"
+import { Play, Pause, Heart, MessageCircle, Check, ListMusic } from "lucide-react"
 import { TopNav } from "@/components/jamony/top-nav"
 import { usePlayer } from "@/components/jamony/player-context"
 import { type Track } from "@/lib/jamony-data"
@@ -105,7 +105,7 @@ function resolveId(): string {
 
 function WorkDetailInner() {
   const router = useRouter()
-  const { setQueue, playTrack, current, isPlaying, togglePlay, addToPlaylist } = usePlayer()
+  const { setQueue, playTrack, current, isPlaying, togglePlay, stop, addToPlaylist } = usePlayer()
   const [liked, setLiked] = useState(false)
   const [likeCount, setLikeCount] = useState(0)
   const [commentText, setCommentText] = useState("")
@@ -293,7 +293,7 @@ function WorkDetailInner() {
             </div>
           </button>
 
-          <div className="flex flex-col gap-3 pt-1">
+          <div className="flex flex-1 flex-col gap-3 pt-1">
             <h1 className="text-2xl font-bold text-white sm:text-[28px]">
               {track.title}
             </h1>
@@ -339,20 +339,23 @@ function WorkDetailInner() {
                 加入播放列表
               </button>
             </div>
+          </div>
 
-            {/* CTA — 放在右侧空白处 */}
-            <div className="mt-5 flex items-center gap-4 rounded-xl border border-white/10 bg-[#0D0D0D] px-5 py-4">
-              <p className="text-sm font-bold text-white">听不过瘾？来玩真的！</p>
-              <button
-                type="button"
-                onClick={() => router.push("/lobby")}
-                className="flex shrink-0 items-center gap-2 rounded-full px-5 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-80"
-                style={{ background: "linear-gradient(135deg, #9933FF, #FF33AA)" }}
-              >
-                <Guitar className="h-4 w-4" />
-                去房间大厅
-              </button>
-            </div>
+          {/* CTA — 放在右侧空白处，上下排版，横向居中 */}
+          <div className="flex shrink-0 flex-col items-center gap-3 rounded-xl border border-white/10 bg-[#0D0D0D] px-5 py-4 sm:w-56">
+            <p className="text-sm font-bold text-white">听不过瘾？来玩真的！</p>
+            <button
+              type="button"
+              onClick={() => {
+                // 先同步停止播放，再跳转去房间大厅（与顶栏"返回首页"效果一致）
+                stop()
+                window.location.href = "/lobby"
+              }}
+              className="flex items-center justify-center gap-2 rounded-full px-5 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-80"
+              style={{ background: "linear-gradient(135deg, #9933FF, #FF33AA)" }}
+            >
+              去房间大厅
+            </button>
           </div>
         </section>
 
