@@ -410,8 +410,8 @@ app.get('/api/users/:userId/works', async (req, res) => {
       SELECT w.*, (
         SELECT COALESCE(json_agg(row_to_json(wa_sub) ORDER BY wa_sub.id), '[]'::json)
         FROM (
-          SELECT wa.id, wa.user_id, wa.nickname, wa.instrument_category, wa.is_anonymous
-          FROM work_authors wa WHERE wa.work_id = w.id
+          SELECT wa.id, wa.user_id, COALESCE(u.nickname, wa.nickname) AS nickname, wa.instrument_category, wa.is_anonymous, COALESCE(u.is_system, FALSE) AS is_system
+          FROM work_authors wa LEFT JOIN users u ON u.id = wa.user_id WHERE wa.work_id = w.id
         ) wa_sub
       ) AS authors
       FROM works w
@@ -1211,7 +1211,7 @@ app.post('/api/rooms/:id/recording/stop', requireAuth, async (req, res) => {
       await pool.query(
         `INSERT INTO session_tracks
          (session_id, user_id, is_system, nickname, instrument_category, allow_use, allow_attribution, allow_download, use_locked, attribution_locked, file_path)
-         VALUES ($1, NULL, TRUE, 'jamony-looper', '打击乐器', TRUE, TRUE, TRUE, TRUE, TRUE, $2)`,
+         VALUES ($1, 0, TRUE, 'jamony-looper', '打击乐器', TRUE, TRUE, TRUE, TRUE, TRUE, $2)`,
         [sessionId, looperWav ? looperWav.fullPath : '']
       )
     }
@@ -1413,7 +1413,7 @@ app.post('/api/rooms/:id/sessions/:sid/publish', requireAuth, upload.fields([{ n
       for (const a of authors) {
         await pool.query(
           'INSERT INTO work_authors (work_id, user_id, nickname, instrument_category, is_anonymous) VALUES ($1, $2, $3, $4, $5)',
-          [workId, a.userId || null, a.nickname || '', a.instrumentCategory || '', a.isAnonymous || false]
+          [workId, a.userId ?? null, a.nickname || '', a.instrumentCategory || '', a.isAnonymous || false]
         )
       }
     }
@@ -1451,8 +1451,8 @@ app.get('/api/works', async (req, res) => {
       SELECT w.*, (
         SELECT COALESCE(json_agg(row_to_json(wa_sub) ORDER BY wa_sub.id), '[]'::json)
         FROM (
-          SELECT wa.id, wa.user_id, wa.nickname, wa.instrument_category, wa.is_anonymous
-          FROM work_authors wa WHERE wa.work_id = w.id
+          SELECT wa.id, wa.user_id, COALESCE(u.nickname, wa.nickname) AS nickname, wa.instrument_category, wa.is_anonymous, COALESCE(u.is_system, FALSE) AS is_system
+          FROM work_authors wa LEFT JOIN users u ON u.id = wa.user_id WHERE wa.work_id = w.id
         ) wa_sub
       ) AS authors,
       EXISTS(SELECT 1 FROM works_likes WHERE work_id = w.id AND user_id = $3) AS is_liked
@@ -1539,8 +1539,8 @@ app.get('/api/works/:id', async (req, res) => {
       SELECT w.*, (
         SELECT COALESCE(json_agg(row_to_json(wa_sub) ORDER BY wa_sub.id), '[]'::json)
         FROM (
-          SELECT wa.id, wa.user_id, wa.nickname, wa.instrument_category, wa.is_anonymous
-          FROM work_authors wa WHERE wa.work_id = w.id
+          SELECT wa.id, wa.user_id, COALESCE(u.nickname, wa.nickname) AS nickname, wa.instrument_category, wa.is_anonymous, COALESCE(u.is_system, FALSE) AS is_system
+          FROM work_authors wa LEFT JOIN users u ON u.id = wa.user_id WHERE wa.work_id = w.id
         ) wa_sub
       ) AS authors,
       EXISTS(SELECT 1 FROM works_likes WHERE work_id = w.id AND user_id = $2) AS is_liked
@@ -1913,6 +1913,8 @@ app.get('/api/drums/styles', (req, res) => {
 
 app.post('/api/rooms/:roomId/drums/start', requireAuth, async (req, res) => {
   try {
+    const roomRow = await pool.query('SELECT id FROM rooms WHERE id=$1', [req.params.roomId])
+    if (roomRow.rows.length === 0) return res.status(404).json({ ok: false, msg: '房间不存在' })
     if (!(await isRoomMusician(req.userId, req.params.roomId))) {
       return res.status(403).json({ ok: false, msg: '仅合奏者可操作鼓机' })
     }
@@ -1963,10 +1965,11 @@ app.get('/api/rooms/:roomId/drums/status', async (req, res) => {
 
 app.post('/api/rooms/:roomId/drums/stop', requireAuth, async (req, res) => {
   try {
+    const portRow = await pool.query('SELECT server_port FROM rooms WHERE id = $1', [req.params.roomId])
+    if (portRow.rows.length === 0) return res.status(404).json({ ok: false, msg: '房间不存在' })
     if (!(await isRoomMusician(req.userId, req.params.roomId))) {
       return res.status(403).json({ ok: false, msg: '仅合奏者可操作鼓机' })
     }
-    const portRow = await pool.query('SELECT server_port FROM rooms WHERE id = $1', [req.params.roomId]);
     const roomPort = portRow.rows[0]?.server_port || req.params.roomId;
     execSync('node /var/www/jamony/api/manage-jamulus.js drums-stop ' + roomPort, { timeout: 5000, stdio: 'pipe' })
     await pool.query('UPDATE rooms SET current_bpm = 0 WHERE id = $1', [req.params.roomId])
@@ -2069,6 +2072,8 @@ io.on("connection", (socket) => {
 // ========== 房间主题 ==========
 app.post('/api/rooms/:roomId/theme', requireAuth, async (req, res) => {
   try {
+    const roomRow = await pool.query('SELECT id FROM rooms WHERE id=$1', [req.params.roomId])
+    if (roomRow.rows.length === 0) return res.status(404).json({ ok: false, msg: '房间不存在' })
     if (!(await isRoomMusician(req.userId, req.params.roomId))) {
       return res.status(403).json({ ok: false, msg: '仅合奏者可设置主题' })
     }

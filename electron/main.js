@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron')
+const { app, BrowserWindow, ipcMain, session } = require('electron')
 const path = require('path')
 const { spawn } = require('child_process')
 
@@ -21,6 +21,18 @@ let mainWindow = null
 let jamsoulProcess = null
 
 function createWindow() {
+  // #3 安全白名单：只允许白名单域加载，防注入恶意页面（file: 本地页 + 内测IP + 公测域名）
+  const ALLOWED_HOSTS = ['39.96.30.128', 'jamonyapp.com', 'localhost', '127.0.0.1']
+  session.defaultSession.webRequest.onBeforeRequest((details, callback) => {
+    try {
+      const u = new URL(details.url)
+      const allowed = u.protocol === 'file:' || u.protocol === 'chrome:' || u.protocol === 'devtools:'
+        || ALLOWED_HOSTS.some(h => u.hostname === h || u.hostname.endsWith('.' + h))
+      if (!allowed) console.log('[jamony] 拦截非白名单请求:', details.url)
+      callback({ cancel: !allowed })
+    } catch { callback({ cancel: false }) }
+  })
+
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -48,6 +60,14 @@ function createWindow() {
   setTimeout(() => {
     mainWindow.loadURL(WEB_URL)
   }, 5000)
+
+  // #1 断网检测：云端页面加载失败 → 显示断网页
+  mainWindow.webContents.on('did-fail-load', (e, errorCode, errorDesc, validatedURL) => {
+    if (validatedURL && validatedURL.startsWith(WEB_URL)) {
+      console.log('[jamony] 云端加载失败，显示断网页:', errorDesc)
+      mainWindow.loadFile(path.join(__dirname, 'offline.html'))
+    }
+  })
 }
 
 // 调起 jamsoul 子进程

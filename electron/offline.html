@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline';">
+  <title>jamony</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #000;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+    }
+    .logo { font-size: 42px; font-weight: 800; letter-spacing: -1px; background: linear-gradient(135deg, #00AAFF, #9933FF, #FF33AA); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .icon { font-size: 64px; }
+    .msg { font-size: 18px; color: #C9C9C9; }
+    .hint { font-size: 14px; color: #666; }
+    .retry { margin-top: 10px; padding: 10px 24px; border-radius: 999px; border: 1px solid #333; background: transparent; color: #fff; font-size: 14px; cursor: pointer; transition: all .2s; }
+    .retry:hover { background: rgba(255,255,255,0.08); border-color: #00AAFF; }
+  </style>
+</head>
+<body>
+  <div class="logo">jamony</div>
+  <div class="icon">🎸</div>
+  <div class="msg">你的乐器没插线</div>
+  <div class="hint">jamony 需要网络连接才能使用</div>
+  <button class="retry" onclick="retry()">重试连接</button>
+  <script>
+    // 自动检测网络恢复，恢复后跳转云端
+    const WEB_URL = 'http://39.96.30.128'
+    function retry() {
+      fetch(WEB_URL + '/api/works?limit=1', { mode: 'no-cors' })
+        .then(() => { location.href = WEB_URL })
+        .catch(() => {})
+    }
+    // 每 3 秒自动重试
+    setInterval(() => { if (navigator.onLine) retry() }, 3000)
+    window.addEventListener('online', retry)
+  </script>
+</body>
+</html>
