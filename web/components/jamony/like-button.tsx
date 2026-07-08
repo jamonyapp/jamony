@@ -1,10 +1,11 @@
 "use client"
 
 import { Heart } from "lucide-react"
-import { useLike } from "@/lib/use-like"
+import { useLikes } from "@/lib/likes-context"
 
 /**
  * 点赞按钮：红色空心 → 点击变实心红心 + 数字+1，再点取消。
+ * 状态来自全局 LikesProvider（全站同步）：store 有该作品读 store，否则用 fetch 快照兜底。
  * - 未登录点击弹登录框（匿名能看数不能点）
  * - active:scale-125 点击弹跳动效
  */
@@ -22,25 +23,27 @@ export function LikeButton({
   /** 嵌在可点击卡片里时阻止冒泡（避免触发卡片播放） */
   stopClick?: boolean
 }) {
-  const { isLiked: liked, likes: count, toggleLike } = useLike(workId, isLiked, likes)
+  const { getLike, toggleLike } = useLikes()
+  const fallback = { isLiked, likes }
+  const state = getLike(workId) ?? fallback
 
   return (
     <button
       type="button"
       onClick={(e) => {
         if (stopClick) e.stopPropagation()
-        toggleLike()
+        toggleLike(workId, fallback)
       }}
-      aria-pressed={liked}
-      aria-label={liked ? "取消点赞" : "点赞"}
+      aria-pressed={state.isLiked}
+      aria-label={state.isLiked ? "取消点赞" : "点赞"}
       className="flex items-center gap-0.5 transition-transform active:scale-125"
     >
       <Heart
         className={iconClass}
         style={{ color: "#FF33AA" }}
-        fill={liked ? "#FF33AA" : "none"}
+        fill={state.isLiked ? "#FF33AA" : "none"}
       />
-      <span>{count}</span>
+      <span>{state.likes}</span>
     </button>
   )
 }

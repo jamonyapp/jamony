@@ -5,6 +5,7 @@ import './globals.css'
 import { AuthProvider } from '@/lib/auth-context'
 import { LoginModal } from '@/components/jamony/login-modal'
 import { PlayerProvider } from '@/components/jamony/player-context'
+import { LikesProvider } from '@/lib/likes-context'
 
 const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] })
 const geistMono = Geist_Mono({
@@ -64,7 +65,9 @@ export default function RootLayout({
       <body className="font-sans antialiased" style={{ background: '#000000' }}>
         <AuthProvider>
           <PlayerProvider>
-            {children}
+            <LikesProvider>
+              {children}
+            </LikesProvider>
           </PlayerProvider>
           <LoginModal />
         </AuthProvider>
