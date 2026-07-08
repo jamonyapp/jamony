@@ -489,9 +489,12 @@ app.delete('/api/tracks/:id', async (req, res) => {
 })
 
 // ========== 更新用户资料 ==========
-app.patch('/api/users/:id', async (req, res) => {
+app.patch('/api/users/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params
+    if (parseInt(id) !== req.userId) {
+      return res.status(403).json({ ok: false, msg: '只能修改自己的资料' })
+    }
     const { nickname, bio, signature, city, primaryInstrument, instrumentCategory, styles, avatarIndex, email } = req.body
 
     const sets = []
@@ -550,9 +553,12 @@ app.patch('/api/users/:id', async (req, res) => {
 })
 
 // ========== 修改密码 ==========
-app.post('/api/users/:id/password', async (req, res) => {
+app.post('/api/users/:id/password', requireAuth, async (req, res) => {
   try {
     const { id } = req.params
+    if (parseInt(id) !== req.userId) {
+      return res.status(403).json({ ok: false, msg: '只能修改自己的密码' })
+    }
     const { oldPassword, newPassword } = req.body
 
     if (!oldPassword || !newPassword) {
@@ -594,10 +600,11 @@ async function getAvailablePort() {
 }
 
 // 创建房间
-app.post('/api/rooms', async (req, res) => {
+app.post('/api/rooms', requireAuth, async (req, res) => {
   try {
-    const { name, description, style, hostId, maxMusicians } = req.body
-    if (!name || !hostId) {
+    const { name, description, style, maxMusicians } = req.body
+    const hostId = req.userId
+    if (!name) {
       return res.status(400).json({ ok: false, msg: '请填写房间名' })
     }
 
@@ -838,14 +845,11 @@ async function broadcastSessions(roomId) {
 }
 
 // 加入房间
-app.post('/api/rooms/:id/join', async (req, res) => {
+app.post('/api/rooms/:id/join', requireAuth, async (req, res) => {
   try {
     const { id } = req.params
-    const { userId, role } = req.body
-
-    if (!userId) {
-      return res.status(400).json({ ok: false, msg: '请先登录' })
-    }
+    const { role } = req.body
+    const userId = req.userId
 
     const acceptedRole = role === 'musician' ? 'musician' : 'listener'
 
@@ -908,10 +912,10 @@ app.post('/api/rooms/:id/join', async (req, res) => {
 })
 
 // 离开房间
-app.post('/api/rooms/:id/leave', async (req, res) => {
+app.post('/api/rooms/:id/leave', requireAuth, async (req, res) => {
   try {
     const { id } = req.params
-    const { userId } = req.body
+    const userId = req.userId
 
     const memberResult = await pool.query(
       'SELECT * FROM room_members WHERE room_id = $1 AND user_id = $2', [id, userId]
@@ -980,10 +984,11 @@ app.post('/api/rooms/:id/leave', async (req, res) => {
 })
 
 // 切换角色（合奏者 ↔ 听众）
-app.post('/api/rooms/:id/switch-role', async (req, res) => {
+app.post('/api/rooms/:id/switch-role', requireAuth, async (req, res) => {
   try {
     const { id } = req.params
-    const { userId, newRole } = req.body
+    const { newRole } = req.body
+    const userId = req.userId
 
     if (newRole === 'musician') {
       const roomResult = await pool.query('SELECT max_musicians FROM rooms WHERE id = $1', [id])
@@ -1009,9 +1014,10 @@ app.post('/api/rooms/:id/switch-role', async (req, res) => {
 })
 
 // ========== 更新房间成员音频状态 ==========
-app.post('/api/rooms/:roomId/members/:userId/audio-status', async (req, res) => {
+app.post('/api/rooms/:roomId/members/:userId/audio-status', requireAuth, async (req, res) => {
   try {
-    const { roomId, userId } = req.params
+    const { roomId } = req.params
+    const userId = req.userId
     const { audioStatus } = req.body
     await pool.query(
       'UPDATE room_members SET audio_status = $1, last_active_at = NOW() WHERE room_id = $2 AND user_id = $3',
@@ -1029,10 +1035,10 @@ app.post('/api/rooms/:roomId/members/:userId/audio-status', async (req, res) => 
 const RECORDING_COUNTDOWN_SECONDS = 60  // 倒计时秒数（测试用 60，后期改 600）
 
 // 开始录音（合奏者触发，一房一录）
-app.post('/api/rooms/:id/recording/start', async (req, res) => {
+app.post('/api/rooms/:id/recording/start', requireAuth, async (req, res) => {
   try {
     const { id } = req.params
-    const { userId } = req.body
+    const userId = req.userId
     const member = await pool.query('SELECT role FROM room_members WHERE room_id=$1 AND user_id=$2', [id, userId])
     if (member.rows.length === 0 || member.rows[0].role !== 'musician') {
       return res.status(403).json({ ok: false, msg: '仅合奏者可录音' })
@@ -1059,10 +1065,11 @@ app.post('/api/rooms/:id/recording/start', async (req, res) => {
 })
 
 // 停止录音 → 创建 session + 分轨快照 + jamony-looper 检测 + 启动倒计时
-app.post('/api/rooms/:id/recording/stop', async (req, res) => {
+app.post('/api/rooms/:id/recording/stop', requireAuth, async (req, res) => {
   try {
     const { id } = req.params
-    const { userId, duration } = req.body
+    const { duration } = req.body
+    const userId = req.userId
     const member = await pool.query('SELECT role FROM room_members WHERE room_id=$1 AND user_id=$2', [id, userId])
     if (member.rows.length === 0 || member.rows[0].role !== 'musician') {
       return res.status(403).json({ ok: false, msg: '仅合奏者可录音' })
@@ -1246,12 +1253,10 @@ app.get('/api/rooms/:id/sessions/:sid/tracks/:tid/download', async (req, res) =>
 })
 
 // 抢发表锁（先到先得）
-app.post('/api/rooms/:id/sessions/:sid/claim-publish', async (req, res) => {
+app.post('/api/rooms/:id/sessions/:sid/claim-publish', requireAuth, async (req, res) => {
   try {
     const { id: roomId, sid: sessionId } = req.params
-    const { userId } = req.body
-
-    if (!userId) return res.status(400).json({ ok: false, msg: '缺少 userId' })
+    const userId = req.userId
 
     // 原子化更新：只有 publisher_user_id 为 NULL 时才能写入
     const result = await pool.query(
@@ -1284,12 +1289,10 @@ app.post('/api/rooms/:id/sessions/:sid/claim-publish', async (req, res) => {
 })
 
 // 释放发表锁（关闭发表卡片但未发表时调用）
-app.post('/api/rooms/:id/sessions/:sid/release-claim', async (req, res) => {
+app.post('/api/rooms/:id/sessions/:sid/release-claim', requireAuth, async (req, res) => {
   try {
     const { id: roomId, sid: sessionId } = req.params
-    const { userId } = req.body
-
-    if (!userId) return res.status(400).json({ ok: false, msg: '缺少 userId' })
+    const userId = req.userId
 
     await pool.query(
       'UPDATE recording_sessions SET publisher_user_id=NULL WHERE id=$1 AND publisher_user_id=$2',
@@ -2004,9 +2007,9 @@ app.post('/api/rooms/:roomId/theme', async (req, res) => {
 })
 
 // ========== 退出所有房间（退出登录时调用） ==========
-app.post('/api/users/:userId/leave-all-rooms', async (req, res) => {
+app.post('/api/users/:userId/leave-all-rooms', requireAuth, async (req, res) => {
   try {
-    const { userId } = req.params
+    const userId = req.userId
     const rooms = await pool.query('SELECT room_id FROM room_members WHERE user_id = $1', [userId])
     for (const row of rooms.rows) {
       await pool.query('DELETE FROM room_members WHERE room_id = $1 AND user_id = $2', [row.room_id, userId])
