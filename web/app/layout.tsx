@@ -7,6 +7,7 @@ import { LoginModal } from '@/components/jamony/login-modal'
 import { PlayerProvider } from '@/components/jamony/player-context'
 import { LikesProvider } from '@/lib/likes-context'
 import { CommentsProvider } from '@/lib/comments-context'
+import { ElectronGate } from '@/components/jamony/electron-gate'
 
 const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] })
 const geistMono = Geist_Mono({
@@ -68,7 +69,9 @@ export default function RootLayout({
           <PlayerProvider>
             <LikesProvider>
               <CommentsProvider>
-                {children}
+                <ElectronGate>
+                  {children}
+                </ElectronGate>
               </CommentsProvider>
             </LikesProvider>
           </PlayerProvider>
