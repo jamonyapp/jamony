@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
 import { useRouter } from "next/navigation"
+import { FollowButton } from "@/components/jamony/follow-button"
+import { Avatar } from "@/components/jamony/avatar"
 
 const INSTRUMENT_ICON: Record<string, string> = {
   "电吉他": "🎸",
@@ -32,6 +34,7 @@ type Musician = {
   nickname: string
   primary_instrument: string
   instrument_category: string
+  avatar_url?: string
 }
 
 export function ActiveMusicians() {
@@ -97,10 +100,17 @@ export function ActiveMusicians() {
               const faded = i < offset
               const grad = GRADIENTS[i % GRADIENTS.length]
               return (
-                <button
+                <div
                   key={m.id}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
                   onClick={() => router.push(`/profile?nickname=${encodeURIComponent(m.nickname)}`)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault()
+                      router.push(`/profile?nickname=${encodeURIComponent(m.nickname)}`)
+                    }
+                  }}
                   style={{
                     width: itemWidth || undefined,
                     opacity: faded ? 0 : 1,
@@ -108,24 +118,15 @@ export function ActiveMusicians() {
                   }}
                   className="flex shrink-0 flex-col items-center gap-2.5 px-0.5 transition-all duration-500 ease-out"
                 >
-                  <span
-                    className="flex items-center justify-center rounded-full font-bold text-white"
-                    style={{
-                      background: grad,
-                      height: 72,
-                      width: 72,
-                      fontSize: 24,
-                    }}
-                  >
-                    {m.nickname.charAt(0)}
-                  </span>
+                  <Avatar nickname={m.nickname} avatarUrl={m.avatar_url} size={72} />
                   <span className="max-w-full truncate text-[13px] font-medium text-white">
                     {m.nickname}
                   </span>
                   <span className="text-[18px] leading-none text-[#8A8A8A]">
                     {INSTRUMENT_ICON[m.instrument_category] || "🎵"}
                   </span>
-                </button>
+                  <FollowButton targetUserId={m.id} size="small" />
+                </div>
               )
             })}
           </div>

@@ -16,6 +16,7 @@ type RoomItem = {
   style: string
   host_id: number
   host_name: string
+  host_avatar_url?: string
   is_private: boolean
   max_musicians: number
   musician_count: number
@@ -154,7 +155,7 @@ export function RoomListPage() {
                 emoji: STYLE_EMOJI[room.style] || "🎵",
                 style: room.style || "通用",
                 description: room.description,
-                owner: { name: room.host_name, color: "purple" as const },
+                owner: { name: room.host_name, avatarUrl: room.host_avatar_url, color: "purple" as const },
                 ownerOnline: true,
                 instruments: [] as string[],
                 current: room.musician_count,

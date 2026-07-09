@@ -18,7 +18,7 @@ export type Room = {
   subStyle: string
   description: string
   createdAt: string
-  owner: { name: string; color: "blue" | "purple" | "pink" | "lime" }
+  owner: { name: string; avatarUrl?: string; color: "blue" | "purple" | "pink" | "lime" }
   ownerOnline: boolean
   instruments: string[]
   current: number

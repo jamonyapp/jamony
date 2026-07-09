@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react"
 import { Send, Users, Signal, Crown, Headphones, UserCheck } from "lucide-react"
 import { useChatSocket } from "@/lib/chat-socket"
 import { useAuth } from "@/lib/auth-context"
+import { Avatar } from "@/components/jamony/avatar"
 
 type Member = {
   id: number
@@ -13,6 +14,7 @@ type Member = {
   audio_status: string
   joined_at: string
   instrument_category?: string
+  avatar_url?: string
 }
 
 type RoomInfo = {
@@ -22,6 +24,7 @@ type RoomInfo = {
   style: string
   host_id: number
   host_name: string
+  host_avatar_url?: string
   server_port: number
   musician_count: number
   listener_count: number
@@ -66,8 +69,8 @@ export function RightColumn({ roomId, room, refreshTrigger, realtimeMembers }: {
               </span>
             </div>
             <p className="mt-1.5 text-xs leading-relaxed" style={{ color: "#8A8A8A" }}>{room.description}</p>
-            <p className="mt-1.5 text-[11px]" style={{ color: "#8A8A8A" }}>
-              房主 <span className="text-white">{room.host_name}</span>
+            <p className="mt-1.5 flex items-center gap-1 text-[11px]" style={{ color: "#8A8A8A" }}>
+              房主 <Avatar nickname={room.host_name} avatarUrl={room.host_avatar_url} size={16} /> <span className="text-white">{room.host_name}</span>
             </p>
           </div>
         </div>
@@ -98,10 +101,7 @@ export function RightColumn({ roomId, room, refreshTrigger, realtimeMembers }: {
               return (
               <div key={m.id} className="flex items-center gap-1.5">
                 <span className="relative inline-flex">
-                  <span className="grid h-6 w-6 place-items-center rounded-full text-[10px] font-bold text-white"
-                    style={{ background: m.user_id === room?.host_id ? "linear-gradient(135deg, #9933FF, #FF33AA)" : "#00AAFF" }}>
-                    {m.nickname.charAt(0)}
-                  </span>
+                  <Avatar nickname={m.nickname} avatarUrl={m.avatar_url} size={24} />
                   {m.audio_status === "connected" && (
                     <span className="absolute -bottom-[1px] -right-[1px] h-2 w-2 rounded-full border" style={{ background: "#BBEE00", borderColor: "#0D0D0D" }} />
                   )}
@@ -127,10 +127,7 @@ export function RightColumn({ roomId, room, refreshTrigger, realtimeMembers }: {
           <div className="flex flex-wrap gap-x-3 gap-y-1.5">
             {listeners.map((m) => (
               <div key={m.id} className="flex items-center gap-1.5">
-                <span className="grid h-5 w-5 place-items-center rounded-full text-[9px] font-bold text-white"
-                  style={{ background: "#FF33AA" }}>
-                  {m.nickname.charAt(0)}
-                </span>
+                <Avatar nickname={m.nickname} avatarUrl={m.avatar_url} size={20} />
                 <span className="text-xs" style={{ color: "#B0B0B0" }}>{m.nickname}</span>
               </div>
             ))}
@@ -175,13 +172,16 @@ function ChatPanel({ roomId }: { roomId?: string }) {
           <p className="text-center text-xs" style={{ color: "#666" }}>{'暂无消息'}</p>
         )}
         {messages.map((msg) => (
-          <div key={msg.id} className={`flex flex-col ${msg.isSelf ? "items-end" : "items-start"}`}>
-            <div className="flex items-center gap-1.5 text-[10px]" style={{ color: "#8A8A8A" }}>
-              <span>{msg.author}</span><span>{msg.time}</span>
-            </div>
-            <div className={`mt-0.5 max-w-[90%] rounded-[8px] px-2.5 py-1.5 text-sm ${msg.isSelf ? "text-white" : "text-white"}`}
-              style={msg.isSelf ? { background: "#9933FF" } : { background: "rgba(255,255,255,0.08)" }}>
-              {msg.content}
+          <div key={msg.id} className={`flex gap-1.5 ${msg.isSelf ? "flex-row-reverse" : "flex-row"}`}>
+            <Avatar nickname={msg.author} avatarUrl={msg.avatarUrl} size={20} className="mt-3 shrink-0" />
+            <div className={`flex flex-col ${msg.isSelf ? "items-end" : "items-start"}`}>
+              <div className="flex items-center gap-1.5 text-[10px]" style={{ color: "#8A8A8A" }}>
+                <span>{msg.author}</span><span>{msg.time}</span>
+              </div>
+              <div className={`mt-0.5 max-w-[90%] rounded-[8px] px-2.5 py-1.5 text-sm ${msg.isSelf ? "text-white" : "text-white"}`}
+                style={msg.isSelf ? { background: "#9933FF" } : { background: "rgba(255,255,255,0.08)" }}>
+                {msg.content}
+              </div>
             </div>
           </div>
         ))}

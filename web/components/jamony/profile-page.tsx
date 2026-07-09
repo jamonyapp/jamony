@@ -7,6 +7,8 @@ import { TopNav } from "@/components/jamony/top-nav"
 import { useAuth } from "@/lib/auth-context"
 import { TrackCard } from "@/components/jamony/track-card"
 import { AnonymizeDialog } from "@/components/jamony/anonymize-dialog"
+import { FollowButton } from "@/components/jamony/follow-button"
+import { Avatar } from "@/components/jamony/avatar"
 import type { Track } from "@/lib/jamony-data"
 
 const GRADIENT = "linear-gradient(90deg, #00AAFF, #9933FF, #FF33AA, #BBEE00)"
@@ -27,6 +29,8 @@ type UserProfile = {
   total_likes: number
   followers_count: number
   following_count: number
+  is_following?: boolean
+  avatar_url?: string
   created_at: string
 }
 
@@ -78,6 +82,14 @@ export function ProfilePage({ nickname }: { nickname: string }) {
       const worksRes = await fetch(`/api/users/${profile.id}/works`)
       const worksData = await worksRes.json()
       if (worksData.ok) setUserWorks(worksData.works)
+    } catch { /* ignore */ }
+  }
+
+  async function refreshProfile() {
+    try {
+      const res = await fetch(`/api/users/by-nickname/${encodeURIComponent(nickname)}`)
+      const data = await res.json()
+      if (data.ok) setProfile(data.user)
     } catch { /* ignore */ }
   }
 
@@ -135,16 +147,11 @@ export function ProfilePage({ nickname }: { nickname: string }) {
         <div className="py-8">
           {/* 个人资料区 */}
           <section className="flex items-start gap-5">
-            <div
-              className="flex h-24 w-24 shrink-0 items-center justify-center rounded-full text-4xl font-bold text-black"
-              style={{ background: profile.avatar_index ? `linear-gradient(135deg, #00AAFF, #9933FF)` : GRADIENT }}
-            >
-              {profile.nickname.charAt(0)}
-            </div>
+            <Avatar nickname={profile.nickname} avatarUrl={profile.avatar_url} size={96} className="shrink-0" />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <h1 className="text-2xl font-bold text-white">{profile.nickname}</h1>
-                {isSelf && (
+                {isSelf ? (
                   <button
                     type="button"
                     onClick={() => router.push("/settings")}
@@ -153,6 +160,8 @@ export function ProfilePage({ nickname }: { nickname: string }) {
                   >
                     <Settings className="h-4 w-4" style={{ color: "#8A8A8A" }} />
                   </button>
+                ) : (
+                  <FollowButton targetUserId={profile.id} initialIsFollowing={!!profile.is_following} onAfterToggle={refreshProfile} />
                 )}
               </div>
               {profile.signature && <p className="mt-1 text-[14px] text-[#B0B0B0]">{profile.signature}</p>}

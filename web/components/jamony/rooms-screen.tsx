@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { SectionHeader } from "./section-header"
 import { RoomDetailModal } from "@/components/room-detail-modal"
+import { Avatar } from "@/components/jamony/avatar"
 
 const ROOM_ANGLES = [2.2, -1.8, 1.5, -2.0, -0.8, 2.5, -2.3, 1.0, -1.2, 2.8, -2.5, 1.8]
 
@@ -43,6 +44,7 @@ type Room = {
   description: string
   style: string
   host_name: string
+  host_avatar_url?: string
   musician_count: number
   max_musicians: number
   listener_count: number
@@ -82,6 +84,7 @@ function RoomCard({ room, angle, onJoin }: { room: Room; angle: number; onJoin: 
       </div>
 
       <div className="flex items-center gap-2">
+        <Avatar nickname={room.host_name} avatarUrl={room.host_avatar_url} size={20} />
         <span className="text-[12px] text-white">{room.host_name}</span>
         <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold" style={{ background: "rgba(255,193,7,0.15)", color: "#FFC107" }}>
           host

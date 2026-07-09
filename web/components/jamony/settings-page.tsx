@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { Check, ChevronDown, LogOut } from "lucide-react"
 import { TopNav } from "@/components/jamony/top-nav"
 import { useAuth } from "@/lib/auth-context"
+import { AvatarUpload } from "@/components/jamony/avatar-upload"
 
 const CITIES = ["北京", "上海", "广州", "深圳", "成都", "杭州", "重庆", "武汉", "西安", "南京", "苏州", "天津", "长沙", "郑州", "东莞", "青岛", "沈阳", "宁波", "昆明", "大连", "厦门", "合肥", "佛山", "福州", "哈尔滨", "济南", "温州", "长春", "石家庄", "常州", "泉州", "南宁", "贵阳", "南昌", "太原", "烟台", "嘉兴", "南通", "金华", "徐州", "海口", "乌鲁木齐", "呼和浩特", "银川", "西宁", "兰州", "拉萨", "三亚", "丽江", "大理"]
 
@@ -18,39 +19,6 @@ const CUSTOM_INSTRUMENT_PLACEHOLDER: Record<string, string> = {
 }
 
 const STYLE_OPTIONS = ["摇滚", "民谣", "爵士", "布鲁斯", "放克", "雷鬼", "电子", "古典", "流行", "嘻哈", "R&B", "国风", "金属", "ACG", "Bossa Nova", "实验"]
-
-const AVATAR_GRADIENTS = [
-  "linear-gradient(135deg, #9933FF, #FF33AA)",
-  "linear-gradient(135deg, #00AAFF, #9933FF)",
-  "linear-gradient(135deg, #FF33AA, #BBEE00)",
-  "linear-gradient(135deg, #00AAFF, #BBEE00)",
-  "linear-gradient(135deg, #00AAFF, #FF33AA)",
-  "linear-gradient(135deg, #9933FF, #BBEE00)",
-  "linear-gradient(135deg, #00AAFF, #9933FF)",
-  "linear-gradient(135deg, #FF33AA, #00AAFF)",
-  "linear-gradient(135deg, #9933FF, #FF5C5C)",
-  "linear-gradient(135deg, #BBEE00, #00AAFF)",
-  "linear-gradient(135deg, #9933FF, #FF8A3D)",
-  "linear-gradient(135deg, #00AAFF, #6A5CFF)",
-  "linear-gradient(135deg, #FF33AA, #6A5CFF)",
-  "linear-gradient(135deg, #A6FF00, #00AAFF)",
-  "linear-gradient(135deg, #00E0A4, #9933FF)",
-  "linear-gradient(135deg, #FF8A3D, #FF33AA)",
-  "linear-gradient(135deg, #6A5CFF, #00AAFF)",
-  "linear-gradient(135deg, #FF5C5C, #FFB000)",
-  "linear-gradient(135deg, #00E0A4, #6A5CFF)",
-  "linear-gradient(135deg, #A6FF00, #9933FF)",
-  "linear-gradient(135deg, #FFB000, #FF33AA)",
-  "linear-gradient(135deg, #6A5CFF, #FF33AA)",
-  "linear-gradient(135deg, #00AAFF, #00E0A4)",
-  "linear-gradient(135deg, #9933FF, #00E0A4)",
-  "linear-gradient(135deg, #A6FF00, #FFB000)",
-  "linear-gradient(135deg, #00AAFF, #A6FF00)",
-  "linear-gradient(135deg, #FF33AA, #FF8A3D)",
-  "linear-gradient(135deg, #9933FF, #A6FF00)",
-  "linear-gradient(135deg, #00E0A4, #FF33AA)",
-  "linear-gradient(135deg, #FF5C5C, #9933FF)",
-]
 
 const MAX_STYLES = 5
 
@@ -79,8 +47,6 @@ export function SettingsPage() {
   const [saved, setSaved] = useState(false)
   const [saveError, setSaveError] = useState("")
   const [pwdError, setPwdError] = useState("")
-  const [avatarOpen, setAvatarOpen] = useState(false)
-  const [avatarIdx, setAvatarIdx] = useState(0)
   const [nickname, setNickname] = useState("")
   const [bio, setBio] = useState("")
   const [signature, setSignature] = useState("")
@@ -107,7 +73,6 @@ export function SettingsPage() {
     setSignature(user?.signature || "")
     setCity(user?.city || "")
     setInstrument(user?.primaryInstrument || "原声吉他")
-    setAvatarIdx(user?.avatarIndex || 0)
     setStyles(user?.styles || [])
   }, [ready, loggedIn, user, setShowLoginModal])
 
@@ -146,7 +111,6 @@ export function SettingsPage() {
           city,
           primaryInstrument: finalInstrument,
           instrumentCategory: cat,
-          avatarIndex: avatarIdx,
           styles,
         }),
       })
@@ -203,46 +167,7 @@ export function SettingsPage() {
         <SectionTitle>编辑个人资料</SectionTitle>
 
         {/* 头像 */}
-        <div className="flex items-center gap-4">
-          <button
-            type="button"
-            onClick={() => setAvatarOpen((v) => !v)}
-            className="flex h-[72px] w-[72px] items-center justify-center rounded-full text-2xl font-semibold text-white transition-transform hover:scale-[1.03]"
-            style={{ background: AVATAR_GRADIENTS[avatarIdx % AVATAR_GRADIENTS.length] }}
-          >
-            {nickname?.charAt(0) || "U"}
-          </button>
-          <div>
-            <p className="text-sm font-medium text-white">头像</p>
-            <button
-              type="button"
-              onClick={() => setAvatarOpen((v) => !v)}
-              className="mt-0.5 text-xs transition-colors hover:text-[#B0B0B0]"
-              style={{ color: "#8A8A8A" }}
-            >
-              点击更换头像
-            </button>
-          </div>
-        </div>
-
-        {avatarOpen && (
-          <div className="mt-4 rounded-[14px] border p-4" style={{ borderColor: "#2A2A2A", background: "#141414" }}>
-            <p className="mb-3 text-xs" style={{ color: "#9A9A9A" }}>选择一个预设头像</p>
-            <div className="grid grid-cols-6 gap-3">
-              {AVATAR_GRADIENTS.map((g, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => { setAvatarIdx(i); setAvatarOpen(false) }}
-                  className={`flex h-12 w-12 items-center justify-center rounded-full transition-transform hover:scale-105 ${avatarIdx === i ? "ring-2 ring-white ring-offset-2 ring-offset-[#141414]" : ""}`}
-                  style={{ background: g }}
-                >
-                  {avatarIdx === i && <Check className="h-4 w-4 text-white" strokeWidth={3} />}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
+        <AvatarUpload />
 
         <div className="mt-6 space-y-5">
           <div>

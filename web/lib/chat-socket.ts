@@ -6,6 +6,7 @@ import { io, type Socket } from "socket.io-client"
 export type ChatMessage = {
   id: string
   author: string
+  avatarUrl?: string
   content: string
   time: string
   isSelf?: boolean

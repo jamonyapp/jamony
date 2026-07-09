@@ -174,6 +174,16 @@ export function hashAngle(id: string, range: number): number {
   return (norm * 2 - 1) * range // -range..+range
 }
 
+// Deterministic gradient from a seed (nickname), so avatar fallback color is stable per user.
+export function hashGradient(seed: string): string {
+  let h = 0
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) & 0xffffffff
+  const colors = ['#00AAFF', '#9933FF', '#FF33AA', '#BBEE00', '#00E0A4', '#FF8A3D', '#6A5CFF', '#FF5C5C']
+  const c1 = colors[Math.abs(h) % colors.length]
+  const c2 = colors[(Math.abs(h) >> 4) % colors.length]
+  return `linear-gradient(135deg, ${c1}, ${c2})`
+}
+
 // ── 作品库 Track ──
 
 export type TrackType = "rehearsal" | "jam"

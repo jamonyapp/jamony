@@ -6,6 +6,7 @@ export type UserInfo = {
   id: number
   nickname: string
   avatarIndex: number
+  avatarUrl?: string
   bio: string
   city: string
   primaryInstrument: string

@@ -1,0 +1,4 @@
+-- 用户头像：users 表已有 avatar_url 列（varchar 500，默认 ''，之前预留未用）
+-- 本次头像上传功能直接复用 avatar_url 存头像文件路径，无需新增列。
+-- NULL 或空字符串 → 未上传，前端用 hash 渐变 + 首字母兜底。
+-- （历史：曾误加 avatar_path 列，已 DROP，统一用 avatar_url。）

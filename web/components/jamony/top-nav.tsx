@@ -4,6 +4,7 @@ import { ChevronDown, LogOut, Megaphone, RefreshCw, Settings, User, LogIn } from
 import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
 import { useAuth } from "@/lib/auth-context"
+import { Avatar } from "@/components/jamony/avatar"
 
 const notifications = [
   { id: "n1", text: "「周五夜爵士」房间有 3 位新乐手加入。" },
@@ -226,12 +227,7 @@ export function TopNav({
                 className="flex items-center gap-1.5 rounded-lg p-0.5 transition-colors hover:bg-white/5"
                 onClick={() => setOpenMenu((m) => (m === "user" ? "none" : "user"))}
               >
-                <span
-                  className="flex h-7 w-7 items-center justify-center rounded-full text-[13px] font-bold text-white"
-                  style={{ background: "linear-gradient(135deg, #00AAFF, #9933FF, #FF33AA)" }}
-                >
-                  {user?.nickname?.charAt(0) || "U"}
-                </span>
+                <Avatar nickname={user?.nickname || "U"} avatarUrl={user?.avatarUrl} size={28} />
                 <ChevronDown className="h-4 w-4" style={{ color: "#8A8A8A" }} />
               </button>
 

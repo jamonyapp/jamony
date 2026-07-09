@@ -4,11 +4,13 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Crown, Headphones, X, UserCheck } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
+import { Avatar } from "@/components/jamony/avatar"
 
 type Member = {
   id: number
   user_id: number
   nickname: string
+  avatar_url?: string
   role: "musician" | "listener"
   audio_status: string
   joined_at: string
@@ -21,6 +23,7 @@ type RoomDetail = {
   style: string
   host_id: number
   host_name: string
+  host_avatar_url?: string
   is_private: boolean
   max_musicians: number
   musician_count: number
@@ -150,9 +153,7 @@ export function RoomDetailModal({
           {room.description && <p className="mt-3 text-sm leading-relaxed" style={{ color: "#8A8A8A" }}>{room.description}</p>}
 
           <div className="my-5 flex items-center gap-3 rounded-[10px] border p-3" style={{ borderColor: "rgba(255,255,255,0.05)", background: "rgba(255,255,255,0.02)" }}>
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white" style={{ background: "linear-gradient(135deg, #9933FF, #FF33AA)" }}>
-              {room.host_name.charAt(0)}
-            </span>
+            <Avatar nickname={room.host_name} avatarUrl={room.host_avatar_url} size={40} className="shrink-0" />
             <div>
               <div className="flex items-center gap-1.5">
                 <span className="text-sm font-semibold text-white">{room.host_name}</span>
@@ -177,10 +178,7 @@ export function RoomDetailModal({
             <div className="mt-3 flex flex-col gap-2">
               {musicians.map((m) => (
                 <div key={m.id} className="flex items-center gap-2.5 rounded-lg px-3 py-2" style={{ background: "rgba(0,170,255,0.05)", border: "1px solid rgba(0,170,255,0.1)" }}>
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white"
-                    style={{ background: m.user_id === room.host_id ? "linear-gradient(135deg, #9933FF, #FF33AA)" : "linear-gradient(135deg, #00AAFF, #9933FF)" }}>
-                    {m.nickname.charAt(0)}
-                  </span>
+                  <Avatar nickname={m.nickname} avatarUrl={m.avatar_url} size={32} className="shrink-0" />
                   <span className="min-w-0 flex-1 truncate text-sm font-medium text-white">{m.nickname}</span>
                   <span className="flex items-center gap-1 text-[11px]" style={{ color: m.audio_status === "connected" ? "#BBEE00" : "#8A8A8A" }}>
                     <span className="h-2 w-2 rounded-full" style={{ backgroundColor: m.audio_status === "connected" ? "#BBEE00" : "#555" }} />
@@ -213,10 +211,7 @@ export function RoomDetailModal({
             <div className="mt-2 flex flex-wrap gap-2">
               {listeners.map((m) => (
                 <div key={m.id} className="flex items-center gap-2 rounded-lg px-3 py-2" style={{ background: "rgba(255,51,170,0.05)", border: "1px solid rgba(255,51,170,0.1)" }}>
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white"
-                    style={{ background: "linear-gradient(135deg, #FF33AA, #9933FF)" }}>
-                    {m.nickname.charAt(0)}
-                  </span>
+                  <Avatar nickname={m.nickname} avatarUrl={m.avatar_url} size={28} className="shrink-0" />
                   <span className="text-sm text-white">{m.nickname}</span>
                   {m.user_id === user?.id && (
                     <button onClick={() => handleRoleSwitch("musician")}

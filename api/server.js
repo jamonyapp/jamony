@@ -32,6 +32,11 @@ const worksDir = '/var/jamony/works'
 try { if (!fs.existsSync(worksDir)) fs.mkdirSync(worksDir, { recursive: true }) } catch (e) { console.error('Works dir error:', e) }
 const upload = multer({ dest: worksDir, limits: { fileSize: 50 * 1024 * 1024 } })
 
+/* multer — 头像上传（独立目录，前端 canvas 裁剪后的 1:1 真图） */
+const avatarsDir = '/var/jamony/avatars'
+try { if (!fs.existsSync(avatarsDir)) fs.mkdirSync(avatarsDir, { recursive: true }) } catch (e) { console.error('Avatars dir error:', e) }
+const avatarUpload = multer({ dest: avatarsDir, limits: { fileSize: 10 * 1024 * 1024 } })
+
 function verifyPassword(password, hashStr) {
   const parts = hashStr.split(':')
   if (parts.length !== 5 || parts[0] !== 'pbkdf2') return false
@@ -255,7 +260,7 @@ app.post('/api/logout', (req, res) => {
 app.get('/api/me', requireAuth, async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT id, nickname, avatar_index, bio, signature, styles, city, primary_instrument, instrument_category, secondary_instrument, level, points FROM users WHERE id=$1',
+      'SELECT id, nickname, avatar_index, avatar_url, bio, signature, styles, city, primary_instrument, instrument_category, secondary_instrument, level, points FROM users WHERE id=$1',
       [req.userId]
     )
     if (result.rows.length === 0) return res.status(401).json({ ok: false, msg: '用户不存在' })
@@ -266,6 +271,7 @@ app.get('/api/me', requireAuth, async (req, res) => {
         id: u.id,
         nickname: u.nickname,
         avatarIndex: u.avatar_index,
+        avatarUrl: u.avatar_url ? u.avatar_url.replace('/var/jamony/avatars', '/avatars') : '',
         bio: u.bio || '',
         signature: u.signature || '',
         styles: u.styles || [],
@@ -289,17 +295,20 @@ app.get('/api/users/:id', optionalAuth, async (req, res) => {
     const { id } = req.params
     const result = await pool.query(
       `SELECT u.id, u.nickname, u.bio, u.signature, u.city, u.primary_instrument, u.instrument_category, u.secondary_instrument,
-              u.styles, u.avatar_index, u.level, u.points, u.created_at,
+              u.styles, u.avatar_index, u.avatar_url, u.level, u.points, u.created_at,
               (SELECT COUNT(*) FROM work_authors wa WHERE wa.user_id = u.id AND (wa.is_anonymous = FALSE OR $2 = u.id))::int AS works_count,
               (SELECT COALESCE(SUM(w.likes), 0) FROM works w JOIN work_authors wa ON wa.work_id = w.id WHERE wa.user_id = u.id AND (wa.is_anonymous = FALSE OR $2 = u.id))::int AS total_likes,
-              0 AS followers_count,
-              0 AS following_count
+              (SELECT COUNT(*) FROM follows WHERE followee_id = u.id)::int AS followers_count,
+              (SELECT COUNT(*) FROM follows WHERE follower_id = u.id)::int AS following_count,
+              EXISTS(SELECT 1 FROM follows WHERE follower_id = $2 AND followee_id = u.id) AS is_following
        FROM users u WHERE u.id = $1`, [id, req.userId]
     )
     if (result.rows.length === 0) {
       return res.status(404).json({ ok: false, msg: '用户不存在' })
     }
-    res.json({ ok: true, user: result.rows[0] })
+    const userRow = result.rows[0]
+    if (userRow.avatar_url) userRow.avatar_url = userRow.avatar_url.replace('/var/jamony/avatars', '/avatars')
+    res.json({ ok: true, user: userRow })
   } catch (err) {
     console.error('User fetch error:', err)
     res.status(500).json({ ok: false, msg: '服务器错误' })
@@ -312,17 +321,20 @@ app.get('/api/users/by-nickname/:nickname', optionalAuth, async (req, res) => {
     const { nickname } = req.params
     const result = await pool.query(
       `SELECT u.id, u.nickname, u.bio, u.signature, u.city, u.primary_instrument, u.instrument_category, u.secondary_instrument,
-              u.styles, u.avatar_index, u.level, u.points, u.created_at,
+              u.styles, u.avatar_index, u.avatar_url, u.level, u.points, u.created_at,
               (SELECT COUNT(*) FROM work_authors wa WHERE wa.user_id = u.id AND (wa.is_anonymous = FALSE OR $2 = u.id))::int AS works_count,
               (SELECT COALESCE(SUM(w.likes), 0) FROM works w JOIN work_authors wa ON wa.work_id = w.id WHERE wa.user_id = u.id AND (wa.is_anonymous = FALSE OR $2 = u.id))::int AS total_likes,
-              0 AS followers_count,
-              0 AS following_count
+              (SELECT COUNT(*) FROM follows WHERE followee_id = u.id)::int AS followers_count,
+              (SELECT COUNT(*) FROM follows WHERE follower_id = u.id)::int AS following_count,
+              EXISTS(SELECT 1 FROM follows WHERE follower_id = $2 AND followee_id = u.id) AS is_following
        FROM users u WHERE u.nickname = $1`, [nickname, req.userId]
     )
     if (result.rows.length === 0) {
       return res.status(404).json({ ok: false, msg: '用户不存在' })
     }
-    res.json({ ok: true, user: result.rows[0] })
+    const userRow = result.rows[0]
+    if (userRow.avatar_url) userRow.avatar_url = userRow.avatar_url.replace('/var/jamony/avatars', '/avatars')
+    res.json({ ok: true, user: userRow })
   } catch (err) {
     console.error('User fetch error:', err)
     res.status(500).json({ ok: false, msg: '服务器错误' })
@@ -336,14 +348,14 @@ app.get('/api/users', async (req, res) => {
     const limit = parseInt(req.query.limit) || 20
     const offset = (page - 1) * limit
     const result = await pool.query(
-      `SELECT id, nickname, bio, city, primary_instrument, instrument_category, avatar_index,
+      `SELECT id, nickname, bio, city, primary_instrument, instrument_category, avatar_index, avatar_url,
               level, points, works_count, total_likes
        FROM users ORDER BY id LIMIT $1 OFFSET $2`, [limit, offset]
     )
     const count = await pool.query('SELECT COUNT(*) FROM users')
     res.json({
       ok: true,
-      users: result.rows,
+      users: result.rows.map(r => { if (r.avatar_url) r.avatar_url = r.avatar_url.replace('/var/jamony/avatars', '/avatars'); return r }),
       total: parseInt(count.rows[0].count),
       page,
       totalPages: Math.ceil(parseInt(count.rows[0].count) / limit),
@@ -438,7 +450,7 @@ app.get('/api/users/:userId/works', optionalAuth, async (req, res) => {
       SELECT w.*, (
         SELECT COALESCE(json_agg(row_to_json(wa_sub) ORDER BY wa_sub.id), '[]'::json)
         FROM (
-          SELECT wa.id, wa.user_id, COALESCE(u.nickname, wa.nickname) AS nickname, wa.instrument_category, wa.is_anonymous, COALESCE(u.is_system, FALSE) AS is_system
+          SELECT wa.id, wa.user_id, COALESCE(u.nickname, wa.nickname) AS nickname, wa.instrument_category, wa.is_anonymous, COALESCE(u.is_system, FALSE) AS is_system, REPLACE(u.avatar_url, '/var/jamony/avatars', '/avatars') AS avatar_url
           FROM work_authors wa LEFT JOIN users u ON u.id = wa.user_id WHERE wa.work_id = w.id
         ) wa_sub
       ) AS authors
@@ -593,7 +605,7 @@ app.patch('/api/users/:id', requireAuth, async (req, res) => {
     sets.push(`updated_at = NOW()`)
     params.push(id)
     const result = await pool.query(
-      `UPDATE users SET ${sets.join(', ')} WHERE id = $${idx} RETURNING id, nickname, avatar_index, bio, signature, city, primary_instrument, instrument_category, secondary_instrument, level, points`,
+      `UPDATE users SET ${sets.join(', ')} WHERE id = $${idx} RETURNING id, nickname, avatar_index, avatar_url, bio, signature, city, primary_instrument, instrument_category, secondary_instrument, level, points`,
       params
     )
 
@@ -608,6 +620,7 @@ app.patch('/api/users/:id', requireAuth, async (req, res) => {
         id: u.id,
         nickname: u.nickname,
         avatarIndex: u.avatar_index,
+        avatarUrl: u.avatar_url ? u.avatar_url.replace('/var/jamony/avatars', '/avatars') : '',
         bio: u.bio || '',
         signature: u.signature || '',
         city: u.city || '',
@@ -657,6 +670,71 @@ app.post('/api/users/:id/password', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('Password change error:', err)
     res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// ========== 关注 ==========
+app.post('/api/users/:id/follow', requireAuth, async (req, res) => {
+  try {
+    const targetId = parseInt(req.params.id)
+    if (!targetId || targetId === req.userId) {
+      return res.status(400).json({ ok: false, msg: '不能关注自己' })
+    }
+    await pool.query(
+      'INSERT INTO follows (follower_id, followee_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+      [req.userId, targetId]
+    )
+    res.json({ ok: true, isFollowing: true })
+  } catch (err) {
+    console.error('Follow error:', err)
+    res.status(500).json({ ok: false, msg: '关注失败' })
+  }
+})
+
+app.delete('/api/users/:id/follow', requireAuth, async (req, res) => {
+  try {
+    const targetId = parseInt(req.params.id)
+    await pool.query(
+      'DELETE FROM follows WHERE follower_id = $1 AND followee_id = $2',
+      [req.userId, targetId]
+    )
+    res.json({ ok: true, isFollowing: false })
+  } catch (err) {
+    console.error('Unfollow error:', err)
+    res.status(500).json({ ok: false, msg: '取消关注失败' })
+  }
+})
+
+app.get('/api/me/following', requireAuth, async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT followee_id FROM follows WHERE follower_id = $1',
+      [req.userId]
+    )
+    res.json({ ok: true, following: result.rows.map(r => r.followee_id) })
+  } catch (err) {
+    console.error('Following list error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// ========== 头像上传 ==========
+app.post('/api/users/:id/avatar', requireAuth, avatarUpload.single('avatar'), async (req, res) => {
+  try {
+    if (parseInt(req.params.id) !== req.userId) {
+      return res.status(403).json({ ok: false, msg: '只能修改自己的头像' })
+    }
+    if (!req.file) {
+      return res.status(400).json({ ok: false, msg: '未收到头像文件' })
+    }
+    const ext = path.extname(req.file.originalname) || '.jpg'
+    const newPath = path.join(avatarsDir, `user${req.userId}${ext}`)
+    fs.renameSync(req.file.path, newPath)
+    await pool.query('UPDATE users SET avatar_url=$1 WHERE id=$2', [newPath, req.userId])
+    res.json({ ok: true, avatarUrl: newPath.replace('/var/jamony/avatars', '/avatars') })
+  } catch (err) {
+    console.error('Avatar upload error:', err)
+    res.status(500).json({ ok: false, msg: '头像上传失败' })
   }
 })
 
@@ -722,7 +800,7 @@ app.post('/api/rooms', requireAuth, async (req, res) => {
 app.get('/api/rooms', async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT r.*, u.nickname AS host_name,
+      `SELECT r.*, u.nickname AS host_name, REPLACE(u.avatar_url, '/var/jamony/avatars', '/avatars') AS host_avatar_url,
         (SELECT COUNT(*) FROM room_members WHERE room_id = r.id AND role = 'musician') AS musician_count,
         (SELECT COUNT(*) FROM room_members WHERE room_id = r.id AND role = 'listener') AS listener_count,
         (SELECT COUNT(*) FROM room_members WHERE room_id = r.id) AS total_members
@@ -743,7 +821,7 @@ app.get('/api/rooms/:id', async (req, res) => {
   try {
     const { id } = req.params
     const roomResult = await pool.query(
-      `SELECT r.*, u.nickname AS host_name,
+      `SELECT r.*, u.nickname AS host_name, REPLACE(u.avatar_url, '/var/jamony/avatars', '/avatars') AS host_avatar_url,
         (SELECT COUNT(*) FROM room_members WHERE room_id = r.id AND role = 'musician') AS musician_count,
         (SELECT COUNT(*) FROM room_members WHERE room_id = r.id AND role = 'listener') AS listener_count,
         (SELECT COUNT(*) FROM room_members WHERE room_id = r.id) AS total_members
@@ -757,7 +835,7 @@ app.get('/api/rooms/:id', async (req, res) => {
     }
 
     const members = await pool.query(
-      `SELECT rm.*, u.primary_instrument, u.instrument_category FROM room_members rm JOIN users u ON u.id = rm.user_id WHERE rm.room_id = $1 ORDER BY rm.joined_at`,
+      `SELECT rm.*, u.primary_instrument, u.instrument_category, REPLACE(u.avatar_url, '/var/jamony/avatars', '/avatars') AS avatar_url FROM room_members rm JOIN users u ON u.id = rm.user_id WHERE rm.room_id = $1 ORDER BY rm.joined_at`,
       [id]
     )
 
@@ -772,7 +850,7 @@ app.get('/api/rooms/:id', async (req, res) => {
 async function broadcastMembers(roomId) {
   try {
     const result = await pool.query(
-      `SELECT rm.*, u.primary_instrument, u.instrument_category
+      `SELECT rm.*, u.primary_instrument, u.instrument_category, REPLACE(u.avatar_url, '/var/jamony/avatars', '/avatars') AS avatar_url
        FROM room_members rm JOIN users u ON u.id = rm.user_id
        WHERE rm.room_id = $1 ORDER BY rm.joined_at`,
       [roomId]
@@ -1480,7 +1558,7 @@ app.get('/api/works', async (req, res) => {
       SELECT w.*, (
         SELECT COALESCE(json_agg(row_to_json(wa_sub) ORDER BY wa_sub.id), '[]'::json)
         FROM (
-          SELECT wa.id, wa.user_id, COALESCE(u.nickname, wa.nickname) AS nickname, wa.instrument_category, wa.is_anonymous, COALESCE(u.is_system, FALSE) AS is_system
+          SELECT wa.id, wa.user_id, COALESCE(u.nickname, wa.nickname) AS nickname, wa.instrument_category, wa.is_anonymous, COALESCE(u.is_system, FALSE) AS is_system, REPLACE(u.avatar_url, '/var/jamony/avatars', '/avatars') AS avatar_url
           FROM work_authors wa LEFT JOIN users u ON u.id = wa.user_id WHERE wa.work_id = w.id
         ) wa_sub
       ) AS authors,
@@ -1569,7 +1647,7 @@ app.get('/api/works/:id', async (req, res) => {
       SELECT w.*, (
         SELECT COALESCE(json_agg(row_to_json(wa_sub) ORDER BY wa_sub.id), '[]'::json)
         FROM (
-          SELECT wa.id, wa.user_id, COALESCE(u.nickname, wa.nickname) AS nickname, wa.instrument_category, wa.is_anonymous, COALESCE(u.is_system, FALSE) AS is_system
+          SELECT wa.id, wa.user_id, COALESCE(u.nickname, wa.nickname) AS nickname, wa.instrument_category, wa.is_anonymous, COALESCE(u.is_system, FALSE) AS is_system, REPLACE(u.avatar_url, '/var/jamony/avatars', '/avatars') AS avatar_url
           FROM work_authors wa LEFT JOIN users u ON u.id = wa.user_id WHERE wa.work_id = w.id
         ) wa_sub
       ) AS authors,
@@ -1694,16 +1772,18 @@ app.get('/api/works/:id/comments', async (req, res) => {
     const currentUserId = req.query.userId ? parseInt(req.query.userId) : null
     const topResult = await pool.query(`
       SELECT c.id, c.user_id, c.nickname, c.content, c.parent_id, c.reply_to_nickname, c.created_at,
+        REPLACE(u.avatar_url, '/var/jamony/avatars', '/avatars') AS avatar_url,
         (SELECT COUNT(*) FROM comment_likes WHERE comment_id = c.id) AS likes,
         EXISTS(SELECT 1 FROM comment_likes WHERE comment_id = c.id AND user_id = $2) AS is_liked
-      FROM work_comments c WHERE c.work_id = $1 AND c.parent_id IS NULL
+      FROM work_comments c LEFT JOIN users u ON u.id = c.user_id WHERE c.work_id = $1 AND c.parent_id IS NULL
       ORDER BY c.created_at DESC
     `, [id, currentUserId])
     const replyResult = await pool.query(`
       SELECT c.id, c.user_id, c.nickname, c.content, c.parent_id, c.reply_to_nickname, c.created_at,
+        REPLACE(u.avatar_url, '/var/jamony/avatars', '/avatars') AS avatar_url,
         (SELECT COUNT(*) FROM comment_likes WHERE comment_id = c.id) AS likes,
         EXISTS(SELECT 1 FROM comment_likes WHERE comment_id = c.id AND user_id = $2) AS is_liked
-      FROM work_comments c WHERE c.work_id = $1 AND c.parent_id IS NOT NULL
+      FROM work_comments c LEFT JOIN users u ON u.id = c.user_id WHERE c.work_id = $1 AND c.parent_id IS NOT NULL
       ORDER BY c.created_at ASC
     `, [id, currentUserId])
     const repliesByParent = {}
@@ -2043,13 +2123,15 @@ async function isRoomMusician(userId, roomId) {
 
 // ========== WebSocket (Socket.IO) ==========
 // 握手认证：验 httpOnly cookie JWT → socket.userId（同域 cookie 自动携带，前端零改动）
-io.use((socket, next) => {
+io.use(async (socket, next) => {
   const token = parseCookies(socket.request)[COOKIE_NAME]
   if (!token) return next(new Error('未登录'))
   try {
     const decoded = jwt.verify(token, JWT_SECRET)
     socket.userId = decoded.id
     socket.nickname = decoded.nickname
+    const u = await pool.query('SELECT avatar_url FROM users WHERE id=$1', [decoded.id])
+    socket.avatarUrl = u.rows.length > 0 && u.rows[0].avatar_url ? u.rows[0].avatar_url.replace('/var/jamony/avatars', '/avatars') : ''
     next()
   } catch (e) {
     next(new Error('登录已过期'))
@@ -2072,6 +2154,7 @@ io.on("connection", (socket) => {
     io.to(roomId).emit("chat-message", {
       id: Date.now().toString(),
       author: socket.nickname,
+      avatarUrl: socket.avatarUrl || '',
       content: message,
       time: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
       isSelf: false,

@@ -3,14 +3,19 @@
 import { useEffect, useRef, useState } from "react"
 import { X } from "lucide-react"
 import { useRouter } from "next/navigation"
+import { FollowButton } from "@/components/jamony/follow-button"
+import { Avatar } from "@/components/jamony/avatar"
 
 type PopoverUser = {
+  id: number
   nickname: string
   primary_instrument: string
   instrument_category: string
   city: string
   level: number
   points: number
+  is_following?: boolean
+  avatar_url?: string
 }
 
 type PopoverPos = { top: number; left: number } | null
@@ -91,10 +96,9 @@ export function UserPopover({
               <div className="flex items-start gap-3 p-4 pb-3">
                 <button
                   onClick={() => setImgOpen(true)}
-                  className="flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-full text-xl font-bold text-white transition-transform hover:scale-105"
-                  style={{ background: `linear-gradient(135deg, #00AAFF, #9933FF)` }}
+                  className="shrink-0 transition-transform hover:scale-105"
                 >
-                  {user.nickname.charAt(0)}
+                  <Avatar nickname={user.nickname} avatarUrl={user.avatar_url} size={52} />
                 </button>
                 <div className="min-w-0 flex-1">
                   <p className="text-[15px] font-bold text-white truncate">{user.nickname}</p>
@@ -113,7 +117,8 @@ export function UserPopover({
                 </span>
               </div>
 
-              <div className="border-t px-4 py-3" style={{ borderColor: "#1A1A1A" }}>
+              <div className="border-t px-4 py-3 flex flex-col gap-2" style={{ borderColor: "#1A1A1A" }}>
+                <FollowButton targetUserId={user.id} initialIsFollowing={!!user.is_following} size="small" />
                 <button
                   onClick={() => router.push(`/profile?nickname=${encodeURIComponent(user.nickname)}`)}
                   className="w-full rounded-[10px] py-2 text-[13px] font-medium text-white transition-opacity hover:opacity-90"
@@ -136,12 +141,8 @@ export function UserPopover({
           style={{ background: "rgba(0,0,0,0.7)" }}
           onClick={() => setImgOpen(false)}
         >
-          <div
-            className="flex h-[120px] w-[120px] items-center justify-center rounded-full text-5xl font-bold text-white shadow-2xl"
-            style={{ background: `linear-gradient(135deg, #00AAFF, #9933FF)` }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {user.nickname.charAt(0)}
+          <div onClick={(e) => e.stopPropagation()}>
+            <Avatar nickname={user.nickname} avatarUrl={user.avatar_url} size={120} className="shadow-2xl" />
           </div>
         </div>
       )}

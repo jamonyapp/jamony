@@ -8,6 +8,7 @@ import { PlayerProvider } from '@/components/jamony/player-context'
 import { PlayerBar } from '@/components/jamony/player-bar'
 import { LikesProvider } from '@/lib/likes-context'
 import { CommentsProvider } from '@/lib/comments-context'
+import { FollowProvider } from '@/lib/follow-context'
 import { ElectronGate } from '@/components/jamony/electron-gate'
 
 const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] })
@@ -70,10 +71,12 @@ export default function RootLayout({
           <PlayerProvider>
             <LikesProvider>
               <CommentsProvider>
-                <ElectronGate>
-                  {children}
-                  <PlayerBar />
-                </ElectronGate>
+                <FollowProvider>
+                  <ElectronGate>
+                    {children}
+                    <PlayerBar />
+                  </ElectronGate>
+                </FollowProvider>
               </CommentsProvider>
             </LikesProvider>
           </PlayerProvider>

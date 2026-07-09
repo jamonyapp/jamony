@@ -2,6 +2,7 @@
 
 import { Crown, Lock } from "lucide-react"
 import type { Room } from "@/lib/rooms-data"
+import { Avatar } from "@/components/jamony/avatar"
 
 export function RoomCard({ room, onSelect }: { room: Room; onSelect?: () => void }) {
   const isFull = room.current >= room.capacity
@@ -49,6 +50,7 @@ export function RoomCard({ room, onSelect }: { room: Room; onSelect?: () => void
       </div>
       <p className="truncate text-sm text-muted-foreground">{room.description}</p>
       <div className="flex items-center gap-2">
+        <Avatar nickname={room.owner.name} avatarUrl={room.owner.avatarUrl} size={20} />
         <span className="text-sm font-medium text-foreground">{room.owner.name}</span>
         <span className="flex items-center gap-1 rounded-full bg-[#ffb84d]/15 px-2 py-0.5 text-[11px] font-medium text-[#ffb84d]">
           <Crown className="h-3 w-3" />房主
