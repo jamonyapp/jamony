@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react"
 import { usePlayer, REPEAT_MODE_LABEL, type RepeatMode } from "@/components/jamony/player-context"
+import { usePathname } from "next/navigation"
 import { formatCount } from "@/lib/jamony-data"
 
 function RepeatIcon({ mode }: { mode: RepeatMode }) {
@@ -96,6 +97,10 @@ export function PlayerBar() {
       window.removeEventListener("mouseup", onUp)
     }
   }, [volDragging, volFromClientX])
+
+  const pathname = usePathname()
+  if (pathname?.startsWith("/room")) return null
+  if (!hasTrack) return null
 
   return (
     <>

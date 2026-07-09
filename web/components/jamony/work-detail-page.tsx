@@ -478,9 +478,7 @@ function WorkDetailInner() {
                 <button
                   type="button"
                   onClick={() => {
-                    // 先同步停止播放，再跳转去房间大厅（与顶栏"返回首页"效果一致）
-                    stop()
-                    window.location.href = "/lobby"
+                    router.push("/lobby")
                   }}
                   className="flex items-center justify-center gap-2 rounded-full px-5 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-80"
                   style={{ background: "linear-gradient(135deg, #9933FF, #FF33AA)" }}

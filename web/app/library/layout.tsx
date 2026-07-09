@@ -1,12 +1,6 @@
 import type { ReactNode } from "react"
-import { PlayerBar } from "@/components/jamony/player-bar"
 
-// PlayerProvider 已在根 layout 全局提供（首页↔作品库↔详情页共享，跨页面不卸载）
+// PlayerBar 已在根 layout 全局挂载（全站播放器，播放时显示）
 export default function LibraryLayout({ children }: { children: ReactNode }) {
-  return (
-    <>
-      {children}
-      <PlayerBar />
-    </>
-  )
+  return <>{children}</>
 }

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
+import { useRouter } from "next/navigation"
 
 const INSTRUMENT_ICON: Record<string, string> = {
   "电吉他": "🎸",
@@ -34,6 +35,7 @@ type Musician = {
 }
 
 export function ActiveMusicians() {
+  const router = useRouter()
   const containerRef = useRef<HTMLDivElement>(null)
   const [itemWidth, setItemWidth] = useState(0)
   const [offset, setOffset] = useState(0)
@@ -98,7 +100,7 @@ export function ActiveMusicians() {
                 <button
                   key={m.id}
                   type="button"
-                  onClick={() => window.location.href = `/profile?nickname=${encodeURIComponent(m.nickname)}`}
+                  onClick={() => router.push(`/profile?nickname=${encodeURIComponent(m.nickname)}`)}
                   style={{
                     width: itemWidth || undefined,
                     opacity: faded ? 0 : 1,

@@ -30,7 +30,7 @@ export function LeftSidebar() {
 
   return (
     <aside
-      className="fixed bottom-0 left-0 top-11 z-40 flex w-60 flex-col border-r px-3 py-4"
+      className="fixed bottom-0 left-0 top-11 z-40 flex w-60 flex-col border-r px-3 pt-4 pb-20"
       style={{ background: "transparent", borderColor: "#1A1A1A" }}
     >
       {/* CTA buttons */}

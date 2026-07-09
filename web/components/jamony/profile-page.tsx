@@ -98,7 +98,7 @@ export function ProfilePage({ nickname }: { nickname: string }) {
     return (
       <div className="min-h-screen bg-black text-white">
         <TopNav />
-        <main className="mx-auto max-w-3xl px-4 pt-11">
+        <main className="mx-auto max-w-3xl px-4 pb-20 pt-11">
           <div className="flex h-64 items-center justify-center">
             <p className="text-[#8A8A8A]">加载中...</p>
           </div>
@@ -111,7 +111,7 @@ export function ProfilePage({ nickname }: { nickname: string }) {
     return (
       <div className="min-h-screen bg-black text-white">
         <TopNav />
-        <main className="mx-auto max-w-3xl px-4 pt-11">
+        <main className="mx-auto max-w-3xl px-4 pb-20 pt-11">
           <div className="flex h-64 flex-col items-center justify-center gap-4">
             <p className="text-lg text-[#8A8A8A]">用户不存在</p>
             <button onClick={() => router.push("/")} className="text-sm text-[#00AAFF] hover:underline">
@@ -131,7 +131,7 @@ export function ProfilePage({ nickname }: { nickname: string }) {
     <div className="min-h-screen bg-black text-white">
       <TopNav />
 
-      <main className="mx-auto max-w-3xl px-4 pt-11">
+      <main className="mx-auto max-w-3xl px-4 pb-20 pt-11">
         <div className="py-8">
           {/* 个人资料区 */}
           <section className="flex items-start gap-5">
@@ -147,7 +147,7 @@ export function ProfilePage({ nickname }: { nickname: string }) {
                 {isSelf && (
                   <button
                     type="button"
-                    onClick={() => window.location.href = "/settings"}
+                    onClick={() => router.push("/settings")}
                     className="flex h-7 w-7 items-center justify-center rounded-lg transition-colors hover:bg-white/10"
                     title="个人设置"
                   >
@@ -208,7 +208,7 @@ export function ProfilePage({ nickname }: { nickname: string }) {
               {isSelf && (
                 <button
                   type="button"
-                  onClick={() => window.location.href = `/profile/works?nickname=${encodeURIComponent(nickname)}`}
+                  onClick={() => router.push(`/profile/works?nickname=${encodeURIComponent(nickname)}`)}
                   className="rounded-[10px] border px-3 py-1.5 text-xs transition-colors hover:bg-white/5"
                   style={{ borderColor: "#2A2A2A", color: "#8A8A8A" }}
                 >

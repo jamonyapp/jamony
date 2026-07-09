@@ -73,6 +73,7 @@ export function TopNav({
   onBackHome?: () => void
 }) {
   const pathname = usePathname()
+  const router = useRouter()
   const isHome = pathname === "/"
   const [openMenu, setOpenMenu] = useState<"none" | "notifications" | "user">("none")
   const [refreshing, setRefreshing] = useState(false)
@@ -107,7 +108,7 @@ export function TopNav({
       onBackHome()
     } else {
       setShowBack(false)
-      setTimeout(() => { window.location.href = "/" }, 350)
+      setTimeout(() => { router.push("/") }, 350)
     }
   }
 
@@ -269,11 +270,11 @@ export function TopNav({
                               return
                             }
                             if (item.id === "profile" && user?.nickname) {
-                              window.location.href = `/profile?nickname=${encodeURIComponent(user.nickname)}`
+                              router.push(`/profile?nickname=${encodeURIComponent(user.nickname)}`)
                               return
                             }
                             if (item.id === "settings") {
-                              window.location.href = "/settings"
+                              router.push("/settings")
                               return
                             }
                             console.log("[v0] user menu:", item.id)

@@ -459,6 +459,7 @@ function DetailModal({ item, onClose }: { item: Highlight; onClose: () => void }
 }
 
 function HighlightsInner() {
+  const router = useRouter()
   const { user } = useAuth()
   const [active, setActive] = useState<Highlight | null>(null)
   const [works, setWorks] = useState<Highlight[]>([])
@@ -501,7 +502,7 @@ function HighlightsInner() {
 
   return (
     <section>
-      <SectionHeader title="高光时刻" linkLabel="作品库" onLink={() => window.location.href = "/library"} />
+      <SectionHeader title="高光时刻" linkLabel="作品库" onLink={() => router.push("/library")} />
       {works.length === 0 ? (
         <p className="text-sm py-8 text-center" style={{ color: "#8A8A8A" }}>暂无高光作品</p>
       ) : (

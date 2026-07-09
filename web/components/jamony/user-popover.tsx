@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { X } from "lucide-react"
+import { useRouter } from "next/navigation"
 
 type PopoverUser = {
   nickname: string
@@ -21,6 +22,7 @@ export function UserPopover({
   nickname: string
   children: React.ReactNode
 }) {
+  const router = useRouter()
   const [pos, setPos] = useState<PopoverPos>(null)
   const [user, setUser] = useState<PopoverUser | null>(null)
   const [loading, setLoading] = useState(false)
@@ -113,7 +115,7 @@ export function UserPopover({
 
               <div className="border-t px-4 py-3" style={{ borderColor: "#1A1A1A" }}>
                 <button
-                  onClick={() => window.location.href = `/profile?nickname=${encodeURIComponent(user.nickname)}`}
+                  onClick={() => router.push(`/profile?nickname=${encodeURIComponent(user.nickname)}`)}
                   className="w-full rounded-[10px] py-2 text-[13px] font-medium text-white transition-opacity hover:opacity-90"
                   style={{ background: "linear-gradient(90deg, #9933FF, #FF33AA)" }}
                 >
