@@ -11,6 +11,7 @@ export type UserInfo = {
   primaryInstrument: string
   instrumentCategory: string
   signature: string
+  styles?: string[]
   secondaryInstrument: string
   level: number
   points: number

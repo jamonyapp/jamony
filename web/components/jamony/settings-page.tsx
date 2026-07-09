@@ -108,6 +108,7 @@ export function SettingsPage() {
     setCity(user?.city || "")
     setInstrument(user?.primaryInstrument || "原声吉他")
     setAvatarIdx(user?.avatarIndex || 0)
+    setStyles(user?.styles || [])
   }, [ready, loggedIn, user, setShowLoginModal])
 
   if (!ready) {
@@ -131,7 +132,7 @@ export function SettingsPage() {
 
   const handleSave = async () => {
     setSaveError("")
-    const finalInstrument = INSTRUMENT_NEEDS_INPUT.includes(instrument) ? customInstrument : instrument
+    const finalInstrument = showCustomInput ? customInstrument : instrument
     const cat = instrument
 
     try {
@@ -146,6 +147,7 @@ export function SettingsPage() {
           primaryInstrument: finalInstrument,
           instrumentCategory: cat,
           avatarIndex: avatarIdx,
+          styles,
         }),
       })
       const data = await res.json()

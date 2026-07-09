@@ -28,11 +28,26 @@ function WaveBars() {
   )
 }
 
-export function TrackCard({ track }: { track: Track }) {
+export function TrackCard({
+  track,
+  size = "default",
+  extraMenuItems,
+  badges,
+}: {
+  track: Track
+  size?: "default" | "compact"
+  extraMenuItems?: { label: string; onClick: () => void; danger?: boolean }[]
+  badges?: { text: string; color?: string }[]
+}) {
   const { current, isPlaying, playTrack, togglePlay, addToPlaylist } = usePlayer()
   const { loggedIn, setShowLoginModal } = useAuth()
   const router = useRouter()
   const pathname = usePathname()
+  const compact = size === "compact"
+  const titleClass = compact ? "text-[13px]" : "text-[15px]"
+  const statClass = compact ? "text-[11px]" : "text-[12px]"
+  const padClass = compact ? "p-2" : "p-3"
+  const centerBtnClass = compact ? "h-11 w-11" : "h-14 w-14"
   const [menuOpen, setMenuOpen] = useState(false)
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [feedbackText, setFeedbackText] = useState("")
@@ -110,7 +125,7 @@ export function TrackCard({ track }: { track: Track }) {
 
   return (
     <div
-      className="group relative aspect-square cursor-pointer overflow-hidden rounded-[10px] transition-all duration-200 hover:-translate-y-[2px]"
+      className="group relative aspect-square cursor-pointer rounded-[10px] transition-all duration-200 hover:-translate-y-[2px]"
       style={{
         background: hasCover ? "#111" : track.gradient,
         boxShadow: "0 10px 28px rgba(0,0,0,0.5)",
@@ -126,26 +141,37 @@ export function TrackCard({ track }: { track: Track }) {
         }
       }}
     >
-      {hasCover ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={track.coverImage || "/placeholder.svg"}
-          alt={track.title}
-          className="absolute inset-0 h-full w-full object-cover"
-        />
-      ) : (
-        <VinylRecord />
+      {badges && badges.length > 0 && (
+        <div className="absolute left-2 top-2 z-20 flex flex-col gap-1">
+          {badges.map((b, i) => (
+            <span key={i} className="rounded px-1.5 py-0.5 text-[10px] font-medium backdrop-blur" style={{ color: b.color || "#D0D0D0", background: "rgba(0,0,0,0.5)" }}>
+              {b.text}
+            </span>
+          ))}
+        </div>
       )}
+      <div className="absolute inset-0 overflow-hidden rounded-[10px]">
+        {hasCover ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={track.coverImage || "/placeholder.svg"}
+            alt={track.title}
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+        ) : (
+          <VinylRecord />
+        )}
 
-      {/* 底部暗色遮罩 */}
-      <span
-        className="absolute inset-0"
-        style={{
-          background:
-            "linear-gradient(to bottom, transparent 40%, rgba(0,0,0,0.7))",
-        }}
-        aria-hidden
-      />
+        {/* 底部暗色遮罩 */}
+        <span
+          className="absolute inset-0"
+          style={{
+            background:
+              "linear-gradient(to bottom, transparent 40%, rgba(0,0,0,0.7))",
+          }}
+          aria-hidden
+        />
+      </div>
 
       {/* 中央播放/暂停按钮 或 波形 */}
       <div className="absolute left-1/2 top-[42%] z-10 -translate-x-1/2 -translate-y-1/2">
@@ -158,7 +184,7 @@ export function TrackCard({ track }: { track: Track }) {
               type="button"
               onClick={handleCenterButton}
               aria-label="暂停"
-              className="hidden h-14 w-14 items-center justify-center rounded-full bg-white shadow-xl group-hover:flex"
+              className={`hidden ${centerBtnClass} items-center justify-center rounded-full bg-white shadow-xl group-hover:flex`}
             >
               <Pause className="h-6 w-6 fill-black text-black" />
             </button>
@@ -168,7 +194,7 @@ export function TrackCard({ track }: { track: Track }) {
             type="button"
             onClick={handleCenterButton}
             aria-label="播放"
-            className="flex h-14 w-14 scale-90 items-center justify-center rounded-full opacity-0 shadow-xl transition-all duration-500 ease-out group-hover:scale-100 group-hover:opacity-100"
+            className={`flex ${centerBtnClass} scale-90 items-center justify-center rounded-full opacity-0 shadow-xl transition-all duration-500 ease-out group-hover:scale-100 group-hover:opacity-100`}
             style={{ background: "rgba(0,0,0,0.55)" }}
           >
             <Play className="ml-0.5 h-6 w-6 fill-white text-white" />
@@ -223,6 +249,17 @@ export function TrackCard({ track }: { track: Track }) {
                 >
                   反馈
                 </button>
+                {extraMenuItems?.map((item, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => { item.onClick(); setMenuOpen(false) }}
+                    className="block w-full px-3 py-2 text-left text-[13px] transition-colors hover:bg-white/5"
+                    style={item.danger ? { color: "#FF5C5C" } : { color: "#FFFFFF" }}
+                  >
+                    {item.label}
+                  </button>
+                ))}
               </>
             ) : feedbackSent ? (
               <div className="px-4 py-6 text-center text-[13px]" style={{ color: "#BBEE00" }}>
@@ -264,20 +301,20 @@ export function TrackCard({ track }: { track: Track }) {
       </div>
 
       {/* 文案 */}
-      <div className="absolute inset-x-0 bottom-0 z-10 flex flex-col gap-1 p-3">
-        <h3 className="truncate text-[15px] font-bold text-white">
+      <div className={`absolute inset-x-0 bottom-0 z-10 flex flex-col gap-1 ${padClass}`}>
+        <h3 className={`truncate ${titleClass} font-bold text-white`}>
           {track.title}
         </h3>
         <span className="text-[12px]" style={{ color: "#D0D0D0" }}>
           <UserPopover nickname={track.author}>{track.author}</UserPopover>
         </span>
-        <div className="flex items-center gap-2 text-[12px] text-white">
+        <div className={`flex items-center gap-2 ${statClass} text-white`}>
           <span className="flex items-center gap-0.5">
             <Play className="h-3 w-3 fill-white" />
             {formatCount(track.plays)}
           </span>
           <LikeButton workId={track.id} isLiked={track.isLiked ?? false} likes={track.likes} iconClass="h-3 w-3" stopClick />
-          <CommentCount workId={track.id} count={track.comments} iconClass="h-3 w-3" />
+          <CommentCount workId={track.id} count={track.comments} iconClass="h-3 w-3" stopClick onClick={() => handleMenuItem("detail")} />
         </div>
       </div>
     </div>

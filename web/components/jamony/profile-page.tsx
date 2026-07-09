@@ -2,9 +2,12 @@
 
 import { use, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Play, Heart, MessageCircle, ChevronLeft, Settings } from "lucide-react"
+import { ChevronLeft, Settings } from "lucide-react"
 import { TopNav } from "@/components/jamony/top-nav"
 import { useAuth } from "@/lib/auth-context"
+import { TrackCard } from "@/components/jamony/track-card"
+import { AnonymizeDialog } from "@/components/jamony/anonymize-dialog"
+import type { Track } from "@/lib/jamony-data"
 
 const GRADIENT = "linear-gradient(90deg, #00AAFF, #9933FF, #FF33AA, #BBEE00)"
 
@@ -21,9 +24,9 @@ type UserProfile = {
   level: number
   points: number
   works_count: number
-  jam_count: number
   total_likes: number
   followers_count: number
+  following_count: number
   created_at: string
 }
 
@@ -41,6 +44,7 @@ export function ProfilePage({ nickname }: { nickname: string }) {
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [userWorks, setUserWorks] = useState<any[]>([])
+  const [anonymizeTarget, setAnonymizeTarget] = useState<{ id: number; title: string } | null>(null)
 
   useEffect(() => {
     if (!ready) return
@@ -67,6 +71,15 @@ export function ProfilePage({ nickname }: { nickname: string }) {
     }
     load()
   }, [nickname, loggedIn, ready, setShowLoginModal])
+
+  async function refreshWorks() {
+    if (!profile) return
+    try {
+      const worksRes = await fetch(`/api/users/${profile.id}/works`)
+      const worksData = await worksRes.json()
+      if (worksData.ok) setUserWorks(worksData.works)
+    } catch { /* ignore */ }
+  }
 
   if (!ready) {
     return <div className="min-h-screen bg-black text-white"><TopNav /></div>
@@ -110,7 +123,7 @@ export function ProfilePage({ nickname }: { nickname: string }) {
     )
   }
 
-  const isSelf = loggedIn && currentUser?.nickname === nickname
+  const isSelf = loggedIn && currentUser?.id === profile.id
   const styles: string[] = profile.styles || []
   const instrument = profile.primary_instrument + (profile.secondary_instrument ? ` · ${profile.secondary_instrument}` : "")
 
@@ -147,7 +160,7 @@ export function ProfilePage({ nickname }: { nickname: string }) {
                 {profile.city}{instrument ? ` · ${instrument}` : ""}
               </p>
               <span className="mt-3 inline-block rounded-[10px] bg-[#0D0D0D] px-2.5 py-1 text-[12px] text-[#B0B0B0] ring-1 ring-[#1A1A1A]">
-                Lv.{profile.level} · {profile.points.toLocaleString()} 积分
+                🎵 免费用户
               </span>
             </div>
           </section>
@@ -155,9 +168,9 @@ export function ProfilePage({ nickname }: { nickname: string }) {
           {/* 统计数据区 */}
           <section className="mt-8 grid grid-cols-4 gap-3">
             {[
-              { value: profile.works_count.toLocaleString(), label: "作品" },
-              { value: profile.jam_count.toLocaleString(), label: "合奏" },
+              { value: profile.works_count.toLocaleString(), label: "参与作品" },
               { value: profile.total_likes.toLocaleString(), label: "获赞" },
+              { value: profile.following_count.toLocaleString(), label: "关注" },
               { value: profile.followers_count.toLocaleString(), label: "粉丝" },
             ].map((s) => (
               <div
@@ -170,18 +183,10 @@ export function ProfilePage({ nickname }: { nickname: string }) {
             ))}
           </section>
 
-          {/* 个人简介区 */}
-          {profile.bio && (
-            <section className="mt-10">
-              <SectionLabel>个人简介</SectionLabel>
-              <p className="mt-3 text-[14px] leading-relaxed text-[#C9C9C9]">{profile.bio}</p>
-            </section>
-          )}
-
           {/* 擅长风格区 */}
           {styles.length > 0 && (
             <section className="mt-10">
-              <SectionLabel>擅长风格</SectionLabel>
+              <SectionLabel>风格偏好</SectionLabel>
               <div className="mt-3 flex flex-wrap gap-2">
                 {styles.map((g) => (
                   <span
@@ -199,64 +204,56 @@ export function ProfilePage({ nickname }: { nickname: string }) {
           {/* 作品记录区 */}
           <section className="mt-10">
             <div className="flex items-center justify-between">
-              <h2 className="text-[16px] font-bold text-white">作品记录</h2>
+              <h2 className="text-[16px] font-bold text-white">我参与的作品</h2>
               {isSelf && (
                 <button
                   type="button"
-                  onClick={() => window.location.href = "/profile/works"}
+                  onClick={() => window.location.href = `/profile/works?nickname=${encodeURIComponent(nickname)}`}
                   className="rounded-[10px] border px-3 py-1.5 text-xs transition-colors hover:bg-white/5"
                   style={{ borderColor: "#2A2A2A", color: "#8A8A8A" }}
                 >
-                  管理作品
+                  显示全部
                 </button>
               )}
             </div>
             {userWorks.length === 0 ? (
               <p className="mt-4 text-sm" style={{ color: "#8A8A8A" }}>暂无作品记录</p>
             ) : (
-            <div className="mt-4 grid grid-cols-2 gap-4">
-              {userWorks.slice(0, 4).map((w: any) => (
-                <article
-                  key={w.id}
-                  className="relative overflow-hidden rounded-[10px] border border-[#1A1A1A] bg-[#0D0D0D] p-4"
-                >
-                  <span
-                    className="absolute inset-y-0 left-0 w-1"
-                    style={{ background: GRADIENT }}
-                    aria-hidden="true"
+            <div className="mt-4 grid grid-cols-4 gap-3">
+              {userWorks.slice(0, 8).map((w: any) => {
+                const me = w.authors?.find((a: any) => a.user_id === currentUser?.id)
+                const isAnon = me?.is_anonymous === true
+                const canAnonymize = isSelf && !!me && !isAnon
+                const track: Track = {
+                  id: String(w.id), title: w.title, author: w.author, type: w.type,
+                  nature: w.nature, styles: w.styles || [], instruments: w.instruments || [],
+                  plays: w.plays, likes: w.likes, comments: w.comments, duration: w.duration,
+                  gradient: w.gradient, date: w.date, members: w.members || [],
+                  coverImage: w.coverImage, mp3Url: w.mp3Url, isLiked: w.isLiked ?? false,
+                }
+                return (
+                  <TrackCard
+                    key={w.id}
+                    track={track}
+                    size="compact"
+                    extraMenuItems={canAnonymize ? [{ label: "取消署名", danger: true, onClick: () => setAnonymizeTarget({ id: w.id, title: w.title }) }] : undefined}
+                    badges={isSelf && me && isAnon ? [{ text: "你已匿名", color: "#9A9A9A" }] : undefined}
                   />
-                  <div className="flex items-start justify-between gap-2">
-                    <h3 className="text-[14px] font-bold text-white">{w.title}</h3>
-                    <span
-                      className="shrink-0 text-[11px] font-medium"
-                      style={{ color: w.type === "rehearsal" ? "#00AAFF" : "#FF33AA" }}
-                    >
-                      {w.type === "rehearsal" ? "排练作品" : "Jam时刻"}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-[12px] text-[#8A8A8A]">{w.date}</p>
-
-                  <div className="mt-4 flex items-center gap-4 text-[12px] text-[#8A8A8A]">
-                    <span className="flex items-center gap-1">
-                      <Play className="h-3.5 w-3.5" />
-                      {w.plays}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <Heart className="h-3.5 w-3.5" />
-                      {w.likes}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <MessageCircle className="h-3.5 w-3.5" />
-                      {w.comments}
-                    </span>
-                  </div>
-                </article>
-              ))}
+                )
+              })}
             </div>
             )}
           </section>
         </div>
       </main>
+      {anonymizeTarget && (
+        <AnonymizeDialog
+          workId={anonymizeTarget.id}
+          workTitle={anonymizeTarget.title}
+          onClose={() => setAnonymizeTarget(null)}
+          onDone={() => { setAnonymizeTarget(null); refreshWorks() }}
+        />
+      )}
     </div>
   )
 }

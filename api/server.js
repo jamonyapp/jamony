@@ -126,6 +126,21 @@ function requireAuth(req, res, next) {
   }
 }
 
+// 可选鉴权：解析 cookie JWT → req.userId；未登录/失败不拦截（req.userId=null），保持端点公开
+function optionalAuth(req, res, next) {
+  const token = parseCookies(req)[COOKIE_NAME]
+  if (!token) { req.userId = null; req.nickname = null; return next() }
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET)
+    req.userId = decoded.id
+    req.nickname = decoded.nickname
+  } catch (e) {
+    req.userId = null
+    req.nickname = null
+  }
+  next()
+}
+
 // ========== 登录 ==========
 app.post('/api/login', async (req, res) => {
   try {
@@ -240,7 +255,7 @@ app.post('/api/logout', (req, res) => {
 app.get('/api/me', requireAuth, async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT id, nickname, avatar_index, bio, city, primary_instrument, instrument_category, secondary_instrument, level, points FROM users WHERE id=$1',
+      'SELECT id, nickname, avatar_index, bio, signature, styles, city, primary_instrument, instrument_category, secondary_instrument, level, points FROM users WHERE id=$1',
       [req.userId]
     )
     if (result.rows.length === 0) return res.status(401).json({ ok: false, msg: '用户不存在' })
@@ -252,6 +267,8 @@ app.get('/api/me', requireAuth, async (req, res) => {
         nickname: u.nickname,
         avatarIndex: u.avatar_index,
         bio: u.bio || '',
+        signature: u.signature || '',
+        styles: u.styles || [],
         city: u.city || '',
         primaryInstrument: u.primary_instrument,
         instrumentCategory: u.instrument_category || '',
@@ -267,14 +284,17 @@ app.get('/api/me', requireAuth, async (req, res) => {
 })
 
 // ========== 获取单个用户 ==========
-app.get('/api/users/:id', async (req, res) => {
+app.get('/api/users/:id', optionalAuth, async (req, res) => {
   try {
     const { id } = req.params
     const result = await pool.query(
-      `SELECT id, nickname, bio, city, primary_instrument, instrument_category, secondary_instrument,
-              styles, avatar_index, level, points, works_count, jam_count,
-              total_likes, followers_count, created_at
-       FROM users WHERE id = $1`, [id]
+      `SELECT u.id, u.nickname, u.bio, u.signature, u.city, u.primary_instrument, u.instrument_category, u.secondary_instrument,
+              u.styles, u.avatar_index, u.level, u.points, u.created_at,
+              (SELECT COUNT(*) FROM work_authors wa WHERE wa.user_id = u.id AND (wa.is_anonymous = FALSE OR $2 = u.id))::int AS works_count,
+              (SELECT COALESCE(SUM(w.likes), 0) FROM works w JOIN work_authors wa ON wa.work_id = w.id WHERE wa.user_id = u.id AND (wa.is_anonymous = FALSE OR $2 = u.id))::int AS total_likes,
+              0 AS followers_count,
+              0 AS following_count
+       FROM users u WHERE u.id = $1`, [id, req.userId]
     )
     if (result.rows.length === 0) {
       return res.status(404).json({ ok: false, msg: '用户不存在' })
@@ -287,14 +307,17 @@ app.get('/api/users/:id', async (req, res) => {
 })
 
 // ========== 按昵称获取用户 ==========
-app.get('/api/users/by-nickname/:nickname', async (req, res) => {
+app.get('/api/users/by-nickname/:nickname', optionalAuth, async (req, res) => {
   try {
     const { nickname } = req.params
     const result = await pool.query(
-      `SELECT id, nickname, bio, city, primary_instrument, instrument_category, secondary_instrument,
-              styles, avatar_index, level, points, works_count, jam_count,
-              total_likes, followers_count, created_at
-       FROM users WHERE nickname = $1`, [nickname]
+      `SELECT u.id, u.nickname, u.bio, u.signature, u.city, u.primary_instrument, u.instrument_category, u.secondary_instrument,
+              u.styles, u.avatar_index, u.level, u.points, u.created_at,
+              (SELECT COUNT(*) FROM work_authors wa WHERE wa.user_id = u.id AND (wa.is_anonymous = FALSE OR $2 = u.id))::int AS works_count,
+              (SELECT COALESCE(SUM(w.likes), 0) FROM works w JOIN work_authors wa ON wa.work_id = w.id WHERE wa.user_id = u.id AND (wa.is_anonymous = FALSE OR $2 = u.id))::int AS total_likes,
+              0 AS followers_count,
+              0 AS following_count
+       FROM users u WHERE u.nickname = $1`, [nickname, req.userId]
     )
     if (result.rows.length === 0) {
       return res.status(404).json({ ok: false, msg: '用户不存在' })
@@ -403,9 +426,14 @@ app.get('/api/users/:userId/tracks', async (req, res) => {
 })
 
 // ========== 获取某用户参与的作品（work_authors → works）==========
-app.get('/api/users/:userId/works', async (req, res) => {
+app.get('/api/users/:userId/works', optionalAuth, async (req, res) => {
   try {
     const { userId } = req.params
+    const isSelf = req.userId !== null && String(req.userId) === String(userId)
+    const anonFilter = isSelf ? '' : 'AND wa.is_anonymous = FALSE'
+    let orderBy = 'w.created_at DESC'
+    if (req.query.sort === 'asc') orderBy = 'w.created_at ASC'
+    else if (req.query.sort === 'likes') orderBy = 'w.likes DESC'
     const result = await pool.query(`
       SELECT w.*, (
         SELECT COALESCE(json_agg(row_to_json(wa_sub) ORDER BY wa_sub.id), '[]'::json)
@@ -416,14 +444,15 @@ app.get('/api/users/:userId/works', async (req, res) => {
       ) AS authors
       FROM works w
       WHERE w.status = 'published'
-      AND w.id IN (SELECT work_id FROM work_authors WHERE user_id = $1)
-      ORDER BY w.created_at DESC
+      AND w.id IN (SELECT work_id FROM work_authors wa WHERE wa.user_id = $1 ${anonFilter})
+      ORDER BY ${orderBy}
     `, [userId])
 
     const works = result.rows.map(row => {
       const authors = row.authors || []
-      const namedAuthors = authors.filter(a => !a.is_anonymous)
-      const anonymousCount = authors.filter(a => a.is_anonymous).length
+      const realAuthors = authors.filter(a => !a.is_system)
+      const namedAuthors = realAuthors.filter(a => !a.is_anonymous)
+      const anonymousCount = realAuthors.filter(a => a.is_anonymous).length
       const members = namedAuthors.map(a => a.nickname)
       const instruments = [...new Set(authors.map(a => a.instrument_category).filter(Boolean))]
       const nature = (row.copyright_type === '原创') ? 'original' : 'cover'
@@ -432,11 +461,11 @@ app.get('/api/users/:userId/works', async (req, res) => {
       const gradient = row.cover_gradient || 'linear-gradient(135deg, #00AAFF, #9933FF)'
       let author = ''
       if (namedAuthors.length === 0) {
-        author = `${authors.length}位匿名乐手`
-      } else if (namedAuthors.length === 1) {
+        author = `${realAuthors.length}位匿名乐手`
+      } else if (namedAuthors.length === 1 && realAuthors.length === 1) {
         author = namedAuthors[0].nickname
       } else {
-        author = `${namedAuthors.length}位乐手`
+        author = `${realAuthors.length}位乐手`
       }
       return {
         id: row.id,
@@ -1464,8 +1493,9 @@ app.get('/api/works', async (req, res) => {
 
     const works = result.rows.map(row => {
       const authors = row.authors || []
-      const namedAuthors = authors.filter(a => !a.is_anonymous)
-      const anonymousCount = authors.filter(a => a.is_anonymous).length
+      const realAuthors = authors.filter(a => !a.is_system)
+      const namedAuthors = realAuthors.filter(a => !a.is_anonymous)
+      const anonymousCount = realAuthors.filter(a => a.is_anonymous).length
 
       // 聚合字段
       const members = namedAuthors.map(a => a.nickname)
@@ -1482,11 +1512,11 @@ app.get('/api/works', async (req, res) => {
       // author 显示名
       let author = ''
       if (namedAuthors.length === 0) {
-        author = `${authors.length}位匿名乐手`
-      } else if (namedAuthors.length === 1) {
+        author = `${realAuthors.length}位匿名乐手`
+      } else if (namedAuthors.length === 1 && realAuthors.length === 1) {
         author = namedAuthors[0].nickname
       } else {
-        author = `${namedAuthors.length}位乐手`
+        author = `${realAuthors.length}位乐手`
       }
 
       return {
@@ -1554,8 +1584,9 @@ app.get('/api/works/:id', async (req, res) => {
 
     const row = result.rows[0]
     const authors = row.authors || []
-    const namedAuthors = authors.filter(a => !a.is_anonymous)
-    const anonymousCount = authors.filter(a => a.is_anonymous).length
+    const realAuthors = authors.filter(a => !a.is_system)
+    const namedAuthors = realAuthors.filter(a => !a.is_anonymous)
+    const anonymousCount = realAuthors.filter(a => a.is_anonymous).length
 
     const members = namedAuthors.map(a => a.nickname)
     const instruments = [...new Set(authors.map(a => a.instrument_category).filter(Boolean))]
@@ -1567,11 +1598,11 @@ app.get('/api/works/:id', async (req, res) => {
 
     let author = ''
     if (namedAuthors.length === 0) {
-      author = `${authors.length}位匿名乐手`
-    } else if (namedAuthors.length === 1) {
+      author = `${realAuthors.length}位匿名乐手`
+    } else if (namedAuthors.length === 1 && realAuthors.length === 1) {
       author = namedAuthors[0].nickname
     } else {
-      author = `${namedAuthors.length}位乐手`
+      author = `${realAuthors.length}位乐手`
     }
 
     const work = {
@@ -1913,6 +1944,8 @@ app.get('/api/drums/styles', (req, res) => {
 
 app.post('/api/rooms/:roomId/drums/start', requireAuth, async (req, res) => {
   try {
+    const roomId = parseInt(req.params.roomId)
+    if (!Number.isInteger(roomId) || roomId <= 0) return res.status(400).json({ ok: false, msg: '房间ID格式错误' })
     const roomRow = await pool.query('SELECT id FROM rooms WHERE id=$1', [req.params.roomId])
     if (roomRow.rows.length === 0) return res.status(404).json({ ok: false, msg: '房间不存在' })
     if (!(await isRoomMusician(req.userId, req.params.roomId))) {
@@ -1948,6 +1981,8 @@ app.post('/api/rooms/:roomId/drums/start', requireAuth, async (req, res) => {
 
 app.get('/api/rooms/:roomId/drums/status', async (req, res) => {
   try {
+    const roomId = parseInt(req.params.roomId)
+    if (!Number.isInteger(roomId) || roomId <= 0) return res.status(400).json({ ok: false, msg: '房间ID格式错误' })
     const portRow = await pool.query('SELECT server_port FROM rooms WHERE id = $1', [req.params.roomId]);
     const roomPort = portRow.rows[0]?.server_port || req.params.roomId;
     const result = execSync('cat /tmp/jamony-drums-' + roomPort + '.pid 2>/dev/null', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).toString().trim();
@@ -1965,6 +2000,8 @@ app.get('/api/rooms/:roomId/drums/status', async (req, res) => {
 
 app.post('/api/rooms/:roomId/drums/stop', requireAuth, async (req, res) => {
   try {
+    const roomId = parseInt(req.params.roomId)
+    if (!Number.isInteger(roomId) || roomId <= 0) return res.status(400).json({ ok: false, msg: '房间ID格式错误' })
     const portRow = await pool.query('SELECT server_port FROM rooms WHERE id = $1', [req.params.roomId])
     if (portRow.rows.length === 0) return res.status(404).json({ ok: false, msg: '房间不存在' })
     if (!(await isRoomMusician(req.userId, req.params.roomId))) {
