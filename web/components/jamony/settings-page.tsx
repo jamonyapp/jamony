@@ -20,7 +20,7 @@ const CUSTOM_INSTRUMENT_PLACEHOLDER: Record<string, string> = {
 
 const STYLE_OPTIONS = ["摇滚", "民谣", "爵士", "布鲁斯", "放克", "雷鬼", "电子", "古典", "流行", "嘻哈", "R&B", "国风", "金属", "ACG", "Bossa Nova", "实验"]
 
-const MAX_STYLES = 5
+const MAX_STYLES = 3
 
 function Divider() {
   return <div className="my-7 h-px" style={{ background: "#1A1A1A" }} />
@@ -48,7 +48,6 @@ export function SettingsPage() {
   const [saveError, setSaveError] = useState("")
   const [pwdError, setPwdError] = useState("")
   const [nickname, setNickname] = useState("")
-  const [bio, setBio] = useState("")
   const [signature, setSignature] = useState("")
   const [city, setCity] = useState("")
   const [instrument, setInstrument] = useState("原声吉他")
@@ -69,7 +68,6 @@ export function SettingsPage() {
       return
     }
     setNickname(user?.nickname || "")
-    setBio(user?.bio || "")
     setSignature(user?.signature || "")
     setCity(user?.city || "")
     setInstrument(user?.primaryInstrument || "原声吉他")
@@ -106,7 +104,6 @@ export function SettingsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           nickname: nickname.trim(),
-          bio,
           signature,
           city,
           primaryInstrument: finalInstrument,
@@ -179,10 +176,6 @@ export function SettingsPage() {
             <input type="text" className={inputClass} style={{ background: "#141414", borderColor: "#2A2A2A" }} value={signature} onChange={(e) => setSignature(e.target.value)} placeholder="一句个性签名..." maxLength={40} />
           </div>
           <div>
-            <FieldLabel hint={`${bio.length}/100`}>个人简介</FieldLabel>
-            <textarea className={`${inputClass} min-h-[88px] resize-none`} style={{ background: "#141414", borderColor: "#2A2A2A" }} value={bio} onChange={(e) => setBio(e.target.value)} placeholder="介绍一下自己..." maxLength={100} />
-          </div>
-          <div>
             <FieldLabel>城市</FieldLabel>
             <div className="relative">
               <select value={city} onChange={(e) => setCity(e.target.value)} className={`${inputClass} appearance-none pr-9`} style={{ background: "#141414", borderColor: "#2A2A2A" }}>
@@ -205,7 +198,7 @@ export function SettingsPage() {
             )}
           </div>
           <div>
-            <FieldLabel hint={`${styles.length}/${MAX_STYLES}`}>擅长风格</FieldLabel>
+            <FieldLabel hint={`${styles.length}/${MAX_STYLES} · 最多3个`}>风格偏好</FieldLabel>
             <div className="flex flex-wrap gap-2">
               {STYLE_OPTIONS.map((s) => {
                 const active = styles.includes(s)

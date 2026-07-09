@@ -605,7 +605,7 @@ app.patch('/api/users/:id', requireAuth, async (req, res) => {
     sets.push(`updated_at = NOW()`)
     params.push(id)
     const result = await pool.query(
-      `UPDATE users SET ${sets.join(', ')} WHERE id = $${idx} RETURNING id, nickname, avatar_index, avatar_url, bio, signature, city, primary_instrument, instrument_category, secondary_instrument, level, points`,
+      `UPDATE users SET ${sets.join(', ')} WHERE id = $${idx} RETURNING id, nickname, avatar_index, avatar_url, bio, signature, styles, city, primary_instrument, instrument_category, secondary_instrument, level, points`,
       params
     )
 
@@ -623,6 +623,7 @@ app.patch('/api/users/:id', requireAuth, async (req, res) => {
         avatarUrl: u.avatar_url ? u.avatar_url.replace('/var/jamony/avatars', '/avatars') : '',
         bio: u.bio || '',
         signature: u.signature || '',
+        styles: u.styles || [],
         city: u.city || '',
         primaryInstrument: u.primary_instrument,
         instrumentCategory: u.instrument_category || '',
