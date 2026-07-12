@@ -1,6 +1,5 @@
-import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
-import { Geist, Geist_Mono } from 'next/font/google'
+import localFont from 'next/font/local'
 import './globals.css'
 import { AuthProvider } from '@/lib/auth-context'
 import { LoginModal } from '@/components/jamony/login-modal'
@@ -11,10 +10,17 @@ import { CommentsProvider } from '@/lib/comments-context'
 import { FollowProvider } from '@/lib/follow-context'
 import { ElectronGate } from '@/components/jamony/electron-gate'
 
-const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] })
-const geistMono = Geist_Mono({
+// 字体本地化：脱离 next/font/google 的 build 时联网依赖（国内服务器拉不到 Google Fonts）
+// Geist Sans + Geist Mono 的 latin 子集 variable woff2，含 100-900 全权重
+const geistSans = localFont({
+  src: './fonts/Geist-Variable.woff2',
+  variable: '--font-geist-sans',
+  display: 'swap',
+})
+const geistMono = localFont({
+  src: './fonts/GeistMono-Variable.woff2',
   variable: '--font-geist-mono',
-  subsets: ['latin'],
+  display: 'swap',
 })
 
 export const metadata: Metadata = {
@@ -82,7 +88,6 @@ export default function RootLayout({
           </PlayerProvider>
           <LoginModal />
         </AuthProvider>
-        {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>
   )

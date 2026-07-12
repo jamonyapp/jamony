@@ -35,7 +35,8 @@ debug-*/
 release/
 release-*/
 build/
-deploy/
+deploy/*
+!deploy/nginx-jamony.conf
 build-gui/
 build-nox/
 jamulus.sln

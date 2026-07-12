@@ -1,8 +1,6 @@
 import { PlayingPage } from "@/components/playing/playing-page"
 
-export function generateStaticParams() {
-  return Array.from({ length: 500 }, (_, i) => ({ id: String(i + 1) }))
-}
+// SSR：运行时动态渲染
 
 export default function Page() {
   return (
