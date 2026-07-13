@@ -55,6 +55,21 @@ function hashPassword(password) {
   return `pbkdf2:sha256:${iterations}:${salt}:${key.toString('base64')}`
 }
 
+// room_code：8位去易混淆字符集（去 0/O/1/I/L），crypto 随机生成
+const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+function generateRoomCode() {
+  const bytes = crypto.randomBytes(8)
+  let s = ''
+  for (let i = 0; i < 8; i++) s += CODE_CHARS[bytes[i] % 32]
+  return s
+}
+
+// 按 room_code 查房间 id（大小写容错），id 退为内部 FK
+async function getRoomIdByCode(code) {
+  const r = await pool.query('SELECT id FROM rooms WHERE UPPER(room_code)=UPPER($1)', [code])
+  return r.rows.length > 0 ? r.rows[0].id : null
+}
+
 // ========== 频率限制（内存计数器，内测期够用；公测可换 Redis）==========
 const rateBuckets = new Map()  // key -> {count, resetAt}
 function rateCheck(key, limit, windowMs) {
@@ -753,7 +768,7 @@ async function getAvailablePort() {
 // 创建房间
 app.post('/api/rooms', requireAuth, async (req, res) => {
   try {
-    const { name, description, style, maxMusicians } = req.body
+    const { name, description, style, maxMusicians, is_private, password, proficiency } = req.body
     const hostId = req.userId
     if (!name) {
       return res.status(400).json({ ok: false, msg: '请填写房间名' })
@@ -768,14 +783,44 @@ app.post('/api/rooms', requireAuth, async (req, res) => {
     const port = await getAvailablePort()
     const musicianLimit = Math.min(maxMusicians || 6, 8)
 
-    const result = await pool.query(
-      `INSERT INTO rooms (name, description, style, host_id, max_musicians, server_port)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING *`,
-      [name, description || '', style || '', hostId, musicianLimit, port]
-    )
+    // 加密房间：6位数字密码，hashPassword 存储（不存明文）
+    let isPrivate = false
+    let passwordHash = null
+    if (is_private) {
+      if (!/^\d{6}$/.test(password || '')) {
+        return res.status(400).json({ ok: false, msg: '加密房间密码须为6位数字' })
+      }
+      isPrivate = true
+      passwordHash = hashPassword(password)
+    }
 
-    const room = result.rows[0]
+    // 演奏水平：乐谱力度记号 p/mf/f/ff/fff
+    const VALID_PROF = ['p', 'mf', 'f', 'ff', 'fff']
+    if (proficiency && !VALID_PROF.includes(proficiency)) {
+      return res.status(400).json({ ok: false, msg: '演奏水平须为 p/mf/f/ff/fff' })
+    }
+
+    // 生成 room_code（8位去易混淆码，unique 冲突重试）
+    let room = null
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const roomCode = generateRoomCode()
+      try {
+        const result = await pool.query(
+          `INSERT INTO rooms (name, description, style, host_id, max_musicians, server_port, is_private, password_hash, room_code, proficiency)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+           RETURNING *`,
+          [name, description || '', style || '', hostId, musicianLimit, port, isPrivate, passwordHash, roomCode, proficiency || null]
+        )
+        room = result.rows[0]
+        break
+      } catch (e) {
+        if (e.code === '23505' && attempt < 4) continue  // room_code unique 冲突，重试
+        throw e
+      }
+    }
+    if (!room) { return res.status(500).json({ ok: false, msg: '房间创建失败' }) }
+
+    delete room.password_hash  // 不向前端泄露密码哈希
 
     // 房主自动成为第一个成员（合奏者）
     await pool.query(
@@ -810,7 +855,13 @@ app.get('/api/rooms', async (req, res) => {
        WHERE r.status NOT IN ('closed', 'archived')
        ORDER BY r.created_at DESC`
     )
-    res.json({ ok: true, rooms: result.rows })
+    // 列表不返回 server_port（防泄露）和 password_hash；保留 is_private 供前端锁 badge
+    const rooms = result.rows.map(r => {
+      delete r.password_hash
+      delete r.server_port
+      return r
+    })
+    res.json({ ok: true, rooms })
   } catch (err) {
     console.error('Rooms list error:', err)
     res.status(500).json({ ok: false, msg: '服务器错误' })
@@ -818,9 +869,9 @@ app.get('/api/rooms', async (req, res) => {
 })
 
 // 房间详情
-app.get('/api/rooms/:id', async (req, res) => {
+app.get('/api/rooms/:code', optionalAuth, async (req, res) => {
   try {
-    const { id } = req.params
+    const { code } = req.params
     const roomResult = await pool.query(
       `SELECT r.*, u.nickname AS host_name, REPLACE(u.avatar_url, '/var/jamony/avatars', '/avatars') AS host_avatar_url,
         (SELECT COUNT(*) FROM room_members WHERE room_id = r.id AND role = 'musician') AS musician_count,
@@ -828,19 +879,28 @@ app.get('/api/rooms/:id', async (req, res) => {
         (SELECT COUNT(*) FROM room_members WHERE room_id = r.id) AS total_members
        FROM rooms r
        JOIN users u ON u.id = r.host_id
-       WHERE r.id = $1 AND r.status NOT IN ('closed', 'archived')`,
-      [id]
+       WHERE UPPER(r.room_code) = UPPER($1) AND r.status NOT IN ('closed', 'archived')`,
+      [code]
     )
     if (roomResult.rows.length === 0) {
       return res.status(404).json({ ok: false, msg: '房间不存在' })
     }
+
+    const room = roomResult.rows[0]
+    const id = room.id  // members 查询用数字 FK
 
     const members = await pool.query(
       `SELECT rm.*, u.primary_instrument, u.instrument_category, REPLACE(u.avatar_url, '/var/jamony/avatars', '/avatars') AS avatar_url FROM room_members rm JOIN users u ON u.id = rm.user_id WHERE rm.room_id = $1 ORDER BY rm.joined_at`,
       [id]
     )
 
-    res.json({ ok: true, room: roomResult.rows[0], members: members.rows })
+    delete room.password_hash
+    // 加密房：非成员隐藏 server_port（防直连 jamulus）；用已查的 members 判断成员身份
+    if (room.is_private) {
+      const isMember = members.rows.some(m => m.user_id === req.userId)
+      if (!isMember) room.server_port = null
+    }
+    res.json({ ok: true, room, members: members.rows })
   } catch (err) {
     console.error('Room detail error:', err)
     res.status(500).json({ ok: false, msg: '服务器错误' })
@@ -848,15 +908,16 @@ app.get('/api/rooms/:id', async (req, res) => {
 })
 
 // 广播房间成员列表（身份/音频状态变化时调用，让房间内所有人实时同步右栏成员显示）
-async function broadcastMembers(roomId) {
+async function broadcastMembers(roomCode) {
   try {
     const result = await pool.query(
       `SELECT rm.*, u.primary_instrument, u.instrument_category, REPLACE(u.avatar_url, '/var/jamony/avatars', '/avatars') AS avatar_url
        FROM room_members rm JOIN users u ON u.id = rm.user_id
-       WHERE rm.room_id = $1 ORDER BY rm.joined_at`,
-      [roomId]
+       JOIN rooms r ON r.id = rm.room_id
+       WHERE r.room_code = $1 ORDER BY rm.joined_at`,
+      [roomCode]
     )
-    io.to(roomId).emit('members-update', { members: result.rows })
+    io.to(roomCode).emit('members-update', { members: result.rows })
   } catch (e) {
     console.error('Broadcast members error:', e)
   }
@@ -987,29 +1048,31 @@ async function getRoomSessions(roomId) {
 }
 
 // 广播房间录音 session 列表（创建/授权变化/超时默认时调用，全员实时同步）
-async function broadcastSessions(roomId) {
+async function broadcastSessions(roomCode) {
   try {
-    io.to(roomId).emit('sessions-update', { sessions: await getRoomSessions(roomId) })
+    const id = await getRoomIdByCode(roomCode)
+    io.to(roomCode).emit('sessions-update', { sessions: await getRoomSessions(id) })
   } catch (e) {
     console.error('Broadcast sessions error:', e)
   }
 }
 
 // 加入房间
-app.post('/api/rooms/:id/join', requireAuth, async (req, res) => {
+app.post('/api/rooms/:code/join', requireAuth, async (req, res) => {
   try {
-    const { id } = req.params
+    const { code } = req.params
     const { role } = req.body
     const userId = req.userId
 
     const acceptedRole = role === 'musician' ? 'musician' : 'listener'
 
-    // 查房间
-    const roomResult = await pool.query("SELECT * FROM rooms WHERE id = $1 AND status NOT IN ('closed', 'archived')", [id])
+    // 按 room_code 查房间
+    const roomResult = await pool.query("SELECT * FROM rooms WHERE UPPER(room_code) = UPPER($1) AND status NOT IN ('closed', 'archived')", [code])
     if (roomResult.rows.length === 0) {
       return res.status(404).json({ ok: false, msg: '房间不存在' })
     }
     const room = roomResult.rows[0]
+    const id = room.id  // 后续 FK 用数字 id
 
     // 查用户
     const userResult = await pool.query('SELECT nickname FROM users WHERE id = $1', [userId])
@@ -1034,8 +1097,20 @@ app.post('/api/rooms/:id/join', requireAuth, async (req, res) => {
         'UPDATE room_members SET role = $1, last_active_at = NOW() WHERE room_id = $2 AND user_id = $3',
         [acceptedRole, id, userId]
       )
-      await broadcastMembers(id)
+      await broadcastMembers(code)
       return res.json({ ok: true, msg: '已更新身份', role: acceptedRole })
+    }
+
+    // 新加入：加密房校验密码（已成员上面已 return，免密）
+    if (room.is_private) {
+      // 限频：每次尝试计数，10次/10分钟
+      if (!rateCheck('roomjoin:' + id + ':' + req.ip, 10, 600000)) {
+        return res.status(429).json({ ok: false, msg: '尝试过多，请10分钟后再试' })
+      }
+      const { password } = req.body
+      if (!password || !verifyPassword(password, room.password_hash)) {
+        return res.status(401).json({ ok: false, msg: '密码错误' })
+      }
     }
 
     // 新加入
@@ -1054,7 +1129,7 @@ app.post('/api/rooms/:id/join', requireAuth, async (req, res) => {
       [id, userId, userResult.rows[0].nickname, acceptedRole]
     )
 
-    await broadcastMembers(id)
+    await broadcastMembers(code)
     res.json({ ok: true, msg: '已加入房间', role: acceptedRole })
   } catch (err) {
     console.error('Room join error:', err)
@@ -1063,10 +1138,12 @@ app.post('/api/rooms/:id/join', requireAuth, async (req, res) => {
 })
 
 // 离开房间
-app.post('/api/rooms/:id/leave', requireAuth, async (req, res) => {
+app.post('/api/rooms/:code/leave', requireAuth, async (req, res) => {
   try {
-    const { id } = req.params
+    const { code } = req.params
     const userId = req.userId
+    const id = await getRoomIdByCode(code)
+    if (!id) return res.status(404).json({ ok: false, msg: '房间不存在' })
 
     const memberResult = await pool.query(
       'SELECT * FROM room_members WHERE room_id = $1 AND user_id = $2', [id, userId]
@@ -1127,7 +1204,7 @@ app.post('/api/rooms/:id/leave', requireAuth, async (req, res) => {
     }
 
     res.json({ ok: true, msg: '已退出房间' })
-    await broadcastMembers(id)
+    await broadcastMembers(code)
   } catch (err) {
     console.error('Room leave error:', err)
     res.status(500).json({ ok: false, msg: '服务器错误' })
@@ -1135,9 +1212,11 @@ app.post('/api/rooms/:id/leave', requireAuth, async (req, res) => {
 })
 
 // 切换角色（合奏者 ↔ 听众）
-app.post('/api/rooms/:id/switch-role', requireAuth, async (req, res) => {
+app.post('/api/rooms/:code/switch-role', requireAuth, async (req, res) => {
   try {
-    const { id } = req.params
+    const { code } = req.params
+    const id = await getRoomIdByCode(code)
+    if (!id) return res.status(404).json({ ok: false, msg: '房间不存在' })
     const { newRole } = req.body
     const userId = req.userId
 
@@ -1156,7 +1235,7 @@ app.post('/api/rooms/:id/switch-role', requireAuth, async (req, res) => {
       [newRole, id, userId]
     )
 
-    await broadcastMembers(id)
+    await broadcastMembers(code)
     res.json({ ok: true, msg: '身份已切换' })
   } catch (err) {
     console.error('Role switch error:', err)
@@ -1165,16 +1244,18 @@ app.post('/api/rooms/:id/switch-role', requireAuth, async (req, res) => {
 })
 
 // ========== 更新房间成员音频状态 ==========
-app.post('/api/rooms/:roomId/members/:userId/audio-status', requireAuth, async (req, res) => {
+app.post('/api/rooms/:code/members/:userId/audio-status', requireAuth, async (req, res) => {
   try {
-    const { roomId } = req.params
+    const { code } = req.params
     const userId = req.userId
     const { audioStatus } = req.body
+    const roomId = await getRoomIdByCode(code)
+    if (!roomId) return res.status(404).json({ ok: false, msg: '房间不存在' })
     await pool.query(
       'UPDATE room_members SET audio_status = $1, last_active_at = NOW() WHERE room_id = $2 AND user_id = $3',
       [audioStatus || 'connected', roomId, userId]
     )
-    await broadcastMembers(roomId)
+    await broadcastMembers(code)
     res.json({ ok: true })
   } catch (err) {
     console.error('Audio status error:', err)
@@ -1186,10 +1267,12 @@ app.post('/api/rooms/:roomId/members/:userId/audio-status', requireAuth, async (
 const RECORDING_COUNTDOWN_SECONDS = 60  // 倒计时秒数（测试用 60，后期改 600）
 
 // 开始录音（合奏者触发，一房一录）
-app.post('/api/rooms/:id/recording/start', requireAuth, async (req, res) => {
+app.post('/api/rooms/:code/recording/start', requireAuth, async (req, res) => {
   try {
-    const { id } = req.params
+    const { code } = req.params
     const userId = req.userId
+    const id = await getRoomIdByCode(code)
+    if (!id) return res.status(404).json({ ok: false, msg: '房间不存在' })
     const member = await pool.query('SELECT role FROM room_members WHERE room_id=$1 AND user_id=$2', [id, userId])
     if (member.rows.length === 0 || member.rows[0].role !== 'musician') {
       return res.status(403).json({ ok: false, msg: '仅合奏者可录音' })
@@ -1207,7 +1290,7 @@ app.post('/api/rooms/:id/recording/start', requireAuth, async (req, res) => {
     // 录音中才开鼓机由 drums/start API 把标志置 true
     const drumsAlreadyRunning = isDrumsRunning(room.rows[0].server_port)
     await pool.query('UPDATE rooms SET recording_active=TRUE, drums_used_this_recording=$2 WHERE id=$1', [id, drumsAlreadyRunning])
-    io.to(id).emit('recording-state', { roomId: id, active: true, userId })
+    io.to(code).emit('recording-state', { roomId: code, active: true, userId })
     res.json({ ok: true })
   } catch (err) {
     console.error('Recording start error:', err)
@@ -1216,11 +1299,13 @@ app.post('/api/rooms/:id/recording/start', requireAuth, async (req, res) => {
 })
 
 // 停止录音 → 创建 session + 分轨快照 + jamony-looper 检测 + 启动倒计时
-app.post('/api/rooms/:id/recording/stop', requireAuth, async (req, res) => {
+app.post('/api/rooms/:code/recording/stop', requireAuth, async (req, res) => {
   try {
-    const { id } = req.params
+    const { code } = req.params
     const { duration } = req.body
     const userId = req.userId
+    const id = await getRoomIdByCode(code)
+    if (!id) return res.status(404).json({ ok: false, msg: '房间不存在' })
     const member = await pool.query('SELECT role FROM room_members WHERE room_id=$1 AND user_id=$2', [id, userId])
     if (member.rows.length === 0 || member.rows[0].role !== 'musician') {
       return res.status(403).json({ ok: false, msg: '仅合奏者可录音' })
@@ -1326,8 +1411,8 @@ app.post('/api/rooms/:id/recording/stop', requireAuth, async (req, res) => {
 
     // 结束录音状态并广播
     await pool.query('UPDATE rooms SET recording_active=FALSE, drums_used_this_recording=FALSE WHERE id=$1', [id])
-    io.to(id).emit('recording-state', { roomId: id, active: false })
-    await broadcastSessions(id)
+    io.to(code).emit('recording-state', { roomId: code, active: false })
+    await broadcastSessions(code)
     res.json({ ok: true, session: sess.rows[0] });
     // 异步音量标准化（完成后 socket 通知前端）
     setTimeout(() => {
@@ -1346,7 +1431,7 @@ app.post('/api/rooms/:id/recording/stop', requireAuth, async (req, res) => {
               async () => {
                 try {
                   await pool.query('UPDATE session_tracks SET normalized=TRUE WHERE id=$1', [tr.id]);
-                  io.to(id).emit('normalize-done', { sessionId: sess.rows[0].id, trackId: tr.id });
+                  io.to(code).emit('normalize-done', { sessionId: sess.rows[0].id, trackId: tr.id });
                 } catch (e) {}
               }
             );
@@ -1362,10 +1447,12 @@ app.post('/api/rooms/:id/recording/stop', requireAuth, async (req, res) => {
   }
 })
 // 下载分轨 WAV（混音/发表试听用）
-app.get('/api/rooms/:id/sessions/:sid/tracks/:tid/download', requireAuth, async (req, res) => {
+app.get('/api/rooms/:code/sessions/:sid/tracks/:tid/download', requireAuth, async (req, res) => {
   try {
-    const { id: roomId, sid: sessionId, tid: trackId } = req.params
+    const { code, sid: sessionId, tid: trackId } = req.params
     const userId = req.userId
+    const roomId = await getRoomIdByCode(code)
+    if (!roomId) return res.status(404).json({ ok: false, msg: '房间不存在' })
 
     const tr = await pool.query(
       'SELECT * FROM session_tracks WHERE id=$1 AND session_id=$2',
@@ -1403,10 +1490,12 @@ app.get('/api/rooms/:id/sessions/:sid/tracks/:tid/download', requireAuth, async 
 })
 
 // 抢发表锁（先到先得）
-app.post('/api/rooms/:id/sessions/:sid/claim-publish', requireAuth, async (req, res) => {
+app.post('/api/rooms/:code/sessions/:sid/claim-publish', requireAuth, async (req, res) => {
   try {
-    const { id: roomId, sid: sessionId } = req.params
+    const { code, sid: sessionId } = req.params
     const userId = req.userId
+    const roomId = await getRoomIdByCode(code)
+    if (!roomId) return res.status(404).json({ ok: false, msg: '房间不存在' })
 
     // 原子化更新：只有 publisher_user_id 为 NULL 时才能写入
     const result = await pool.query(
@@ -1428,7 +1517,7 @@ app.post('/api/rooms/:id/sessions/:sid/claim-publish', requireAuth, async (req, 
     }
 
     // 抢锁成功，广播 sessions 更新
-    await broadcastSessions(roomId)
+    await broadcastSessions(code)
     const u = await pool.query('SELECT nickname FROM users WHERE id=$1', [userId])
     const nick = u.rows.length > 0 ? u.rows[0].nickname : '未知用户'
     res.json({ ok: true, claimed: true, publisher_user_id: userId, publisher_nickname: nick })
@@ -1439,10 +1528,12 @@ app.post('/api/rooms/:id/sessions/:sid/claim-publish', requireAuth, async (req, 
 })
 
 // 释放发表锁（关闭发表卡片但未发表时调用）
-app.post('/api/rooms/:id/sessions/:sid/release-claim', requireAuth, async (req, res) => {
+app.post('/api/rooms/:code/sessions/:sid/release-claim', requireAuth, async (req, res) => {
   try {
-    const { id: roomId, sid: sessionId } = req.params
+    const { code, sid: sessionId } = req.params
     const userId = req.userId
+    const roomId = await getRoomIdByCode(code)
+    if (!roomId) return res.status(404).json({ ok: false, msg: '房间不存在' })
 
     await pool.query(
       'UPDATE recording_sessions SET publisher_user_id=NULL WHERE id=$1 AND publisher_user_id=$2',
@@ -1450,7 +1541,7 @@ app.post('/api/rooms/:id/sessions/:sid/release-claim', requireAuth, async (req, 
     )
 
     // 广播 sessions 更新
-    await broadcastSessions(roomId)
+    await broadcastSessions(code)
     res.json({ ok: true })
   } catch (err) {
     console.error('Release claim error:', err)
@@ -1459,9 +1550,11 @@ app.post('/api/rooms/:id/sessions/:sid/release-claim', requireAuth, async (req, 
 })
 
 // 发表作品
-app.post('/api/rooms/:id/sessions/:sid/publish', requireAuth, upload.fields([{ name: 'mp3', maxCount: 1 }, { name: 'cover_image', maxCount: 1 }]), async (req, res) => {
+app.post('/api/rooms/:code/sessions/:sid/publish', requireAuth, upload.fields([{ name: 'mp3', maxCount: 1 }, { name: 'cover_image', maxCount: 1 }]), async (req, res) => {
   try {
-    const { id: roomId, sid: sessionId } = req.params
+    const { code, sid: sessionId } = req.params
+    const roomId = await getRoomIdByCode(code)
+    if (!roomId) return res.status(404).json({ ok: false, msg: '房间不存在' })
 
     // 验证 session 存在
     const sess = await pool.query('SELECT * FROM recording_sessions WHERE id=$1 AND room_id=$2', [sessionId, roomId])
@@ -1530,7 +1623,7 @@ app.post('/api/rooms/:id/sessions/:sid/publish', requireAuth, upload.fields([{ n
     await pool.query("UPDATE recording_sessions SET status='published' WHERE id=$1", [sessionId])
 
     // socket 广播 sessions 刷新
-    await broadcastSessions(roomId)
+    await broadcastSessions(code)
 
     res.json({ ok: true, workId })
   } catch (err) {
@@ -1925,11 +2018,13 @@ app.patch('/api/works/:id/anonymize', requireAuth, async (req, res) => {
 })
 
 // 读取房间所有 session（含超时懒处理）
-app.get('/api/rooms/:id/sessions', async (req, res) => {
+app.get('/api/rooms/:code/sessions', async (req, res) => {
   try {
-    const changed = await applyExpiry(req.params.id)
-    if (changed) broadcastSessions(req.params.id)
-    const sessions = await getRoomSessions(req.params.id)
+    const id = await getRoomIdByCode(req.params.code)
+    if (!id) return res.status(404).json({ ok: false, msg: '房间不存在' })
+    const changed = await applyExpiry(id)
+    if (changed) broadcastSessions(code)
+    const sessions = await getRoomSessions(id)
     res.json({ ok: true, sessions })
   } catch (err) {
     console.error('Sessions list error:', err)
@@ -1938,9 +2033,9 @@ app.get('/api/rooms/:id/sessions', async (req, res) => {
 })
 
 // 修改某条分轨的授权（①② 写死锁定，② 依赖 ①，③ 自由不锁）
-app.patch('/api/rooms/:id/sessions/:sid/tracks/:tid', requireAuth, async (req, res) => {
+app.patch('/api/rooms/:code/sessions/:sid/tracks/:tid', requireAuth, async (req, res) => {
   try {
-    const { id, sid, tid } = req.params
+    const { code, sid, tid } = req.params
     const { field, value } = req.body  // field: allow_use | allow_attribution | allow_download
     const userId = req.userId
     const tr = await pool.query('SELECT * FROM session_tracks WHERE id=$1 AND session_id=$2', [tid, sid])
@@ -1967,7 +2062,7 @@ app.patch('/api/rooms/:id/sessions/:sid/tracks/:tid', requireAuth, async (req, r
     } else {
       return res.status(400).json({ ok: false, msg: '未知字段' })
     }
-    await broadcastSessions(id)
+    await broadcastSessions(code)
     res.json({ ok: true })
   } catch (err) {
     console.error('Track auth error:', err)
@@ -1977,9 +2072,9 @@ app.patch('/api/rooms/:id/sessions/:sid/tracks/:tid', requireAuth, async (req, r
 
 
 // 下载分轨 WAV（自己始终可下载；他人需 allow_download=true）
-app.get('/api/rooms/:id/sessions/:sid/tracks/:tid/download', async (req, res) => {
+app.get('/api/rooms/:code/sessions/:sid/tracks/:tid/download', async (req, res) => {
   try {
-    const { id, sid, tid } = req.params
+    const { code, sid, tid } = req.params
     const userId = parseInt(req.query.userId)
     if (!userId) return res.status(400).json({ ok: false, msg: '缺少 userId' })
     const tr = await pool.query('SELECT * FROM session_tracks WHERE id=$1 AND session_id=$2', [tid, sid])
@@ -2023,13 +2118,12 @@ app.get('/api/drums/styles', (req, res) => {
   res.json({ ok: true, styles })
 })
 
-app.post('/api/rooms/:roomId/drums/start', requireAuth, async (req, res) => {
+app.post('/api/rooms/:code/drums/start', requireAuth, async (req, res) => {
   try {
-    const roomId = parseInt(req.params.roomId)
-    if (!Number.isInteger(roomId) || roomId <= 0) return res.status(400).json({ ok: false, msg: '房间ID格式错误' })
-    const roomRow = await pool.query('SELECT id FROM rooms WHERE id=$1', [req.params.roomId])
-    if (roomRow.rows.length === 0) return res.status(404).json({ ok: false, msg: '房间不存在' })
-    if (!(await isRoomMusician(req.userId, req.params.roomId))) {
+    const { code } = req.params
+    const roomId = await getRoomIdByCode(code)
+    if (!roomId) return res.status(404).json({ ok: false, msg: '房间不存在' })
+    if (!(await isRoomMusician(req.userId, code))) {
       return res.status(403).json({ ok: false, msg: '仅合奏者可操作鼓机' })
     }
     const { style, bpm, file } = req.body
@@ -2048,10 +2142,10 @@ app.post('/api/rooms/:roomId/drums/start', requireAuth, async (req, res) => {
       return res.status(404).json({ ok: false, msg: '该风格暂无鼓谱文件，请先上传' })
     }
     
-        const portRow = await pool.query('SELECT server_port FROM rooms WHERE id = $1', [req.params.roomId]);
-    const roomPort = portRow.rows[0]?.server_port || req.params.roomId; execSync('node /var/www/jamony/api/manage-jamulus.js drums-start ' + validStyle + ' ' + validBpm + ' "' + validFile + '" ' + roomPort, { timeout: 15000, stdio: 'pipe' })
-    await pool.query('UPDATE rooms SET current_bpm = $1, drums_used_this_recording = TRUE WHERE id = $2', [validBpm, req.params.roomId])
-    io.to(req.params.roomId).emit('bpm-update', { bpm: validBpm })
+        const portRow = await pool.query('SELECT server_port FROM rooms WHERE id = $1', [roomId]);
+    const roomPort = portRow.rows[0]?.server_port || roomId; execSync('node /var/www/jamony/api/manage-jamulus.js drums-start ' + validStyle + ' ' + validBpm + ' "' + validFile + '" ' + roomPort, { timeout: 15000, stdio: 'pipe' })
+    await pool.query('UPDATE rooms SET current_bpm = $1, drums_used_this_recording = TRUE WHERE id = $2', [validBpm, roomId])
+    io.to(code).emit('bpm-update', { bpm: validBpm })
     
     res.json({ ok: true, msg: '鼓机已启动', style: validStyle, bpm: validBpm })
   } catch (err) {
@@ -2060,12 +2154,12 @@ app.post('/api/rooms/:roomId/drums/start', requireAuth, async (req, res) => {
   }
 })
 
-app.get('/api/rooms/:roomId/drums/status', async (req, res) => {
+app.get('/api/rooms/:code/drums/status', async (req, res) => {
   try {
-    const roomId = parseInt(req.params.roomId)
-    if (!Number.isInteger(roomId) || roomId <= 0) return res.status(400).json({ ok: false, msg: '房间ID格式错误' })
-    const portRow = await pool.query('SELECT server_port FROM rooms WHERE id = $1', [req.params.roomId]);
-    const roomPort = portRow.rows[0]?.server_port || req.params.roomId;
+    const roomId = await getRoomIdByCode(req.params.code)
+    if (!roomId) return res.status(404).json({ ok: false, msg: '房间不存在' })
+    const portRow = await pool.query('SELECT server_port FROM rooms WHERE id = $1', [roomId]);
+    const roomPort = portRow.rows[0]?.server_port || roomId;
     const result = execSync('cat /tmp/jamony-drums-' + roomPort + '.pid 2>/dev/null', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).toString().trim();
     if (result) {
       const pid = parseInt(result);
@@ -2079,19 +2173,20 @@ app.get('/api/rooms/:roomId/drums/status', async (req, res) => {
   }
 });
 
-app.post('/api/rooms/:roomId/drums/stop', requireAuth, async (req, res) => {
+app.post('/api/rooms/:code/drums/stop', requireAuth, async (req, res) => {
   try {
-    const roomId = parseInt(req.params.roomId)
-    if (!Number.isInteger(roomId) || roomId <= 0) return res.status(400).json({ ok: false, msg: '房间ID格式错误' })
-    const portRow = await pool.query('SELECT server_port FROM rooms WHERE id = $1', [req.params.roomId])
+    const { code } = req.params
+    const roomId = await getRoomIdByCode(code)
+    if (!roomId) return res.status(404).json({ ok: false, msg: '房间不存在' })
+    const portRow = await pool.query('SELECT server_port FROM rooms WHERE id = $1', [roomId])
     if (portRow.rows.length === 0) return res.status(404).json({ ok: false, msg: '房间不存在' })
-    if (!(await isRoomMusician(req.userId, req.params.roomId))) {
+    if (!(await isRoomMusician(req.userId, code))) {
       return res.status(403).json({ ok: false, msg: '仅合奏者可操作鼓机' })
     }
-    const roomPort = portRow.rows[0]?.server_port || req.params.roomId;
+    const roomPort = portRow.rows[0]?.server_port || roomId;
     execSync('node /var/www/jamony/api/manage-jamulus.js drums-stop ' + roomPort, { timeout: 5000, stdio: 'pipe' })
-    await pool.query('UPDATE rooms SET current_bpm = 0 WHERE id = $1', [req.params.roomId])
-    io.to(req.params.roomId).emit('bpm-update', { bpm: 0 })
+    await pool.query('UPDATE rooms SET current_bpm = 0 WHERE id = $1', [roomId])
+    io.to(code).emit('bpm-update', { bpm: 0 })
     res.json({ ok: true, msg: '鼓机已停止' })
   } catch (err) {
     console.error('Drums stop error:', err)
@@ -2116,9 +2211,9 @@ app.get('/api/daily-theme', (req, res) => {
   res.json({ ok: true, theme })
 })
 
-// 校验用户是否某房间的合奏者（room_members.role === 'musician'）
-async function isRoomMusician(userId, roomId) {
-  const r = await pool.query("SELECT role FROM room_members WHERE room_id=$1 AND user_id=$2", [roomId, userId])
+// 校验用户是否某房间的合奏者（room_members.role === 'musician'），按 room_code 查
+async function isRoomMusician(userId, roomCode) {
+  const r = await pool.query("SELECT rm.role FROM room_members rm JOIN rooms r ON r.id=rm.room_id WHERE r.room_code=$1 AND rm.user_id=$2", [roomCode, userId])
   return r.rows.length > 0 && r.rows[0].role === 'musician'
 }
 
@@ -2167,7 +2262,7 @@ io.on("connection", (socket) => {
     if (!roomId || !socket.userId) return
     if (!(await isRoomMusician(socket.userId, roomId))) return  // 仅合奏者可推和弦
     if (chords) {
-      try { await pool.query('UPDATE rooms SET current_chords = $1 WHERE id = $2', [chords.join(' '), roomId]) }
+      try { await pool.query('UPDATE rooms SET current_chords = $1 WHERE room_code = $2', [chords.join(' '), roomId]) }
       catch (e) { console.error('Chords persist error:', e) }
     }
     io.to(roomId).emit("chords-update", { chords })
@@ -2179,7 +2274,7 @@ io.on("connection", (socket) => {
     if (!(await isRoomMusician(socket.userId, roomId))) return  // 仅合奏者可推主题
     if (theme) {
       try {
-        await pool.query('UPDATE rooms SET current_theme = $1 WHERE id = $2', [theme, roomId])
+        await pool.query('UPDATE rooms SET current_theme = $1 WHERE room_code = $2', [theme, roomId])
       } catch (e) { console.error('Theme persist error:', e) }
     }
     io.to(roomId).emit("theme-update", { theme })
@@ -2191,18 +2286,19 @@ io.on("connection", (socket) => {
 })
 
 // ========== 房间主题 ==========
-app.post('/api/rooms/:roomId/theme', requireAuth, async (req, res) => {
+app.post('/api/rooms/:code/theme', requireAuth, async (req, res) => {
   try {
-    const roomRow = await pool.query('SELECT id FROM rooms WHERE id=$1', [req.params.roomId])
-    if (roomRow.rows.length === 0) return res.status(404).json({ ok: false, msg: '房间不存在' })
-    if (!(await isRoomMusician(req.userId, req.params.roomId))) {
+    const { code } = req.params
+    const roomId = await getRoomIdByCode(code)
+    if (!roomId) return res.status(404).json({ ok: false, msg: '房间不存在' })
+    if (!(await isRoomMusician(req.userId, code))) {
       return res.status(403).json({ ok: false, msg: '仅合奏者可设置主题' })
     }
     const { theme } = req.body
     if (!theme || !theme.trim()) {
       return res.status(400).json({ ok: false, msg: '主题不能为空' })
     }
-    await pool.query('UPDATE rooms SET current_theme = $1 WHERE id = $2', [theme.trim(), req.params.roomId])
+    await pool.query('UPDATE rooms SET current_theme = $1 WHERE id = $2', [theme.trim(), roomId])
     res.json({ ok: true, msg: '主题已更新' })
   } catch (err) {
     console.error('Theme update error:', err)

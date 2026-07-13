@@ -1,9 +1,10 @@
 "use client"
 
 import { useState } from "react"
-import { X, Loader2 } from "lucide-react"
+import { X, Loader2, Lock } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
+import { PROFICIENCY_ORDER, PROFICIENCY_MAP } from "@/lib/proficiency"
 
 const STYLES = ["摇滚","民谣","爵士","布鲁斯","放克","雷鬼","电子","古典","流行","嘻哈","R&B","国风","金属","ACG","实验"]
 
@@ -20,6 +21,9 @@ export function CreateRoomModal({
   const [description, setDescription] = useState("")
   const [style, setStyle] = useState("摇滚")
   const [maxMusicians, setMaxMusicians] = useState(6)
+  const [isPrivate, setIsPrivate] = useState(false)
+  const [password, setPassword] = useState("")
+  const [proficiency, setProficiency] = useState<string>("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
 
@@ -28,6 +32,7 @@ export function CreateRoomModal({
   const handleCreate = async () => {
     if (!name.trim()) { setError("请输入房间名"); return }
     if (!user) { setError("请先登录"); return }
+    if (isPrivate && !/^\d{6}$/.test(password)) { setError("加密房间密码须为6位数字"); return }
     setLoading(true)
     setError("")
     try {
@@ -40,13 +45,16 @@ export function CreateRoomModal({
           style,
           hostId: user.id,
           maxMusicians,
+          is_private: isPrivate,
+          password: isPrivate ? password : undefined,
+          proficiency: proficiency || undefined,
         }),
       })
       const data = await res.json()
       if (!data.ok) { setError(data.msg || "创建失败"); setLoading(false); return }
       setLoading(false)
       onClose()
-      router.push(`/room/${data.room.id}/playing`)
+      router.push(`/room/${data.room.room_code}/playing`)
     } catch {
       setError("网络错误")
       setLoading(false)
@@ -104,6 +112,55 @@ export function CreateRoomModal({
                 {[1,2,3,4,5,6,7,8].map((n) => (<option key={n} value={n} className="bg-[#141414] text-white">{n} 人</option>))}
               </select>
             </div>
+          </div>
+
+          {/* 演奏水平（乐谱力度记号）*/}
+          <div>
+            <label className="mb-1.5 block text-xs font-medium" style={{ color: "#9A9A9A" }}>演奏水平（jamony 力度记号）</label>
+            <div className="flex gap-2">
+              {PROFICIENCY_ORDER.map((p) => {
+                const info = PROFICIENCY_MAP[p]
+                const active = proficiency === p
+                return (
+                  <button key={p} type="button" onClick={() => setProficiency(active ? "" : p)}
+                    className="flex-1 rounded-[10px] border py-2 text-center transition-all"
+                    style={{ background: active ? "rgba(153,51,255,0.12)" : "#141414", borderColor: active ? info.color : "#2A2A2A" }}>
+                    <span className="block italic text-sm font-bold" style={{ color: active ? info.color : "#B0B0B0" }}>Lv={p}</span>
+                  </button>
+                )
+              })}
+            </div>
+            {proficiency ? (
+              <p className="mt-1.5 text-xs font-medium" style={{ color: PROFICIENCY_MAP[proficiency as keyof typeof PROFICIENCY_MAP]?.color }}>
+                {proficiency} · {PROFICIENCY_MAP[proficiency as keyof typeof PROFICIENCY_MAP]?.label} · {PROFICIENCY_MAP[proficiency as keyof typeof PROFICIENCY_MAP]?.desc}
+              </p>
+            ) : (
+              <p className="mt-1.5 text-xs" style={{ color: "#8A8A8A" }}>点选力度记号，告诉别人这局的水平（可不选）</p>
+            )}
+          </div>
+
+          {/* 私密房间开关 */}
+          <div className="flex flex-col gap-3">
+            <button type="button" onClick={() => setIsPrivate(v => !v)}
+              className="flex items-center justify-between rounded-[10px] border px-4 py-2.5 text-sm transition-colors"
+              style={{ background: "#141414", borderColor: isPrivate ? "#9933FF" : "#2A2A2A" }}>
+              <span className="flex items-center gap-2 text-white">
+                <Lock className="h-4 w-4" style={{ color: isPrivate ? "#9933FF" : "#8A8A8A" }} />
+                {isPrivate ? "加密房间" : "公开房间"}
+              </span>
+              <span className="text-xs" style={{ color: "#8A8A8A" }}>{isPrivate ? "已加密" : "设置加密"}</span>
+            </button>
+            {isPrivate && (
+              <div>
+                <label className="mb-1.5 block text-xs font-medium" style={{ color: "#9A9A9A" }}>房间密码（6位数字）</label>
+                <input type="password" inputMode="numeric" maxLength={6} value={password}
+                  onChange={(e) => setPassword(e.target.value.replace(/\D/g, ""))}
+                  placeholder="••••••"
+                  className="w-full rounded-[10px] border px-4 py-2.5 text-sm tracking-[0.3em] text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
+                  style={{ background: "#141414", borderColor: "#2A2A2A" }} />
+                <p className="mt-1.5 text-xs" style={{ color: "#8A8A8A" }}>朋友需输入此密码才能加入房间</p>
+              </div>
+            )}
           </div>
 
           {error && <p className="text-sm" style={{ color: "#FF33AA" }}>{error}</p>}

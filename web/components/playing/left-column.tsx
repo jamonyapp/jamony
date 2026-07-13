@@ -189,7 +189,7 @@ export function LeftColumn({
                 </div>
               </div>
             ) : (
-              <DrumMachineTool roomId={params?.id as string} realtimeBpm={realtimeBpm || 0} />
+              <DrumMachineTool roomId={params?.code as string} realtimeBpm={realtimeBpm || 0} />
             )}
           </div>
 

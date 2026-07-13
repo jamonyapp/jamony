@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation"
 import { Headphones, ArrowLeft, Crown, Lock, Loader2, Check, UserCheck, X } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
 import { Avatar } from "@/components/jamony/avatar"
+import { RoomPasswordModal } from "@/components/room-password-modal"
 
 type Member = {
   id: number
@@ -43,8 +44,10 @@ export function RoomDetailClient() {
   const [loading, setLoading] = useState(true)
   const [joinState, setJoinState] = useState<"idle" | "connecting" | "joined">("idle")
   const [myRole, setMyRole] = useState<"musician" | "listener" | null>(null)
+  const [pwdOpen, setPwdOpen] = useState(false)
+  const [pwdRole, setPwdRole] = useState<"musician" | "listener">("musician")
 
-  const roomId = params?.id as string
+  const roomId = params?.code as string
 
   useEffect(() => {
     if (!roomId) return
@@ -94,6 +97,12 @@ export function RoomDetailClient() {
   const handleJoin = (role: "musician" | "listener") => {
     if (!loggedIn) { setShowLoginModal(true); return }
     if (!user) return
+    // 加密房非成员 → 弹密码框（已成员 myRole!=null 免密直接 join）
+    if (room?.is_private && !myRole) {
+      setPwdRole(role)
+      setPwdOpen(true)
+      return
+    }
     setJoinState("connecting")
     fetch(`/api/rooms/${roomId}/join`, {
       method: "POST",
@@ -110,6 +119,14 @@ export function RoomDetailClient() {
         setJoinState("idle")
       })
       .catch(() => setJoinState("idle"))
+  }
+
+  // 密码验证成功后跳 playing
+  const onPasswordSuccess = (role: "musician" | "listener") => {
+    setPwdOpen(false)
+    setMyRole(role)
+    setJoinState("joined")
+    setTimeout(() => router.push(`/room/${roomId}/playing`), 500)
   }
 
   return (
@@ -214,6 +231,8 @@ export function RoomDetailClient() {
           )}
         </div>
       </main>
+      <RoomPasswordModal open={pwdOpen} roomId={roomId} role={pwdRole}
+        onClose={() => setPwdOpen(false)} onSuccess={onPasswordSuccess} />
     </div>
   )
 }

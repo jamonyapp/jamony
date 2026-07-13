@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Crown, Headphones, X, UserCheck } from "lucide-react"
+import { Crown, Headphones, X, UserCheck, User } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
 import { Avatar } from "@/components/jamony/avatar"
+import { RoomPasswordModal } from "@/components/room-password-modal"
 
 type Member = {
   id: number
@@ -46,15 +47,20 @@ export function RoomDetailModal({
   const [members, setMembers] = useState<Member[]>([])
   const [loading, setLoading] = useState(false)
   const [joining, setJoining] = useState(false)
+  const [latency, setLatency] = useState(28)
   const { user, loggedIn, setShowLoginModal } = useAuth()
   const [myRole, setMyRole] = useState<"musician" | "listener" | null>(null)
+  const [pwdOpen, setPwdOpen] = useState(false)
+  const [pwdRole, setPwdRole] = useState<"musician" | "listener">("musician")
 
   useEffect(() => {
     if (!roomId) { setRoom(null); setMembers([]); return }
     setLoading(true)
+    const start = Date.now()
     fetch(`/api/rooms/${roomId}`)
       .then(r => r.json())
       .then(data => {
+        setLatency(Date.now() - start)
         if (data.ok) {
           setRoom(data.room)
           setMembers(data.members || [])
@@ -77,6 +83,12 @@ export function RoomDetailModal({
   const handleJoin = async (role: "musician" | "listener") => {
     if (!loggedIn) { setShowLoginModal(true); return }
     if (!user) return
+    // 加密房非成员 → 弹密码框（已成员 myRole!=null 免密直接 join）
+    if (room?.is_private && !myRole) {
+      setPwdRole(role)
+      setPwdOpen(true)
+      return
+    }
     setJoining(true)
     try {
       const res = await fetch(`/api/rooms/${roomId}/join`, {
@@ -97,6 +109,17 @@ export function RoomDetailModal({
       }
     } catch {}
     setJoining(false)
+  }
+
+  // 密码验证成功后跳 playing
+  const onPasswordSuccess = async (role: "musician" | "listener") => {
+    setPwdOpen(false)
+    setMyRole(role)
+    const r = await fetch(`/api/rooms/${roomId}`)
+    const rd = await r.json()
+    if (rd.ok) { setRoom(rd.room); setMembers(rd.members || []) }
+    onClose()
+    router.push(`/room/${roomId}/playing`)
   }
 
   const handleRoleSwitch = async (newRole: "musician" | "listener") => {
@@ -145,8 +168,10 @@ export function RoomDetailModal({
               style={{ color: "#00AAFF", backgroundColor: "rgba(0,170,255,0.12)" }}>
               {room.style || "通用"}
             </span>
-            <span className="text-xs" style={{ color: "#8A8A8A" }}>
-              🎸 {room.musician_count}/{room.max_musicians} 合奏 · 🎧 {room.listener_count} 听众
+            <span className="flex items-center gap-3 text-xs" style={{ color: "#8A8A8A" }}>
+              <span className="flex items-center gap-1"><User className="h-3.5 w-3.5" style={{ color: "#9933FF" }} />{room.musician_count}/{room.max_musicians}</span>
+              <span className="flex items-center gap-1"><Headphones className="h-3.5 w-3.5" style={{ color: "#FF33AA" }} />{room.listener_count}</span>
+              <span>延迟 ≈ {latency}ms</span>
             </span>
           </div>
 
@@ -173,7 +198,7 @@ export function RoomDetailModal({
           <div className="mt-5">
             <h3 className="flex items-center gap-1.5 text-sm font-semibold text-white">
               <Headphones className="h-4 w-4" style={{ color: "#00AAFF" }} />
-              合奏者（{musicians.length}/{room.max_musicians}）
+              合奏者
             </h3>
             <div className="mt-3 flex flex-col gap-2">
               {musicians.map((m) => (
@@ -206,7 +231,7 @@ export function RoomDetailModal({
           <div className="mt-4">
             <h3 className="flex items-center gap-1.5 text-sm font-semibold text-white">
               <UserCheck className="h-4 w-4" style={{ color: "#FF33AA" }} />
-              听众（{listeners.length}）
+              听众
             </h3>
             <div className="mt-2 flex flex-wrap gap-2">
               {listeners.map((m) => (
@@ -255,6 +280,8 @@ export function RoomDetailModal({
           <div className="py-16 text-center text-sm" style={{ color: "#8A8A8A" }}>房间不存在</div>
         )}
       </div>
+      <RoomPasswordModal open={pwdOpen} roomId={roomId} role={pwdRole}
+        onClose={() => setPwdOpen(false)} onSuccess={onPasswordSuccess} />
     </div>
   )
 }

@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
+import { User, Headphones } from "lucide-react"
 import { SectionHeader } from "./section-header"
 import { RoomDetailModal } from "@/components/room-detail-modal"
 import { Avatar } from "@/components/jamony/avatar"
+import { ProficiencyBadge } from "@/components/proficiency-badge"
 
 const ROOM_ANGLES = [2.2, -1.8, 1.5, -2.0, -0.8, 2.5, -2.3, 1.0, -1.2, 2.8, -2.5, 1.8]
 
@@ -40,6 +42,7 @@ function SoundWavePin() {
 
 type Room = {
   id: number
+  room_code: string
   name: string
   description: string
   style: string
@@ -48,9 +51,10 @@ type Room = {
   musician_count: number
   max_musicians: number
   listener_count: number
+  proficiency?: string
 }
 
-function RoomCard({ room, angle, onJoin }: { room: Room; angle: number; onJoin: () => void }) {
+function RoomCard({ room, angle, latency, onJoin }: { room: Room; angle: number; latency: number; onJoin: () => void }) {
   return (
     <button
       className="jamony-room-card group relative flex flex-col gap-2 rounded-[10px] border p-4 text-left"
@@ -68,9 +72,11 @@ function RoomCard({ room, angle, onJoin }: { room: Room; angle: number; onJoin: 
 
       <div className="flex items-start justify-between">
         <SoundWavePin />
-        <span className="text-[12px] font-medium text-white">
-          {room.musician_count}/{room.max_musicians}
-        </span>
+        <div className="flex items-center gap-2">
+          <ProficiencyBadge proficiency={room.proficiency} />
+          <span className="flex items-center gap-1 text-[12px] font-medium text-white"><User className="h-3.5 w-3.5" style={{ color: "#9933FF" }} />{room.musician_count}/{room.max_musicians}</span>
+          <span className="flex items-center gap-1 text-[11px]" style={{ color: "#FF33AA" }}><Headphones className="h-3.5 w-3.5" />{room.listener_count}</span>
+        </div>
       </div>
 
       <div className="flex flex-col gap-1">
@@ -78,21 +84,20 @@ function RoomCard({ room, angle, onJoin }: { room: Room; angle: number; onJoin: 
           <span className="text-lg">{STYLE_EMOJI[room.style] || "🎵"}</span>
           <h3 className="text-[15px] font-bold text-white">{room.name}</h3>
         </div>
-        <p className="truncate text-[13px]" style={{ color: "#8A8A8A" }}>
-          {room.description}
-        </p>
+        <div className="flex items-center gap-2 text-xs">
+          <span className="rounded-full px-2 py-0.5" style={{ background: "rgba(110,150,255,0.12)", color: "#9AB8FF" }}>{room.style}</span>
+          <span style={{ color: "#8A8A8A" }}>延迟 ≈ {latency}ms</span>
+        </div>
       </div>
+
+      <p className="truncate text-[13px]" style={{ color: "#8A8A8A" }}>{room.description}</p>
 
       <div className="flex items-center gap-2">
         <Avatar nickname={room.host_name} avatarUrl={room.host_avatar_url} size={20} />
         <span className="text-[12px] text-white">{room.host_name}</span>
         <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold" style={{ background: "rgba(255,193,7,0.15)", color: "#FFC107" }}>
-          host
+          房主
         </span>
-      </div>
-
-      <div className="flex items-center gap-1.5 text-xs" style={{ color: "#8A8A8A" }}>
-        🎸 {room.musician_count}/{room.max_musicians} · 🎧 {room.listener_count}
       </div>
     </button>
   )
@@ -101,15 +106,23 @@ function RoomCard({ room, angle, onJoin }: { room: Room; angle: number; onJoin: 
 export function RoomsScreen() {
   const router = useRouter()
   const [rooms, setRooms] = useState<Room[]>([])
+  const [latency, setLatency] = useState(28)
   const [selectedRoom, setSelectedRoom] = useState<string | null>(null)
 
   useEffect(() => {
-    fetch("/api/rooms")
-      .then(r => r.json())
-      .then(data => {
-        if (data.ok) setRooms(data.rooms.slice(0, 4))
-      })
-      .catch(() => {})
+    const load = () => {
+      const start = Date.now()
+      fetch("/api/rooms")
+        .then(r => r.json())
+        .then(data => {
+          setLatency(Date.now() - start)
+          if (data.ok) setRooms(data.rooms.slice(0, 4))
+        })
+        .catch(() => {})
+    }
+    load()
+    const t = setInterval(load, 15000)  // 15秒刷新，卡片人数实时更新
+    return () => clearInterval(t)
   }, [])
 
   return (
@@ -122,7 +135,7 @@ export function RoomsScreen() {
       ) : (
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         {rooms.map((room, i) => (
-          <RoomCard key={room.id} room={room} angle={ROOM_ANGLES[i % ROOM_ANGLES.length]} onJoin={() => setSelectedRoom(String(room.id))} />
+          <RoomCard key={room.id} room={room} angle={ROOM_ANGLES[i % ROOM_ANGLES.length]} latency={latency} onJoin={() => setSelectedRoom(String(room.room_code))} />
         ))}
       </div>
       )}

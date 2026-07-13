@@ -27,6 +27,8 @@ type RoomData = {
   style: string
   host_id: number
   host_name: string
+  is_private: boolean
+  room_code: string
   server_port: number
   stored_server_ip?: string
   musician_count: number
@@ -38,7 +40,7 @@ export function PlayingPage() {
   const params = useParams()
   const router = useRouter()
   const { user } = useAuth()
-  const { realtimeChords, pushChords, realtimeTheme, pushTheme, realtimeBpm, realtimeMembers, realtimeSessions, realtimeRecordingActive } = useChatSocket(params?.id as string, user?.nickname)
+  const { realtimeChords, pushChords, realtimeTheme, pushTheme, realtimeBpm, realtimeMembers, realtimeSessions, realtimeRecordingActive } = useChatSocket(params?.code as string, user?.nickname)
   const [room, setRoom] = useState<RoomData | null>(null)
   const [chords, setChords] = useState<string[]>([])
   const [customTheme, setCustomTheme] = useState("")
@@ -71,13 +73,13 @@ export function PlayingPage() {
     setAudioConnected(true)
     setMyRole("musician")
     if (user?.id && room?.id) {
-      fetch(`/api/rooms/${room.id}/join`, {
+      fetch(`/api/rooms/${room.room_code}/join`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: user.id, role: "musician" }),
       }).then(() => {
         setRefreshTrigger(n => n + 1)
-        fetch(`/api/rooms/${room.id}`).then(r => r.json()).then(d => {
+        fetch(`/api/rooms/${room.room_code}`).then(r => r.json()).then(d => {
           if (d.ok) setRoom(prev => prev ? {...prev, musician_count: d.room.musician_count, listener_count: d.room.listener_count} : prev)
         })
       }).catch(() => {})
@@ -94,7 +96,7 @@ export function PlayingPage() {
 
   // 从 API 读取房间数据 + 检测用户角色
   useEffect(() => {
-    const roomId = params?.id
+    const roomId = params?.code
     if (!roomId || !user?.id) return
     fetch(`/api/rooms/${roomId}`)
       .then(r => r.json())
@@ -103,6 +105,11 @@ export function PlayingPage() {
           const roomData = {
             ...data.room,
             stored_server_ip: "39.96.30.128",
+          }
+          // 加密房非成员（GET 返回 server_port=null）→ 回详情页输密码
+          if (roomData.is_private && !roomData.server_port) {
+            router.replace(`/room/${roomId}`)
+            return
           }
           setRoom(roomData)
           // 检测当前用户在房间的角色
@@ -137,13 +144,13 @@ export function PlayingPage() {
         }
       })
       .catch(() => {})
-  }, [params?.id, user?.id])
+  }, [params?.code, user?.id])
 
   const doDisconnect = (target: "stay" | "home" | "lobby") => {
     setConfirmOpen(false)
     window.jamonyAPI?.killJamsoul?.()
     setAudioConnected(false)
-    const rid = params?.id
+    const rid = params?.code
     if (!rid || !user?.id) return
 
     if (target === "stay") {
@@ -237,7 +244,7 @@ export function PlayingPage() {
             chords={chords}
             customTheme={customTheme}
             currentBpm={currentBpm}
-            roomId={params?.id as string}
+            roomId={params?.code as string}
             myRole={myRole}
             currentUserId={user?.id}
             roomName={room?.name || ""}
@@ -247,7 +254,7 @@ export function PlayingPage() {
           />
         </div>
         <div className="min-h-0">
-          <RightColumn roomId={params?.id as string} room={room} refreshTrigger={refreshTrigger} realtimeMembers={realtimeMembers} />
+          <RightColumn roomId={params?.code as string} room={room} refreshTrigger={refreshTrigger} realtimeMembers={realtimeMembers} />
         </div>
       </div>
 

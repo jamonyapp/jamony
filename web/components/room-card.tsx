@@ -1,8 +1,9 @@
 "use client"
 
-import { Crown, Lock } from "lucide-react"
+import { Crown, Lock, User, Headphones } from "lucide-react"
 import type { Room } from "@/lib/rooms-data"
 import { Avatar } from "@/components/jamony/avatar"
+import { ProficiencyBadge } from "@/components/proficiency-badge"
 
 export function RoomCard({ room, onSelect }: { room: Room; onSelect?: () => void }) {
   const isFull = room.current >= room.capacity
@@ -24,29 +25,34 @@ export function RoomCard({ room, onSelect }: { room: Room; onSelect?: () => void
           style={{ padding: "1px", background: "var(--brand-gradient)", WebkitMask: "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)", WebkitMaskComposite: "xor", maskComposite: "exclude", boxShadow: "0 0 24px -6px rgba(153,51,255,0.5)" }} />
       )}
       <div className="flex items-center justify-between">
-        {room.isPrivate ? (
-          <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><Lock className="h-3.5 w-3.5" />私密</span>
-        ) : (
-          <span className="flex items-center gap-1.5 text-xs font-medium text-foreground">
-            <span className="h-2 w-2 rounded-full bg-brand-lime shadow-[0_0_8px_var(--brand-lime)]" />公开
-          </span>
-        )}
-        <span className="flex items-center gap-1.5 text-sm font-semibold tabular-nums">
+        <div className="flex items-center gap-2">
+          {room.isPrivate ? (
+            <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><Lock className="h-3.5 w-3.5" />私密</span>
+          ) : (
+            <span className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+              <span className="h-2 w-2 rounded-full bg-brand-lime shadow-[0_0_8px_var(--brand-lime)]" />公开
+            </span>
+          )}
+          <ProficiencyBadge proficiency={room.proficiency} />
+        </div>
+        <span className="flex items-center gap-2 text-sm font-semibold tabular-nums">
           {isFull ? <span className="rounded-md bg-destructive/15 px-1.5 py-0.5 text-xs text-destructive">已满</span> : null}
-          <span className={isFull ? "text-destructive" : isNearFull ? "text-[#ffb84d]" : "text-foreground"}>
-            {room.current}/{room.capacity}
+          <span className={`flex items-center gap-1 ${isFull ? "text-destructive" : isNearFull ? "text-[#ffb84d]" : "text-foreground"}`}>
+            <User className="h-3.5 w-3.5" style={{ color: "#9933FF" }} />{room.current}/{room.capacity}
           </span>
+          <span className="flex items-center gap-1 text-xs font-medium" style={{ color: "#FF33AA" }}><Headphones className="h-3.5 w-3.5" />{room.listener_count ?? 0}</span>
         </span>
       </div>
       <div className="flex items-center gap-2">
         <span aria-hidden className="text-xl">{room.emoji}</span>
         <h3 className="text-lg font-bold leading-tight text-foreground">{room.name}</h3>
       </div>
-      <div>
+      <div className="flex items-center gap-2">
         <span className="inline-block rounded-full px-2.5 py-0.5 text-xs text-white/90"
           style={{ background: "linear-gradient(var(--card), var(--card)) padding-box, var(--brand-gradient) border-box", border: "1px solid transparent" }}>
           {room.style}
         </span>
+        <span className={`text-xs font-medium ${latencyColor}`}>延迟 ≈ {room.latency}ms</span>
       </div>
       <p className="truncate text-sm text-muted-foreground">{room.description}</p>
       <div className="flex items-center gap-2">
@@ -58,9 +64,6 @@ export function RoomCard({ room, onSelect }: { room: Room; onSelect?: () => void
       </div>
       <div className="flex items-center gap-1 text-lg leading-none">
         {room.instruments.map((inst, i) => (<span key={i} aria-hidden>{inst}</span>))}
-      </div>
-      <div className="mt-1 flex items-center justify-between border-t border-border pt-3">
-        <span className={`text-xs font-medium ${latencyColor}`}>延迟 ≈ {room.latency}ms</span>
       </div>
     </button>
   )

@@ -25,6 +25,8 @@ export type Room = {
   capacity: number
   latency: number
   isPrivate: boolean
+  proficiency?: string
+  listener_count?: number
   serverIp: string
   port: number
   members: RoomMember[]
