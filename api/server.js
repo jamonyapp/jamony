@@ -794,9 +794,12 @@ app.post('/api/rooms', requireAuth, async (req, res) => {
       passwordHash = hashPassword(password)
     }
 
-    // 演奏水平：乐谱力度记号 p/mf/f/ff/fff
+    // 演奏水平：乐谱力度记号 p/mf/f/ff/fff（必填）
     const VALID_PROF = ['p', 'mf', 'f', 'ff', 'fff']
-    if (proficiency && !VALID_PROF.includes(proficiency)) {
+    if (!proficiency) {
+      return res.status(400).json({ ok: false, msg: '请选择演奏水平' })
+    }
+    if (!VALID_PROF.includes(proficiency)) {
       return res.status(400).json({ ok: false, msg: '演奏水平须为 p/mf/f/ff/fff' })
     }
 
@@ -908,16 +911,20 @@ app.get('/api/rooms/:code', optionalAuth, async (req, res) => {
 })
 
 // 广播房间成员列表（身份/音频状态变化时调用，让房间内所有人实时同步右栏成员显示）
+// payload 带 hostId：房主转移后前端实时感知新房主（皇冠/管理权/房主行显示）
 async function broadcastMembers(roomCode) {
   try {
     const result = await pool.query(
-      `SELECT rm.*, u.primary_instrument, u.instrument_category, REPLACE(u.avatar_url, '/var/jamony/avatars', '/avatars') AS avatar_url
+      `SELECT rm.*, u.primary_instrument, u.instrument_category, REPLACE(u.avatar_url, '/var/jamony/avatars', '/avatars') AS avatar_url, r.host_id
        FROM room_members rm JOIN users u ON u.id = rm.user_id
        JOIN rooms r ON r.id = rm.room_id
        WHERE r.room_code = $1 ORDER BY rm.joined_at`,
       [roomCode]
     )
-    io.to(roomCode).emit('members-update', { members: result.rows })
+    io.to(roomCode).emit('members-update', {
+      members: result.rows,
+      hostId: result.rows.length > 0 ? result.rows[0].host_id : null
+    })
   } catch (e) {
     console.error('Broadcast members error:', e)
   }
@@ -2254,6 +2261,9 @@ const THEMES = [
   { title: "雷鬼阳光午后", emoji: "☀️" },
   { title: "午夜蓝调电台", emoji: "🎵" },
 ]
+// 轻量 ping：测纯网络延迟（不查 DB），前端房间卡片延迟用它而非 /api/rooms（后者含 DB 查询会虚高）
+app.get('/api/ping', (req, res) => { res.json({ ok: true }) })
+
 app.get('/api/daily-theme', (req, res) => {
   const today = new Date()
   const dayOfYear = Math.floor((today - new Date(today.getFullYear(), 0, 0)) / 86400000)

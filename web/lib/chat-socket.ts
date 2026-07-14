@@ -20,6 +20,7 @@ export function useChatSocket(roomId?: string, nickname?: string) {
   const [realtimeTheme, setRealtimeTheme] = useState<string>("")
   const [realtimeBpm, setRealtimeBpm] = useState<number>(0)
   const [realtimeMembers, setRealtimeMembers] = useState<any[]>([])
+  const [realtimeHostId, setRealtimeHostId] = useState<number | null>(null)
   const [realtimeSessions, setRealtimeSessions] = useState<any[] | null>(null)
   const [realtimeRecordingActive, setRealtimeRecordingActive] = useState<boolean | null>(null)
   const [kickedEvent, setKickedEvent] = useState<{ userId: number; roomCode: string; ts: number } | null>(null)
@@ -54,8 +55,9 @@ export function useChatSocket(roomId?: string, nickname?: string) {
       setRealtimeBpm(data.bpm || 0)
     })
 
-    socket.on("members-update", (data: { members: any[] }) => {
+    socket.on("members-update", (data: { members: any[]; hostId?: number }) => {
       setRealtimeMembers(data.members || [])
+      if (data.hostId != null) setRealtimeHostId(data.hostId)
     })
 
     socket.on("member-kicked", (data: { userId: number; roomCode: string }) => {
@@ -112,5 +114,5 @@ export function useChatSocket(roomId?: string, nickname?: string) {
     setRealtimeTheme(theme)
   }
 
-  return { messages, sendMessage, connected, realtimeChords, pushChords, realtimeTheme, pushTheme, realtimeBpm, realtimeMembers, realtimeSessions, realtimeRecordingActive, kickedEvent }
+  return { messages, sendMessage, connected, realtimeChords, pushChords, realtimeTheme, pushTheme, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, kickedEvent }
 }

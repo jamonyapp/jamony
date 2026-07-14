@@ -5,6 +5,7 @@ import { Send, Users, Signal, Crown, Headphones, UserCheck, UserX } from "lucide
 import { useChatSocket } from "@/lib/chat-socket"
 import { useAuth } from "@/lib/auth-context"
 import { Avatar } from "@/components/jamony/avatar"
+import { ListenersModal } from "@/components/playing/listeners-modal"
 
 type Member = {
   id: number
@@ -37,8 +38,9 @@ function latencyColor(ms: number): string {
   return "#FF33AA"
 }
 
-export function RightColumn({ roomId, room, refreshTrigger, realtimeMembers, currentUserId, onKick }: { roomId?: string; room: RoomInfo | null; refreshTrigger?: number; realtimeMembers?: Member[]; currentUserId?: number; onKick?: (target: Member) => void }) {
+export function RightColumn({ roomId, room, refreshTrigger, realtimeMembers, currentUserId, hostId, onKick }: { roomId?: string; room: RoomInfo | null; refreshTrigger?: number; realtimeMembers?: Member[]; currentUserId?: number; hostId?: number; onKick?: (target: Member) => void }) {
   const [members, setMembers] = useState<Member[]>([])
+  const [listenersModalOpen, setListenersModalOpen] = useState(false)
 
   useEffect(() => {
     if (!roomId) return
@@ -54,8 +56,13 @@ export function RightColumn({ roomId, room, refreshTrigger, realtimeMembers, cur
   const displayMembers = realtimeMembers && realtimeMembers.length > 0 ? realtimeMembers : members
   const musicians = displayMembers.filter(m => m.role === "musician")
   const listeners = displayMembers.filter(m => m.role === "listener")
+  // hostId 实时跟随 broadcastMembers（房主转移后皇冠/管理权/房主行立即更新）
+  const isHost = !!currentUserId && hostId === currentUserId
+  const hostMember = hostId != null ? displayMembers.find(m => m.user_id === hostId) : undefined
+  const hostName = hostMember?.nickname || room?.host_name || ""
+  const hostAvatar = hostMember?.avatar_url || room?.host_avatar_url
   // 房主可见踢人按钮（不能踢自己）
-  const canKick = (m: Member) => !!currentUserId && room?.host_id === currentUserId && m.user_id !== currentUserId
+  const canKick = (m: Member) => isHost && m.user_id !== currentUserId
   const KickBtn = ({ m }: { m: Member }) => (
     <button
       onClick={() => onKick?.(m)}
@@ -84,7 +91,7 @@ export function RightColumn({ roomId, room, refreshTrigger, realtimeMembers, cur
             </div>
             <p className="mt-1.5 text-xs leading-relaxed" style={{ color: "#8A8A8A" }}>{room.description}</p>
             <p className="mt-1.5 flex items-center gap-1 text-[11px]" style={{ color: "#8A8A8A" }}>
-              房主 <Avatar nickname={room.host_name} avatarUrl={room.host_avatar_url} size={16} /> <span className="text-white">{room.host_name}</span>
+              房主 <Avatar nickname={hostName} avatarUrl={hostAvatar} size={16} /> <span className="text-white">{hostName}</span>
             </p>
           </div>
         </div>
@@ -122,7 +129,7 @@ export function RightColumn({ roomId, room, refreshTrigger, realtimeMembers, cur
                 </span>
                 <span className="text-xs text-white">{m.nickname}</span>
                 <span className="text-xs">{icon}</span>
-                {m.user_id === room?.host_id && (
+                {m.user_id === hostId && (
                   <Crown className="h-3 w-3" style={{ color: "#ffb84d" }} />
                 )}
                 {canKick(m) && <KickBtn m={m} />}
@@ -138,6 +145,7 @@ export function RightColumn({ roomId, room, refreshTrigger, realtimeMembers, cur
           <p className="text-[10px] font-medium mb-1" style={{ color: "#FF33AA" }}>
             <UserCheck className="h-3 w-3 inline mr-0.5" />听众 {listeners.length}
           </p>
+          {listeners.length < 6 ? (
           <div className="overflow-y-auto" style={{ maxHeight: "80px" }}>
           <div className="flex flex-wrap gap-x-3 gap-y-1.5">
             {listeners.map((m) => (
@@ -149,6 +157,25 @@ export function RightColumn({ roomId, room, refreshTrigger, realtimeMembers, cur
             ))}
           </div>
           </div>
+          ) : (
+          <div className="flex items-center gap-2">
+            <div className="flex items-center">
+              {listeners.slice(0, 8).map((m, i) => (
+                <span key={m.id} style={{ marginLeft: i === 0 ? 0 : -8 }} className="inline-flex rounded-full ring-2 ring-black">
+                  <Avatar nickname={m.nickname} avatarUrl={m.avatar_url} size={24} />
+                </span>
+              ))}
+              {listeners.length > 8 && (
+                <span className="ml-1.5 text-[10px]" style={{ color: "#B0B0B0" }}>+{listeners.length - 8}</span>
+              )}
+            </div>
+            <button onClick={() => setListenersModalOpen(true)}
+              className="shrink-0 rounded-[6px] border px-2 py-0.5 text-[10px] transition-colors hover:bg-white/5"
+              style={{ borderColor: "#2A2A2A", color: isHost ? "#FF33AA" : "#B0B0B0" }}>
+              {isHost ? "管理听众" : "查看听众"}
+            </button>
+          </div>
+          )}
         </div>
         )}
 
@@ -159,6 +186,14 @@ export function RightColumn({ roomId, room, refreshTrigger, realtimeMembers, cur
 
       {/* 聊天 — 占位 */}
       <ChatPanel roomId={roomId} />
+
+      <ListenersModal
+        open={listenersModalOpen}
+        listeners={listeners}
+        isHost={isHost}
+        onClose={() => setListenersModalOpen(false)}
+        onKick={onKick}
+      />
     </aside>
   )
 }

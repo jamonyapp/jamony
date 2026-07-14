@@ -9,6 +9,7 @@ import { RightColumn } from "@/components/playing/right-column"
 import { DisconnectDialog } from "@/components/playing/disconnect-dialog"
 import { KickConfirmDialog } from "@/components/playing/kick-confirm-dialog"
 import { KickedDialog } from "@/components/playing/kicked-dialog"
+import { BecomeHostDialog } from "@/components/playing/become-host-dialog"
 import { useAuth } from "@/lib/auth-context"
 import { useChatSocket } from "@/lib/chat-socket"
 
@@ -42,7 +43,7 @@ export function PlayingPage() {
   const params = useParams()
   const router = useRouter()
   const { user } = useAuth()
-  const { realtimeChords, pushChords, realtimeTheme, pushTheme, realtimeBpm, realtimeMembers, realtimeSessions, realtimeRecordingActive, kickedEvent } = useChatSocket(params?.code as string, user?.nickname)
+  const { realtimeChords, pushChords, realtimeTheme, pushTheme, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, kickedEvent } = useChatSocket(params?.code as string, user?.nickname)
   const [room, setRoom] = useState<RoomData | null>(null)
   const [chords, setChords] = useState<string[]>([])
   const [customTheme, setCustomTheme] = useState("")
@@ -71,6 +72,11 @@ export function PlayingPage() {
   const [kickOpen, setKickOpen] = useState(false)
   const [kickedOpen, setKickedOpen] = useState(false)
   const kickedHandledRef = useRef(false) // 双 socket 实例都会收到 member-kicked，幂等防重复处理
+
+  // 房主转移：effectiveHostId 实时跟随 broadcastMembers 的 hostId；转移给自己时弹通知
+  const effectiveHostId = realtimeHostId ?? room?.host_id
+  const [becomeHostOpen, setBecomeHostOpen] = useState(false)
+  const prevHostIdRef = useRef<number | null>(null)
 
   // v3: 提取 launchJamsoul 为可复用的回调，供 useEffect 和 handleReconnect 共用
   const launchJamsoul = useCallback(() => {
@@ -237,6 +243,18 @@ export function PlayingPage() {
     setKickedOpen(true)
   }, [kickedEvent, user, myRole])
 
+  // 房主转移感知：hostId 变化且新房主是自己（且之前不是）→ 弹「你已成为房主」
+  useEffect(() => {
+    if (effectiveHostId == null || !user) return
+    if (prevHostIdRef.current !== null
+      && prevHostIdRef.current !== effectiveHostId
+      && effectiveHostId === user.id
+      && prevHostIdRef.current !== user.id) {
+      setBecomeHostOpen(true)
+    }
+    prevHostIdRef.current = effectiveHostId
+  }, [effectiveHostId, user])
+
 
   return (
     <div className="flex h-screen flex-col pt-11 bg-black">
@@ -293,7 +311,7 @@ export function PlayingPage() {
           />
         </div>
         <div className="min-h-0">
-          <RightColumn roomId={params?.code as string} room={room} refreshTrigger={refreshTrigger} realtimeMembers={realtimeMembers} currentUserId={user?.id} onKick={(m) => { setKickTarget({ user_id: m.user_id, nickname: m.nickname }); setKickOpen(true) }} />
+          <RightColumn roomId={params?.code as string} room={room} refreshTrigger={refreshTrigger} realtimeMembers={realtimeMembers} currentUserId={user?.id} hostId={effectiveHostId} onKick={(m) => { setKickTarget({ user_id: m.user_id, nickname: m.nickname }); setKickOpen(true) }} />
         </div>
       </div>
 
@@ -313,6 +331,10 @@ export function PlayingPage() {
       <KickedDialog
         open={kickedOpen}
         onConfirm={() => { setKickedOpen(false); router.replace("/lobby") }}
+      />
+      <BecomeHostDialog
+        open={becomeHostOpen}
+        onConfirm={() => setBecomeHostOpen(false)}
       />
     </div>
   )

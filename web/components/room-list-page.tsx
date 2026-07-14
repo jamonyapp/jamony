@@ -80,10 +80,12 @@ export function RoomListPage() {
   const { loggedIn, setShowLoginModal } = useAuth()
 
   const fetchRooms = () => {
-    const start = Date.now()
+    // 延迟测纯网络（/api/ping 不查 DB），与拉房间解耦，避免 DB 耗时虚高延迟
+    const pingStart = Date.now()
+    fetch("/api/ping").then(() => setLatency(Date.now() - pingStart)).catch(() => {})
     fetch("/api/rooms")
       .then(r => r.json())
-      .then(data => { setLatency(Date.now() - start); if (data.ok) setRooms(data.rooms); setLoading(false) })
+      .then(data => { if (data.ok) setRooms(data.rooms); setLoading(false) })
       .catch(() => setLoading(false))
   }
 

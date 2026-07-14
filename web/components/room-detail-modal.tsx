@@ -57,11 +57,12 @@ export function RoomDetailModal({
   useEffect(() => {
     if (!roomId) { setRoom(null); setMembers([]); return }
     setLoading(true)
-    const start = Date.now()
+    // 延迟测纯网络（/api/ping 不查 DB）
+    const pingStart = Date.now()
+    fetch("/api/ping").then(() => setLatency(Date.now() - pingStart)).catch(() => {})
     fetch(`/api/rooms/${roomId}`)
       .then(r => r.json())
       .then(data => {
-        setLatency(Date.now() - start)
         if (data.ok) {
           setRoom(data.room)
           setMembers(data.members || [])
@@ -234,22 +235,26 @@ export function RoomDetailModal({
           <div className="mt-4">
             <h3 className="flex items-center gap-1.5 text-sm font-semibold text-white">
               <UserCheck className="h-4 w-4" style={{ color: "#FF33AA" }} />
-              听众
+              听众 <span className="text-xs font-normal" style={{ color: "#8A8A8A" }}>{listeners.length} 位</span>
             </h3>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {listeners.map((m) => (
-                <div key={m.id} className="flex items-center gap-2 rounded-lg px-3 py-2" style={{ background: "rgba(255,51,170,0.05)", border: "1px solid rgba(255,51,170,0.1)" }}>
-                  <Avatar nickname={m.nickname} avatarUrl={m.avatar_url} size={28} className="shrink-0" />
-                  <span className="text-sm text-white">{m.nickname}</span>
-                  {m.user_id === user?.id && (
-                    <button onClick={() => handleRoleSwitch("musician")}
-                      className="rounded-md border px-2 py-0.5 text-[10px] transition-colors hover:bg-white/5"
-                      style={{ borderColor: "#2A2A2A", color: "#8A8A8A" }}>
-                      合奏
-                    </button>
-                  )}
-                </div>
-              ))}
+            <div className="mt-2 flex items-center gap-2">
+              <div className="flex items-center">
+                {listeners.slice(0, 8).map((m, i) => (
+                  <span key={m.id} style={{ marginLeft: i === 0 ? 0 : -8 }} className="inline-flex rounded-full ring-2 ring-black">
+                    <Avatar nickname={m.nickname} avatarUrl={m.avatar_url} size={28} />
+                  </span>
+                ))}
+                {listeners.length > 8 && (
+                  <span className="ml-1.5 text-xs" style={{ color: "#B0B0B0" }}>+{listeners.length - 8}</span>
+                )}
+              </div>
+              {myRole === "listener" && (
+                <button onClick={() => handleRoleSwitch("musician")}
+                  className="shrink-0 rounded-md border px-2 py-1 text-[11px] transition-colors hover:bg-white/5"
+                  style={{ borderColor: "#2A2A2A", color: "#B0B0B0" }}>
+                  切为合奏
+                </button>
+              )}
             </div>
           </div>
           )}
@@ -260,7 +265,7 @@ export function RoomDetailModal({
                 <button onClick={() => handleJoin("musician")} disabled={isFull || joining}
                   className="flex w-full items-center justify-center gap-2 rounded-[10px] px-6 py-3 text-sm font-semibold text-white transition-all duration-200 active:scale-[0.97] disabled:opacity-50"
                   style={{ background: "linear-gradient(90deg,#9933ff,#ff33aa)" }}>
-                  {isFull ? "合奏名额已满" : joining ? "加入中..." : "🎸 加入合奏"}
+                  {isFull ? "合奏名额已满" : joining ? "加入中..." : "🎵 加入合奏"}
                 </button>
                 <button onClick={() => handleJoin("listener")} disabled={joining}
                   className="flex w-full items-center justify-center gap-2 rounded-[10px] border px-6 py-2.5 text-sm font-medium transition-colors hover:bg-white/5"

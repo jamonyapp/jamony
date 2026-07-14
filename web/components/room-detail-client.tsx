@@ -225,7 +225,7 @@ export function RoomDetailClient() {
               style={{ background: "linear-gradient(90deg,#9933ff,#ff33aa)" }}>
               {joinState === "connecting" ? <Loader2 className="h-5 w-5 animate-spin" /> : null}
               {joinState === "joined" ? <Check className="h-5 w-5" /> : null}
-              {isFull ? "合奏名额已满" : joinState !== "idle" ? "处理中..." : "🎸 加入合奏"}
+              {isFull ? "合奏名额已满" : joinState !== "idle" ? "处理中..." : "🎵 加入合奏"}
             </button>
             <button onClick={() => handleJoin("listener")} disabled={joinState !== "idle"}
               className="flex w-full items-center justify-center gap-2 rounded-[10px] border px-6 py-2.5 text-sm font-medium transition-colors hover:bg-white/5"

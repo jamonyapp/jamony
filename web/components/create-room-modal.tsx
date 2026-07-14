@@ -20,7 +20,7 @@ export function CreateRoomModal({
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
   const [style, setStyle] = useState("摇滚")
-  const [maxMusicians, setMaxMusicians] = useState(6)
+  const [maxMusicians, setMaxMusicians] = useState(5)
   const [isPrivate, setIsPrivate] = useState(false)
   const [password, setPassword] = useState("")
   const [proficiency, setProficiency] = useState<string>("")
@@ -32,6 +32,7 @@ export function CreateRoomModal({
   const handleCreate = async () => {
     if (!name.trim()) { setError("请输入房间名"); return }
     if (!user) { setError("请先登录"); return }
+    if (!proficiency) { setError("请选择演奏水平"); return }
     if (isPrivate && !/^\d{6}$/.test(password)) { setError("加密房间密码须为6位数字"); return }
     setLoading(true)
     setError("")
@@ -106,23 +107,26 @@ export function CreateRoomModal({
             </div>
             <div className="w-28">
               <label className="mb-1.5 block text-xs font-medium" style={{ color: "#9A9A9A" }}>合奏人数</label>
-              <select value={maxMusicians} onChange={(e) => setMaxMusicians(Number(e.target.value))}
-                className="w-full rounded-[10px] border px-4 py-2.5 text-sm text-white outline-none transition-colors focus:border-[#9933FF] appearance-none"
-                style={{ background: "#141414", borderColor: "#2A2A2A" }}>
-                {[1,2,3,4,5,6,7,8].map((n) => (<option key={n} value={n} className="bg-[#141414] text-white">{n} 人</option>))}
-              </select>
+              <div className="relative">
+                <select value={maxMusicians} onChange={(e) => setMaxMusicians(Number(e.target.value))}
+                  className="w-full rounded-[10px] border px-4 py-2.5 text-sm text-white outline-none transition-colors focus:border-[#9933FF] appearance-none"
+                  style={{ background: "#141414", borderColor: "#2A2A2A" }}>
+                  {[1,2,3,4,5,6,7,8].map((n) => (<option key={n} value={n} className="bg-[#141414] text-white">{n} 人</option>))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2" style={{ color: "#8A8A8A" }} />
+              </div>
             </div>
           </div>
 
           {/* 演奏水平（乐谱力度记号）*/}
           <div>
-            <label className="mb-1.5 block text-xs font-medium" style={{ color: "#9A9A9A" }}>演奏水平（jamony 力度记号）</label>
+            <label className="mb-1.5 block text-xs font-medium" style={{ color: "#9A9A9A" }}>演奏水平 *（jamony 力度记号）</label>
             <div className="flex gap-2">
               {PROFICIENCY_ORDER.map((p) => {
                 const info = PROFICIENCY_MAP[p]
                 const active = proficiency === p
                 return (
-                  <button key={p} type="button" onClick={() => setProficiency(active ? "" : p)}
+                  <button key={p} type="button" onClick={() => setProficiency(p)}
                     className="flex-1 rounded-[10px] border py-2 text-center transition-all"
                     style={{ background: active ? "rgba(153,51,255,0.12)" : "#141414", borderColor: active ? info.color : "#2A2A2A" }}>
                     <span className="block italic text-sm font-bold" style={{ color: active ? info.color : "#B0B0B0" }}>Lv={p}</span>
@@ -135,7 +139,7 @@ export function CreateRoomModal({
                 {proficiency} · {PROFICIENCY_MAP[proficiency as keyof typeof PROFICIENCY_MAP]?.label} · {PROFICIENCY_MAP[proficiency as keyof typeof PROFICIENCY_MAP]?.desc}
               </p>
             ) : (
-              <p className="mt-1.5 text-xs" style={{ color: "#8A8A8A" }}>点选力度记号，告诉别人这局的水平（可不选）</p>
+              <p className="mt-1.5 text-xs" style={{ color: "#8A8A8A" }}>点选力度记号，告诉别人这局的水平</p>
             )}
           </div>
 
