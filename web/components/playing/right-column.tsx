@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { Send, Users, Signal, Crown, Headphones, UserCheck } from "lucide-react"
+import { Send, Users, Signal, Crown, Headphones, UserCheck, UserX } from "lucide-react"
 import { useChatSocket } from "@/lib/chat-socket"
 import { useAuth } from "@/lib/auth-context"
 import { Avatar } from "@/components/jamony/avatar"
@@ -37,7 +37,7 @@ function latencyColor(ms: number): string {
   return "#FF33AA"
 }
 
-export function RightColumn({ roomId, room, refreshTrigger, realtimeMembers }: { roomId?: string; room: RoomInfo | null; refreshTrigger?: number; realtimeMembers?: Member[] }) {
+export function RightColumn({ roomId, room, refreshTrigger, realtimeMembers, currentUserId, onKick }: { roomId?: string; room: RoomInfo | null; refreshTrigger?: number; realtimeMembers?: Member[]; currentUserId?: number; onKick?: (target: Member) => void }) {
   const [members, setMembers] = useState<Member[]>([])
 
   useEffect(() => {
@@ -54,6 +54,20 @@ export function RightColumn({ roomId, room, refreshTrigger, realtimeMembers }: {
   const displayMembers = realtimeMembers && realtimeMembers.length > 0 ? realtimeMembers : members
   const musicians = displayMembers.filter(m => m.role === "musician")
   const listeners = displayMembers.filter(m => m.role === "listener")
+  // 房主可见踢人按钮（不能踢自己）
+  const canKick = (m: Member) => !!currentUserId && room?.host_id === currentUserId && m.user_id !== currentUserId
+  const KickBtn = ({ m }: { m: Member }) => (
+    <button
+      onClick={() => onKick?.(m)}
+      title="移出房间"
+      className="ml-0.5 transition-colors"
+      style={{ color: "#5A5A5A" }}
+      onMouseEnter={(e) => (e.currentTarget.style.color = "#FF5C5C")}
+      onMouseLeave={(e) => (e.currentTarget.style.color = "#5A5A5A")}
+    >
+      <UserX className="h-3 w-3" />
+    </button>
+  )
 
   return (
     <aside className="flex h-full flex-col gap-3 overflow-hidden p-3" style={{ background: "#000" }}>
@@ -111,6 +125,7 @@ export function RightColumn({ roomId, room, refreshTrigger, realtimeMembers }: {
                 {m.user_id === room?.host_id && (
                   <Crown className="h-3 w-3" style={{ color: "#ffb84d" }} />
                 )}
+                {canKick(m) && <KickBtn m={m} />}
               </div>
             )})}
           </div>
@@ -129,6 +144,7 @@ export function RightColumn({ roomId, room, refreshTrigger, realtimeMembers }: {
               <div key={m.id} className="flex items-center gap-1.5">
                 <Avatar nickname={m.nickname} avatarUrl={m.avatar_url} size={20} />
                 <span className="text-xs" style={{ color: "#B0B0B0" }}>{m.nickname}</span>
+                {canKick(m) && <KickBtn m={m} />}
               </div>
             ))}
           </div>

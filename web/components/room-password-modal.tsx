@@ -13,12 +13,14 @@ export function RoomPasswordModal({
   role,
   onClose,
   onSuccess,
+  onKicked,
 }: {
   open: boolean
   roomId: string | null
   role: "musician" | "listener"
   onClose: () => void
   onSuccess: (role: "musician" | "listener") => void
+  onKicked?: () => void
 }) {
   const { user } = useAuth()
   const [password, setPassword] = useState("")
@@ -41,7 +43,11 @@ export function RoomPasswordModal({
       const data = await res.json()
       if (res.status === 429) { setError(data.msg || "尝试过多，请10分钟后再试"); setLoading(false); return }
       if (res.status === 401) { setError("密码错误"); setPassword(""); setLoading(false); return }
-      if (!data.ok) { setError(data.msg || "加入失败"); setLoading(false); return }
+      if (!data.ok) {
+        // 被房主移出黑名单 → 关闭密码框，交给父组件弹统一提示
+        if (data.code === "KICKED") { setPassword(""); setLoading(false); onClose(); onKicked?.(); return }
+        setError(data.msg || "加入失败"); setLoading(false); return
+      }
       setPassword("")
       setLoading(false)
       onSuccess(role)

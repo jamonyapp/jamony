@@ -7,6 +7,8 @@ import { LeftColumn } from "@/components/playing/left-column"
 import { CenterColumn } from "@/components/playing/center-column"
 import { RightColumn } from "@/components/playing/right-column"
 import { DisconnectDialog } from "@/components/playing/disconnect-dialog"
+import { KickConfirmDialog } from "@/components/playing/kick-confirm-dialog"
+import { KickedDialog } from "@/components/playing/kicked-dialog"
 import { useAuth } from "@/lib/auth-context"
 import { useChatSocket } from "@/lib/chat-socket"
 
@@ -40,7 +42,7 @@ export function PlayingPage() {
   const params = useParams()
   const router = useRouter()
   const { user } = useAuth()
-  const { realtimeChords, pushChords, realtimeTheme, pushTheme, realtimeBpm, realtimeMembers, realtimeSessions, realtimeRecordingActive } = useChatSocket(params?.code as string, user?.nickname)
+  const { realtimeChords, pushChords, realtimeTheme, pushTheme, realtimeBpm, realtimeMembers, realtimeSessions, realtimeRecordingActive, kickedEvent } = useChatSocket(params?.code as string, user?.nickname)
   const [room, setRoom] = useState<RoomData | null>(null)
   const [chords, setChords] = useState<string[]>([])
   const [customTheme, setCustomTheme] = useState("")
@@ -63,6 +65,12 @@ export function PlayingPage() {
   const [confirmTarget, setConfirmTarget] = useState<"stay" | "home" | "lobby">("stay")
   const [listenerKey, setListenerKey] = useState(0)
   const pendingSwitchRef = useRef(false) // v3 — 监听→合奏切换：Icecast 停干净后再启动 jamsoul
+
+  // 踢人相关：房主踢人确认 + 自己被踢通知
+  const [kickTarget, setKickTarget] = useState<{ user_id: number; nickname: string } | null>(null)
+  const [kickOpen, setKickOpen] = useState(false)
+  const [kickedOpen, setKickedOpen] = useState(false)
+  const kickedHandledRef = useRef(false) // 双 socket 实例都会收到 member-kicked，幂等防重复处理
 
   // v3: 提取 launchJamsoul 为可复用的回调，供 useEffect 和 handleReconnect 共用
   const launchJamsoul = useCallback(() => {
@@ -198,7 +206,38 @@ export function PlayingPage() {
     }
   }
 
-  
+  // 房主踢人
+  const doKick = () => {
+    if (!kickTarget || !room) return
+    const target = kickTarget
+    setKickOpen(false)
+    setKickTarget(null)
+    fetch(`/api/rooms/${room.room_code}/kick`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targetUserId: target.user_id }),
+    }).then(r => r.json()).then(() => {
+      // 成员列表靠 members-update 自动刷新，无需手动 setRefreshTrigger
+    }).catch(() => {})
+  }
+
+  // 收到 member-kicked 事件：若是自己被踢 → 断音频 + 弹通知（幂等）
+  useEffect(() => {
+    if (!kickedEvent || !user) return
+    if (kickedEvent.userId !== user.id || kickedHandledRef.current) return
+    kickedHandledRef.current = true
+    // 合奏者杀 jamsoul 进程；听众停 Icecast 收听
+    if (myRole === "musician") {
+      window.jamonyAPI?.killJamsoul?.()
+      setAudioConnected(false)
+    } else {
+      setListenerActive(false)
+      setListenerKey(n => n + 1)
+    }
+    setKickedOpen(true)
+  }, [kickedEvent, user, myRole])
+
+
   return (
     <div className="flex h-screen flex-col pt-11 bg-black">
       <TopNav
@@ -254,7 +293,7 @@ export function PlayingPage() {
           />
         </div>
         <div className="min-h-0">
-          <RightColumn roomId={params?.code as string} room={room} refreshTrigger={refreshTrigger} realtimeMembers={realtimeMembers} />
+          <RightColumn roomId={params?.code as string} room={room} refreshTrigger={refreshTrigger} realtimeMembers={realtimeMembers} currentUserId={user?.id} onKick={(m) => { setKickTarget({ user_id: m.user_id, nickname: m.nickname }); setKickOpen(true) }} />
         </div>
       </div>
 
@@ -264,6 +303,16 @@ export function PlayingPage() {
         onCancel={() => setConfirmOpen(false)}
         onConfirm={() => doDisconnect(confirmTarget)}
         isListener={myRole === "listener" && !audioConnected}
+      />
+      <KickConfirmDialog
+        open={kickOpen}
+        nickname={kickTarget?.nickname}
+        onCancel={() => { setKickOpen(false); setKickTarget(null) }}
+        onConfirm={doKick}
+      />
+      <KickedDialog
+        open={kickedOpen}
+        onConfirm={() => { setKickedOpen(false); router.replace("/lobby") }}
       />
     </div>
   )

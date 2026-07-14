@@ -1101,6 +1101,12 @@ app.post('/api/rooms/:code/join', requireAuth, async (req, res) => {
       return res.json({ ok: true, msg: '已更新身份', role: acceptedRole })
     }
 
+    // 黑名单校验：被房主踢出的用户禁止再次加入本房（优先于密码校验）
+    const kicked = await pool.query('SELECT 1 FROM room_kicked WHERE room_id = $1 AND user_id = $2', [id, userId])
+    if (kicked.rows.length > 0) {
+      return res.status(403).json({ ok: false, code: 'KICKED', msg: '你已被房主移出本房间' })
+    }
+
     // 新加入：加密房校验密码（已成员上面已 return，免密）
     if (room.is_private) {
       // 限频：每次尝试计数，10次/10分钟
@@ -1207,6 +1213,50 @@ app.post('/api/rooms/:code/leave', requireAuth, async (req, res) => {
     await broadcastMembers(code)
   } catch (err) {
     console.error('Room leave error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// 房主踢人（合奏者+听众均可踢，不能踢自己；被踢者拉入本房黑名单）
+app.post('/api/rooms/:code/kick', requireAuth, async (req, res) => {
+  try {
+    const { code } = req.params
+    const userId = req.userId
+    const { targetUserId } = req.body
+    const id = await getRoomIdByCode(code)
+    if (!id) return res.status(404).json({ ok: false, msg: '房间不存在' })
+
+    // 仅房主可踢
+    if (!(await isRoomHost(userId, code))) {
+      return res.status(403).json({ ok: false, msg: '只有房主可以踢人' })
+    }
+    if (!targetUserId || Number(targetUserId) === Number(userId)) {
+      return res.status(400).json({ ok: false, msg: '不能踢自己' })
+    }
+
+    // 确认目标在房
+    const memberResult = await pool.query(
+      'SELECT * FROM room_members WHERE room_id = $1 AND user_id = $2', [id, targetUserId]
+    )
+    if (memberResult.rows.length === 0) {
+      return res.status(404).json({ ok: false, msg: '该用户不在房间' })
+    }
+
+    // 删 member + 写黑名单（复合主键去重）
+    await pool.query('DELETE FROM room_members WHERE room_id = $1 AND user_id = $2', [id, targetUserId])
+    await pool.query(
+      `INSERT INTO room_kicked (room_id, user_id, kicked_by) VALUES ($1, $2, $3)
+       ON CONFLICT (room_id, user_id) DO NOTHING`,
+      [id, targetUserId, userId]
+    )
+
+    // 其他成员列表实时刷新（target 消失）；通知被踢者自行断开跳转
+    await broadcastMembers(code)
+    io.to(code).emit('member-kicked', { userId: Number(targetUserId), roomCode: code })
+
+    res.json({ ok: true, msg: '已移出房间' })
+  } catch (err) {
+    console.error('Room kick error:', err)
     res.status(500).json({ ok: false, msg: '服务器错误' })
   }
 })
@@ -2215,6 +2265,12 @@ app.get('/api/daily-theme', (req, res) => {
 async function isRoomMusician(userId, roomCode) {
   const r = await pool.query("SELECT rm.role FROM room_members rm JOIN rooms r ON r.id=rm.room_id WHERE r.room_code=$1 AND rm.user_id=$2", [roomCode, userId])
   return r.rows.length > 0 && r.rows[0].role === 'musician'
+}
+
+// 校验用户是否某房间房主（rooms.host_id === userId），按 room_code 查
+async function isRoomHost(userId, roomCode) {
+  const r = await pool.query("SELECT host_id FROM rooms WHERE UPPER(room_code)=UPPER($1)", [roomCode])
+  return r.rows.length > 0 && r.rows[0].host_id === parseInt(userId)
 }
 
 // ========== WebSocket (Socket.IO) ==========
