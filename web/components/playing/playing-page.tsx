@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { useParams, useRouter } from "next/navigation"
+import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { TopNav } from "@/components/jamony/top-nav"
 import { LeftColumn } from "@/components/playing/left-column"
 import { CenterColumn } from "@/components/playing/center-column"
@@ -10,6 +10,7 @@ import { DisconnectDialog } from "@/components/playing/disconnect-dialog"
 import { KickConfirmDialog } from "@/components/playing/kick-confirm-dialog"
 import { KickedDialog } from "@/components/playing/kicked-dialog"
 import { BecomeHostDialog } from "@/components/playing/become-host-dialog"
+import { ShareRoomHintDialog } from "@/components/playing/share-room-hint-dialog"
 import { useAuth } from "@/lib/auth-context"
 import { useChatSocket } from "@/lib/chat-socket"
 
@@ -32,6 +33,7 @@ type RoomData = {
   host_name: string
   is_private: boolean
   room_code: string
+  password?: string  // 加密房明文密码（成员/房主可见，用于分享房间）
   server_port: number
   stored_server_ip?: string
   musician_count: number
@@ -42,9 +44,18 @@ type RoomData = {
 export function PlayingPage() {
   const params = useParams()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { user } = useAuth()
   const { realtimeChords, pushChords, realtimeTheme, pushTheme, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, kickedEvent } = useChatSocket(params?.code as string, user?.nickname)
   const [room, setRoom] = useState<RoomData | null>(null)
+  const [showShareHint, setShowShareHint] = useState(false)
+  // 建房跳转带 ?new=1 → 弹分享引导窗（room 加载完才弹），并清掉 query 避免刷新重复弹
+  useEffect(() => {
+    if (searchParams?.get("new") === "1") {
+      setShowShareHint(true)
+      router.replace(`/room/${params?.code}/playing`)
+    }
+  }, [searchParams])
   const [chords, setChords] = useState<string[]>([])
   const [customTheme, setCustomTheme] = useState("")
   const [chordTextFromPush, setChordTextFromPush] = useState("")
@@ -335,6 +346,11 @@ export function PlayingPage() {
       <BecomeHostDialog
         open={becomeHostOpen}
         onConfirm={() => setBecomeHostOpen(false)}
+      />
+      <ShareRoomHintDialog
+        open={showShareHint && !!room}
+        room={room}
+        onClose={() => setShowShareHint(false)}
       />
     </div>
   )

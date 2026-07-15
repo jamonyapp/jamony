@@ -783,15 +783,15 @@ app.post('/api/rooms', requireAuth, async (req, res) => {
     const port = await getAvailablePort()
     const musicianLimit = Math.min(maxMusicians || 6, 8)
 
-    // 加密房间：6位数字密码，hashPassword 存储（不存明文）
+    // 加密房间：6位数字密码，明文存储（密码本就要分享给被邀请者，防陌生人即可，参考 Zoom）
     let isPrivate = false
-    let passwordHash = null
+    let passwordPlain = null
     if (is_private) {
       if (!/^\d{6}$/.test(password || '')) {
         return res.status(400).json({ ok: false, msg: '加密房间密码须为6位数字' })
       }
       isPrivate = true
-      passwordHash = hashPassword(password)
+      passwordPlain = password
     }
 
     // 演奏水平：乐谱力度记号 p/mf/f/ff/fff（必填）
@@ -809,10 +809,10 @@ app.post('/api/rooms', requireAuth, async (req, res) => {
       const roomCode = generateRoomCode()
       try {
         const result = await pool.query(
-          `INSERT INTO rooms (name, description, style, host_id, max_musicians, server_port, is_private, password_hash, room_code, proficiency)
+          `INSERT INTO rooms (name, description, style, host_id, max_musicians, server_port, is_private, password, room_code, proficiency)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
            RETURNING *`,
-          [name, description || '', style || '', hostId, musicianLimit, port, isPrivate, passwordHash, roomCode, proficiency || null]
+          [name, description || '', style || '', hostId, musicianLimit, port, isPrivate, passwordPlain, roomCode, proficiency || null]
         )
         room = result.rows[0]
         break
@@ -823,7 +823,7 @@ app.post('/api/rooms', requireAuth, async (req, res) => {
     }
     if (!room) { return res.status(500).json({ ok: false, msg: '房间创建失败' }) }
 
-    delete room.password_hash  // 不向前端泄露密码哈希
+    delete room.password  // 建房响应不带回密码（playing-page fetch 详情时按成员身份获取）
 
     // 房主自动成为第一个成员（合奏者）
     await pool.query(
@@ -858,9 +858,9 @@ app.get('/api/rooms', async (req, res) => {
        WHERE r.status NOT IN ('closed', 'archived')
        ORDER BY r.created_at DESC`
     )
-    // 列表不返回 server_port（防泄露）和 password_hash；保留 is_private 供前端锁 badge
+    // 列表不返回 server_port（防泄露）和 password（明文密码只对成员可见）；保留 is_private 供前端锁 badge
     const rooms = result.rows.map(r => {
-      delete r.password_hash
+      delete r.password
       delete r.server_port
       return r
     })
@@ -897,11 +897,16 @@ app.get('/api/rooms/:code', optionalAuth, async (req, res) => {
       [id]
     )
 
-    delete room.password_hash
-    // 加密房：非成员隐藏 server_port（防直连 jamulus）；用已查的 members 判断成员身份
+    // 加密房：非成员隐藏 server_port（防直连 jamulus）+ password（防窃取密码）；
+    // 成员/房主保留明文 password 供「分享房间」复制。公开房 password 本就 null。
     if (room.is_private) {
       const isMember = members.rows.some(m => m.user_id === req.userId)
-      if (!isMember) room.server_port = null
+      if (!isMember) {
+        room.server_port = null
+        delete room.password
+      }
+    } else {
+      delete room.password
     }
     res.json({ ok: true, room, members: members.rows })
   } catch (err) {
@@ -1121,7 +1126,7 @@ app.post('/api/rooms/:code/join', requireAuth, async (req, res) => {
         return res.status(429).json({ ok: false, msg: '尝试过多，请10分钟后再试' })
       }
       const { password } = req.body
-      if (!password || !verifyPassword(password, room.password_hash)) {
+      if (!password || password !== room.password) {
         return res.status(401).json({ ok: false, msg: '密码错误' })
       }
     }

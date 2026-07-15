@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { Search, Plus, ChevronDown } from "lucide-react"
+import { Search, Plus, ChevronDown, KeyRound, ArrowRight } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { TopNav } from "@/components/jamony/top-nav"
 import { RoomCard } from "@/components/room-card"
@@ -74,6 +74,7 @@ export function RoomListPage() {
   const [sortOpen, setSortOpen] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
   const [detailRoomId, setDetailRoomId] = useState<string | null>(null)
+  const [codeInput, setCodeInput] = useState("")
   const [rooms, setRooms] = useState<RoomItem[]>([])
   const [latency, setLatency] = useState(28)
   const [loading, setLoading] = useState(true)
@@ -108,7 +109,7 @@ export function RoomListPage() {
     if (category !== "全部") list = list.filter(r => r.style === category)
     if (query.trim()) {
       const q = query.trim().toLowerCase()
-      list = list.filter(r => r.name.toLowerCase().includes(q) || r.style.toLowerCase().includes(q))
+      list = list.filter(r => r.name.toLowerCase().includes(q) || r.style.toLowerCase().includes(q) || (r.room_code || "").toLowerCase().includes(q))
     }
     list.sort((a, b) => {
       if (sort === "members") return b.musician_count - a.musician_count
@@ -117,6 +118,31 @@ export function RoomListPage() {
     })
     return list
   }, [rooms, category, query, sort, listType])
+
+  // 门牌码加入：输入 8 位 code → 打开详情弹窗（RoomDetailModal 自行处理存在/不存在/加密房密码）
+  const handleJoinByCode = () => {
+    const code = codeInput.trim().toUpperCase()
+    if (!code) return
+    setCodeInput("")
+    setDetailRoomId(code)
+  }
+
+  const renderCodeJoin = () => (
+    <div className="flex items-center gap-2">
+      <div className="relative flex-1 sm:flex-none sm:w-72">
+        <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" style={{ color: "#9933FF" }} />
+        <input value={codeInput} onChange={(e) => setCodeInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") handleJoinByCode() }}
+          placeholder="输入8位门牌码加入房间"
+          className="w-full rounded-[10px] border px-4 py-2.5 pl-10 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
+          style={{ background: "#0D0D0D", borderColor: "#2A2A2A" }} />
+      </div>
+      <button onClick={handleJoinByCode}
+        className="flex shrink-0 items-center gap-1 rounded-[10px] border px-4 py-2.5 text-sm font-medium text-white transition-colors hover:border-[#9933FF]"
+        style={{ background: "#0D0D0D", borderColor: "#2A2A2A" }}>
+        加入 <ArrowRight className="h-4 w-4" />
+      </button>
+    </div>
+  )
 
   const renderSearchSort = () => (
     <>
@@ -174,6 +200,7 @@ export function RoomListPage() {
       <div className="min-h-screen bg-black text-white">
         <TopNav onRefresh={fetchRooms} />
         <main className="mx-auto max-w-7xl px-4 py-8 pt-11 sm:px-6">
+          <div className="mb-4">{renderCodeJoin()}</div>
           <button onClick={() => router.push("/lobby")} className="mb-4 text-sm transition-colors hover:text-white" style={{ color: "#8A8A8A" }}>
             ← 返回大厅
           </button>
@@ -216,11 +243,14 @@ export function RoomListPage() {
             </h1>
             <p className="text-sm" style={{ color: "#8A8A8A" }}>选择一个房间加入，或创建你自己的房间</p>
           </div>
-          <button onClick={() => { if (!loggedIn) { setShowLoginModal(true); return }; setModalOpen(true) }}
-            className="flex shrink-0 items-center gap-1.5 self-start rounded-[10px] px-4 py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:brightness-110 active:scale-[0.97] sm:self-auto"
-            style={{ backgroundImage: "linear-gradient(90deg, #9933ff 0%, #ff33aa 100%)" }}>
-            <Plus className="h-4 w-4" />创建房间
-          </button>
+          <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center">
+            {renderCodeJoin()}
+            <button onClick={() => { if (!loggedIn) { setShowLoginModal(true); return }; setModalOpen(true) }}
+              className="flex items-center gap-1.5 self-start rounded-[10px] px-4 py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:brightness-110 active:scale-[0.97] sm:self-auto"
+              style={{ backgroundImage: "linear-gradient(90deg, #9933ff 0%, #ff33aa 100%)" }}>
+              <Plus className="h-4 w-4" />创建房间
+            </button>
+          </div>
         </div>
 
         {loading ? (

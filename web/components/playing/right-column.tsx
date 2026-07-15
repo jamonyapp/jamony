@@ -1,11 +1,12 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { Send, Users, Signal, Crown, Headphones, UserCheck, UserX } from "lucide-react"
+import { Send, Users, Signal, Crown, Headphones, UserCheck, UserX, Share2 } from "lucide-react"
 import { useChatSocket } from "@/lib/chat-socket"
 import { useAuth } from "@/lib/auth-context"
 import { Avatar } from "@/components/jamony/avatar"
 import { ListenersModal } from "@/components/playing/listeners-modal"
+import { copyShareText } from "@/lib/share-room"
 
 type Member = {
   id: number
@@ -26,6 +27,9 @@ type RoomInfo = {
   host_id: number
   host_name: string
   host_avatar_url?: string
+  is_private: boolean
+  room_code: string
+  password?: string
   server_port: number
   musician_count: number
   listener_count: number
@@ -41,6 +45,20 @@ function latencyColor(ms: number): string {
 export function RightColumn({ roomId, room, refreshTrigger, realtimeMembers, currentUserId, hostId, onKick }: { roomId?: string; room: RoomInfo | null; refreshTrigger?: number; realtimeMembers?: Member[]; currentUserId?: number; hostId?: number; onKick?: (target: Member) => void }) {
   const [members, setMembers] = useState<Member[]>([])
   const [listenersModalOpen, setListenersModalOpen] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // 分享房间：自动复制门牌码（加密房带密码）+ 浮现提示 3 秒。房主/合奏者/听众均可复制。
+  const handleShare = async () => {
+    if (!room) return
+    const ok = await copyShareText(room)
+    if (!ok) return  // 复制失败不显示提示（避免误导）
+    setCopied(true)
+    if (copyTimer.current) clearTimeout(copyTimer.current)
+    copyTimer.current = setTimeout(() => setCopied(false), 3000)
+  }
+
+  useEffect(() => () => { if (copyTimer.current) clearTimeout(copyTimer.current) }, [])
 
   useEffect(() => {
     if (!roomId) return
@@ -93,6 +111,21 @@ export function RightColumn({ roomId, room, refreshTrigger, realtimeMembers, cur
             <p className="mt-1.5 flex items-center gap-1 text-[11px]" style={{ color: "#8A8A8A" }}>
               房主 <Avatar nickname={hostName} avatarUrl={hostAvatar} size={16} /> <span className="text-white">{hostName}</span>
             </p>
+            <div className="relative mt-2.5">
+              {copied && (
+                <div className="absolute bottom-full left-0 mb-1.5 whitespace-nowrap rounded-[6px] px-2 py-1 text-[11px] text-white" style={{ background: "#9933FF" }}>
+                  已复制，可以粘贴给朋友了！
+                </div>
+              )}
+              <button
+                onClick={handleShare}
+                className="flex items-center gap-1.5 rounded-[8px] border px-3 py-1.5 text-xs font-medium text-white transition-colors hover:border-[#9933FF]"
+                style={{ background: "#1A1A1A", borderColor: "#2A2A2A" }}
+              >
+                <Share2 className="h-3.5 w-3.5" style={{ color: "#9933FF" }} />
+                分享房间
+              </button>
+            </div>
           </div>
         </div>
       </section>

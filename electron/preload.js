@@ -1,7 +1,11 @@
-const { contextBridge, ipcRenderer } = require('electron')
+const { contextBridge, ipcRenderer, clipboard } = require('electron')
 
 // 安全地暴露给渲染进程（网页）的 API
 contextBridge.exposeInMainWorld('jamonyAPI', {
+  // 写入系统剪贴板（Electron clipboard，比 navigator.clipboard 在非 secure context 更可靠）
+  writeClipboard: (text) => {
+    try { clipboard.writeText(text); return true } catch { return false }
+  },
   // 网页调起 jamsoul（由页面 JS 调用）
   joinRoom: (payload) => {
     ipcRenderer.send('join-room', payload)

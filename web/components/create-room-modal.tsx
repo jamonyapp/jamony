@@ -55,7 +55,7 @@ export function CreateRoomModal({
       if (!data.ok) { setError(data.msg || "创建失败"); setLoading(false); return }
       setLoading(false)
       onClose()
-      router.push(`/room/${data.room.room_code}/playing`)
+      router.push(`/room/${data.room.room_code}/playing?new=1`)
     } catch {
       setError("网络错误")
       setLoading(false)
