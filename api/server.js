@@ -2223,6 +2223,161 @@ app.delete('/api/notices/:id', requireAuth, async (req, res) => {
   }
 })
 
+// ========== 公告牌评论（克隆 work_comments，work_id→notice_id）==========
+// 列表（一级评论 + 回复分组，时间倒序）
+app.get('/api/notices/:id/comments', async (req, res) => {
+  try {
+    const { id } = req.params
+    const currentUserId = req.query.userId ? parseInt(req.query.userId) : null
+    const topResult = await pool.query(`
+      SELECT c.id, c.user_id, c.nickname, c.content, c.parent_id, c.reply_to_nickname, c.created_at,
+        REPLACE(u.avatar_url, '/var/jamony/avatars', '/avatars') AS avatar_url,
+        (SELECT COUNT(*) FROM notice_comment_likes WHERE comment_id = c.id) AS likes,
+        EXISTS(SELECT 1 FROM notice_comment_likes WHERE comment_id = c.id AND user_id = $2) AS is_liked
+      FROM notice_comments c LEFT JOIN users u ON u.id = c.user_id WHERE c.notice_id = $1 AND c.parent_id IS NULL
+      ORDER BY c.created_at DESC
+    `, [id, currentUserId])
+    const replyResult = await pool.query(`
+      SELECT c.id, c.user_id, c.nickname, c.content, c.parent_id, c.reply_to_nickname, c.created_at,
+        REPLACE(u.avatar_url, '/var/jamony/avatars', '/avatars') AS avatar_url,
+        (SELECT COUNT(*) FROM notice_comment_likes WHERE comment_id = c.id) AS likes,
+        EXISTS(SELECT 1 FROM notice_comment_likes WHERE comment_id = c.id AND user_id = $2) AS is_liked
+      FROM notice_comments c LEFT JOIN users u ON u.id = c.user_id WHERE c.notice_id = $1 AND c.parent_id IS NOT NULL
+      ORDER BY c.created_at ASC
+    `, [id, currentUserId])
+    const repliesByParent = {}
+    replyResult.rows.forEach(r => {
+      ;(repliesByParent[r.parent_id] = repliesByParent[r.parent_id] || []).push(r)
+    })
+    const comments = topResult.rows.map(r => ({ ...r, replies: repliesByParent[r.id] || [] }))
+    res.json({ ok: true, comments })
+  } catch (err) {
+    console.error('Notice comments list error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// 发表评论（parentId 有值=回复，NULL=一级；replyToNickname 回复某用户时的昵称）
+app.post('/api/notices/:id/comments', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params
+    const { content, parentId, replyToNickname } = req.body
+    const userId = req.userId
+    if (!content || !content.trim()) {
+      return res.status(400).json({ ok: false, msg: '缺少 content' })
+    }
+    if (content.length > 200) {
+      return res.status(400).json({ ok: false, msg: '评论不超过200字' })
+    }
+    const userRow = await pool.query('SELECT nickname FROM users WHERE id=$1', [userId])
+    if (userRow.rows.length === 0) return res.status(400).json({ ok: false, msg: '用户不存在' })
+    const nickname = userRow.rows[0].nickname
+    const ins = await pool.query(
+      `INSERT INTO notice_comments (notice_id, user_id, nickname, content, parent_id, reply_to_nickname)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, created_at`,
+      [id, userId, nickname, content.trim(), parentId || null, replyToNickname || null]
+    )
+    // 一级评论才 +1 notices.comments（回复不计入）
+    if (!parentId) {
+      await pool.query('UPDATE notices SET comments = COALESCE(comments, 0) + 1 WHERE id = $1', [id])
+    }
+    res.json({
+      ok: true,
+      comment: {
+        id: ins.rows[0].id,
+        user_id: userId,
+        nickname,
+        content: content.trim(),
+        parent_id: parentId || null,
+        reply_to_nickname: replyToNickname || null,
+        created_at: ins.rows[0].created_at,
+        replies: [],
+        likes: 0,
+        is_liked: false,
+      },
+    })
+  } catch (err) {
+    console.error('Notice comment create error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// 删除评论（仅作者；一级评论删除 CASCADE 删回复，并 -1 notices.comments）
+app.delete('/api/notices/:id/comments/:commentId', requireAuth, async (req, res) => {
+  try {
+    const { id, commentId } = req.params
+    const userId = req.userId
+    const row = await pool.query('SELECT user_id, parent_id FROM notice_comments WHERE id=$1 AND notice_id=$2', [commentId, id])
+    if (row.rows.length === 0) return res.status(404).json({ ok: false, msg: '评论不存在' })
+    if (row.rows[0].user_id !== parseInt(userId)) return res.status(403).json({ ok: false, msg: '只能删除自己的评论' })
+    const isTop = !row.rows[0].parent_id
+    await pool.query('DELETE FROM notice_comments WHERE id=$1', [commentId])
+    if (isTop) {
+      await pool.query('UPDATE notices SET comments = GREATEST(COALESCE(comments, 0) - 1, 0) WHERE id = $1', [id])
+    }
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('Notice comment delete error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// 评论点赞/取消点赞
+app.post('/api/notices/:id/comments/:commentId/like', requireAuth, async (req, res) => {
+  try {
+    const { commentId } = req.params
+    const { action } = req.body
+    const userId = req.userId
+    if (!action) return res.status(400).json({ ok: false, msg: '缺少 action' })
+    if (action === 'like') {
+      await pool.query('INSERT INTO notice_comment_likes (comment_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [commentId, userId])
+    } else if (action === 'unlike') {
+      await pool.query('DELETE FROM notice_comment_likes WHERE comment_id = $1 AND user_id = $2', [commentId, userId])
+    } else {
+      return res.status(400).json({ ok: false, msg: 'action 必须是 like 或 unlike' })
+    }
+    const result = await pool.query('SELECT COUNT(*) AS likes FROM notice_comment_likes WHERE comment_id = $1', [commentId])
+    res.json({ ok: true, likes: parseInt(result.rows[0].likes) })
+  } catch (err) {
+    console.error('Notice comment like error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// 举报评论
+app.post('/api/notices/:id/comments/:commentId/report', requireAuth, async (req, res) => {
+  try {
+    const { commentId } = req.params
+    const { reason } = req.body
+    const userId = req.userId
+    await pool.query(
+      'INSERT INTO notice_comment_reports (comment_id, reporter_user_id, reason) VALUES ($1, $2, $3)',
+      [commentId, userId, (reason || '').slice(0, 100)]
+    )
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('Notice comment report error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// 举报公告（违规内容举报，后台审核）
+app.post('/api/notices/:id/report', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params
+    const { reason } = req.body
+    const userId = req.userId
+    await pool.query(
+      'INSERT INTO notice_reports (notice_id, reporter_user_id, reason) VALUES ($1, $2, $3)',
+      [id, userId, (reason || '').slice(0, 100)]
+    )
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('Notice report error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
 // ========== 取消署名（不可恢复）==========
 app.patch('/api/works/:id/anonymize', requireAuth, async (req, res) => {
   try {

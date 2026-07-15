@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState, type ReactNode } from "react"
-import { Plus, X, Heart, MessageCircle, ChevronDown, Search, Pencil, Trash2 } from "lucide-react"
+import { Plus, X, Heart, Flag, ChevronDown, Search, Pencil, Trash2 } from "lucide-react"
 import {
   type Notice,
   type NoticeType,
@@ -15,6 +15,7 @@ import { TopNav } from "@/components/jamony/top-nav"
 import { useAuth } from "@/lib/auth-context"
 import { UserPopover } from "@/components/jamony/user-popover"
 import { Avatar } from "@/components/jamony/avatar"
+import { CommentSection } from "@/components/jamony/comment-section"
 
 const PAGE_SIZE = 20
 const LOAD_MORE_SIZE = 12
@@ -342,14 +343,36 @@ function NoticeCard({ notice, onClick }: { notice: Notice; onClick: () => void }
   )
 }
 
+const REPORT_REASONS = ["垃圾广告", "违规内容", "色情低俗", "诈骗信息", "其他"]
+
 function NoticeDetailModal({ notice, onClose, onEdit, onDelete }: { notice: Notice | null; onClose: () => void; onEdit: (n: Notice) => void; onDelete: (n: Notice) => void }) {
-  if (!notice) return null
   const { loggedIn, setShowLoginModal, user } = useAuth()
+  const [reportOpen, setReportOpen] = useState(false)
+  const [reportReason, setReportReason] = useState("")
+  const [reportCustom, setReportCustom] = useState("")
+  const [reportSent, setReportSent] = useState(false)
+  if (!notice) return null
   const isOwner = !!user && notice.authorId === user.id
 
   const requireAuth = (fn: () => void) => {
     if (!loggedIn) { setShowLoginModal(true); return }
     fn()
+  }
+
+  const handleReportNotice = async () => {
+    const reason = reportReason === "其他" ? reportCustom.trim() : reportReason
+    if (!reason || !notice) return
+    try {
+      await fetch(`/api/notices/${notice.id}/report`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ reason }),
+      })
+      setReportOpen(false); setReportReason(""); setReportCustom("")
+      setReportSent(true)
+      setTimeout(() => setReportSent(false), 2000)
+    } catch {}
   }
   return (
     <div
@@ -358,7 +381,7 @@ function NoticeDetailModal({ notice, onClose, onEdit, onDelete }: { notice: Noti
       onClick={onClose}
     >
       <div
-        className="jamony-modal-enter w-full max-w-lg overflow-hidden rounded-2xl border"
+        className="jamony-modal-enter w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl border"
         style={{ backgroundColor: "#0D0D0D", borderColor: "#1A1A1A" }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -401,6 +424,8 @@ function NoticeDetailModal({ notice, onClose, onEdit, onDelete }: { notice: Noti
             <Meta label="城市" value={notice.city} />
           </dl>
 
+          <CommentSection subjectType="notice" subjectId={notice.id} fallbackCount={notice.comments} />
+
           <div className="mt-6 flex gap-3">
             {isOwner ? (
               <>
@@ -426,10 +451,10 @@ function NoticeDetailModal({ notice, onClose, onEdit, onDelete }: { notice: Noti
                 <button
                   className="flex flex-1 items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
                   style={{ background: "linear-gradient(90deg, #9933FF, #FF33AA)" }}
-                  onClick={() => requireAuth(() => console.log("[v0] contact", notice.author))}
+                  onClick={() => requireAuth(() => setReportOpen(true))}
                 >
-                  <MessageCircle className="h-4 w-4" />
-                  联系
+                  <Flag className="h-4 w-4" />
+                  举报
                 </button>
                 <button
                   className="flex items-center justify-center gap-2 rounded-lg border px-5 py-2.5 text-sm text-white transition-colors hover:bg-[#141414]"
@@ -442,6 +467,30 @@ function NoticeDetailModal({ notice, onClose, onEdit, onDelete }: { notice: Noti
               </>
             )}
           </div>
+
+          {/* 举报公告弹窗 */}
+          {reportOpen && (
+            <div className="fixed inset-0 z-[70] flex items-center justify-center p-6" style={{ background: "rgba(0,0,0,0.6)" }} onClick={() => { setReportOpen(false); setReportReason(""); setReportCustom("") }}>
+              <div className="w-full max-w-sm rounded-2xl border p-5" style={{ background: "#0D0D0D", borderColor: "#1A1A1A" }} onClick={(e) => e.stopPropagation()}>
+                <p className="text-sm text-white">举报这条公告</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {REPORT_REASONS.map((r) => (
+                    <button key={r} type="button" onClick={() => setReportReason(r)} className="rounded-full px-3 py-1 text-xs transition-colors" style={reportReason === r ? { background: "linear-gradient(135deg, #FF33AA, #9933FF)", color: "#fff" } : { background: "#161616", color: "#8A8A8A" }}>{r}</button>
+                  ))}
+                </div>
+                {reportReason === "其他" && (
+                  <textarea value={reportCustom} onChange={(e) => setReportCustom(e.target.value)} placeholder="说明原因…" rows={2} maxLength={100} className="mt-2 w-full resize-none rounded-lg border border-[#1A1A1A] bg-black px-3 py-2 text-xs text-white outline-none focus:border-[#00AAFF]" />
+                )}
+                <div className="mt-4 flex justify-end gap-2">
+                  <button type="button" onClick={() => { setReportOpen(false); setReportReason(""); setReportCustom("") }} className="px-4 py-1.5 text-xs text-[#9A9A9A] transition-colors hover:text-white">取消</button>
+                  <button type="button" disabled={!reportReason || (reportReason === "其他" && !reportCustom.trim())} onClick={handleReportNotice} className="rounded-full px-4 py-1.5 text-xs font-medium text-white disabled:opacity-30" style={{ background: "linear-gradient(135deg, #FF33AA, #9933FF)" }}>提交举报</button>
+                </div>
+              </div>
+            </div>
+          )}
+          {reportSent && (
+            <div className="fixed bottom-6 left-1/2 z-[70] -translate-x-1/2 rounded-full px-4 py-2 text-xs text-white" style={{ background: "linear-gradient(135deg, #00AAFF, #9933FF)" }}>举报已提交，感谢反馈</div>
+          )}
         </div>
       </div>
     </div>
