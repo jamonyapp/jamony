@@ -119,7 +119,7 @@ export function LeftSidebar() {
 
       {feedbackOpen && <FeedbackModal onClose={() => setFeedbackOpen(false)} />}
       <CreateRoomModal open={createRoomOpen} onClose={() => setCreateRoomOpen(false)} />
-      <PublishNoticeModal open={publishOpen} onClose={() => setPublishOpen(false)} onPublish={(notice) => console.log("[jamony] published notice from sidebar:", notice.id)} />
+      <PublishNoticeModal open={publishOpen} onClose={() => setPublishOpen(false)} onPublished={() => { setPublishOpen(false); router.push("/board") }} />
     </aside>
   )
 }

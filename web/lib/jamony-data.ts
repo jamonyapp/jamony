@@ -36,6 +36,13 @@ export type Notice = {
   style: string
   bgIndex: number
   imageUrl?: string
+  category?: string
+  jamTime?: string
+  level?: string
+  neededCount?: number
+  expireAt?: string
+  authorId?: number
+  authorAvatar?: string
 }
 
 export const BG_COUNT = 17
@@ -54,6 +61,9 @@ export const NOTICE_TYPES: NoticeType[] = [
   "offline",
   "online",
 ]
+
+// 线下公告细分类别（菜单选择，不自定义；线上 category 留空 = 约 jam）
+export const NOTICE_CATEGORIES = ["演出", "组队", "租售", "其他"] as const
 
 export const notices: Notice[] = [
   { id: "n1", title: "线下组队·北京 寻贝斯/鼓/键盘", body: "我是吉他手，玩了 8 年金属，现在想组一支稳定排练的乐队。寻贝斯、鼓、键盘各一名，每周固定排练两次，地点在朝阳区。有原创计划，目标是年底登台。", author: "摇滚老张", time: "2026-06-15 14:30", type: "offline", city: "北京", style: "金属", bgIndex: 3 },

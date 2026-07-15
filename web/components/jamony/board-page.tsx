@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo, useState, type ReactNode } from "react"
-import { Plus, X, Heart, MessageCircle, ChevronDown, Search } from "lucide-react"
+import { Plus, X, Heart, MessageCircle, ChevronDown, Search, Pencil, Trash2 } from "lucide-react"
 import {
   type Notice,
   type NoticeType,
@@ -32,6 +32,7 @@ export function BoardPage() {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const [publishOpen, setPublishOpen] = useState(false)
   const [detail, setDetail] = useState<Notice | null>(null)
+  const [editingNotice, setEditingNotice] = useState<Notice | null>(null)
 
   const cities = useMemo(
     () => Array.from(new Set(allNotices.map((n) => n.city))),
@@ -62,9 +63,36 @@ export function BoardPage() {
   const visible = filtered.slice(0, visibleCount)
   const hasMore = visibleCount < filtered.length
 
-  const handlePublish = (notice: Notice) => {
-    setAllNotices((prev) => [notice, ...prev])
+  const handlePublished = (notice: Notice) => {
+    setAllNotices((prev) => {
+      const idx = prev.findIndex((n) => n.id === notice.id)
+      if (idx >= 0) {
+        const next = [...prev]
+        next[idx] = notice
+        return next
+      }
+      return [notice, ...prev]
+    })
     setActiveTab("all")
+  }
+
+  const handleEdit = (notice: Notice) => {
+    setDetail(null)
+    setEditingNotice(notice)
+    setPublishOpen(true)
+  }
+
+  const handleDelete = async (notice: Notice) => {
+    if (!confirm(`确认删除公告「${notice.title}」？`)) return
+    try {
+      const res = await fetch(`/api/notices/${notice.id}`, { method: "DELETE", credentials: "include" })
+      const data = await res.json()
+      if (!data.ok) { alert(data.msg || "删除失败"); return }
+      setAllNotices((prev) => prev.filter((n) => n.id !== notice.id))
+      setDetail(null)
+    } catch {
+      alert("网络错误")
+    }
   }
 
   const resetPaging = () => setVisibleCount(PAGE_SIZE)
@@ -200,11 +228,12 @@ export function BoardPage() {
 
       <PublishNoticeModal
         open={publishOpen}
-        onClose={() => setPublishOpen(false)}
-        onPublish={handlePublish}
+        onClose={() => { setPublishOpen(false); setEditingNotice(null) }}
+        onPublished={handlePublished}
+        initialNotice={editingNotice}
       />
 
-      <NoticeDetailModal notice={detail} onClose={() => setDetail(null)} />
+      <NoticeDetailModal notice={detail} onClose={() => setDetail(null)} onEdit={handleEdit} onDelete={handleDelete} />
     </div>
   )
 }
@@ -271,7 +300,7 @@ function NoticeCard({ notice, onClick }: { notice: Notice; onClick: () => void }
       <div
         className="relative w-full bg-cover bg-center"
         style={{
-          backgroundImage: `url('/images/jamony-board-bg-${String(notice.bgIndex).padStart(2, "0")}.webp')`,
+          backgroundImage: `url('${notice.imageUrl || `/images/jamony-board-bg-${String(notice.bgIndex).padStart(2, "0")}.webp`}')`,
           aspectRatio: notice.bgIndex % 3 === 0 ? "3 / 4" : notice.bgIndex % 2 === 0 ? "1 / 1" : "4 / 5",
         }}
       >
@@ -299,9 +328,10 @@ function NoticeCard({ notice, onClick }: { notice: Notice; onClick: () => void }
   )
 }
 
-function NoticeDetailModal({ notice, onClose }: { notice: Notice | null; onClose: () => void }) {
+function NoticeDetailModal({ notice, onClose, onEdit, onDelete }: { notice: Notice | null; onClose: () => void; onEdit: (n: Notice) => void; onDelete: (n: Notice) => void }) {
   if (!notice) return null
-  const { loggedIn, setShowLoginModal } = useAuth()
+  const { loggedIn, setShowLoginModal, user } = useAuth()
+  const isOwner = !!user && notice.authorId === user.id
 
   const requireAuth = (fn: () => void) => {
     if (!loggedIn) { setShowLoginModal(true); return }
@@ -321,7 +351,7 @@ function NoticeDetailModal({ notice, onClose }: { notice: Notice | null; onClose
         <div
           className="relative h-44 w-full bg-cover bg-center"
           style={{
-            backgroundImage: `url('/images/jamony-board-bg-${String(notice.bgIndex).padStart(2, "0")}.webp')`,
+            backgroundImage: `url('${notice.imageUrl || `/images/jamony-board-bg-${String(notice.bgIndex).padStart(2, "0")}.webp`}')`,
           }}
         >
           <span className="absolute inset-0 bg-gradient-to-t from-[#0D0D0D] to-transparent" />
@@ -358,22 +388,45 @@ function NoticeDetailModal({ notice, onClose }: { notice: Notice | null; onClose
           </dl>
 
           <div className="mt-6 flex gap-3">
-            <button
-              className="flex flex-1 items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
-              style={{ background: "linear-gradient(90deg, #9933FF, #FF33AA)" }}
-              onClick={() => requireAuth(() => console.log("[v0] contact", notice.author))}
-            >
-              <MessageCircle className="h-4 w-4" />
-              联系
-            </button>
-            <button
-              className="flex items-center justify-center gap-2 rounded-lg border px-5 py-2.5 text-sm text-white transition-colors hover:bg-[#141414]"
-              style={{ borderColor: "#2A2A2A" }}
-              onClick={() => requireAuth(() => console.log("[v0] favorite notice", notice.id))}
-            >
-              <Heart className="h-4 w-4" />
-              收藏
-            </button>
+            {isOwner ? (
+              <>
+                <button
+                  className="flex flex-1 items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+                  style={{ background: "linear-gradient(90deg, #9933FF, #FF33AA)" }}
+                  onClick={() => onEdit(notice)}
+                >
+                  <Pencil className="h-4 w-4" />
+                  编辑
+                </button>
+                <button
+                  className="flex items-center justify-center gap-2 rounded-lg border px-5 py-2.5 text-sm transition-colors hover:bg-[#141414]"
+                  style={{ borderColor: "#2A2A2A", color: "#FF5C5C" }}
+                  onClick={() => onDelete(notice)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  删除
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  className="flex flex-1 items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+                  style={{ background: "linear-gradient(90deg, #9933FF, #FF33AA)" }}
+                  onClick={() => requireAuth(() => console.log("[v0] contact", notice.author))}
+                >
+                  <MessageCircle className="h-4 w-4" />
+                  联系
+                </button>
+                <button
+                  className="flex items-center justify-center gap-2 rounded-lg border px-5 py-2.5 text-sm text-white transition-colors hover:bg-[#141414]"
+                  style={{ borderColor: "#2A2A2A" }}
+                  onClick={() => requireAuth(() => console.log("[v0] favorite notice", notice.id))}
+                >
+                  <Heart className="h-4 w-4" />
+                  收藏
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>

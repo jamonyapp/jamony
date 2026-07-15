@@ -37,6 +37,11 @@ const avatarsDir = '/var/jamony/avatars'
 try { if (!fs.existsSync(avatarsDir)) fs.mkdirSync(avatarsDir, { recursive: true }) } catch (e) { console.error('Avatars dir error:', e) }
 const avatarUpload = multer({ dest: avatarsDir, limits: { fileSize: 10 * 1024 * 1024 } })
 
+/* multer — 公告牌图片上传（不裁剪，直接存原图，前端 CSS object-fit 适配卡片） */
+const noticesDir = '/var/jamony/notices'
+try { if (!fs.existsSync(noticesDir)) fs.mkdirSync(noticesDir, { recursive: true }) } catch (e) { console.error('Notices dir error:', e) }
+const noticeImageUpload = multer({ dest: noticesDir, limits: { fileSize: 10 * 1024 * 1024 } })
+
 function verifyPassword(password, hashStr) {
   const parts = hashStr.split(':')
   if (parts.length !== 5 || parts[0] !== 'pbkdf2') return false
@@ -751,6 +756,20 @@ app.post('/api/users/:id/avatar', requireAuth, avatarUpload.single('avatar'), as
   } catch (err) {
     console.error('Avatar upload error:', err)
     res.status(500).json({ ok: false, msg: '头像上传失败' })
+  }
+})
+
+// 公告牌图片上传（requireAuth；不写 DB，返回 URL 由前端填入 POST /api/notices 的 image_url）
+app.post('/api/notices/upload-image', requireAuth, noticeImageUpload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ ok: false, msg: '未收到图片' })
+    const ext = path.extname(req.file.originalname) || '.jpg'
+    const newPath = path.join(noticesDir, `notice_${req.userId}_${Date.now()}${ext}`)
+    fs.renameSync(req.file.path, newPath)
+    res.json({ ok: true, imageUrl: newPath.replace('/var/jamony/notices', '/notices') })
+  } catch (err) {
+    console.error('Notice image upload error:', err)
+    res.status(500).json({ ok: false, msg: '图片上传失败' })
   }
 })
 
@@ -2147,6 +2166,59 @@ app.get('/api/notices/:id', optionalAuth, async (req, res) => {
     res.json({ ok: true, notice: result.rows[0] })
   } catch (err) {
     console.error('Notice detail error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// PATCH /api/notices/:id 编辑（仅发布者；不重算 expire_at，有效期发布时定）
+app.patch('/api/notices/:id', requireAuth, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id)
+    if (!id) return res.status(404).json({ ok: false, msg: '公告不存在' })
+    const { title, body, city, style, category, jam_time, level, needed_count, image_url } = req.body
+    const row = await pool.query("SELECT user_id FROM notices WHERE id=$1 AND status='active'", [id])
+    if (row.rows.length === 0) return res.status(404).json({ ok: false, msg: '公告不存在' })
+    if (row.rows[0].user_id !== req.userId) return res.status(403).json({ ok: false, msg: '只能编辑自己的公告' })
+
+    const sets = [], params = []
+    const add = (col, val) => { if (val !== undefined) { params.push(val); sets.push(`${col}=$${params.length}`) } }
+    add('title', typeof title === 'string' && title.trim() ? title.trim() : undefined)
+    add('body', typeof body === 'string' && body.trim() ? body.trim() : undefined)
+    add('city', typeof city === 'string' ? (city.trim() || '其他') : undefined)
+    add('style', typeof style === 'string' ? (style.trim() || '未分类') : undefined)
+    add('category', category === undefined ? undefined : (category || null))
+    add('jam_time', jam_time === undefined ? undefined : (jam_time || null))
+    add('level', level === undefined ? undefined : (level || null))
+    add('needed_count', needed_count === undefined ? undefined : (parseInt(needed_count) || null))
+    add('image_url', image_url === undefined ? undefined : (image_url || null))
+    if (sets.length === 0) return res.status(400).json({ ok: false, msg: '没有要更新的字段' })
+
+    params.push(id)
+    const result = await pool.query(`UPDATE notices SET ${sets.join(', ')} WHERE id=$${params.length} RETURNING *`, params)
+    const notice = result.rows[0]
+    const u = await pool.query('SELECT nickname, avatar_url FROM users WHERE id=$1', [notice.user_id])
+    notice.author_id = notice.user_id
+    notice.author_name = u.rows[0]?.nickname || notice.nickname
+    notice.author_avatar = u.rows[0]?.avatar_url ? u.rows[0].avatar_url.replace('/var/jamony/avatars', '/avatars') : null
+    res.json({ ok: true, notice })
+  } catch (err) {
+    console.error('Notice update error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// DELETE /api/notices/:id 软删（仅发布者；status='deleted' 后列表/详情天然查不到）
+app.delete('/api/notices/:id', requireAuth, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id)
+    if (!id) return res.status(404).json({ ok: false, msg: '公告不存在' })
+    const row = await pool.query("SELECT user_id FROM notices WHERE id=$1 AND status='active'", [id])
+    if (row.rows.length === 0) return res.status(404).json({ ok: false, msg: '公告不存在' })
+    if (row.rows[0].user_id !== req.userId) return res.status(403).json({ ok: false, msg: '只能删除自己的公告' })
+    await pool.query("UPDATE notices SET status='deleted' WHERE id=$1", [id])
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('Notice delete error:', err)
     res.status(500).json({ ok: false, msg: '服务器错误' })
   }
 })
