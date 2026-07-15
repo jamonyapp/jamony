@@ -43,6 +43,8 @@ export type Notice = {
   expireAt?: string
   authorId?: number
   authorAvatar?: string
+  comments?: number
+  likes?: number
 }
 
 export const BG_COUNT = 17
@@ -64,6 +66,10 @@ export const NOTICE_TYPES: NoticeType[] = [
 
 // 线下公告细分类别（菜单选择，不自定义；线上 category 留空 = 约 jam）
 export const NOTICE_CATEGORIES = ["演出", "组队", "租售", "其他"] as const
+
+// 城市/风格选项（与 settings-page 个人信息一致，提取共享）
+export const CITIES = ["北京", "上海", "广州", "深圳", "成都", "杭州", "重庆", "武汉", "西安", "南京", "苏州", "天津", "长沙", "郑州", "东莞", "青岛", "沈阳", "宁波", "昆明", "大连", "厦门", "合肥", "佛山", "福州", "哈尔滨", "济南", "温州", "长春", "石家庄", "常州", "泉州", "南宁", "贵阳", "南昌", "太原", "烟台", "嘉兴", "南通", "金华", "徐州", "海口", "乌鲁木齐", "呼和浩特", "银川", "西宁", "兰州", "拉萨", "三亚", "丽江", "大理"]
+export const STYLE_OPTIONS = ["摇滚", "民谣", "爵士", "布鲁斯", "放克", "雷鬼", "电子", "古典", "流行", "嘻哈", "R&B", "国风", "金属", "ACG", "Bossa Nova", "实验"]
 
 export const notices: Notice[] = [
   { id: "n1", title: "线下组队·北京 寻贝斯/鼓/键盘", body: "我是吉他手，玩了 8 年金属，现在想组一支稳定排练的乐队。寻贝斯、鼓、键盘各一名，每周固定排练两次，地点在朝阳区。有原创计划，目标是年底登台。", author: "摇滚老张", time: "2026-06-15 14:30", type: "offline", city: "北京", style: "金属", bgIndex: 3 },

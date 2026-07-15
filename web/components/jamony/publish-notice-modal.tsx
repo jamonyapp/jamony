@@ -10,6 +10,8 @@ import {
   NOTICE_TYPE_COLOR,
   BG_COUNT,
   NOTICE_CATEGORIES,
+  CITIES,
+  STYLE_OPTIONS,
 } from "@/lib/jamony-data"
 import { useAuth } from "@/lib/auth-context"
 import { mapNotice } from "@/lib/notice-mappers"
@@ -219,16 +221,19 @@ export function PublishNoticeModal({ open, onClose, onPublished, initialNotice }
             <div className="flex flex-col gap-3 rounded-lg border p-3" style={{ borderColor: "#2A2A2A", backgroundColor: "#141414" }}>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="mb-1.5 block text-xs font-medium" style={{ color: "#8A8A8A" }}>Jam 时间</label>
-                  <input type="text" value={jamTime} onChange={(e) => setJamTime(e.target.value)} placeholder="如：今晚8点 / 周六晚9点"
-                    className="jamony-input w-full rounded-lg border px-3 py-2 text-sm text-white outline-none placeholder:text-[#5A5A5A]"
-                    style={{ backgroundColor: "#0D0D0D", borderColor: "#2A2A2A" }} />
+                  <label className="mb-1.5 block text-xs font-medium" style={{ color: "#8A8A8A" }}>时间</label>
+                  <input type="datetime-local" value={jamTime} onChange={(e) => setJamTime(e.target.value)}
+                    className="jamony-input w-full rounded-lg border px-3 py-2 text-sm text-white outline-none"
+                    style={{ backgroundColor: "#0D0D0D", borderColor: "#2A2A2A", colorScheme: "dark" }} />
                 </div>
                 <div>
-                  <label className="mb-1.5 block text-xs font-medium" style={{ color: "#8A8A8A" }}>需要人数</label>
-                  <input type="number" min={1} value={neededCount} onChange={(e) => setNeededCount(e.target.value)} placeholder="如：3"
-                    className="jamony-input w-full rounded-lg border px-3 py-2 text-sm text-white outline-none placeholder:text-[#5A5A5A]"
-                    style={{ backgroundColor: "#0D0D0D", borderColor: "#2A2A2A" }} />
+                  <label className="mb-1.5 block text-xs font-medium" style={{ color: "#8A8A8A" }}>房间人数</label>
+                  <select value={neededCount} onChange={(e) => setNeededCount(e.target.value)}
+                    className="jamony-input w-full rounded-lg border px-3 py-2 text-sm text-white outline-none"
+                    style={{ backgroundColor: "#0D0D0D", borderColor: "#2A2A2A" }}>
+                    <option value="">选择人数</option>
+                    {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => <option key={n} value={String(n)}>{n} 人{n === 1 ? "（独奏）" : ""}</option>)}
+                  </select>
                 </div>
               </div>
               <div>
@@ -265,15 +270,21 @@ export function PublishNoticeModal({ open, onClose, onPublished, initialNotice }
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="mb-2 block text-sm font-medium text-white">城市</label>
-              <input type="text" value={city} onChange={(e) => setCity(e.target.value)} placeholder="例如：北京 / 线上"
-                className="jamony-input w-full rounded-lg border px-3 py-2 text-sm text-white outline-none placeholder:text-[#5A5A5A]"
-                style={{ backgroundColor: "#141414", borderColor: "#2A2A2A" }} />
+              <select value={city} onChange={(e) => setCity(e.target.value)}
+                className="jamony-input w-full rounded-lg border px-3 py-2 text-sm text-white outline-none"
+                style={{ backgroundColor: "#141414", borderColor: "#2A2A2A" }}>
+                <option value="">选择城市</option>
+                {CITIES.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
             </div>
             <div>
               <label className="mb-2 block text-sm font-medium text-white">风格</label>
-              <input type="text" value={style} onChange={(e) => setStyle(e.target.value)} placeholder="例如：摇滚"
-                className="jamony-input w-full rounded-lg border px-3 py-2 text-sm text-white outline-none placeholder:text-[#5A5A5A]"
-                style={{ backgroundColor: "#141414", borderColor: "#2A2A2A" }} />
+              <select value={style} onChange={(e) => setStyle(e.target.value)}
+                className="jamony-input w-full rounded-lg border px-3 py-2 text-sm text-white outline-none"
+                style={{ backgroundColor: "#141414", borderColor: "#2A2A2A" }}>
+                <option value="">选择风格</option>
+                {STYLE_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
             </div>
           </div>
 

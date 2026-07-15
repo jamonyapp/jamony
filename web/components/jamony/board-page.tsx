@@ -1,19 +1,20 @@
 "use client"
 
-import { useMemo, useState, type ReactNode } from "react"
+import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { Plus, X, Heart, MessageCircle, ChevronDown, Search, Pencil, Trash2 } from "lucide-react"
 import {
   type Notice,
   type NoticeType,
-  notices as initialNotices,
   NOTICE_TYPES,
   NOTICE_TYPE_LABEL,
   NOTICE_TYPE_COLOR,
 } from "@/lib/jamony-data"
+import { mapNotice } from "@/lib/notice-mappers"
 import { PublishNoticeModal } from "@/components/jamony/publish-notice-modal"
 import { TopNav } from "@/components/jamony/top-nav"
 import { useAuth } from "@/lib/auth-context"
 import { UserPopover } from "@/components/jamony/user-popover"
+import { Avatar } from "@/components/jamony/avatar"
 
 const PAGE_SIZE = 20
 const LOAD_MORE_SIZE = 12
@@ -23,7 +24,20 @@ type SortOption = "latest" | "hot"
 export function BoardPage() {
   const { loggedIn, setShowLoginModal } = useAuth()
   const requireAuth = (fn: () => void) => { if (!loggedIn) { setShowLoginModal(true); return } fn() }
-  const [allNotices, setAllNotices] = useState<Notice[]>(initialNotices)
+  const [allNotices, setAllNotices] = useState<Notice[]>([])
+
+  const fetchNotices = () => {
+    fetch("/api/notices?limit=100")
+      .then((r) => r.json())
+      .then((data) => { if (data.ok) setAllNotices((data.notices || []).map(mapNotice)) })
+      .catch(() => {})
+  }
+
+  useEffect(() => {
+    fetchNotices()
+    const t = setInterval(fetchNotices, 30000)
+    return () => clearInterval(t)
+  }, [])
   const [activeTab, setActiveTab] = useState<NoticeType | "all">("all")
   const [search, setSearch] = useState("")
   const [sort, setSort] = useState<SortOption>("latest")
@@ -55,7 +69,7 @@ export function BoardPage() {
       )
     }
     if (sort === "hot") {
-      console.log("[v0] sort by hot (placeholder)")
+      list = [...list].sort((a, b) => (b.comments || 0) - (a.comments || 0) || (b.likes || 0) - (a.likes || 0))
     }
     return list
   }, [allNotices, activeTab, cityFilter, styleFilter, sort, search])
@@ -98,7 +112,7 @@ export function BoardPage() {
   const resetPaging = () => setVisibleCount(PAGE_SIZE)
 
   const handleRefresh = () => {
-    setAllNotices(initialNotices)
+    fetchNotices()
     setActiveTab("all")
     setSearch("")
     setSort("latest")
@@ -321,7 +335,7 @@ function NoticeCard({ notice, onClick }: { notice: Notice; onClick: () => void }
             className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
             style={{ backgroundColor: NOTICE_TYPE_COLOR[notice.type] }}
           />
-          {NOTICE_TYPE_LABEL[notice.type]} · from：<UserPopover nickname={notice.author}>{notice.author}</UserPopover>
+          {NOTICE_TYPE_LABEL[notice.type]} · from：<Avatar nickname={notice.author} avatarUrl={notice.authorAvatar} size={14} /><UserPopover nickname={notice.author}>{notice.author}</UserPopover>
         </p>
       </div>
     </button>

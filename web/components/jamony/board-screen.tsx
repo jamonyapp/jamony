@@ -1,10 +1,13 @@
 "use client"
 
-import { notices, type Notice } from "@/lib/jamony-data"
+import { type Notice } from "@/lib/jamony-data"
+import { mapNotice } from "@/lib/notice-mappers"
 import { useAuth } from "@/lib/auth-context"
 import { UserPopover } from "@/components/jamony/user-popover"
+import { Avatar } from "@/components/jamony/avatar"
 import { X } from "lucide-react"
 import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 import { SectionHeader } from "./section-header"
 
 // Deep "underground rehearsal room" palette: dark base + neon accent stripe.
@@ -77,32 +80,42 @@ function NoteCard({ notice, index, onOpen }: { notice: Notice; index: number; on
       <div
         className="relative overflow-hidden rounded-[4px] p-4 pl-5"
         style={{
-          background: theme.bg,
+          backgroundImage: `url('${notice.imageUrl || `/images/jamony-board-bg-${String(notice.bgIndex).padStart(2, "0")}.webp`}')`,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
           color: "#EDEDED",
           boxShadow:
             "0 1px 0 rgba(255,255,255,0.06) inset, 0 10px 22px rgba(0,0,0,0.6), 0 3px 6px rgba(0,0,0,0.5)",
         }}
       >
+        {/* 深色渐变叠加保证文字可读 */}
+        <span
+          className="pointer-events-none absolute inset-0"
+          style={{ background: "linear-gradient(to top, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.5) 60%, rgba(0,0,0,0.25) 100%)" }}
+          aria-hidden
+        />
         {/* left neon category stripe */}
         <span
           className="jamony-stripe absolute inset-y-0 left-0 w-1"
           style={{ background: theme.stripe, "--stripe": theme.stripe } as React.CSSProperties}
         />
 
-        <h3 className="text-[15px] font-bold leading-snug" style={{ color: "#FFFFFF" }}>
-          {notice.title}
-        </h3>
-        <div className="mt-1.5">
-          <p className="text-[13px] leading-relaxed line-clamp-2" style={{ color: "#C8C8C8" }}>
-            {notice.body}
+        <div className="relative">
+          <h3 className="text-[15px] font-bold leading-snug" style={{ color: "#FFFFFF" }}>
+            {notice.title}
+          </h3>
+          <div className="mt-1.5">
+            <p className="text-[13px] leading-relaxed line-clamp-2" style={{ color: "#E8E8E8" }}>
+              {notice.body}
+            </p>
+            <span className="mt-0.5 inline-block text-[11px]" style={{ color: "#BBBBBB" }}>
+              ... 更多
+            </span>
+          </div>
+          <p className="mt-3 flex items-center justify-end gap-1.5 text-right text-[12px]" style={{ color: "#CCCCCC" }}>
+            —— <Avatar nickname={notice.author} avatarUrl={notice.authorAvatar} size={14} /><UserPopover nickname={notice.author}>{notice.author}</UserPopover>
           </p>
-          <span className="mt-0.5 inline-block text-[11px]" style={{ color: "#888888" }}>
-            ... 更多
-          </span>
         </div>
-        <p className="mt-3 text-right text-[12px]" style={{ color: "#9A9A9A" }}>
-          —— <UserPopover nickname={notice.author}>{notice.author}</UserPopover>
-        </p>
 
         {/* curled bottom-right corner */}
         <span
@@ -121,10 +134,25 @@ function NoteCard({ notice, index, onOpen }: { notice: Notice; index: number; on
 }
 
 export function BoardScreen() {
+  const router = useRouter()
+  const [list, setList] = useState<Notice[]>([])
   const [activeNotice, setActiveNotice] = useState<Notice | null>(null)
+
+  useEffect(() => {
+    const fetchNotices = () => {
+      fetch("/api/notices?limit=8")
+        .then((r) => r.json())
+        .then((data) => { if (data.ok) setList((data.notices || []).map(mapNotice)) })
+        .catch(() => {})
+    }
+    fetchNotices()
+    const t = setInterval(fetchNotices, 30000)
+    return () => clearInterval(t)
+  }, [])
+
   return (
     <section>
-      <SectionHeader title="公告牌" linkLabel="全部公告" onLink={() => console.log("[v0] all notices")} />
+      <SectionHeader title="公告牌" linkLabel="全部公告" onLink={() => router.push("/board")} />
 
       {/* neon-wall photo background */}
       <div
@@ -145,7 +173,7 @@ export function BoardScreen() {
         />
 
         <div className="relative grid grid-cols-4 items-start gap-x-6 gap-y-10">
-          {notices.slice(0, 8).map((notice, i) => (
+          {list.slice(0, 8).map((notice, i) => (
             <NoteCard key={notice.id} notice={notice} index={i} onOpen={() => setActiveNotice(notice)} />
           ))}
         </div>

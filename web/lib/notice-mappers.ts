@@ -30,5 +30,7 @@ export function mapNotice(row: any): Notice {
     expireAt: row.expire_at ? new Date(row.expire_at).toISOString() : undefined,
     authorId: row.author_id ?? row.user_id,
     authorAvatar: row.author_avatar || undefined,
+    comments: row.comments ?? 0,
+    likes: row.likes ?? 0,
   }
 }
