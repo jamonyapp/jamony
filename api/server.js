@@ -2058,6 +2058,99 @@ app.post('/api/works/:id/comments/:commentId/report', requireAuth, async (req, r
   }
 })
 
+// ========== 公告牌 ==========
+// GET /api/notices 列表（过滤过期 + JOIN 发布者；支持 type/category/city/style/search/sort/page/limit）
+app.get('/api/notices', optionalAuth, async (req, res) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page) || 1)
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20))
+    const offset = (page - 1) * limit
+    const sort = req.query.sort === 'hot' ? 'hot' : 'latest'
+    const { type, category, city, style, search } = req.query
+
+    const where = ["n.status='active'", 'n.expire_at > NOW()']
+    const params = []
+    const push = (v) => { params.push(v); return `$${params.length}` }
+    if (type) where.push(`n.type = ${push(type)}`)
+    if (category) where.push(`n.category = ${push(category)}`)
+    if (city && city !== 'all') where.push(`n.city = ${push(city)}`)
+    if (style && style !== 'all') where.push(`n.style = ${push(style)}`)
+    if (search && String(search).trim()) where.push(`(LOWER(n.title) LIKE ${push('%' + String(search).trim().toLowerCase() + '%')} OR LOWER(n.nickname) LIKE ${push('%' + String(search).trim().toLowerCase() + '%')})`)
+
+    const order = sort === 'hot'
+      ? 'ORDER BY n.comments DESC, n.likes DESC, n.created_at DESC, n.id DESC'
+      : 'ORDER BY n.created_at DESC, n.id DESC'
+
+    const whereSql = where.join(' AND ')
+    const total = parseInt((await pool.query(`SELECT COUNT(*) FROM notices n WHERE ${whereSql}`, params)).rows[0].count)
+
+    const listParams = [...params, limit, offset]
+    const result = await pool.query(
+      `SELECT n.*, u.nickname AS author_name, u.id AS author_id,
+              REPLACE(u.avatar_url, '/var/jamony/avatars', '/avatars') AS author_avatar
+       FROM notices n JOIN users u ON u.id = n.user_id
+       WHERE ${whereSql}
+       ${order}
+       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      listParams
+    )
+    res.json({ ok: true, notices: result.rows, total, page, totalPages: Math.ceil(total / limit) })
+  } catch (err) {
+    console.error('Notices list error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// POST /api/notices 发布（requireAuth；存 user_id+nickname 冗余；expire_at = NOW()+duration_days）
+app.post('/api/notices', requireAuth, async (req, res) => {
+  try {
+    const { type, category, title, body, city, style, jam_time, level, needed_count, bg_index, image_url, duration_days } = req.body
+    if (!['offline', 'online'].includes(type)) return res.status(400).json({ ok: false, msg: '公告类型无效' })
+    if (!title || !String(title).trim()) return res.status(400).json({ ok: false, msg: '请填写标题' })
+    if (!body || !String(body).trim()) return res.status(400).json({ ok: false, msg: '请填写正文' })
+    const dur = [1, 3, 7].includes(duration_days) ? duration_days : 7
+    const bg = (Number.isInteger(bg_index) && bg_index >= 1 && bg_index <= 17) ? bg_index : Math.floor(Math.random() * 17) + 1
+    const expireAt = new Date(Date.now() + dur * 86400000).toISOString()
+
+    const result = await pool.query(
+      `INSERT INTO notices (user_id, nickname, type, category, title, body, city, style, jam_time, level, needed_count, bg_index, image_url, duration_days, expire_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+       RETURNING *`,
+      [req.userId, req.nickname, type, category || null, String(title).trim(), String(body).trim(),
+       (city || '').trim() || '其他', (style || '').trim() || '未分类', jam_time || null, level || null,
+       needed_count || null, bg, image_url || null, dur, expireAt]
+    )
+    const notice = result.rows[0]
+    notice.author_id = req.userId
+    notice.author_name = req.nickname
+    res.json({ ok: true, notice })
+  } catch (err) {
+    console.error('Create notice error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// GET /api/notices/:id 详情（仅未过期 active；浏览 +1）
+app.get('/api/notices/:id', optionalAuth, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id)
+    if (!id) return res.status(404).json({ ok: false, msg: '公告不存在' })
+    const result = await pool.query(
+      `SELECT n.*, u.nickname AS author_name, u.id AS author_id,
+              REPLACE(u.avatar_url, '/var/jamony/avatars', '/avatars') AS author_avatar
+       FROM notices n JOIN users u ON u.id = n.user_id
+       WHERE n.id = $1 AND n.status='active' AND n.expire_at > NOW()`,
+      [id]
+    )
+    if (result.rows.length === 0) return res.status(404).json({ ok: false, msg: '公告不存在或已过期' })
+    pool.query('UPDATE notices SET views = views + 1 WHERE id = $1', [id]).catch(() => {})
+    res.json({ ok: true, notice: result.rows[0] })
+  } catch (err) {
+    console.error('Notice detail error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
 // ========== 取消署名（不可恢复）==========
 app.patch('/api/works/:id/anonymize', requireAuth, async (req, res) => {
   try {

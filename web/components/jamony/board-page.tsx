@@ -21,6 +21,8 @@ const LOAD_MORE_SIZE = 12
 type SortOption = "latest" | "hot"
 
 export function BoardPage() {
+  const { loggedIn, setShowLoginModal } = useAuth()
+  const requireAuth = (fn: () => void) => { if (!loggedIn) { setShowLoginModal(true); return } fn() }
   const [allNotices, setAllNotices] = useState<Notice[]>(initialNotices)
   const [activeTab, setActiveTab] = useState<NoticeType | "all">("all")
   const [search, setSearch] = useState("")
@@ -85,7 +87,7 @@ export function BoardPage() {
         <header className="mb-8 flex items-center justify-between">
           <h1 className="text-2xl font-bold md:text-3xl">公告牌</h1>
           <button
-            onClick={() => setPublishOpen(true)}
+            onClick={() => requireAuth(() => setPublishOpen(true))}
             className="flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90"
             style={{ background: "linear-gradient(90deg, #9933FF, #FF33AA)" }}
           >
