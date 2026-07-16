@@ -186,9 +186,9 @@ export function PublishNoticeModal({ open, onClose, onPublished, initialNotice }
                 const active = type === t
                 return (
                   <button
-                    key={t} type="button" onClick={() => setType(t)}
-                    className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors"
-                    style={{ borderColor: active ? NOTICE_TYPE_COLOR[t] : "#2A2A2A", backgroundColor: active ? `${NOTICE_TYPE_COLOR[t]}1A` : "transparent", color: active ? "#fff" : "#8A8A8A" }}
+                    key={t} type="button" onClick={() => !isEdit && setType(t)} disabled={isEdit}
+                    className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors disabled:cursor-not-allowed"
+                    style={{ borderColor: active ? NOTICE_TYPE_COLOR[t] : "#2A2A2A", backgroundColor: active ? `${NOTICE_TYPE_COLOR[t]}1A` : "transparent", color: active ? "#fff" : "#8A8A8A", opacity: isEdit && !active ? 0.4 : 1 }}
                   >
                     <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: NOTICE_TYPE_COLOR[t] }} />
                     {NOTICE_TYPE_LABEL[t]}

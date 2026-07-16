@@ -9,7 +9,10 @@ import { TrackCard } from "@/components/jamony/track-card"
 import { AnonymizeDialog } from "@/components/jamony/anonymize-dialog"
 import { FollowButton } from "@/components/jamony/follow-button"
 import { Avatar } from "@/components/jamony/avatar"
-import type { Track } from "@/lib/jamony-data"
+import { NoticeDetailModal } from "@/components/jamony/notice-detail-modal"
+import { PublishNoticeModal } from "@/components/jamony/publish-notice-modal"
+import { mapNotice } from "@/lib/notice-mappers"
+import { type Track, type Notice, NOTICE_TYPE_COLOR, NOTICE_TYPE_LABEL } from "@/lib/jamony-data"
 
 const GRADIENT = "linear-gradient(90deg, #00AAFF, #9933FF, #FF33AA, #BBEE00)"
 
@@ -49,6 +52,10 @@ export function ProfilePage({ nickname }: { nickname: string }) {
   const [loading, setLoading] = useState(true)
   const [userWorks, setUserWorks] = useState<any[]>([])
   const [anonymizeTarget, setAnonymizeTarget] = useState<{ id: number; title: string } | null>(null)
+  const [myNotices, setMyNotices] = useState<Notice[]>([])
+  const [noticeDetail, setNoticeDetail] = useState<Notice | null>(null)
+  const [editingNotice, setEditingNotice] = useState<Notice | null>(null)
+  const [publishOpen, setPublishOpen] = useState(false)
 
   useEffect(() => {
     if (!ready) return
@@ -69,6 +76,10 @@ export function ProfilePage({ nickname }: { nickname: string }) {
           if (worksData.ok) {
             setUserWorks(worksData.works)
           }
+          // 加载该用户发布的公告
+          const nRes = await fetch(`/api/users/${data.user.id}/notices`, { credentials: "include" })
+          const nData = await nRes.json()
+          if (nData.ok) setMyNotices((nData.notices || []).map(mapNotice))
         }
       } catch { /* ignore */ }
       setLoading(false)
@@ -91,6 +102,38 @@ export function ProfilePage({ nickname }: { nickname: string }) {
       const data = await res.json()
       if (data.ok) setProfile(data.user)
     } catch { /* ignore */ }
+  }
+
+  async function refreshNotices() {
+    if (!profile) return
+    try {
+      const res = await fetch(`/api/users/${profile.id}/notices`, { credentials: "include" })
+      const data = await res.json()
+      if (data.ok) setMyNotices((data.notices || []).map(mapNotice))
+    } catch { /* ignore */ }
+  }
+
+  const handleNoticeEdit = (n: Notice) => {
+    setNoticeDetail(null)
+    setEditingNotice(n)
+    setPublishOpen(true)
+  }
+  const handleNoticeDelete = async (n: Notice) => {
+    if (!confirm(`确认删除公告「${n.title}」？`)) return
+    try {
+      const res = await fetch(`/api/notices/${n.id}`, { method: "DELETE", credentials: "include" })
+      const data = await res.json()
+      if (!data.ok) { alert(data.msg || "删除失败"); return }
+      setMyNotices((prev) => prev.filter((x) => x.id !== n.id))
+      setNoticeDetail(null)
+    } catch { alert("网络错误") }
+  }
+  const handleNoticePublished = (n: Notice) => {
+    setMyNotices((prev) => {
+      const idx = prev.findIndex((x) => x.id === n.id)
+      if (idx >= 0) { const next = [...prev]; next[idx] = n; return next }
+      return [n, ...prev]
+    })
   }
 
   if (!ready) {
@@ -253,6 +296,32 @@ export function ProfilePage({ nickname }: { nickname: string }) {
             </div>
             )}
           </section>
+
+          {/* 发布的公告 */}
+          <section className="mt-10">
+            <h2 className="text-[16px] font-bold text-white">发布的公告</h2>
+            {myNotices.length === 0 ? (
+              <p className="mt-4 text-sm" style={{ color: "#8A8A8A" }}>暂无公告</p>
+            ) : (
+              <div className="mt-4 flex flex-col gap-2">
+                {myNotices.map((n) => {
+                  const expired = !!n.expireAt && new Date(n.expireAt).getTime() < Date.now()
+                  return (
+                    <button key={n.id} onClick={() => setNoticeDetail(n)}
+                      className="flex items-center gap-3 rounded-lg border px-4 py-3 text-left transition-colors hover:bg-white/5"
+                      style={{ borderColor: "#1A1A1A", opacity: expired ? 0.5 : 1 }}>
+                      <span className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ backgroundColor: NOTICE_TYPE_COLOR[n.type] }} />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-white">{n.title}</p>
+                        <p className="text-xs" style={{ color: "#8A8A8A" }}>{NOTICE_TYPE_LABEL[n.type]} · {n.city} · {n.time}</p>
+                      </div>
+                      {expired && <span className="text-xs" style={{ color: "#FF5C5C" }}>已过期</span>}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </section>
         </div>
       </main>
       {anonymizeTarget && (
@@ -263,6 +332,8 @@ export function ProfilePage({ nickname }: { nickname: string }) {
           onDone={() => { setAnonymizeTarget(null); refreshWorks() }}
         />
       )}
+      <NoticeDetailModal notice={noticeDetail} onClose={() => setNoticeDetail(null)} onEdit={handleNoticeEdit} onDelete={handleNoticeDelete} />
+      <PublishNoticeModal open={publishOpen} onClose={() => { setPublishOpen(false); setEditingNotice(null) }} onPublished={handleNoticePublished} initialNotice={editingNotice} />
     </div>
   )
 }

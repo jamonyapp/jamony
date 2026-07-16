@@ -2170,6 +2170,28 @@ app.get('/api/notices/:id', optionalAuth, async (req, res) => {
   }
 })
 
+// GET /api/users/:id/notices 某用户发布的公告（自己看含过期，别人只看未过期 active）
+app.get('/api/users/:id/notices', optionalAuth, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id)
+    if (!id) return res.status(404).json({ ok: false, msg: '用户不存在' })
+    const isSelf = req.userId === id
+    const expireFilter = isSelf ? '' : 'AND n.expire_at > NOW()'
+    const result = await pool.query(
+      `SELECT n.*, u.nickname AS author_name, u.id AS author_id,
+              REPLACE(u.avatar_url, '/var/jamony/avatars', '/avatars') AS author_avatar
+       FROM notices n JOIN users u ON u.id = n.user_id
+       WHERE n.user_id = $1 AND n.status = 'active' ${expireFilter}
+       ORDER BY n.created_at DESC LIMIT 100`,
+      [id]
+    )
+    res.json({ ok: true, notices: result.rows })
+  } catch (err) {
+    console.error('User notices error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
 // PATCH /api/notices/:id 编辑（仅发布者；不重算 expire_at，有效期发布时定）
 app.patch('/api/notices/:id', requireAuth, async (req, res) => {
   try {
