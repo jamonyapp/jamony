@@ -1,7 +1,6 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
 import { X, CheckCheck, Trash2 } from "lucide-react"
 import { useNotifications, type Notif } from "@/lib/notifications-context"
 import { Avatar } from "@/components/jamony/avatar"
@@ -12,8 +11,7 @@ const TABS = [
   { key: "message", label: "私信", types: [] as string[] },
 ] as const
 
-export function NotificationDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const router = useRouter()
+export function NotificationDrawer({ open, onClose, onOpenNotice }: { open: boolean; onClose: () => void; onOpenNotice?: (noticeId: number) => void }) {
   const { fetchList, markRead, markAllRead, deleteNotif } = useNotifications()
   const [tab, setTab] = useState<"comment" | "notice" | "message">("comment")
   const [list, setList] = useState<Notif[]>([])
@@ -35,8 +33,8 @@ export function NotificationDrawer({ open, onClose }: { open: boolean; onClose: 
 
   const handleClick = async (n: Notif) => {
     if (!n.read_at) await markRead(n.id)
-    onClose()
-    router.push("/board")
+    // 不立即关抽屉，由 onOpenNotice fetch 完后关抽屉+开弹窗，避免抽屉先关弹窗后开的闪烁
+    if (n.notice_id) onOpenNotice?.(n.notice_id)
   }
 
   const handleDelete = async (e: React.MouseEvent, n: Notif) => {
@@ -119,7 +117,9 @@ export function NotificationDrawer({ open, onClose }: { open: boolean; onClose: 
                     {n.actor_nickname}{n.count > 1 ? ` 等${n.count}人` : ""}{n.type === "comment_reply" ? ` 回复了你的公告「${n.notice_title || ""}」` : ""}
                   </p>
                   {n.comment_content && (
-                    <p className="mt-1 border-l-2 pl-2 text-xs" style={{ color: "#C8C8C8", borderColor: "#9933FF" }}>{n.comment_content}</p>
+                    <p className="mt-1 border-l-2 pl-2 text-xs" style={{ color: "#C8C8C8", borderColor: "#9933FF" }}>
+                      <span className="font-medium text-white">{n.actor_nickname}</span>：{n.comment_content}
+                    </p>
                   )}
                   {myReplies[n.id] && (
                     <p className="mt-1 border-l-2 pl-2 text-xs" style={{ color: "#7BE495", borderColor: "#7BE495" }}>你：{myReplies[n.id]}</p>

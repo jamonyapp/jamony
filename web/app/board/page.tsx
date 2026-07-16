@@ -1,5 +1,10 @@
+import { Suspense } from "react"
 import { BoardPage } from "@/components/jamony/board-page"
 
 export default function BoardRoute() {
-  return <BoardPage />
+  return (
+    <Suspense fallback={null}>
+      <BoardPage />
+    </Suspense>
+  )
 }

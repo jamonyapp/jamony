@@ -7,6 +7,9 @@ import { useAuth } from "@/lib/auth-context"
 import { useNotifications } from "@/lib/notifications-context"
 import { Avatar } from "@/components/jamony/avatar"
 import { NotificationDrawer } from "@/components/jamony/notification-drawer"
+import { NoticeDetailModal } from "@/components/jamony/notice-detail-modal"
+import { mapNotice } from "@/lib/notice-mappers"
+import { type Notice } from "@/lib/jamony-data"
 
 const menuItems = [
   { id: "profile", label: "个人主页", icon: User },
@@ -74,9 +77,28 @@ export function TopNav({
   const [openMenu, setOpenMenu] = useState<"none" | "user">("none")
   const [refreshing, setRefreshing] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [globalNotice, setGlobalNotice] = useState<Notice | null>(null)
   const navRef = useRef<HTMLElement>(null)
   const { loggedIn, setShowLoginModal, logout, user } = useAuth()
-  const { unreadCount } = useNotifications()
+  const { unreadCount, refreshUnread } = useNotifications()
+
+  // 通知点击 → 全局弹公告详情（不跳转，任何页面都能看）
+  const handleOpenNotice = async (noticeId: number) => {
+    try {
+      const r = await fetch(`/api/notices/${noticeId}`, { credentials: "include" })
+      const data = await r.json()
+      if (data.ok) { setGlobalNotice(mapNotice(data.notice)); setDrawerOpen(false) }
+    } catch {}
+  }
+  const handleGlobalDelete = async (n: Notice) => {
+    if (!confirm(`确认删除公告「${n.title}」？`)) return
+    try {
+      const res = await fetch(`/api/notices/${n.id}`, { method: "DELETE", credentials: "include" })
+      const data = await res.json()
+      if (data.ok) { setGlobalNotice(null); refreshUnread() }
+      else alert(data.msg || "删除失败")
+    } catch { alert("网络错误") }
+  }
 
   // showBack: 返回首页按钮的淡入淡出
   // 从首页来 → false→setTimeout→true（800ms 淡入）
@@ -197,7 +219,8 @@ export function TopNav({
                 )}
               </button>
             </div>
-            <NotificationDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
+            <NotificationDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} onOpenNotice={handleOpenNotice} />
+            <NoticeDetailModal notice={globalNotice} onClose={() => setGlobalNotice(null)} onDelete={handleGlobalDelete} />
 
             {/* 头像 */}
             <div className="relative">
