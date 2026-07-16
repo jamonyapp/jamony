@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import { useRouter } from "next/navigation"
 import { X, ImagePlus, Megaphone, Loader2 } from "lucide-react"
 import {
   type Notice,
@@ -17,7 +18,6 @@ import { useAuth } from "@/lib/auth-context"
 import { mapNotice } from "@/lib/notice-mappers"
 
 const LEVEL_OPTIONS = ["不限", "新手", "进阶", "熟练", "老炮", "大神"]
-const DURATION_OPTIONS = [1, 3, 7] as const
 
 type PublishNoticeModalProps = {
   open: boolean
@@ -28,6 +28,7 @@ type PublishNoticeModalProps = {
 
 export function PublishNoticeModal({ open, onClose, onPublished, initialNotice }: PublishNoticeModalProps) {
   const { user } = useAuth()
+  const router = useRouter()
   const isEdit = !!initialNotice
 
   const [type, setType] = useState<NoticeType | null>(null)
@@ -39,12 +40,12 @@ export function PublishNoticeModal({ open, onClose, onPublished, initialNotice }
   const [jamTime, setJamTime] = useState("")
   const [level, setLevel] = useState("不限")
   const [neededCount, setNeededCount] = useState("")
-  const [durationDays, setDurationDays] = useState<number>(7)
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [imageRemoved, setImageRemoved] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [limitTip, setLimitTip] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // 打开时：编辑模式预填，否则重置
@@ -61,7 +62,6 @@ export function PublishNoticeModal({ open, onClose, onPublished, initialNotice }
       setJamTime(initialNotice.jamTime || "")
       setLevel(initialNotice.level || "不限")
       setNeededCount(initialNotice.neededCount ? String(initialNotice.neededCount) : "")
-      setDurationDays(7)
       setImageFile(null)
       setImagePreview(initialNotice.imageUrl || null)
       setImageRemoved(false)
@@ -76,7 +76,7 @@ export function PublishNoticeModal({ open, onClose, onPublished, initialNotice }
 
   const reset = () => {
     setType(null); setCategory(""); setTitle(""); setBody(""); setCity(""); setStyle("")
-    setJamTime(""); setLevel("不限"); setNeededCount(""); setDurationDays(7)
+    setJamTime(""); setLevel("不限"); setNeededCount("")
     setImageFile(null); setImagePreview(null); setImageRemoved(false); setError(null)
   }
 
@@ -133,8 +133,6 @@ export function PublishNoticeModal({ open, onClose, onPublished, initialNotice }
         payload.level = level
         payload.needed_count = neededCount ? parseInt(neededCount) : null
       }
-      if (!isEdit) payload.duration_days = durationDays
-
       const url = isEdit ? `/api/notices/${initialNotice!.id}` : "/api/notices"
       const method = isEdit ? "PATCH" : "POST"
       const res = await fetch(url, {
@@ -144,7 +142,12 @@ export function PublishNoticeModal({ open, onClose, onPublished, initialNotice }
         credentials: "include",
       })
       const data = await res.json()
-      if (!data.ok) { setError(data.msg || "发布失败"); setSubmitting(false); return }
+      if (!data.ok) {
+        // 限频（msg 含"活跃"）→ 弹窗提醒引导去公告牌；其他错误 → 红字
+        if (data.msg && data.msg.includes("活跃")) setLimitTip(data.msg)
+        else setError(data.msg || "发布失败")
+        setSubmitting(false); return
+      }
 
       onPublished(mapNotice(data.notice))
       reset()
@@ -288,24 +291,6 @@ export function PublishNoticeModal({ open, onClose, onPublished, initialNotice }
             </div>
           </div>
 
-          {/* 有效期（仅新建） */}
-          {!isEdit && (
-            <div>
-              <label className="mb-2 block text-sm font-medium text-white">有效期 <span style={{ color: "#FF33AA" }}>*</span></label>
-              <div className="grid grid-cols-3 gap-2">
-                {DURATION_OPTIONS.map((d) => {
-                  const active = durationDays === d
-                  return (
-                    <button key={d} type="button" onClick={() => setDurationDays(d)}
-                      className="rounded-lg border px-3 py-2 text-sm transition-colors"
-                      style={{ borderColor: active ? "#9933FF" : "#2A2A2A", backgroundColor: active ? "rgba(153,51,255,0.15)" : "transparent", color: active ? "#fff" : "#8A8A8A" }}
-                    >{d} 天</button>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-
           {/* 上传图片 */}
           <div>
             <label className="mb-2 block text-sm font-medium text-white">上传图片（选填）</label>
@@ -344,6 +329,19 @@ export function PublishNoticeModal({ open, onClose, onPublished, initialNotice }
           </div>
         </div>
       </div>
+
+      {/* 限频提醒弹窗 */}
+      {limitTip && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-6" style={{ background: "rgba(0,0,0,0.6)" }} onClick={() => setLimitTip(null)}>
+          <div className="w-full max-w-sm rounded-2xl border p-5" style={{ background: "#0D0D0D", borderColor: "#1A1A1A" }} onClick={(e) => e.stopPropagation()}>
+            <p className="text-sm leading-relaxed text-white">{limitTip}</p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={() => setLimitTip(null)} className="px-4 py-1.5 text-xs text-[#9A9A9A] transition-colors hover:text-white">知道了</button>
+              <button type="button" onClick={() => { setLimitTip(null); onClose(); router.push("/board") }} className="rounded-full px-4 py-1.5 text-xs font-medium text-white" style={{ background: "linear-gradient(135deg, #9933FF, #FF33AA)" }}>去公告牌</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

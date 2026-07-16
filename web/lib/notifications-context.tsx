@@ -10,6 +10,7 @@ export type Notif = {
   notice_title: string | null
   comment_id: number | null
   comment_content: string | null
+  message: string | null
   actor_user_id: number | null
   actor_nickname: string | null
   count: number

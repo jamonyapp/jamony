@@ -33,8 +33,8 @@ export function NotificationDrawer({ open, onClose, onOpenNotice }: { open: bool
 
   const handleClick = async (n: Notif) => {
     if (!n.read_at) await markRead(n.id)
-    // 不立即关抽屉，由 onOpenNotice fetch 完后关抽屉+开弹窗，避免抽屉先关弹窗后开的闪烁
-    if (n.notice_id) onOpenNotice?.(n.notice_id)
+    // system 通知（过期）不跳转——过期公告 GET /:id 过滤过期会 404；comment_reply 才弹详情
+    if (n.notice_id && n.type === "comment_reply") onOpenNotice?.(n.notice_id)
   }
 
   const handleDelete = async (e: React.MouseEvent, n: Notif) => {
@@ -79,12 +79,16 @@ export function NotificationDrawer({ open, onClose, onOpenNotice }: { open: bool
         {/* header: 3 tab + 一键全读 + 关闭 */}
         <div className="flex items-center justify-between border-b px-4 py-3" style={{ borderColor: "#1A1A1A" }}>
           <div className="flex gap-5">
-            {TABS.map((t) => (
-              <button key={t.key} onClick={() => setTab(t.key)} className="text-sm font-medium transition-colors"
-                style={{ color: tab === t.key ? "#fff" : "#8A8A8A" }}>
-                {t.label}
-              </button>
-            ))}
+            {TABS.map((t) => {
+              const unread = list.filter((n) => t.types.includes(n.type) && !n.read_at).length
+              return (
+                <button key={t.key} onClick={() => setTab(t.key)} className="relative text-sm font-medium transition-colors"
+                  style={{ color: tab === t.key ? "#fff" : "#8A8A8A" }}>
+                  {t.label}
+                  {unread > 0 && <span className="absolute -right-2 -top-1 h-2 w-2 rounded-full" style={{ background: "#FF33AA" }} />}
+                </button>
+              )
+            })}
           </div>
           <div className="flex items-center gap-3">
             {tab !== "message" && filtered.some((n) => !n.read_at) && (
@@ -114,7 +118,7 @@ export function NotificationDrawer({ open, onClose, onOpenNotice }: { open: bool
                 <Avatar nickname={n.actor_nickname || "U"} size={32} />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm text-white">
-                    {n.actor_nickname}{n.count > 1 ? ` 等${n.count}人` : ""}{n.type === "comment_reply" ? ` 回复了你的公告「${n.notice_title || ""}」` : ""}
+                    {n.type === "system" ? (n.message || "系统通知") : `${n.actor_nickname}${n.count > 1 ? ` 等${n.count}人` : ""} 回复了你的公告「${n.notice_title || ""}」`}
                   </p>
                   {n.comment_content && (
                     <p className="mt-1 border-l-2 pl-2 text-xs" style={{ color: "#C8C8C8", borderColor: "#9933FF" }}>

@@ -2120,24 +2120,34 @@ app.get('/api/notices', optionalAuth, async (req, res) => {
   }
 })
 
-// POST /api/notices 发布（requireAuth；存 user_id+nickname 冗余；expire_at = NOW()+duration_days）
+// POST /api/notices 发布（requireAuth；限频：线上每天1条/线下最多3条active；自动时效：线上24h/线下15天）
 app.post('/api/notices', requireAuth, async (req, res) => {
   try {
-    const { type, category, title, body, city, style, jam_time, level, needed_count, bg_index, image_url, duration_days } = req.body
+    const { type, category, title, body, city, style, jam_time, level, needed_count, bg_index, image_url } = req.body
     if (!['offline', 'online'].includes(type)) return res.status(400).json({ ok: false, msg: '公告类型无效' })
     if (!title || !String(title).trim()) return res.status(400).json({ ok: false, msg: '请填写标题' })
     if (!body || !String(body).trim()) return res.status(400).json({ ok: false, msg: '请填写正文' })
-    const dur = [1, 3, 7].includes(duration_days) ? duration_days : 7
+
+    // 限频：线上 active 未过期 ≤1（每天1条）；线下 active 未过期 ≤3
+    if (type === 'online') {
+      const ex = await pool.query("SELECT id FROM notices WHERE user_id=$1 AND type='online' AND status='active' AND expire_at > NOW() LIMIT 1", [req.userId])
+      if (ex.rows.length > 0) return res.status(400).json({ ok: false, msg: '你已有1条活跃线上公告，可以前去修改或删除后发布新的线上公告。或等待已发布的线上公告24小时后自动过期。' })
+    } else {
+      const cnt = await pool.query("SELECT COUNT(*) AS c FROM notices WHERE user_id=$1 AND type='offline' AND status='active' AND expire_at > NOW()", [req.userId])
+      if (parseInt(cnt.rows[0].c) >= 3) return res.status(400).json({ ok: false, msg: '你已有3条活跃线下公告，可以前去修改或删除后发布新的线下公告。或等待已发布的线下公告15日后自动过期。' })
+    }
+
     const bg = (Number.isInteger(bg_index) && bg_index >= 1 && bg_index <= 17) ? bg_index : Math.floor(Math.random() * 17) + 1
-    const expireAt = new Date(Date.now() + dur * 86400000).toISOString()
+    // 自动时效：线上24h，线下15天
+    const expireAt = new Date(Date.now() + (type === 'online' ? 24 : 15 * 24) * 3600000).toISOString()
 
     const result = await pool.query(
-      `INSERT INTO notices (user_id, nickname, type, category, title, body, city, style, jam_time, level, needed_count, bg_index, image_url, duration_days, expire_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+      `INSERT INTO notices (user_id, nickname, type, category, title, body, city, style, jam_time, level, needed_count, bg_index, image_url, expire_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
        RETURNING *`,
       [req.userId, req.nickname, type, category || null, String(title).trim(), String(body).trim(),
        (city || '').trim() || '其他', (style || '').trim() || '未分类', jam_time || null, level || null,
-       needed_count || null, bg, image_url || null, dur, expireAt]
+       needed_count || null, bg, image_url || null, expireAt]
     )
     const notice = result.rows[0]
     notice.author_id = req.userId
@@ -2192,15 +2202,16 @@ app.get('/api/users/:id/notices', optionalAuth, async (req, res) => {
   }
 })
 
-// PATCH /api/notices/:id 编辑（仅发布者；不重算 expire_at，有效期发布时定）
+// PATCH /api/notices/:id 编辑（仅发布者；仅 active 未过期可改，过期不可改只能删）
 app.patch('/api/notices/:id', requireAuth, async (req, res) => {
   try {
     const id = parseInt(req.params.id)
     if (!id) return res.status(404).json({ ok: false, msg: '公告不存在' })
     const { title, body, city, style, category, jam_time, level, needed_count, image_url } = req.body
-    const row = await pool.query("SELECT user_id FROM notices WHERE id=$1 AND status='active'", [id])
+    const row = await pool.query("SELECT user_id, expire_at FROM notices WHERE id=$1 AND status='active'", [id])
     if (row.rows.length === 0) return res.status(404).json({ ok: false, msg: '公告不存在' })
     if (row.rows[0].user_id !== req.userId) return res.status(403).json({ ok: false, msg: '只能编辑自己的公告' })
+    if (new Date(row.rows[0].expire_at).getTime() <= Date.now()) return res.status(400).json({ ok: false, msg: '已过期不可编辑，可删除' })
 
     const sets = [], params = []
     const add = (col, val) => { if (val !== undefined) { params.push(val); sets.push(`${col}=$${params.length}`) } }
@@ -2246,7 +2257,7 @@ app.delete('/api/notices/:id', requireAuth, async (req, res) => {
 })
 
 // 通知生成（写时聚合：同 recipient+type+notice_id+未读+1h内 → count+1 合并，否则新建；不通知自己）
-async function createNotification({ recipientId, type, noticeId, commentId, actorId, actorNickname }) {
+async function createNotification({ recipientId, type, noticeId, commentId, actorId, actorNickname, message }) {
   if (!recipientId || recipientId === actorId) return
   try {
     const existing = await pool.query(
@@ -2260,8 +2271,8 @@ async function createNotification({ recipientId, type, noticeId, commentId, acto
       )
     } else {
       await pool.query(
-        "INSERT INTO notifications (recipient_user_id, type, notice_id, comment_id, actor_user_id, actor_nickname) VALUES ($1,$2,$3,$4,$5,$6)",
-        [recipientId, type, noticeId || null, commentId || null, actorId, actorNickname]
+        "INSERT INTO notifications (recipient_user_id, type, notice_id, comment_id, actor_user_id, actor_nickname, message) VALUES ($1,$2,$3,$4,$5,$6,$7)",
+        [recipientId, type, noticeId || null, commentId || null, actorId, actorNickname, message || null]
       )
     }
   } catch (e) { console.error('createNotification error:', e) }
@@ -2865,6 +2876,24 @@ app.post('/api/users/:userId/leave-all-rooms', requireAuth, async (req, res) => 
 })
 
 try { execSync('jack_lsp 2>/dev/null || (jackd -d alsa -d hw:Loopback -p 1024 -r 48000 &', { timeout: 5000, stdio: 'pipe' }) } catch(e) {}
+
+// 过期通知定时任务（每小时扫描；setInterval 无依赖，pm2 重启重置但 expire_notified/remind_notified 去重字段保护不重复发）
+async function scanExpiredNotices() {
+  try {
+    // 线下提前1天提醒
+    const remind = await pool.query("UPDATE notices SET remind_notified=TRUE WHERE type='offline' AND status='active' AND expire_at > NOW() AND expire_at < NOW() + INTERVAL '1 day' AND remind_notified=FALSE RETURNING *")
+    for (const n of remind.rows) {
+      await createNotification({ recipientId: n.user_id, type: 'system', noticeId: n.id, message: `你的线下公告「${n.title}」明天过期` })
+    }
+    // 过期通知（线上+线下）
+    const expired = await pool.query("UPDATE notices SET expire_notified=TRUE WHERE status='active' AND expire_at < NOW() AND expire_notified=FALSE RETURNING *")
+    for (const n of expired.rows) {
+      await createNotification({ recipientId: n.user_id, type: 'system', noticeId: n.id, message: `你的公告「${n.title}」已过期` })
+    }
+  } catch (e) { console.error('Expire scan error:', e) }
+}
+scanExpiredNotices()  // 启动时立即跑一次（pm2 重启后立即扫描，不漏）
+setInterval(scanExpiredNotices, 3600000)
 
 server.listen(PORT, '127.0.0.1', () => {
   console.log('jamony API running on http://127.0.0.1:' + PORT)

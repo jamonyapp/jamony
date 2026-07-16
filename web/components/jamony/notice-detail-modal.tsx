@@ -26,6 +26,7 @@ export function NoticeDetailModal({
   const [reportSent, setReportSent] = useState(false)
   if (!notice) return null
   const isOwner = !!user && notice.authorId === user.id
+  const expired = !!notice.expireAt && new Date(notice.expireAt).getTime() < Date.now()
 
   const requireAuth = (fn: () => void) => {
     if (!loggedIn) { setShowLoginModal(true); return }
@@ -72,27 +73,37 @@ export function NoticeDetailModal({
             <Meta label="城市" value={notice.city} />
           </dl>
 
-          <CommentSection subjectType="notice" subjectId={notice.id} fallbackCount={notice.comments} />
+          {!expired && <CommentSection subjectType="notice" subjectId={notice.id} fallbackCount={notice.comments} />}
 
           <div className="mt-6 flex gap-3">
-            {isOwner && onEdit && (
-              <button className="flex flex-1 items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90" style={{ background: "linear-gradient(90deg, #9933FF, #FF33AA)" }} onClick={() => onEdit(notice)}>
-                <Pencil className="h-4 w-4" />编辑
-              </button>
+            {expired ? (
+              isOwner && onDelete && (
+                <button className="flex items-center justify-center gap-2 rounded-lg border px-5 py-2.5 text-sm transition-colors hover:bg-[#141414]" style={{ borderColor: "#2A2A2A", color: "#FF5C5C" }} onClick={() => onDelete(notice)}>
+                  <Trash2 className="h-4 w-4" />删除
+                </button>
+              )
+            ) : (
+              <>
+                {isOwner && onEdit && (
+                  <button className="flex flex-1 items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90" style={{ background: "linear-gradient(90deg, #9933FF, #FF33AA)" }} onClick={() => onEdit(notice)}>
+                    <Pencil className="h-4 w-4" />编辑
+                  </button>
+                )}
+                {isOwner && onDelete && (
+                  <button className="flex items-center justify-center gap-2 rounded-lg border px-5 py-2.5 text-sm transition-colors hover:bg-[#141414]" style={{ borderColor: "#2A2A2A", color: "#FF5C5C" }} onClick={() => onDelete(notice)}>
+                    <Trash2 className="h-4 w-4" />删除
+                  </button>
+                )}
+                {!isOwner && (
+                  <button className="flex flex-1 items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90" style={{ background: "linear-gradient(90deg, #9933FF, #FF33AA)" }} onClick={() => requireAuth(() => setReportOpen(true))}>
+                    <Flag className="h-4 w-4" />举报
+                  </button>
+                )}
+                <button className="flex items-center justify-center gap-2 rounded-lg border px-5 py-2.5 text-sm text-white transition-colors hover:bg-[#141414]" style={{ borderColor: "#2A2A2A" }} onClick={() => requireAuth(() => console.log("[v0] favorite notice", notice.id))}>
+                  <Heart className="h-4 w-4" />收藏
+                </button>
+              </>
             )}
-            {isOwner && onDelete && (
-              <button className="flex items-center justify-center gap-2 rounded-lg border px-5 py-2.5 text-sm transition-colors hover:bg-[#141414]" style={{ borderColor: "#2A2A2A", color: "#FF5C5C" }} onClick={() => onDelete(notice)}>
-                <Trash2 className="h-4 w-4" />删除
-              </button>
-            )}
-            {!isOwner && (
-              <button className="flex flex-1 items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90" style={{ background: "linear-gradient(90deg, #9933FF, #FF33AA)" }} onClick={() => requireAuth(() => setReportOpen(true))}>
-                <Flag className="h-4 w-4" />举报
-              </button>
-            )}
-            <button className="flex items-center justify-center gap-2 rounded-lg border px-5 py-2.5 text-sm text-white transition-colors hover:bg-[#141414]" style={{ borderColor: "#2A2A2A" }} onClick={() => requireAuth(() => console.log("[v0] favorite notice", notice.id))}>
-              <Heart className="h-4 w-4" />收藏
-            </button>
           </div>
 
           {reportOpen && (
