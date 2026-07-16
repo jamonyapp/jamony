@@ -474,6 +474,12 @@ function RecordingPanel({
             mutes={mixerEngine.mutes}
             solos={mixerEngine.solos}
             levels={mixerEngine.levels}
+            volumes={mixerEngine.volumes}
+            pans={mixerEngine.pans}
+            clips={mixerEngine.clips}
+            masterVolume={mixerEngine.masterVolume}
+            masterLevel={mixerEngine.masterLevel}
+            masterClip={mixerEngine.masterClip}
             onClose={() => { setMixerSessionId(null); setMixerMinimized(false) }}
             onMinimize={() => setMixerMinimized(true)}
             onPlayPause={mixerEngine.togglePlay}
@@ -483,6 +489,9 @@ function RecordingPanel({
             onPanChange={mixerEngine.onPanChange}
             onMuteToggle={mixerEngine.onMuteToggle}
             onSoloToggle={mixerEngine.onSoloToggle}
+            onResetClip={mixerEngine.resetClip}
+            onMasterVolumeChange={mixerEngine.onMasterVolumeChange}
+            onResetMasterClip={mixerEngine.resetMasterClip}
           />
         )}
         {mixerMinimized && (

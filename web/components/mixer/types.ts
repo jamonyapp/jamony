@@ -32,6 +32,19 @@ export interface MixerFullscreenProps {
   onPanChange?: (trackId: string, value: number) => void
   onMuteToggle?: (trackId: string, muted: boolean) => void
   onSoloToggle?: (trackId: string, soloed: boolean) => void
+  /** 推子增益 gain（trackId → 0~2，1=0dB） */
+  volumes?: Record<string, number>
+  /** 声像（trackId → -1~1） */
+  pans?: Record<string, number>
+  /** 消波锁存（trackId → boolean） */
+  clips?: Record<string, boolean>
+  onResetClip?: (trackId: string) => void
+  /** master 总线 */
+  masterVolume?: number
+  masterLevel?: number
+  masterClip?: boolean
+  onMasterVolumeChange?: (value: number) => void
+  onResetMasterClip?: () => void
 }
 
 export interface MixerMiniProps {

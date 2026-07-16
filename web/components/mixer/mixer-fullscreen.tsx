@@ -2,7 +2,7 @@
 
 import type React from "react"
 import { useCallback, useEffect, useRef } from "react"
-import { Minimize2, Pause, Play, SkipBack, Square, X } from "lucide-react"
+import { Minimize2, Pause, Play, SkipBack, Square, X, AudioLines } from "lucide-react"
 import { ChannelStrip } from "./channel-strip"
 import { WaveformTrack } from "./waveform-track"
 import { formatTime, MIXER_COLORS, type MixerFullscreenProps } from "./types"
@@ -28,6 +28,15 @@ export function MixerFullscreen({
   onPanChange,
   onMuteToggle,
   onSoloToggle,
+  volumes,
+  pans,
+  clips,
+  onResetClip,
+  masterVolume,
+  masterLevel,
+  masterClip,
+  onMasterVolumeChange,
+  onResetMasterClip,
 }: MixerFullscreenProps) {
   const waveSeekRef = useRef<HTMLDivElement>(null)
   const draggingRef = useRef(false)
@@ -234,19 +243,30 @@ export function MixerFullscreen({
                 color={t.color}
                 playing={isPlaying}
                 level={levels?.[t.id] ?? 0}
+                volume={volumes?.[t.id] ?? 1}
+                pan={pans?.[t.id] ?? 0}
+                muted={mutes?.[t.id] ?? false}
+                soloed={solos?.[t.id] ?? false}
+                clipped={clips?.[t.id] ?? false}
                 onVolumeChange={onVolumeChange}
                 onPanChange={onPanChange}
                 onMuteToggle={onMuteToggle}
                 onSoloToggle={onSoloToggle}
+                onResetClip={onResetClip}
               />
             ))}
             <ChannelStrip
               id="master"
               name="Master"
-              instrument="🎚️"
+              instrument={<AudioLines className="h-4 w-4" style={{ color: MIXER_COLORS.purple }} />}
               color={MIXER_COLORS.purple}
               isMaster
               playing={isPlaying}
+              level={masterLevel ?? 0}
+              volume={masterVolume ?? 1}
+              clipped={masterClip ?? false}
+              onVolumeChange={(_id, v) => onMasterVolumeChange?.(v)}
+              onResetClip={onResetMasterClip ? () => onResetMasterClip() : undefined}
             />
           </div>
         </section>
