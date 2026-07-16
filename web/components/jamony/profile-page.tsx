@@ -9,6 +9,7 @@ import { TrackCard } from "@/components/jamony/track-card"
 import { AnonymizeDialog } from "@/components/jamony/anonymize-dialog"
 import { FollowButton } from "@/components/jamony/follow-button"
 import { Avatar } from "@/components/jamony/avatar"
+import { UserPopover } from "@/components/jamony/user-popover"
 import { NoticeDetailModal } from "@/components/jamony/notice-detail-modal"
 import { PublishNoticeModal } from "@/components/jamony/publish-notice-modal"
 import { mapNotice } from "@/lib/notice-mappers"
@@ -56,6 +57,8 @@ export function ProfilePage({ nickname }: { nickname: string }) {
   const [noticeDetail, setNoticeDetail] = useState<Notice | null>(null)
   const [editingNotice, setEditingNotice] = useState<Notice | null>(null)
   const [publishOpen, setPublishOpen] = useState(false)
+  const [myFavorites, setMyFavorites] = useState<Notice[]>([])
+  const [favDetail, setFavDetail] = useState<Notice | null>(null)
 
   useEffect(() => {
     if (!ready) return
@@ -80,6 +83,10 @@ export function ProfilePage({ nickname }: { nickname: string }) {
           const nRes = await fetch(`/api/users/${data.user.id}/notices`, { credentials: "include" })
           const nData = await nRes.json()
           if (nData.ok) setMyNotices((nData.notices || []).map(mapNotice))
+          // 加载该用户收藏的公告
+          const fRes = await fetch(`/api/users/${data.user.id}/favorites`, { credentials: "include" })
+          const fData = await fRes.json()
+          if (fData.ok) setMyFavorites((fData.notices || []).map(mapNotice))
         }
       } catch { /* ignore */ }
       setLoading(false)
@@ -322,6 +329,36 @@ export function ProfilePage({ nickname }: { nickname: string }) {
               </div>
             )}
           </section>
+
+          {/* 我的收藏 */}
+          <section className="mt-10">
+            <h2 className="text-[16px] font-bold text-white">我的收藏</h2>
+            {myFavorites.length === 0 ? (
+              <p className="mt-4 text-sm" style={{ color: "#8A8A8A" }}>暂无收藏</p>
+            ) : (
+              <div className="mt-4 flex flex-col gap-2">
+                {myFavorites.map((n) => {
+                  const expired = !!n.expireAt && new Date(n.expireAt).getTime() < Date.now()
+                  return (
+                    <button key={n.id} onClick={() => setFavDetail(n)}
+                      className="flex items-center gap-3 rounded-lg border px-4 py-3 text-left transition-colors hover:bg-white/5"
+                      style={{ borderColor: "#1A1A1A", opacity: expired ? 0.5 : 1 }}>
+                      <span className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ backgroundColor: NOTICE_TYPE_COLOR[n.type] }} />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-white">{n.title}</p>
+                        <p className="text-xs" style={{ color: "#8A8A8A" }}>{NOTICE_TYPE_LABEL[n.type]} · {n.city} · {n.time}</p>
+                        <p className="mt-0.5 flex items-center gap-1 text-xs" style={{ color: "#8A8A8A" }}>
+                          <Avatar nickname={n.author} avatarUrl={n.authorAvatar} size={14} />
+                          <UserPopover nickname={n.author}>{n.author}</UserPopover>
+                        </p>
+                      </div>
+                      {expired && <span className="text-xs" style={{ color: "#FF5C5C" }}>已过期</span>}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </section>
         </div>
       </main>
       {anonymizeTarget && (
@@ -333,6 +370,7 @@ export function ProfilePage({ nickname }: { nickname: string }) {
         />
       )}
       <NoticeDetailModal notice={noticeDetail} onClose={() => setNoticeDetail(null)} onEdit={handleNoticeEdit} onDelete={handleNoticeDelete} />
+      <NoticeDetailModal notice={favDetail} onClose={() => setFavDetail(null)} />
       <PublishNoticeModal open={publishOpen} onClose={() => { setPublishOpen(false); setEditingNotice(null) }} onPublished={handleNoticePublished} initialNotice={editingNotice} />
     </div>
   )

@@ -2103,14 +2103,15 @@ app.get('/api/notices', optionalAuth, async (req, res) => {
     const whereSql = where.join(' AND ')
     const total = parseInt((await pool.query(`SELECT COUNT(*) FROM notices n WHERE ${whereSql}`, params)).rows[0].count)
 
-    const listParams = [...params, limit, offset]
+    const listParams = [...params, req.userId, limit, offset]
     const result = await pool.query(
       `SELECT n.*, u.nickname AS author_name, u.id AS author_id,
-              REPLACE(u.avatar_url, '/var/jamony/avatars', '/avatars') AS author_avatar
+              REPLACE(u.avatar_url, '/var/jamony/avatars', '/avatars') AS author_avatar,
+              EXISTS(SELECT 1 FROM favorites WHERE user_id=$${params.length + 1} AND subject_type='notice' AND subject_id=n.id) AS is_favorited
        FROM notices n JOIN users u ON u.id = n.user_id
        WHERE ${whereSql}
        ${order}
-       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+       LIMIT $${params.length + 2} OFFSET $${params.length + 3}`,
       listParams
     )
     res.json({ ok: true, notices: result.rows, total, page, totalPages: Math.ceil(total / limit) })
@@ -2166,10 +2167,11 @@ app.get('/api/notices/:id', optionalAuth, async (req, res) => {
     if (!id) return res.status(404).json({ ok: false, msg: '公告不存在' })
     const result = await pool.query(
       `SELECT n.*, u.nickname AS author_name, u.id AS author_id,
-              REPLACE(u.avatar_url, '/var/jamony/avatars', '/avatars') AS author_avatar
+              REPLACE(u.avatar_url, '/var/jamony/avatars', '/avatars') AS author_avatar,
+              EXISTS(SELECT 1 FROM favorites WHERE user_id=$2 AND subject_type='notice' AND subject_id=n.id) AS is_favorited
        FROM notices n JOIN users u ON u.id = n.user_id
        WHERE n.id = $1 AND n.status='active' AND n.expire_at > NOW()`,
-      [id]
+      [id, req.userId]
     )
     if (result.rows.length === 0) return res.status(404).json({ ok: false, msg: '公告不存在或已过期' })
     pool.query('UPDATE notices SET views = views + 1 WHERE id = $1', [id]).catch(() => {})
@@ -2189,11 +2191,12 @@ app.get('/api/users/:id/notices', optionalAuth, async (req, res) => {
     const expireFilter = isSelf ? '' : 'AND n.expire_at > NOW()'
     const result = await pool.query(
       `SELECT n.*, u.nickname AS author_name, u.id AS author_id,
-              REPLACE(u.avatar_url, '/var/jamony/avatars', '/avatars') AS author_avatar
+              REPLACE(u.avatar_url, '/var/jamony/avatars', '/avatars') AS author_avatar,
+              EXISTS(SELECT 1 FROM favorites WHERE user_id=$2 AND subject_type='notice' AND subject_id=n.id) AS is_favorited
        FROM notices n JOIN users u ON u.id = n.user_id
        WHERE n.user_id = $1 AND n.status = 'active' ${expireFilter}
        ORDER BY n.created_at DESC LIMIT 100`,
-      [id]
+      [id, req.userId]
     )
     res.json({ ok: true, notices: result.rows })
   } catch (err) {
@@ -2444,6 +2447,40 @@ app.post('/api/notices/:id/report', requireAuth, async (req, res) => {
     console.error('Notice report error:', err)
     res.status(500).json({ ok: false, msg: '服务器错误' })
   }
+})
+
+// 收藏公告
+app.post('/api/notices/:id/favorite', requireAuth, async (req, res) => {
+  try {
+    await pool.query("INSERT INTO favorites (user_id, subject_type, subject_id) VALUES ($1,'notice',$2) ON CONFLICT DO NOTHING", [req.userId, req.params.id])
+    res.json({ ok: true })
+  } catch (err) { console.error('Favorite error:', err); res.status(500).json({ ok: false, msg: '服务器错误' }) }
+})
+// 取消收藏
+app.delete('/api/notices/:id/favorite', requireAuth, async (req, res) => {
+  try {
+    await pool.query("DELETE FROM favorites WHERE user_id=$1 AND subject_type='notice' AND subject_id=$2", [req.userId, req.params.id])
+    res.json({ ok: true })
+  } catch (err) { console.error('Unfavorite error:', err); res.status(500).json({ ok: false, msg: '服务器错误' }) }
+})
+// 用户收藏列表（含过期，过滤被删 status=deleted）
+app.get('/api/users/:id/favorites', optionalAuth, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id)
+    if (!id) return res.status(404).json({ ok: false, msg: '用户不存在' })
+    const result = await pool.query(
+      `SELECT n.*, u.nickname AS author_name, u.id AS author_id,
+              REPLACE(u.avatar_url, '/var/jamony/avatars', '/avatars') AS author_avatar,
+              EXISTS(SELECT 1 FROM favorites WHERE user_id=$2 AND subject_type='notice' AND subject_id=n.id) AS is_favorited
+       FROM favorites f
+       JOIN notices n ON n.id = f.subject_id AND f.subject_type='notice'
+       JOIN users u ON u.id = n.user_id
+       WHERE f.user_id=$1 AND n.status='active'
+       ORDER BY f.created_at DESC LIMIT 100`,
+      [id, req.userId]
+    )
+    res.json({ ok: true, notices: result.rows })
+  } catch (err) { console.error('User favorites error:', err); res.status(500).json({ ok: false, msg: '服务器错误' }) }
 })
 
 // ========== 通知 ==========

@@ -45,6 +45,7 @@ export type Notice = {
   authorAvatar?: string
   comments?: number
   likes?: number
+  isFavorited?: boolean
 }
 
 export const BG_COUNT = 17

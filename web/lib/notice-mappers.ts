@@ -32,5 +32,6 @@ export function mapNotice(row: any): Notice {
     authorAvatar: row.author_avatar || undefined,
     comments: row.comments ?? 0,
     likes: row.likes ?? 0,
+    isFavorited: !!row.is_favorited,
   }
 }

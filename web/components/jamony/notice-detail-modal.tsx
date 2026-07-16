@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, type ReactNode } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 import { X, Pencil, Trash2, Flag, Heart } from "lucide-react"
 import { type Notice, NOTICE_TYPE_COLOR, NOTICE_TYPE_LABEL } from "@/lib/jamony-data"
 import { useAuth } from "@/lib/auth-context"
@@ -24,6 +24,8 @@ export function NoticeDetailModal({
   const [reportReason, setReportReason] = useState("")
   const [reportCustom, setReportCustom] = useState("")
   const [reportSent, setReportSent] = useState(false)
+  const [isFav, setIsFav] = useState(false)
+  useEffect(() => { setIsFav(!!notice?.isFavorited) }, [notice?.id])
   if (!notice) return null
   const isOwner = !!user && notice.authorId === user.id
   const expired = !!notice.expireAt && new Date(notice.expireAt).getTime() < Date.now()
@@ -31,6 +33,15 @@ export function NoticeDetailModal({
   const requireAuth = (fn: () => void) => {
     if (!loggedIn) { setShowLoginModal(true); return }
     fn()
+  }
+
+  const handleToggleFavorite = async () => {
+    const next = !isFav
+    setIsFav(next)  // 乐观更新
+    try {
+      const res = await fetch(`/api/notices/${notice.id}/favorite`, { method: next ? "POST" : "DELETE", credentials: "include" })
+      if (!res.ok) setIsFav(!next)
+    } catch { setIsFav(!next) }
   }
 
   const handleReportNotice = async () => {
@@ -99,8 +110,8 @@ export function NoticeDetailModal({
                     <Flag className="h-4 w-4" />举报
                   </button>
                 )}
-                <button className="flex items-center justify-center gap-2 rounded-lg border px-5 py-2.5 text-sm text-white transition-colors hover:bg-[#141414]" style={{ borderColor: "#2A2A2A" }} onClick={() => requireAuth(() => console.log("[v0] favorite notice", notice.id))}>
-                  <Heart className="h-4 w-4" />收藏
+                <button className="flex items-center justify-center gap-2 rounded-lg border px-5 py-2.5 text-sm transition-colors hover:bg-[#141414]" style={{ borderColor: isFav ? "#FF33AA" : "#2A2A2A", color: isFav ? "#FF33AA" : "#fff" }} onClick={() => requireAuth(handleToggleFavorite)}>
+                  <Heart className="h-4 w-4" fill={isFav ? "#FF33AA" : "none"} />{isFav ? "已收藏" : "收藏"}
                 </button>
               </>
             )}
