@@ -321,9 +321,7 @@ function NoticeCard({ notice, onClick }: { notice: Notice; onClick: () => void }
     <button
       onClick={onClick}
       className="jamony-card group mb-5 block w-full overflow-hidden rounded-[10px] text-left transition-transform duration-200 hover:-translate-y-[3px]"
-      style={{ backgroundColor: "#141414" }}
     >
-      {/* 画面区域 */}
       <div
         className="relative w-full bg-cover bg-center"
         style={{
@@ -331,25 +329,29 @@ function NoticeCard({ notice, onClick }: { notice: Notice; onClick: () => void }
           aspectRatio: notice.bgIndex % 3 === 0 ? "3 / 4" : notice.bgIndex % 2 === 0 ? "1 / 1" : "4 / 5",
         }}
       >
-        <span className="absolute inset-0 bg-black/25" />
-        <span
-          className="absolute bottom-0 left-0 right-0 h-2/3"
-          style={{
-            background: "linear-gradient(to top, rgba(10,10,10,0.95), rgba(10,10,10,0))",
-          }}
-        />
-      </div>
+        {/* 蒙版：整图半透明 + 底部渐变深保证文字可读 */}
+        <span className="absolute inset-0 bg-black/30" />
+        <span className="absolute inset-0" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.4) 50%, rgba(0,0,0,0.15) 100%)" }} />
 
-      {/* 标题区 */}
-      <div className="px-3 py-2.5">
-        <p className="truncate text-sm font-bold leading-snug text-white">{notice.title}</p>
-        <p className="mt-1 flex items-center gap-1.5 text-xs" style={{ color: "#8A8A8A" }}>
-          <span
-            className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
-            style={{ backgroundColor: NOTICE_TYPE_COLOR[notice.type] }}
-          />
-          {NOTICE_TYPE_LABEL[notice.type]} · from：<Avatar nickname={notice.author} avatarUrl={notice.authorAvatar} size={14} /><UserPopover nickname={notice.author}>{notice.author}</UserPopover>
-        </p>
+        {/* 文字叠底部 */}
+        <div className="absolute bottom-0 left-0 right-0 p-3">
+          <div className="mb-1.5 flex items-center justify-between text-[11px]">
+            <span className="flex items-center gap-1 font-medium" style={{ color: NOTICE_TYPE_COLOR[notice.type] }}>
+              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: NOTICE_TYPE_COLOR[notice.type] }} />
+              {NOTICE_TYPE_LABEL[notice.type]}
+            </span>
+            <span style={{ color: "#9A9A9A" }}>{notice.time}</span>
+          </div>
+          <p className="line-clamp-2 text-sm font-bold leading-snug text-white">{notice.title}</p>
+          <div className="mt-1">
+            <p className="line-clamp-3 text-xs leading-relaxed" style={{ color: "#D0D0D0" }}>{notice.body}</p>
+            <span className="text-[11px]" style={{ color: "#9A9A9A" }}>... 更多</span>
+          </div>
+          <p className="mt-2 flex items-center gap-1 text-xs" style={{ color: "#B0B0B0" }}>
+            <Avatar nickname={notice.author} avatarUrl={notice.authorAvatar} size={14} />
+            <UserPopover nickname={notice.author}>{notice.author}</UserPopover>
+          </p>
+        </div>
       </div>
     </button>
   )

@@ -105,16 +105,17 @@ function NoteCard({ notice, index, onOpen }: { notice: Notice; index: number; on
             {notice.title}
           </h3>
           <div className="mt-1.5">
-            <p className="text-[13px] leading-relaxed line-clamp-2" style={{ color: "#E8E8E8" }}>
+            <p className="text-[13px] leading-relaxed line-clamp-3" style={{ color: "#E8E8E8" }}>
               {notice.body}
             </p>
             <span className="mt-0.5 inline-block text-[11px]" style={{ color: "#BBBBBB" }}>
               ... 更多
             </span>
           </div>
-          <p className="mt-3 flex items-center justify-end gap-1.5 text-right text-[12px]" style={{ color: "#CCCCCC" }}>
-            —— <Avatar nickname={notice.author} avatarUrl={notice.authorAvatar} size={14} /><UserPopover nickname={notice.author}>{notice.author}</UserPopover>
+          <p className="mt-3 flex items-center justify-end gap-1.5 text-right text-[13px]" style={{ color: "#CCCCCC" }}>
+            <Avatar nickname={notice.author} avatarUrl={notice.authorAvatar} size={20} /><UserPopover nickname={notice.author}>{notice.author}</UserPopover>
           </p>
+          <p className="mt-0.5 text-right text-[11px]" style={{ color: "#9A9A9A" }}>{notice.time}</p>
         </div>
 
         {/* curled bottom-right corner */}
