@@ -1,17 +1,12 @@
 "use client"
 
-import { ChevronDown, LogOut, Megaphone, RefreshCw, Settings, User, LogIn } from "lucide-react"
+import { ChevronDown, LogOut, Mail, RefreshCw, Settings, User, LogIn } from "lucide-react"
 import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
 import { useAuth } from "@/lib/auth-context"
+import { useNotifications } from "@/lib/notifications-context"
 import { Avatar } from "@/components/jamony/avatar"
-
-const notifications = [
-  { id: "n1", text: "「周五夜爵士」房间有 3 位新乐手加入。" },
-  { id: "n2", text: "你的作品《Funk Jam #47》收到了 12 个新的赞。" },
-  { id: "n3", text: "Lily 在公告牌回复了你：周末一起来排练吧！" },
-  { id: "n4", text: "jamony 工作室发布了新版本更新。" },
-]
+import { NotificationDrawer } from "@/components/jamony/notification-drawer"
 
 const menuItems = [
   { id: "profile", label: "个人主页", icon: User },
@@ -76,10 +71,12 @@ export function TopNav({
   const pathname = usePathname()
   const router = useRouter()
   const isHome = pathname === "/"
-  const [openMenu, setOpenMenu] = useState<"none" | "notifications" | "user">("none")
+  const [openMenu, setOpenMenu] = useState<"none" | "user">("none")
   const [refreshing, setRefreshing] = useState(false)
+  const [drawerOpen, setDrawerOpen] = useState(false)
   const navRef = useRef<HTMLElement>(null)
   const { loggedIn, setShowLoginModal, logout, user } = useAuth()
+  const { unreadCount } = useNotifications()
 
   // showBack: 返回首页按钮的淡入淡出
   // 从首页来 → false→setTimeout→true（800ms 淡入）
@@ -191,35 +188,16 @@ export function TopNav({
             <div className="relative">
               <button
                 aria-label="通知"
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-white transition-colors hover:bg-white/5"
-                onClick={() => setOpenMenu((m) => (m === "notifications" ? "none" : "notifications"))}
+                className="relative flex h-8 w-8 items-center justify-center rounded-lg text-white transition-colors hover:bg-white/5"
+                onClick={() => setDrawerOpen(true)}
               >
-                <Megaphone className="h-[18px] w-[18px]" />
+                <Mail className="h-[18px] w-[18px]" />
+                {unreadCount > 0 && (
+                  <span className="absolute right-1 top-1 h-2 w-2 rounded-full" style={{ background: "#FF33AA" }} />
+                )}
               </button>
-
-              {openMenu === "notifications" && (
-                <div
-                  className="absolute right-0 top-[calc(100%+8px)] w-80 overflow-hidden rounded-xl border"
-                  style={{ background: "#0D0D0D", borderColor: "#1A1A1A" }}
-                >
-                  <div className="px-4 py-3">
-                    <h3 className="text-[14px] font-bold text-white">通知</h3>
-                  </div>
-                  <div className="border-t" style={{ borderColor: "#1A1A1A" }}>
-                    {notifications.map((n) => (
-                      <button
-                        key={n.id}
-                        className="block w-full border-b px-4 py-3 text-left text-[13px] transition-colors last:border-b-0 hover:bg-white/[0.03]"
-                        style={{ borderColor: "#1A1A1A", color: "#C8C8C8" }}
-                        onClick={() => console.log("[v0] open notification", n.id)}
-                      >
-                        {n.text}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
+            <NotificationDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
 
             {/* 头像 */}
             <div className="relative">

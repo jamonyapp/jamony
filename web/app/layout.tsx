@@ -8,6 +8,7 @@ import { PlayerBar } from '@/components/jamony/player-bar'
 import { LikesProvider } from '@/lib/likes-context'
 import { CommentsProvider } from '@/lib/comments-context'
 import { FollowProvider } from '@/lib/follow-context'
+import { NotificationsProvider } from '@/lib/notifications-context'
 import { ElectronGate } from '@/components/jamony/electron-gate'
 
 // 字体本地化：脱离 next/font/google 的 build 时联网依赖（国内服务器拉不到 Google Fonts）
@@ -78,10 +79,12 @@ export default function RootLayout({
             <LikesProvider>
               <CommentsProvider>
                 <FollowProvider>
-                  <ElectronGate>
-                    {children}
-                    <PlayerBar />
-                  </ElectronGate>
+                  <NotificationsProvider>
+                    <ElectronGate>
+                      {children}
+                      <PlayerBar />
+                    </ElectronGate>
+                  </NotificationsProvider>
                 </FollowProvider>
               </CommentsProvider>
             </LikesProvider>

@@ -2223,6 +2223,28 @@ app.delete('/api/notices/:id', requireAuth, async (req, res) => {
   }
 })
 
+// 通知生成（写时聚合：同 recipient+type+notice_id+未读+1h内 → count+1 合并，否则新建；不通知自己）
+async function createNotification({ recipientId, type, noticeId, commentId, actorId, actorNickname }) {
+  if (!recipientId || recipientId === actorId) return
+  try {
+    const existing = await pool.query(
+      "SELECT id FROM notifications WHERE recipient_user_id=$1 AND type=$2 AND notice_id IS NOT DISTINCT FROM $3 AND read_at IS NULL AND updated_at > NOW() - INTERVAL '1 hour'",
+      [recipientId, type, noticeId || null]
+    )
+    if (existing.rows.length > 0) {
+      await pool.query(
+        "UPDATE notifications SET count = count + 1, actor_user_id = $1, actor_nickname = $2, comment_id = $3, updated_at = NOW() WHERE id = $4",
+        [actorId, actorNickname, commentId || null, existing.rows[0].id]
+      )
+    } else {
+      await pool.query(
+        "INSERT INTO notifications (recipient_user_id, type, notice_id, comment_id, actor_user_id, actor_nickname) VALUES ($1,$2,$3,$4,$5,$6)",
+        [recipientId, type, noticeId || null, commentId || null, actorId, actorNickname]
+      )
+    }
+  } catch (e) { console.error('createNotification error:', e) }
+}
+
 // ========== 公告牌评论（克隆 work_comments，work_id→notice_id）==========
 // 列表（一级评论 + 回复分组，时间倒序）
 app.get('/api/notices/:id/comments', async (req, res) => {
@@ -2280,6 +2302,19 @@ app.post('/api/notices/:id/comments', requireAuth, async (req, res) => {
     // 一级评论才 +1 notices.comments（回复不计入）
     if (!parentId) {
       await pool.query('UPDATE notices SET comments = COALESCE(comments, 0) + 1 WHERE id = $1', [id])
+    }
+    // 生成通知（一级评论→通知公告发布者；回复→通知被回复者；不通知自己，写时聚合）
+    const newCommentId = ins.rows[0].id
+    if (parentId) {
+      const pr = await pool.query('SELECT user_id FROM notice_comments WHERE id=$1', [parentId])
+      if (pr.rows.length > 0) {
+        await createNotification({ recipientId: pr.rows[0].user_id, type: 'comment_reply', noticeId: id, commentId: newCommentId, actorId: userId, actorNickname: nickname })
+      }
+    } else {
+      const nr = await pool.query('SELECT user_id FROM notices WHERE id=$1', [id])
+      if (nr.rows.length > 0) {
+        await createNotification({ recipientId: nr.rows[0].user_id, type: 'comment_reply', noticeId: id, commentId: newCommentId, actorId: userId, actorNickname: nickname })
+      }
     }
     res.json({
       ok: true,
@@ -2374,6 +2409,77 @@ app.post('/api/notices/:id/report', requireAuth, async (req, res) => {
     res.json({ ok: true })
   } catch (err) {
     console.error('Notice report error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// ========== 通知 ==========
+// 列表（JOIN notices 拿标题，未读在前）+ 未读数
+app.get('/api/notifications', requireAuth, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT n.*, notice.title AS notice_title, nc.content AS comment_content
+       FROM notifications n
+       LEFT JOIN notices notice ON notice.id = n.notice_id
+       LEFT JOIN notice_comments nc ON nc.id = n.comment_id
+       WHERE n.recipient_user_id = $1
+       ORDER BY n.read_at IS NULL DESC, n.updated_at DESC
+       LIMIT 50`,
+      [req.userId]
+    )
+    const unread = await pool.query('SELECT COUNT(*) AS c FROM notifications WHERE recipient_user_id=$1 AND read_at IS NULL', [req.userId])
+    res.json({ ok: true, notifications: result.rows, unreadCount: parseInt(unread.rows[0].c) })
+  } catch (err) {
+    console.error('Notifications list error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// 未读数（红点轮询用，轻量）
+app.get('/api/notifications/unread-count', requireAuth, async (req, res) => {
+  try {
+    const r = await pool.query('SELECT COUNT(*) AS c FROM notifications WHERE recipient_user_id=$1 AND read_at IS NULL', [req.userId])
+    res.json({ ok: true, count: parseInt(r.rows[0].c) })
+  } catch (err) {
+    console.error('Unread count error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// 标记单条已读
+app.patch('/api/notifications/:id/read', requireAuth, async (req, res) => {
+  try {
+    await pool.query('UPDATE notifications SET read_at = NOW() WHERE id=$1 AND recipient_user_id=$2 AND read_at IS NULL', [req.params.id, req.userId])
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('Mark read error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// 全部已读（可按 type，一键全读当前 tab）
+app.post('/api/notifications/read-all', requireAuth, async (req, res) => {
+  try {
+    const { type } = req.body || {}
+    if (type) {
+      await pool.query('UPDATE notifications SET read_at = NOW() WHERE recipient_user_id=$1 AND read_at IS NULL AND type=$2', [req.userId, type])
+    } else {
+      await pool.query('UPDATE notifications SET read_at = NOW() WHERE recipient_user_id=$1 AND read_at IS NULL', [req.userId])
+    }
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('Read all error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// 删除单条
+app.delete('/api/notifications/:id', requireAuth, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM notifications WHERE id=$1 AND recipient_user_id=$2', [req.params.id, req.userId])
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('Delete notification error:', err)
     res.status(500).json({ ok: false, msg: '服务器错误' })
   }
 })
