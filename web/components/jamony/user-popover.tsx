@@ -5,6 +5,8 @@ import { X } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { FollowButton } from "@/components/jamony/follow-button"
 import { Avatar } from "@/components/jamony/avatar"
+import { useDM } from "@/lib/dm-context"
+import { useAuth } from "@/lib/auth-context"
 
 type PopoverUser = {
   id: number
@@ -32,6 +34,8 @@ export function UserPopover({
   const [user, setUser] = useState<PopoverUser | null>(null)
   const [loading, setLoading] = useState(false)
   const [imgOpen, setImgOpen] = useState(false)
+  const { openConversation } = useDM()
+  const { user: me } = useAuth()
   const popRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLSpanElement>(null)
 
@@ -119,6 +123,15 @@ export function UserPopover({
 
               <div className="border-t px-4 py-3 flex flex-col gap-2" style={{ borderColor: "#1A1A1A" }}>
                 <FollowButton targetUserId={user.id} initialIsFollowing={!!user.is_following} size="small" />
+                {me?.id !== user.id && (
+                  <button
+                    onClick={() => openConversation(user.id)}
+                    className="w-full rounded-[10px] py-2 text-[13px] font-medium text-white transition-opacity hover:opacity-90"
+                    style={{ background: "linear-gradient(90deg, #00AAFF, #9933FF)" }}
+                  >
+                    发私信
+                  </button>
+                )}
                 <button
                   onClick={() => router.push(`/profile?nickname=${encodeURIComponent(user.nickname)}`)}
                   className="w-full rounded-[10px] py-2 text-[13px] font-medium text-white transition-opacity hover:opacity-90"

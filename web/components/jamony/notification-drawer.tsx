@@ -1,18 +1,24 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 import { X, CheckCheck, Trash2 } from "lucide-react"
 import { useNotifications, type Notif } from "@/lib/notifications-context"
+import { useDM } from "@/lib/dm-context"
+import { useAuth } from "@/lib/auth-context"
 import { Avatar } from "@/components/jamony/avatar"
 
 const TABS = [
-  { key: "comment", label: "评论", types: ["comment_reply"] as string[] },
+  { key: "comment", label: "评论", types: ["comment_reply", "work_comment", "work_comment_reply"] as string[] },
   { key: "notice", label: "通知", types: ["like", "follow", "system"] as string[] },
-  { key: "message", label: "私信", types: [] as string[] },
+  { key: "message", label: "私信", types: ["message"] as string[] },
 ] as const
 
 export function NotificationDrawer({ open, onClose, onOpenNotice }: { open: boolean; onClose: () => void; onOpenNotice?: (noticeId: number) => void }) {
-  const { fetchList, markRead, markAllRead, deleteNotif } = useNotifications()
+  const router = useRouter()
+  const { fetchList, markRead, markAllRead, deleteNotif, refreshUnread } = useNotifications()
+  const { user } = useAuth()
+  const { activeCid, openExisting, clearActive } = useDM()
   const [tab, setTab] = useState<"comment" | "notice" | "message">("comment")
   const [list, setList] = useState<Notif[]>([])
   const [loading, setLoading] = useState(false)
@@ -20,6 +26,10 @@ export function NotificationDrawer({ open, onClose, onOpenNotice }: { open: bool
   const [replyText, setReplyText] = useState("")
   const [replySent, setReplySent] = useState<number | null>(null)
   const [myReplies, setMyReplies] = useState<Record<number, string>>({})
+  const [conversations, setConversations] = useState<any[]>([])
+  const [messages, setMessages] = useState<any[]>([])
+  const [msgInput, setMsgInput] = useState("")
+  const [msgSending, setMsgSending] = useState(false)
 
   useEffect(() => {
     if (open) {
@@ -28,13 +38,49 @@ export function NotificationDrawer({ open, onClose, onOpenNotice }: { open: bool
     }
   }, [open])
 
+  // 私信：activeCid 变化 → 拉消息历史 + 标记已读 + 刷新红点
+  useEffect(() => {
+    if (activeCid) {
+      setTab("message")
+      fetch(`/api/messages/conversations/${activeCid}`, { credentials: "include" }).then(r => r.json()).then(d => { if (d.ok) setMessages(d.messages || []) })
+      fetch(`/api/messages/conversations/${activeCid}/read`, { method: "PATCH", credentials: "include" }).then(() => {
+        refreshUnread()
+        fetchList().then(setList)
+        fetch("/api/messages/conversations", { credentials: "include" }).then(r => r.json()).then(d => { if (d.ok) setConversations(d.conversations || []) })
+      })
+    }
+  }, [activeCid])
+
+  // 私信 tab 打开 + 无 activeCid → 拉会话列表
+  useEffect(() => {
+    if (open && tab === "message" && !activeCid) {
+      fetch("/api/messages/conversations", { credentials: "include" }).then(r => r.json()).then(d => { if (d.ok) setConversations(d.conversations || []) })
+    }
+  }, [open, tab, activeCid])
+
+  const handleSend = async () => {
+    if (!activeCid || !msgInput.trim() || msgSending) return
+    setMsgSending(true)
+    try {
+      const r = await fetch(`/api/messages/conversations/${activeCid}`, { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ content: msgInput.trim() }) })
+      const d = await r.json()
+      if (d.ok) {
+        setMessages(prev => [...prev, { id: d.message.id, sender_id: user?.id, content: msgInput.trim(), created_at: d.message.created_at }])
+        setMsgInput("")
+      }
+    } catch { /* ignore */ }
+    setMsgSending(false)
+  }
+
   const tabDef = TABS.find((t) => t.key === tab)!
   const filtered = tab === "message" ? [] : list.filter((n) => tabDef.types.includes(n.type))
 
   const handleClick = async (n: Notif) => {
     if (!n.read_at) await markRead(n.id)
-    // system 通知（过期）不跳转——过期公告 GET /:id 过滤过期会 404；comment_reply 才弹详情
-    if (n.notice_id && n.type === "comment_reply") onOpenNotice?.(n.notice_id)
+    if (n.type === "comment_reply" && n.notice_id) onOpenNotice?.(n.notice_id)
+    else if ((n.type === "like" || n.type === "work_comment" || n.type === "work_comment_reply") && n.work_id) { onClose(); router.push(`/library/${n.work_id}`) }
+    else if (n.type === "follow" && n.actor_nickname) { onClose(); router.push(`/profile?nickname=${encodeURIComponent(n.actor_nickname)}`) }
+    else if (n.type === "message") setTab("message")
   }
 
   const handleDelete = async (e: React.MouseEvent, n: Notif) => {
@@ -44,8 +90,15 @@ export function NotificationDrawer({ open, onClose, onOpenNotice }: { open: bool
   }
 
   const handleReadAll = async () => {
-    await markAllRead()
-    setList((l) => l.map((n) => ({ ...n, read_at: n.read_at || new Date().toISOString() })))
+    if (tab === "message") {
+      await fetch("/api/messages/read-all", { method: "POST", credentials: "include" })
+      setConversations((prev) => prev.map((c) => ({ ...c, unread_count: 0 })))
+      refreshUnread()
+      fetchList().then(setList)
+    } else {
+      await markAllRead(tabDef.types)
+      setList((l) => l.map((n) => tabDef.types.includes(n.type) ? { ...n, read_at: n.read_at || new Date().toISOString() } : n))
+    }
   }
 
   // 快速回复：直接回复触发通知的那条评论（parentId=comment_id, replyToNickname=actor）
@@ -85,13 +138,13 @@ export function NotificationDrawer({ open, onClose, onOpenNotice }: { open: bool
                 <button key={t.key} onClick={() => setTab(t.key)} className="relative text-sm font-medium transition-colors"
                   style={{ color: tab === t.key ? "#fff" : "#8A8A8A" }}>
                   {t.label}
-                  {unread > 0 && <span className="absolute -right-2 -top-1 h-2 w-2 rounded-full" style={{ background: "#FF33AA" }} />}
+                  {unread > 0 && <span className="absolute -right-3 -top-2 flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[10px] font-medium leading-none text-white" style={{ background: "#FF33AA" }}>{unread > 99 ? '99+' : unread}</span>}
                 </button>
               )
             })}
           </div>
           <div className="flex items-center gap-3">
-            {tab !== "message" && filtered.some((n) => !n.read_at) && (
+            {(tab === "message" ? conversations.some((c) => c.unread_count > 0) : filtered.some((n) => !n.read_at)) && (
               <button onClick={handleReadAll} className="text-[#9A9A9A] transition-colors hover:text-white" title="全部已读">
                 <CheckCheck className="h-4 w-4" />
               </button>
@@ -105,7 +158,40 @@ export function NotificationDrawer({ open, onClose, onOpenNotice }: { open: bool
         {/* body */}
         <div className="h-[calc(100%-3.5rem)] overflow-y-auto">
           {tab === "message" ? (
-            <p className="py-20 text-center text-sm" style={{ color: "#8A8A8A" }}>私信功能即将上线</p>
+            activeCid ? (
+              <div className="flex h-full flex-col">
+                <div className="flex items-center border-b px-4 py-2.5" style={{ borderColor: "#1A1A1A" }}>
+                  <button onClick={clearActive} className="text-sm text-[#9A9A9A] transition-colors hover:text-white">← 返回</button>
+                </div>
+                <div className="flex-1 space-y-2 overflow-y-auto px-4 py-3">
+                  {messages.slice().reverse().map((m) => (
+                    <div key={m.id} className={`flex ${m.sender_id === user?.id ? "justify-end" : "justify-start"}`}>
+                      <div className="max-w-[75%] rounded-[10px] px-3 py-1.5 text-sm text-white" style={{ background: m.sender_id === user?.id ? "linear-gradient(135deg,#00AAFF,#9933FF)" : "#1A1A1A" }}>{m.content}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-2 border-t p-3" style={{ borderColor: "#1A1A1A" }}>
+                  <input value={msgInput} onChange={(e) => setMsgInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !msgSending) handleSend() }} placeholder="输入消息…" className="flex-1 rounded-[10px] border border-[#2A2A2A] bg-[#0D0D0D] px-3 py-2 text-sm text-white outline-none focus:border-[#9933FF]" />
+                  <button onClick={handleSend} disabled={!msgInput.trim() || msgSending} className="rounded-[10px] px-4 py-2 text-sm font-medium text-white disabled:opacity-30" style={{ background: "linear-gradient(135deg,#00AAFF,#9933FF)" }}>发送</button>
+                </div>
+              </div>
+            ) : conversations.length === 0 ? (
+              <p className="py-20 text-center text-sm" style={{ color: "#8A8A8A" }}>暂无私信</p>
+            ) : (
+              conversations.map((c) => (
+                <div key={c.id} onClick={() => openExisting(c.id)} className="group flex cursor-pointer items-center gap-3 border-b px-4 py-3 transition-colors hover:bg-white/5" style={{ borderColor: "#1A1A1A", background: c.unread_count > 0 ? "rgba(153,51,255,0.06)" : "transparent" }}>
+                  <Avatar nickname={c.other_nickname || "U"} size={36} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between">
+                      <p className="truncate text-sm font-medium text-white">{c.other_nickname}</p>
+                      <span className="text-xs" style={{ color: "#8A8A8A" }}>{c.last_message_at ? new Date(c.last_message_at).toLocaleDateString("zh-CN") : ""}</span>
+                    </div>
+                    <p className="truncate text-xs" style={{ color: "#8A8A8A" }}>{c.last_message || "开始对话"}</p>
+                  </div>
+                  {c.unread_count > 0 && <span className="h-2 w-2 rounded-full" style={{ background: "#FF33AA" }} />}
+                </div>
+              ))
+            )
           ) : loading ? (
             <p className="py-20 text-center text-sm" style={{ color: "#8A8A8A" }}>加载中...</p>
           ) : filtered.length === 0 ? (
@@ -118,11 +204,17 @@ export function NotificationDrawer({ open, onClose, onOpenNotice }: { open: bool
                 <Avatar nickname={n.actor_nickname || "U"} size={32} />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm text-white">
-                    {n.type === "system" ? (n.message || "系统通知") : `${n.actor_nickname}${n.count > 1 ? ` 等${n.count}人` : ""} 回复了你的公告「${n.notice_title || ""}」`}
+                    {n.type === "system" ? (n.message || "系统通知")
+                      : n.type === "like" ? `${n.actor_nickname}${n.count > 1 ? ` 等${n.count}人` : ""} 赞了你的作品「${n.work_title || ""}」`
+                      : n.type === "follow" ? `${n.actor_nickname}${n.count > 1 ? ` 等${n.count}人` : ""} 关注了你`
+                      : n.type === "work_comment" ? `${n.actor_nickname}${n.count > 1 ? ` 等${n.count}人` : ""} 评论了你的作品「${n.work_title || ""}」`
+                      : n.type === "work_comment_reply" ? `${n.actor_nickname} 回复了你在作品「${n.work_title || ""}」的评论`
+                      : n.type === "message" ? `${n.actor_nickname} 给你发了一条私信`
+                      : `${n.actor_nickname}${n.count > 1 ? ` 等${n.count}人` : ""} 回复了你的公告「${n.notice_title || ""}」`}
                   </p>
-                  {n.comment_content && (
+                  {(n.comment_content || n.work_comment_content) && (
                     <p className="mt-1 border-l-2 pl-2 text-xs" style={{ color: "#C8C8C8", borderColor: "#9933FF" }}>
-                      <span className="font-medium text-white">{n.actor_nickname}</span>：{n.comment_content}
+                      <span className="font-medium text-white">{n.actor_nickname}</span>：{n.comment_content || n.work_comment_content}
                     </p>
                   )}
                   {myReplies[n.id] && (

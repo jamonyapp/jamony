@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
 import { useAuth } from "@/lib/auth-context"
 import { useNotifications } from "@/lib/notifications-context"
+import { useDM } from "@/lib/dm-context"
 import { Avatar } from "@/components/jamony/avatar"
 import { NotificationDrawer } from "@/components/jamony/notification-drawer"
 import { NoticeDetailModal } from "@/components/jamony/notice-detail-modal"
@@ -76,7 +77,7 @@ export function TopNav({
   const isHome = pathname === "/"
   const [openMenu, setOpenMenu] = useState<"none" | "user">("none")
   const [refreshing, setRefreshing] = useState(false)
-  const [drawerOpen, setDrawerOpen] = useState(false)
+  const { drawerOpen, openDrawer, closeDrawer } = useDM()
   const [globalNotice, setGlobalNotice] = useState<Notice | null>(null)
   const navRef = useRef<HTMLElement>(null)
   const { loggedIn, setShowLoginModal, logout, user } = useAuth()
@@ -87,7 +88,7 @@ export function TopNav({
     try {
       const r = await fetch(`/api/notices/${noticeId}`, { credentials: "include" })
       const data = await r.json()
-      if (data.ok) { setGlobalNotice(mapNotice(data.notice)); setDrawerOpen(false) }
+      if (data.ok) { setGlobalNotice(mapNotice(data.notice)); closeDrawer() }
     } catch {}
   }
   const handleGlobalDelete = async (n: Notice) => {
@@ -211,7 +212,7 @@ export function TopNav({
               <button
                 aria-label="通知"
                 className="relative flex h-8 w-8 items-center justify-center rounded-lg text-white transition-colors hover:bg-white/5"
-                onClick={() => setDrawerOpen(true)}
+                onClick={openDrawer}
               >
                 <Mail className="h-[18px] w-[18px]" />
                 {unreadCount > 0 && (
@@ -219,7 +220,7 @@ export function TopNav({
                 )}
               </button>
             </div>
-            <NotificationDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} onOpenNotice={handleOpenNotice} />
+            <NotificationDrawer open={drawerOpen} onClose={closeDrawer} onOpenNotice={handleOpenNotice} />
             <NoticeDetailModal notice={globalNotice} onClose={() => setGlobalNotice(null)} onDelete={handleGlobalDelete} />
 
             {/* 头像 */}

@@ -714,10 +714,14 @@ app.post('/api/users/:id/follow', requireAuth, async (req, res) => {
     if (!targetId || targetId === req.userId) {
       return res.status(400).json({ ok: false, msg: '不能关注自己' })
     }
-    await pool.query(
-      'INSERT INTO follows (follower_id, followee_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+    const inserted = await pool.query(
+      'INSERT INTO follows (follower_id, followee_id) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING 1',
       [req.userId, targetId]
     )
+    if (inserted.rows.length > 0) {
+      const u = await pool.query('SELECT nickname FROM users WHERE id=$1', [req.userId])
+      await createNotification({ recipientId: targetId, type: 'follow', actorId: req.userId, actorNickname: u.rows[0]?.nickname })
+    }
     res.json({ ok: true, isFollowing: true })
   } catch (err) {
     console.error('Follow error:', err)
@@ -1986,11 +1990,18 @@ app.post('/api/works/:id/like', requireAuth, async (req, res) => {
     }
 
     if (action === 'like') {
-      await pool.query(
-        'INSERT INTO works_likes (work_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+      const inserted = await pool.query(
+        'INSERT INTO works_likes (work_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING 1',
         [id, userId]
       )
       await pool.query('UPDATE works SET likes = (SELECT COUNT(*) FROM works_likes WHERE work_id = $1) WHERE id = $1', [id])
+      if (inserted.rows.length > 0) {
+        const u = await pool.query('SELECT nickname FROM users WHERE id=$1', [userId])
+        const authors = await pool.query('SELECT user_id FROM work_authors WHERE work_id=$1', [id])
+        for (const a of authors.rows) {
+          await createNotification({ recipientId: a.user_id, type: 'like', workId: parseInt(id), actorId: userId, actorNickname: u.rows[0]?.nickname })
+        }
+      }
     } else if (action === 'unlike') {
       await pool.query('DELETE FROM works_likes WHERE work_id = $1 AND user_id = $2', [id, userId])
       await pool.query('UPDATE works SET likes = (SELECT COUNT(*) FROM works_likes WHERE work_id = $1) WHERE id = $1', [id])
@@ -2063,6 +2074,19 @@ app.post('/api/works/:id/comments', requireAuth, async (req, res) => {
     // 一级评论才 +1 works.comments（回复不计入主评论数）
     if (!parentId) {
       await pool.query('UPDATE works SET comments = COALESCE(comments, 0) + 1 WHERE id = $1', [id])
+    }
+    // 通知：一级评论→作品所有作者；回复→被回复者
+    const newCommentId = ins.rows[0].id
+    if (!parentId) {
+      const authors = await pool.query('SELECT user_id FROM work_authors WHERE work_id=$1', [id])
+      for (const a of authors.rows) {
+        await createNotification({ recipientId: a.user_id, type: 'work_comment', workId: parseInt(id), workCommentId: newCommentId, actorId: userId, actorNickname: nickname })
+      }
+    } else {
+      const parent = await pool.query('SELECT user_id FROM work_comments WHERE id=$1', [parentId])
+      if (parent.rows.length > 0) {
+        await createNotification({ recipientId: parent.rows[0].user_id, type: 'work_comment_reply', workId: parseInt(id), workCommentId: newCommentId, actorId: userId, actorNickname: nickname })
+      }
     }
     res.json({
       ok: true,
@@ -2326,23 +2350,23 @@ app.delete('/api/notices/:id', requireAuth, async (req, res) => {
   }
 })
 
-// 通知生成（写时聚合：同 recipient+type+notice_id+未读+1h内 → count+1 合并，否则新建；不通知自己）
-async function createNotification({ recipientId, type, noticeId, commentId, actorId, actorNickname, message }) {
+// 通知生成（写时聚合：同 recipient+type+entity+未读+1h内 → count+1 合并，否则新建；不通知自己）
+async function createNotification({ recipientId, type, noticeId, commentId, workId, workCommentId, actorId, actorNickname, message }) {
   if (!recipientId || recipientId === actorId) return
   try {
     const existing = await pool.query(
-      "SELECT id FROM notifications WHERE recipient_user_id=$1 AND type=$2 AND notice_id IS NOT DISTINCT FROM $3 AND read_at IS NULL AND updated_at > NOW() - INTERVAL '1 hour'",
-      [recipientId, type, noticeId || null]
+      "SELECT id FROM notifications WHERE recipient_user_id=$1 AND type=$2 AND notice_id IS NOT DISTINCT FROM $3 AND work_id IS NOT DISTINCT FROM $4 AND work_comment_id IS NOT DISTINCT FROM $5 AND read_at IS NULL AND updated_at > NOW() - INTERVAL '1 hour'",
+      [recipientId, type, noticeId || null, workId || null, workCommentId || null]
     )
     if (existing.rows.length > 0) {
       await pool.query(
-        "UPDATE notifications SET count = count + 1, actor_user_id = $1, actor_nickname = $2, comment_id = $3, updated_at = NOW() WHERE id = $4",
-        [actorId, actorNickname, commentId || null, existing.rows[0].id]
+        "UPDATE notifications SET count = count + 1, actor_user_id = $1, actor_nickname = $2, comment_id = $3, work_comment_id = $4, updated_at = NOW() WHERE id = $5",
+        [actorId, actorNickname, commentId || null, workCommentId || null, existing.rows[0].id]
       )
     } else {
       await pool.query(
-        "INSERT INTO notifications (recipient_user_id, type, notice_id, comment_id, actor_user_id, actor_nickname, message) VALUES ($1,$2,$3,$4,$5,$6,$7)",
-        [recipientId, type, noticeId || null, commentId || null, actorId, actorNickname, message || null]
+        "INSERT INTO notifications (recipient_user_id, type, notice_id, comment_id, work_id, work_comment_id, actor_user_id, actor_nickname, message) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+        [recipientId, type, noticeId || null, commentId || null, workId || null, workCommentId || null, actorId, actorNickname, message || null]
       )
     }
   } catch (e) { console.error('createNotification error:', e) }
@@ -2574,10 +2598,13 @@ app.get('/api/users/:id/favorites', requireAuth, async (req, res) => {
 app.get('/api/notifications', requireAuth, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT n.*, notice.title AS notice_title, nc.content AS comment_content
+      `SELECT n.*, notice.title AS notice_title, nc.content AS comment_content,
+              w.title AS work_title, wc.content AS work_comment_content
        FROM notifications n
        LEFT JOIN notices notice ON notice.id = n.notice_id
        LEFT JOIN notice_comments nc ON nc.id = n.comment_id
+       LEFT JOIN works w ON w.id = n.work_id
+       LEFT JOIN work_comments wc ON wc.id = n.work_comment_id
        WHERE n.recipient_user_id = $1
        ORDER BY n.read_at IS NULL DESC, n.updated_at DESC
        LIMIT 50`,
@@ -2616,9 +2643,10 @@ app.patch('/api/notifications/:id/read', requireAuth, async (req, res) => {
 // 全部已读（可按 type，一键全读当前 tab）
 app.post('/api/notifications/read-all', requireAuth, async (req, res) => {
   try {
-    const { type } = req.body || {}
-    if (type) {
-      await pool.query('UPDATE notifications SET read_at = NOW() WHERE recipient_user_id=$1 AND read_at IS NULL AND type=$2', [req.userId, type])
+    const { type, types } = req.body || {}
+    const typeList = types || (type ? [type] : null)
+    if (typeList && typeList.length > 0) {
+      await pool.query('UPDATE notifications SET read_at = NOW() WHERE recipient_user_id=$1 AND read_at IS NULL AND type = ANY($2)', [req.userId, typeList])
     } else {
       await pool.query('UPDATE notifications SET read_at = NOW() WHERE recipient_user_id=$1 AND read_at IS NULL', [req.userId])
     }
@@ -2638,6 +2666,110 @@ app.delete('/api/notifications/:id', requireAuth, async (req, res) => {
     console.error('Delete notification error:', err)
     res.status(500).json({ ok: false, msg: '服务器错误' })
   }
+})
+
+// ========== 私信（二人会话，未读合并进信封红点 type=message）==========
+// 创建/获取二人会话（user_a=LEAST, user_b=GREATEST 保证唯一）
+app.post('/api/messages/conversations', requireAuth, async (req, res) => {
+  try {
+    const targetUserId = parseInt(req.body.targetUserId)
+    if (!targetUserId || targetUserId === req.userId) {
+      return res.status(400).json({ ok: false, msg: '无效的私信对象' })
+    }
+    const a = Math.min(req.userId, targetUserId)
+    const b = Math.max(req.userId, targetUserId)
+    const r = await pool.query(
+      `INSERT INTO conversations (user_a_id, user_b_id) VALUES ($1, $2)
+       ON CONFLICT (user_a_id, user_b_id) DO UPDATE SET user_a_id = EXCLUDED.user_a_id
+       RETURNING id`,
+      [a, b]
+    )
+    res.json({ ok: true, conversationId: r.rows[0].id })
+  } catch (err) { console.error('Create conversation error:', err); res.status(500).json({ ok: false, msg: '服务器错误' }) }
+})
+
+// 会话列表（对方信息 + 最后消息 + 未读数）
+app.get('/api/messages/conversations', requireAuth, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT c.id, c.last_message_at,
+              CASE WHEN c.user_a_id = $1 THEN c.user_b_id ELSE c.user_a_id END AS other_id,
+              u.nickname AS other_nickname,
+              REPLACE(u.avatar_url, '/var/jamony/avatars', '/avatars') AS other_avatar,
+              (SELECT content FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) AS last_message,
+              (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id AND sender_id <> $1 AND read_at IS NULL) AS unread_count
+       FROM conversations c
+       JOIN users u ON u.id = (CASE WHEN c.user_a_id = $1 THEN c.user_b_id ELSE c.user_a_id END)
+       WHERE c.user_a_id = $1 OR c.user_b_id = $1
+       ORDER BY c.last_message_at DESC NULLS LAST`,
+      [req.userId]
+    )
+    res.json({ ok: true, conversations: result.rows })
+  } catch (err) { console.error('Conversations list error:', err); res.status(500).json({ ok: false, msg: '服务器错误' }) }
+})
+
+// 消息历史（分页，before cursor）
+app.get('/api/messages/conversations/:id', requireAuth, async (req, res) => {
+  try {
+    const cid = parseInt(req.params.id)
+    const c = await pool.query('SELECT * FROM conversations WHERE id=$1 AND (user_a_id=$2 OR user_b_id=$2)', [cid, req.userId])
+    if (c.rows.length === 0) return res.status(403).json({ ok: false, msg: '无权访问' })
+    const before = req.query.before ? parseInt(req.query.before) : null
+    const params = [cid]
+    let cursor = ''
+    if (before) { params.push(before); cursor = ' AND m.id < $2' }
+    const result = await pool.query(
+      `SELECT m.*, u.nickname AS sender_nickname FROM messages m JOIN users u ON u.id = m.sender_id
+       WHERE m.conversation_id = $1${cursor} ORDER BY m.created_at DESC LIMIT 30`,
+      params
+    )
+    res.json({ ok: true, messages: result.rows })
+  } catch (err) { console.error('Messages history error:', err); res.status(500).json({ ok: false, msg: '服务器错误' }) }
+})
+
+// 发消息 + 通知对方（type=message，合并信封红点）
+app.post('/api/messages/conversations/:id', requireAuth, async (req, res) => {
+  try {
+    const cid = parseInt(req.params.id)
+    const { content } = req.body
+    if (!content || !content.trim()) return res.status(400).json({ ok: false, msg: '内容不能为空' })
+    const c = await pool.query('SELECT * FROM conversations WHERE id=$1 AND (user_a_id=$2 OR user_b_id=$2)', [cid, req.userId])
+    if (c.rows.length === 0) return res.status(403).json({ ok: false, msg: '无权访问' })
+    const otherId = c.rows[0].user_a_id === req.userId ? c.rows[0].user_b_id : c.rows[0].user_a_id
+    const ins = await pool.query(
+      'INSERT INTO messages (conversation_id, sender_id, content) VALUES ($1, $2, $3) RETURNING id, created_at',
+      [cid, req.userId, content.trim().slice(0, 1000)]
+    )
+    await pool.query('UPDATE conversations SET last_message_at = NOW() WHERE id = $1', [cid])
+    const u = await pool.query('SELECT nickname FROM users WHERE id=$1', [req.userId])
+    await createNotification({
+      recipientId: otherId, type: 'message', actorId: req.userId, actorNickname: u.rows[0]?.nickname,
+      message: content.trim().slice(0, 50)
+    })
+    res.json({ ok: true, message: ins.rows[0] })
+  } catch (err) { console.error('Send message error:', err); res.status(500).json({ ok: false, msg: '服务器错误' }) }
+})
+
+// 标记会话已读 + 对应 message 通知已读
+app.patch('/api/messages/conversations/:id/read', requireAuth, async (req, res) => {
+  try {
+    const cid = parseInt(req.params.id)
+    const c = await pool.query('SELECT * FROM conversations WHERE id=$1 AND (user_a_id=$2 OR user_b_id=$2)', [cid, req.userId])
+    if (c.rows.length === 0) return res.status(403).json({ ok: false, msg: '无权访问' })
+    const otherId = c.rows[0].user_a_id === req.userId ? c.rows[0].user_b_id : c.rows[0].user_a_id
+    await pool.query('UPDATE messages SET read_at = NOW() WHERE conversation_id=$1 AND sender_id <> $2 AND read_at IS NULL', [cid, req.userId])
+    await pool.query("UPDATE notifications SET read_at = NOW() WHERE recipient_user_id=$1 AND type='message' AND actor_user_id=$2 AND read_at IS NULL", [req.userId, otherId])
+    res.json({ ok: true })
+  } catch (err) { console.error('Mark read error:', err); res.status(500).json({ ok: false, msg: '服务器错误' }) }
+})
+
+// 一键已读所有私信会话（清 messages 表 + message 通知）
+app.post('/api/messages/read-all', requireAuth, async (req, res) => {
+  try {
+    await pool.query('UPDATE messages SET read_at = NOW() WHERE sender_id <> $1 AND read_at IS NULL AND conversation_id IN (SELECT id FROM conversations WHERE user_a_id=$1 OR user_b_id=$1)', [req.userId])
+    await pool.query("UPDATE notifications SET read_at = NOW() WHERE recipient_user_id=$1 AND type='message' AND read_at IS NULL", [req.userId])
+    res.json({ ok: true })
+  } catch (err) { console.error('Messages read-all error:', err); res.status(500).json({ ok: false, msg: '服务器错误' }) }
 })
 
 // ========== 取消署名（不可恢复）==========

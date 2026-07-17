@@ -10,6 +10,10 @@ export type Notif = {
   notice_title: string | null
   comment_id: number | null
   comment_content: string | null
+  work_id: number | null
+  work_title: string | null
+  work_comment_id: number | null
+  work_comment_content: string | null
   message: string | null
   actor_user_id: number | null
   actor_nickname: string | null
@@ -24,7 +28,7 @@ type NotificationsContextValue = {
   refreshUnread: () => void
   fetchList: () => Promise<Notif[]>
   markRead: (id: number) => Promise<void>
-  markAllRead: (type?: string) => Promise<void>
+  markAllRead: (types?: string[]) => Promise<void>
   deleteNotif: (id: number) => Promise<void>
 }
 
@@ -63,13 +67,13 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     setUnreadCount((c) => Math.max(0, c - 1))
   }, [])
 
-  const markAllRead = useCallback(async (type?: string) => {
+  const markAllRead = useCallback(async (types?: string[]) => {
     await fetch("/api/notifications/read-all", {
       method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
-      body: JSON.stringify({ type }),
+      body: JSON.stringify({ types }),
     })
-    setUnreadCount(0)
-  }, [])
+    refreshUnread()
+  }, [refreshUnread])
 
   const deleteNotif = useCallback(async (id: number) => {
     await fetch(`/api/notifications/${id}`, { method: "DELETE", credentials: "include" })

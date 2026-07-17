@@ -2,9 +2,10 @@
 
 import { use, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { ChevronLeft, Settings } from "lucide-react"
+import { ChevronLeft, Settings, Mail } from "lucide-react"
 import { TopNav } from "@/components/jamony/top-nav"
 import { useAuth } from "@/lib/auth-context"
+import { useDM } from "@/lib/dm-context"
 import { TrackCard } from "@/components/jamony/track-card"
 import { AnonymizeDialog } from "@/components/jamony/anonymize-dialog"
 import { FollowButton } from "@/components/jamony/follow-button"
@@ -49,6 +50,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 export function ProfilePage({ nickname }: { nickname: string }) {
   const router = useRouter()
   const { user: currentUser, loggedIn, ready, setShowLoginModal } = useAuth()
+  const { openConversation } = useDM()
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [userWorks, setUserWorks] = useState<any[]>([])
@@ -227,7 +229,12 @@ export function ProfilePage({ nickname }: { nickname: string }) {
                     <Settings className="h-4 w-4" style={{ color: "#8A8A8A" }} />
                   </button>
                 ) : (
-                  <FollowButton targetUserId={profile.id} initialIsFollowing={!!profile.is_following} onAfterToggle={refreshProfile} />
+                  <>
+                    <FollowButton targetUserId={profile.id} initialIsFollowing={!!profile.is_following} onAfterToggle={refreshProfile} />
+                    <button type="button" onClick={() => openConversation(profile.id)} className="flex h-7 w-7 items-center justify-center rounded-lg transition-colors hover:bg-white/10" title="发私信">
+                      <Mail className="h-4 w-4" style={{ color: "#8A8A8A" }} />
+                    </button>
+                  </>
                 )}
               </div>
               {profile.signature && <p className="mt-1 text-[14px] text-[#B0B0B0]">{profile.signature}</p>}
