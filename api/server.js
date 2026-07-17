@@ -1199,19 +1199,21 @@ app.post('/api/rooms/:code/leave', requireAuth, async (req, res) => {
       const roomInfo = await pool.query('SELECT server_port FROM rooms WHERE id = $1', [id])
       const closePort = roomInfo.rows[0]?.server_port
       if (closePort) {
-        try { execSync(`node /var/www/jamony/api/manage-jamulus.js drums-stop ${closePort}`, { timeout: 5000, stdio: 'pipe' }) } catch {}
-        try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop ${closePort}`, { timeout: 5000, stdio: 'pipe' }) } catch {}
-        try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop-ghost ${closePort}`, { timeout: 5000, stdio: 'pipe' }) } catch {}
-        try { execSync(`rm -rf /var/jamony/recordings/room-${closePort}-records/`, { timeout: 5000, stdio: 'pipe' }) } catch {}
-        // 杀掉 ffmpeg 推流进程
+        try { execSync(`node /var/www/jamony/api/manage-jamulus.js drums-stop ${closePort}`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve drums-stop ' + closePort + ':', e.message) }
+        try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop ${closePort}`, { timeout: 10000, stdio: 'pipe' }) } catch (e) { console.error('dissolve stop ' + closePort + ':', e.message) }
+        try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop-ghost ${closePort}`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve stop-ghost ' + closePort + ':', e.message) }
+        try { execSync(`rm -rf /var/jamony/recordings/room-${closePort}-records/`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve rm recordings ' + closePort + ':', e.message) }
+        // 兜底：杀残留 ffmpeg + 清 ghost.json 条目（stop 已处理，此处防 state 漏记）
         try {
-          const ghostState = JSON.parse(fs.readFileSync('/tmp/jamony-ghost.json', 'utf8').toString() || '{}')
+          const ghostState = JSON.parse(fs.readFileSync('/var/lib/jamony/ghost.json', 'utf8').toString() || '{}')
           const entry = ghostState[String(closePort)]
-          if (entry && entry.ffmpegPid) { try { process.kill(entry.ffmpegPid) } catch {} }
+          if (entry && entry.ffmpegPid) { try { process.kill(entry.ffmpegPid) } catch (e) { console.error('dissolve kill ffmpeg ' + entry.ffmpegPid + ':', e.message) } }
           delete ghostState[String(closePort)]
-          fs.writeFileSync('/tmp/jamony-ghost.json', JSON.stringify(ghostState, null, 2))
-        } catch (e) { /* ignore */ }
+          fs.writeFileSync('/var/lib/jamony/ghost.json', JSON.stringify(ghostState, null, 2))
+        } catch (e) { console.error('dissolve ghost cleanup ' + closePort + ':', e.message) }
       }
+      // 广播房间解散，让听众客户端弹窗"房间已解散"+跳大厅（在踢出 DB 成员前发，确保听众 socket 仍在线收到）
+      io.to(code).emit('room-dissolved', { roomCode: code })
       // 踢出所有剩余成员（听众）
       await pool.query('DELETE FROM room_members WHERE room_id = $1', [id])
       // 有作品 → archived，无作品 → 硬删
@@ -2882,21 +2884,24 @@ app.post('/api/users/:userId/leave-all-rooms', requireAuth, async (req, res) => 
       await pool.query('DELETE FROM room_members WHERE room_id = $1 AND user_id = $2', [row.room_id, userId])
       const remaining = await pool.query("SELECT COUNT(*) FROM room_members WHERE room_id = $1 AND role = 'musician'", [row.room_id])
       if (parseInt(remaining.rows[0].count) === 0) {
-        const portResult = await pool.query('SELECT server_port FROM rooms WHERE id = $1 AND status != $2', [row.room_id, 'closed'])
+        const portResult = await pool.query('SELECT server_port, room_code FROM rooms WHERE id = $1 AND status != $2', [row.room_id, 'closed'])
         const closePort2 = portResult.rows[0]?.server_port
+        const dissolveCode = portResult.rows[0]?.room_code
         if (closePort2) {
-          try { execSync(`node /var/www/jamony/api/manage-jamulus.js drums-stop ${closePort2}`, { timeout: 5000, stdio: 'pipe' }) } catch {}
-          try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop ${closePort2}`, { timeout: 5000, stdio: 'pipe' }) } catch {}
-          try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop-ghost ${closePort2}`, { timeout: 5000, stdio: 'pipe' }) } catch {}
-          try { execSync(`rm -rf /var/jamony/recordings/room-${closePort2}-records/`, { timeout: 5000, stdio: 'pipe' }) } catch {}
+          try { execSync(`node /var/www/jamony/api/manage-jamulus.js drums-stop ${closePort2}`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve drums-stop ' + closePort2 + ':', e.message) }
+          try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop ${closePort2}`, { timeout: 10000, stdio: 'pipe' }) } catch (e) { console.error('dissolve stop ' + closePort2 + ':', e.message) }
+          try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop-ghost ${closePort2}`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve stop-ghost ' + closePort2 + ':', e.message) }
+          try { execSync(`rm -rf /var/jamony/recordings/room-${closePort2}-records/`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve rm recordings ' + closePort2 + ':', e.message) }
           try {
-            const gs = JSON.parse(fs.readFileSync('/tmp/jamony-ghost.json', 'utf8').toString() || '{}')
+            const gs = JSON.parse(fs.readFileSync('/var/lib/jamony/ghost.json', 'utf8').toString() || '{}')
             const ent = gs[String(closePort2)]
-            if (ent && ent.ffmpegPid) { try { process.kill(ent.ffmpegPid) } catch {} }
+            if (ent && ent.ffmpegPid) { try { process.kill(ent.ffmpegPid) } catch (e) { console.error('dissolve kill ffmpeg ' + ent.ffmpegPid + ':', e.message) } }
             delete gs[String(closePort2)]
-            fs.writeFileSync('/tmp/jamony-ghost.json', JSON.stringify(gs, null, 2))
-          } catch (e) { /* ignore */ }
+            fs.writeFileSync('/var/lib/jamony/ghost.json', JSON.stringify(gs, null, 2))
+          } catch (e) { console.error('dissolve ghost cleanup ' + closePort2 + ':', e.message) }
         }
+        // 广播房间解散，让听众客户端弹窗+跳大厅
+        if (dissolveCode) io.to(String(dissolveCode).trim()).emit('room-dissolved', { roomCode: String(dissolveCode).trim() })
         const pubCnt = await pool.query('SELECT COUNT(*) AS c FROM works WHERE room_id = $1', [row.room_id])
         if (parseInt(pubCnt.rows[0].c) > 0) {
           await pool.query("UPDATE rooms SET status='archived' WHERE id=$1", [row.room_id])
@@ -2931,6 +2936,39 @@ async function scanExpiredNotices() {
 }
 scanExpiredNotices()  // 启动时立即跑一次（pm2 重启后立即扫描，不漏）
 setInterval(scanExpiredNotices, 3600000)
+
+// 启动自检孤儿进程：pm2 重启后清理上次崩溃/删除房间残留的 jamulus headless/ghost/ffmpeg。
+// 扫描所有 jamulus-headless 监听的 UDP 端口，对比 rooms 表活跃房间，无对应房间的全部 kill。
+async function cleanupOrphanProcesses() {
+  try {
+    // 1. 扫描所有 jamulus-headless 监听的 UDP 端口
+    let headlessPorts = []
+    try {
+      const ssOut = execSync("ss -ulnp 2>/dev/null | grep jamulus-headles", { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).toString()
+      headlessPorts = [...ssOut.matchAll(/(\d+\.\d+\.\d+\.\d+):(\d+)\s/g)].map(m => parseInt(m[2])).filter(p => p >= 1024)
+    } catch (e) { /* 无 headless 进程，正常 */ }
+
+    // 2. 查 rooms 表活跃房间的 server_port
+    const active = await pool.query("SELECT server_port FROM rooms WHERE status NOT IN ('closed','archived')")
+    const activePorts = new Set(active.rows.map(r => r.server_port))
+
+    // 3. 孤儿 = headless 端口不在活跃房间
+    const orphans = headlessPorts.filter(p => !activePorts.has(p))
+    if (orphans.length === 0) { console.log('Orphan check: clean'); return }
+    for (const port of orphans) {
+      console.log('Orphan check: cleaning port ' + port)
+      try { execSync(`node /var/www/jamony/api/manage-jamulus.js drums-stop ${port}`, { timeout: 5000, stdio: 'pipe' }) } catch {}
+      try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop ${port}`, { timeout: 10000, stdio: 'pipe' }) } catch (e) { console.error('orphan stop ' + port + ':', e.message) }
+      try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop-ghost ${port}`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('orphan stop-ghost ' + port + ':', e.message) }
+      // 残留的 ffmpeg/looper（state 可能没记录），精确按端口匹配兜底 kill
+      try { execSync(`pkill -f 'jm-stream-${port}'`, { stdio: 'pipe' }) } catch {}
+      try { execSync(`pkill -f '127.0.0.1:${port}'`, { stdio: 'pipe' }) } catch {}
+    }
+    console.log('Orphan check: cleaned ' + orphans.length + ' orphan port(s): ' + orphans.join(','))
+  } catch (e) { console.error('Orphan cleanup error:', e) }
+}
+cleanupOrphanProcesses()  // 启动时立即跑一次（pm2 重启后清上次残留）
+setInterval(cleanupOrphanProcesses, 600000)  // 每 10 分钟复核一次
 
 server.listen(PORT, '127.0.0.1', () => {
   console.log('jamony API running on http://127.0.0.1:' + PORT)

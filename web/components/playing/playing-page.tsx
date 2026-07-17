@@ -9,6 +9,7 @@ import { RightColumn } from "@/components/playing/right-column"
 import { DisconnectDialog } from "@/components/playing/disconnect-dialog"
 import { KickConfirmDialog } from "@/components/playing/kick-confirm-dialog"
 import { KickedDialog } from "@/components/playing/kicked-dialog"
+import { DissolvedDialog } from "@/components/playing/dissolved-dialog"
 import { BecomeHostDialog } from "@/components/playing/become-host-dialog"
 import { ShareRoomHintDialog } from "@/components/playing/share-room-hint-dialog"
 import { useAuth } from "@/lib/auth-context"
@@ -46,7 +47,7 @@ export function PlayingPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { user } = useAuth()
-  const { realtimeChords, pushChords, realtimeTheme, pushTheme, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, kickedEvent } = useChatSocket(params?.code as string, user?.nickname)
+  const { realtimeChords, pushChords, realtimeTheme, pushTheme, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, kickedEvent, dissolvedEvent } = useChatSocket(params?.code as string, user?.nickname)
   const [room, setRoom] = useState<RoomData | null>(null)
   const [showShareHint, setShowShareHint] = useState(false)
   // 建房跳转带 ?new=1 → 弹分享引导窗（room 加载完才弹），并清掉 query 避免刷新重复弹
@@ -83,6 +84,8 @@ export function PlayingPage() {
   const [kickOpen, setKickOpen] = useState(false)
   const [kickedOpen, setKickedOpen] = useState(false)
   const kickedHandledRef = useRef(false) // 双 socket 实例都会收到 member-kicked，幂等防重复处理
+  const [dissolvedOpen, setDissolvedOpen] = useState(false)
+  const dissolvedHandledRef = useRef(false) // 房间解散广播全员收到，幂等防重复处理
 
   // 房主转移：effectiveHostId 实时跟随 broadcastMembers 的 hostId；转移给自己时弹通知
   const effectiveHostId = realtimeHostId ?? room?.host_id
@@ -254,6 +257,21 @@ export function PlayingPage() {
     setKickedOpen(true)
   }, [kickedEvent, user, myRole])
 
+  // 收到 room-dissolved 事件：房间解散（最后合奏者退出）→ 断音频 + 弹通知 + 跳大厅（全员收到，幂等）
+  useEffect(() => {
+    if (!dissolvedEvent || dissolvedHandledRef.current) return
+    dissolvedHandledRef.current = true
+    // 合奏者杀 jamsoul 进程；听众停 Icecast 收听
+    if (myRole === "musician") {
+      window.jamonyAPI?.killJamsoul?.()
+      setAudioConnected(false)
+    } else {
+      setListenerActive(false)
+      setListenerKey(n => n + 1)
+    }
+    setDissolvedOpen(true)
+  }, [dissolvedEvent, myRole])
+
   // 房主转移感知：hostId 变化且新房主是自己（且之前不是）→ 弹「你已成为房主」
   useEffect(() => {
     if (effectiveHostId == null || !user) return
@@ -342,6 +360,10 @@ export function PlayingPage() {
       <KickedDialog
         open={kickedOpen}
         onConfirm={() => { setKickedOpen(false); router.replace("/lobby") }}
+      />
+      <DissolvedDialog
+        open={dissolvedOpen}
+        onConfirm={() => { setDissolvedOpen(false); router.replace("/lobby") }}
       />
       <BecomeHostDialog
         open={becomeHostOpen}

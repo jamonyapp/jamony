@@ -9,11 +9,12 @@
 
 const { spawn, execSync } = require('child_process')
 const fs = require('fs')
+const path = require('path')
 const crypto = require('crypto')
 
 const GHOST_BIN = '/usr/local/bin/jamulus-ghost'
 const HEADLESS_BIN = '/usr/bin/jamulus-headless'
-const STATE_FILE = '/tmp/jamony-ghost.json'
+const STATE_FILE = '/var/lib/jamony/ghost.json'
 
 const CMD = process.argv[2]
 const PORT = parseInt(process.argv[3])
@@ -22,11 +23,23 @@ function getState() {
   try { return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')) } catch { return {} }
 }
 function saveState(s) {
-  fs.writeFileSync(STATE_FILE, JSON.stringify(s, null, 2))
+  fs.mkdirSync(path.dirname(STATE_FILE), { recursive: true })
+  const tmp = STATE_FILE + '.tmp'
+  fs.writeFileSync(tmp, JSON.stringify(s, null, 2))
+  fs.renameSync(tmp, STATE_FILE)  // 原子写，防 watchdog 与本工具并发写丢更新
 }
 function pidAlive(pid) {
   if (!pid) return false
   try { process.kill(pid, 0); return true } catch { return false }
+}
+// SIGTERM → 等 1s → SIGKILL 兜底，返回是否最终杀掉。不再静默吞错。
+function killPid(pid) {
+  if (!pid || !pidAlive(pid)) return true
+  try { process.kill(pid, 'SIGTERM') } catch (e) { console.error('SIGTERM ' + pid + ' fail:', e.message) }
+  try { execSync('sleep 1') } catch {}
+  if (!pidAlive(pid)) return true
+  try { process.kill(pid, 'SIGKILL') } catch (e) { console.error('SIGKILL ' + pid + ' fail:', e.message) }
+  return !pidAlive(pid)
 }
 
 if (!CMD) {
@@ -52,21 +65,32 @@ if (CMD === 'start') {
     '--jsonrpcsecretfile', secretFile,
   ], { stdio: 'ignore', detached: true })
   p.unref()
+  var st = getState()
+  st[PORT] = Object.assign({}, st[PORT], { headlessPid: p.pid })
+  saveState(st)
   console.log('HEADLESS ' + PORT + ' ch=' + finalCh + ' PID=' + p.pid + ' RPC=' + rpcPort + ' rec=' + recDir)
 }
 
 if (CMD === 'stop') {
-  try {
-    const out = execSync('ss -ulnp | grep ' + PORT + ' | grep -oP \'pid=\\K\\d+\'', { encoding: 'utf8' }).trim()
-    out.split('\\n').forEach(function(p) { if (p) { try { process.kill(parseInt(p)); console.log('Killed headless ' + p) } catch {} } })
-  } catch {}
+  var st = getState()
+  // kill headless: 优先用 state 的 headlessPid，fallback ss 端口反查
+  var headlessKilled = false
+  if (st[PORT] && st[PORT].headlessPid) {
+    headlessKilled = killPid(st[PORT].headlessPid)
+    if (headlessKilled) console.log('Killed headless ' + st[PORT].headlessPid + ' (state)')
+  }
+  if (!headlessKilled) {
+    try {
+      const out = execSync('ss -ulnp | grep ' + PORT + ' | grep -oP \'pid=\\K\\d+\'', { encoding: 'utf8' }).trim()
+      out.split('\\n').forEach(function(p) { if (p) { if (killPid(parseInt(p))) console.log('Killed headless ' + p + ' (ss)') } })
+    } catch (e) { console.error('ss headless lookup fail ' + PORT + ':', e.message) }
+  }
   // cleanup RPC secret
   try { fs.unlinkSync('/var/jamony/rpc-secrets/room-' + PORT + '.txt') } catch {}
-  // also kill ghost
-  var st = getState()
+  // also kill ghost + ffmpeg
   if (st[PORT]) {
-    try { process.kill(st[PORT].ghostPid) } catch {}
-    if (st[PORT].ffmpegPid) { try { process.kill(st[PORT].ffmpegPid) } catch {} }
+    if (st[PORT].ghostPid) killPid(st[PORT].ghostPid)
+    if (st[PORT].ffmpegPid) killPid(st[PORT].ffmpegPid)
     delete st[PORT]
     saveState(st)
     console.log('Ghost cleaned for port ' + PORT)
@@ -84,7 +108,7 @@ if (CMD === 'start-ghost') {
   ghost.unref()
 
   var st = getState()
-  st[PORT] = { ghostPid: ghost.pid, ffmpegPid: 0, ghostName: 'Jamulus-' + PORT, mountPath: mount, startedAt: new Date().toISOString() }
+  st[PORT] = Object.assign({}, st[PORT], { ghostPid: ghost.pid, ffmpegPid: 0, ghostName: 'Jamulus-' + PORT, mountPath: mount, startedAt: new Date().toISOString() })
   saveState(st)
   console.log('GHOST ' + PORT + ' ghostPid=' + ghost.pid + ' (JACK pending, watching)')
 
@@ -142,8 +166,8 @@ if (CMD === 'start-ghost') {
 if (CMD === 'stop-ghost') {
   var st = getState()
   if (st[PORT]) {
-    try { process.kill(st[PORT].ghostPid) } catch {}
-    if (st[PORT].ffmpegPid) { try { process.kill(st[PORT].ffmpegPid) } catch {} }
+    if (st[PORT].ghostPid) killPid(st[PORT].ghostPid)
+    if (st[PORT].ffmpegPid) killPid(st[PORT].ffmpegPid)
     delete st[PORT]
     saveState(st)
     console.log('Stopped ghost for port ' + PORT)
