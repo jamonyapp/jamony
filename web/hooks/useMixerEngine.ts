@@ -74,6 +74,7 @@ export function useMixerEngine() {
   const startTimeRef = useRef(0)
   const startOffsetRef = useRef(0)
   const rafRef = useRef(0)
+  const levelFrameRef = useRef(0)  // 电平隔帧采样计数（~30fps）
   const durationRef = useRef(0)
   const rafTickRef = useRef<() => void>(() => {})
 
@@ -100,6 +101,9 @@ export function useMixerEngine() {
     const next = Math.min(startOffsetRef.current + elapsed, durationRef.current)
     setCurrentTime(next)
 
+    // 电平采样：隔帧 ~30fps（Cubase 等 DAW 主流；60fps 色块跳动过灵敏）。走带位置仍每帧 60fps。
+    levelFrameRef.current = (levelFrameRef.current + 1) % 2
+    if (levelFrameRef.current === 0) {
     // 电平采样
     const lv: Record<string, number> = {}
     let newClip = false
@@ -141,6 +145,7 @@ export function useMixerEngine() {
         setMasterClip(true)
       }
     }
+    }  // end 电平采样 30fps
 
     if (next >= durationRef.current) {
       isPlayingRef.current = false

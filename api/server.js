@@ -320,7 +320,8 @@ app.get('/api/users/:id', optionalAuth, async (req, res) => {
               (SELECT COALESCE(SUM(w.likes), 0) FROM works w JOIN work_authors wa ON wa.work_id = w.id WHERE wa.user_id = u.id AND (wa.is_anonymous = FALSE OR $2 = u.id))::int AS total_likes,
               (SELECT COUNT(*) FROM follows WHERE followee_id = u.id)::int AS followers_count,
               (SELECT COUNT(*) FROM follows WHERE follower_id = u.id)::int AS following_count,
-              EXISTS(SELECT 1 FROM follows WHERE follower_id = $2 AND followee_id = u.id) AS is_following
+              EXISTS(SELECT 1 FROM follows WHERE follower_id = $2 AND followee_id = u.id) AS is_following,
+              u.follow_list_private
        FROM users u WHERE u.id = $1`, [id, req.userId]
     )
     if (result.rows.length === 0) {
@@ -328,6 +329,11 @@ app.get('/api/users/:id', optionalAuth, async (req, res) => {
     }
     const userRow = result.rows[0]
     if (userRow.avatar_url) userRow.avatar_url = userRow.avatar_url.replace('/var/jamony/avatars', '/avatars')
+    // 关注/粉丝列表隐私：非本人且私密时，隐藏 count（前端显示 --）
+    if (userRow.follow_list_private && req.userId !== parseInt(id)) {
+      userRow.followers_count = null
+      userRow.following_count = null
+    }
     res.json({ ok: true, user: userRow })
   } catch (err) {
     console.error('User fetch error:', err)
@@ -346,7 +352,8 @@ app.get('/api/users/by-nickname/:nickname', optionalAuth, async (req, res) => {
               (SELECT COALESCE(SUM(w.likes), 0) FROM works w JOIN work_authors wa ON wa.work_id = w.id WHERE wa.user_id = u.id AND (wa.is_anonymous = FALSE OR $2 = u.id))::int AS total_likes,
               (SELECT COUNT(*) FROM follows WHERE followee_id = u.id)::int AS followers_count,
               (SELECT COUNT(*) FROM follows WHERE follower_id = u.id)::int AS following_count,
-              EXISTS(SELECT 1 FROM follows WHERE follower_id = $2 AND followee_id = u.id) AS is_following
+              EXISTS(SELECT 1 FROM follows WHERE follower_id = $2 AND followee_id = u.id) AS is_following,
+              u.follow_list_private
        FROM users u WHERE u.nickname = $1`, [nickname, req.userId]
     )
     if (result.rows.length === 0) {
@@ -354,6 +361,10 @@ app.get('/api/users/by-nickname/:nickname', optionalAuth, async (req, res) => {
     }
     const userRow = result.rows[0]
     if (userRow.avatar_url) userRow.avatar_url = userRow.avatar_url.replace('/var/jamony/avatars', '/avatars')
+    if (userRow.follow_list_private && req.userId !== userRow.id) {
+      userRow.followers_count = null
+      userRow.following_count = null
+    }
     res.json({ ok: true, user: userRow })
   } catch (err) {
     console.error('User fetch error:', err)
@@ -599,7 +610,7 @@ app.patch('/api/users/:id', requireAuth, async (req, res) => {
     if (parseInt(id) !== req.userId) {
       return res.status(403).json({ ok: false, msg: '只能修改自己的资料' })
     }
-    const { nickname, bio, signature, city, primaryInstrument, instrumentCategory, styles, avatarIndex, email } = req.body
+    const { nickname, bio, signature, city, primaryInstrument, instrumentCategory, styles, avatarIndex, email, followListPrivate } = req.body
 
     const sets = []
     const params = []
@@ -613,6 +624,7 @@ app.patch('/api/users/:id', requireAuth, async (req, res) => {
     if (instrumentCategory !== undefined) { sets.push(`instrument_category = $${idx++}`); params.push(instrumentCategory) }
     if (avatarIndex !== undefined) { sets.push(`avatar_index = $${idx++}`); params.push(avatarIndex) }
     if (email !== undefined) { sets.push(`email = $${idx++}`); params.push(email) }
+    if (followListPrivate !== undefined) { sets.push(`follow_list_private = $${idx++}`); params.push(!!followListPrivate) }
     if (styles !== undefined) {
       sets.push(`styles = $${idx++}`)
       params.push('{' + styles.join(',') + '}')
@@ -625,7 +637,7 @@ app.patch('/api/users/:id', requireAuth, async (req, res) => {
     sets.push(`updated_at = NOW()`)
     params.push(id)
     const result = await pool.query(
-      `UPDATE users SET ${sets.join(', ')} WHERE id = $${idx} RETURNING id, nickname, avatar_index, avatar_url, bio, signature, styles, city, primary_instrument, instrument_category, secondary_instrument, level, points`,
+      `UPDATE users SET ${sets.join(', ')} WHERE id = $${idx} RETURNING id, nickname, avatar_index, avatar_url, bio, signature, styles, city, primary_instrument, instrument_category, secondary_instrument, level, points, follow_list_private`,
       params
     )
 
@@ -650,6 +662,7 @@ app.patch('/api/users/:id', requireAuth, async (req, res) => {
         secondaryInstrument: u.secondary_instrument || '',
         level: u.level,
         points: u.points,
+        followListPrivate: !!u.follow_list_private,
       }
     })
   } catch (err) {
@@ -737,6 +750,58 @@ app.get('/api/me/following', requireAuth, async (req, res) => {
     console.error('Following list error:', err)
     res.status(500).json({ ok: false, msg: '服务器错误' })
   }
+})
+
+// 某用户的关注列表（带用户详情；受 follow_list_private 隐私控制）
+app.get('/api/users/:id/following', optionalAuth, async (req, res) => {
+  try {
+    const targetId = parseInt(req.params.id)
+    if (!targetId) return res.status(404).json({ ok: false, msg: '用户不存在' })
+    const priv = await pool.query('SELECT follow_list_private FROM users WHERE id = $1', [targetId])
+    if (priv.rows.length === 0) return res.status(404).json({ ok: false, msg: '用户不存在' })
+    if (priv.rows[0].follow_list_private && req.userId !== targetId) {
+      return res.status(403).json({ ok: false, msg: '对方已设私密' })
+    }
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 100)
+    const offset = Math.max(parseInt(req.query.offset) || 0, 0)
+    const result = await pool.query(
+      `SELECT u.id, u.nickname, u.avatar_index, u.avatar_url, u.city, u.instrument_category, u.bio,
+              EXISTS(SELECT 1 FROM follows WHERE follower_id = $2 AND followee_id = u.id) AS is_following
+       FROM follows f JOIN users u ON u.id = f.followee_id
+       WHERE f.follower_id = $1
+       ORDER BY f.created_at DESC
+       LIMIT $3 OFFSET $4`,
+      [targetId, req.userId, limit, offset]
+    )
+    const totalRow = await pool.query('SELECT COUNT(*)::int AS c FROM follows WHERE follower_id = $1', [targetId])
+    res.json({ ok: true, users: result.rows.map(r => { if (r.avatar_url) r.avatar_url = r.avatar_url.replace('/var/jamony/avatars', '/avatars'); return r }), total: totalRow.rows[0].c })
+  } catch (err) { console.error('Following list error:', err); res.status(500).json({ ok: false, msg: '服务器错误' }) }
+})
+
+// 某用户的粉丝列表（带用户详情；受 follow_list_private 隐私控制）
+app.get('/api/users/:id/followers', optionalAuth, async (req, res) => {
+  try {
+    const targetId = parseInt(req.params.id)
+    if (!targetId) return res.status(404).json({ ok: false, msg: '用户不存在' })
+    const priv = await pool.query('SELECT follow_list_private FROM users WHERE id = $1', [targetId])
+    if (priv.rows.length === 0) return res.status(404).json({ ok: false, msg: '用户不存在' })
+    if (priv.rows[0].follow_list_private && req.userId !== targetId) {
+      return res.status(403).json({ ok: false, msg: '对方已设私密' })
+    }
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 100)
+    const offset = Math.max(parseInt(req.query.offset) || 0, 0)
+    const result = await pool.query(
+      `SELECT u.id, u.nickname, u.avatar_index, u.avatar_url, u.city, u.instrument_category, u.bio,
+              EXISTS(SELECT 1 FROM follows WHERE follower_id = $2 AND followee_id = u.id) AS is_following
+       FROM follows f JOIN users u ON u.id = f.follower_id
+       WHERE f.followee_id = $1
+       ORDER BY f.created_at DESC
+       LIMIT $3 OFFSET $4`,
+      [targetId, req.userId, limit, offset]
+    )
+    const totalRow = await pool.query('SELECT COUNT(*)::int AS c FROM follows WHERE followee_id = $1', [targetId])
+    res.json({ ok: true, users: result.rows.map(r => { if (r.avatar_url) r.avatar_url = r.avatar_url.replace('/var/jamony/avatars', '/avatars'); return r }), total: totalRow.rows[0].c })
+  } catch (err) { console.error('Followers list error:', err); res.status(500).json({ ok: false, msg: '服务器错误' }) }
 })
 
 // ========== 头像上传 ==========
@@ -2465,12 +2530,14 @@ app.delete('/api/notices/:id/favorite', requireAuth, async (req, res) => {
     res.json({ ok: true })
   } catch (err) { console.error('Unfavorite error:', err); res.status(500).json({ ok: false, msg: '服务器错误' }) }
 })
-// 用户收藏列表（含过期，过滤被删 status=deleted）
-app.get('/api/users/:id/favorites', optionalAuth, async (req, res) => {
+// 用户收藏列表（私密：仅自己可查；返回公告+作品）
+app.get('/api/users/:id/favorites', requireAuth, async (req, res) => {
   try {
     const id = parseInt(req.params.id)
     if (!id) return res.status(404).json({ ok: false, msg: '用户不存在' })
-    const result = await pool.query(
+    if (req.userId !== id) return res.status(403).json({ ok: false, msg: '收藏仅自己可见' })
+    // 收藏的公告
+    const noticeResult = await pool.query(
       `SELECT n.*, u.nickname AS author_name, u.id AS author_id,
               REPLACE(u.avatar_url, '/var/jamony/avatars', '/avatars') AS author_avatar,
               EXISTS(SELECT 1 FROM favorites WHERE user_id=$2 AND subject_type='notice' AND subject_id=n.id) AS is_favorited
@@ -2481,9 +2548,26 @@ app.get('/api/users/:id/favorites', optionalAuth, async (req, res) => {
        ORDER BY f.created_at DESC LIMIT 100`,
       [id, req.userId]
     )
-    res.json({ ok: true, notices: result.rows })
+    // 收藏的作品 = 点过赞的作品（点赞即收藏，Spotify 式）
+    const workResult = await pool.query(
+      `SELECT w.*, wa.author_id, wa.author_anonymous, wa.author_name, wa.author_avatar_url
+       FROM works_likes wl
+       JOIN works w ON w.id = wl.work_id
+       LEFT JOIN LATERAL (
+         SELECT wa.user_id AS author_id, wa.is_anonymous AS author_anonymous,
+                u.nickname AS author_name, u.avatar_url AS author_avatar_url
+         FROM work_authors wa JOIN users u ON u.id = wa.user_id
+         WHERE wa.work_id = w.id ORDER BY wa.is_anonymous ASC LIMIT 1
+       ) wa ON true
+       WHERE wl.user_id=$1 AND w.status='published'
+       ORDER BY wl.created_at DESC LIMIT 100`,
+      [id]
+    )
+    res.json({ ok: true, notices: noticeResult.rows, works: workResult.rows })
   } catch (err) { console.error('User favorites error:', err); res.status(500).json({ ok: false, msg: '服务器错误' }) }
 })
+
+// 收藏作品 = 点赞（点赞即收藏，无独立收藏 API；收藏列表查 works_likes）
 
 // ========== 通知 ==========
 // 列表（JOIN notices 拿标题，未读在前）+ 未读数

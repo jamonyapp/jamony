@@ -60,6 +60,7 @@ export function SettingsPage() {
   const [confirmPwd, setConfirmPwd] = useState("")
   const [pwdSaved, setPwdSaved] = useState(false)
   const [phoneTip, setPhoneTip] = useState(false)
+  const [followListPrivate, setFollowListPrivate] = useState(false)
 
   useEffect(() => {
     if (!ready) return
@@ -72,6 +73,7 @@ export function SettingsPage() {
     setCity(user?.city || "")
     setInstrument(user?.primaryInstrument || "原声吉他")
     setStyles(user?.styles || [])
+    if (user?.id) fetch(`/api/users/${user.id}`).then(r => r.json()).then(d => { if (d.ok) setFollowListPrivate(!!d.user?.follow_list_private) }).catch(() => {})
   }, [ready, loggedIn, user, setShowLoginModal])
 
   if (!ready) {
@@ -109,6 +111,7 @@ export function SettingsPage() {
           primaryInstrument: finalInstrument,
           instrumentCategory: cat,
           styles,
+          followListPrivate,
         }),
       })
       const data = await res.json()
@@ -212,6 +215,21 @@ export function SettingsPage() {
               })}
             </div>
           </div>
+        </div>
+
+        {/* 隐私：关注/粉丝列表 */}
+        <div className="mt-7 flex items-center justify-between rounded-[10px] border border-[#1A1A1A] bg-[#0D0D0D] px-4 py-3.5">
+          <div className="pr-3">
+            <div className="text-sm text-white">关注/粉丝列表仅自己可见</div>
+            <div className="mt-0.5 text-xs" style={{ color: "#6A6A6A" }}>开启后，其他用户无法查看你的关注和粉丝列表</div>
+          </div>
+          <button type="button" onClick={() => setFollowListPrivate(v => !v)}
+            className="relative h-6 w-11 shrink-0 rounded-full transition-colors"
+            style={{ background: followListPrivate ? "#9933FF" : "#2A2A2A" }}
+            aria-pressed={followListPrivate}>
+            <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform"
+              style={{ transform: followListPrivate ? "translateX(20px)" : "translateX(0)" }} />
+          </button>
         </div>
 
         <div className="mt-7 flex justify-end">

@@ -31,8 +31,8 @@ type UserProfile = {
   points: number
   works_count: number
   total_likes: number
-  followers_count: number
-  following_count: number
+  followers_count: number | null
+  following_count: number | null
   is_following?: boolean
   avatar_url?: string
   created_at: string
@@ -58,7 +58,12 @@ export function ProfilePage({ nickname }: { nickname: string }) {
   const [editingNotice, setEditingNotice] = useState<Notice | null>(null)
   const [publishOpen, setPublishOpen] = useState(false)
   const [myFavorites, setMyFavorites] = useState<Notice[]>([])
+  const [myFavWorks, setMyFavWorks] = useState<any[]>([])
   const [favDetail, setFavDetail] = useState<Notice | null>(null)
+  const [tab, setTab] = useState<'works' | 'notices' | 'favorites' | 'following' | 'followers'>('works')
+  const [followingList, setFollowingList] = useState<any[] | null>(null)
+  const [followersList, setFollowersList] = useState<any[] | null>(null)
+  const [followPrivateMsg, setFollowPrivateMsg] = useState<string | null>(null)
 
   useEffect(() => {
     if (!ready) return
@@ -73,20 +78,12 @@ export function ProfilePage({ nickname }: { nickname: string }) {
         const data = await res.json()
         if (data.ok) {
           setProfile(data.user)
-          // 加载该用户参与的 works
+          // works tab 默认，立即拉；其他 tab 懒加载
           const worksRes = await fetch(`/api/users/${data.user.id}/works`)
           const worksData = await worksRes.json()
           if (worksData.ok) {
             setUserWorks(worksData.works)
           }
-          // 加载该用户发布的公告
-          const nRes = await fetch(`/api/users/${data.user.id}/notices`, { credentials: "include" })
-          const nData = await nRes.json()
-          if (nData.ok) setMyNotices((nData.notices || []).map(mapNotice))
-          // 加载该用户收藏的公告
-          const fRes = await fetch(`/api/users/${data.user.id}/favorites`, { credentials: "include" })
-          const fData = await fRes.json()
-          if (fData.ok) setMyFavorites((fData.notices || []).map(mapNotice))
         }
       } catch { /* ignore */ }
       setLoading(false)
@@ -119,6 +116,24 @@ export function ProfilePage({ nickname }: { nickname: string }) {
       if (data.ok) setMyNotices((data.notices || []).map(mapNotice))
     } catch { /* ignore */ }
   }
+
+  // tab 懒加载：切换时按需 fetch 对应数据
+  useEffect(() => {
+    if (!profile) return
+    const pid = profile.id
+    const self = loggedIn && currentUser?.id === pid
+    if (tab === 'notices') {
+      fetch(`/api/users/${pid}/notices`, { credentials: 'include' }).then(r => r.json()).then(d => { if (d.ok) setMyNotices((d.notices || []).map(mapNotice)) }).catch(() => {})
+    } else if (tab === 'favorites' && self) {
+      fetch(`/api/users/${pid}/favorites`, { credentials: 'include' }).then(r => r.json()).then(d => { if (d.ok) { setMyFavorites((d.notices || []).map(mapNotice)); setMyFavWorks(d.works || []) } }).catch(() => {})
+    } else if (tab === 'following') {
+      setFollowPrivateMsg(null)
+      fetch(`/api/users/${pid}/following`, { credentials: 'include' }).then(r => r.json()).then(d => { if (d.ok) setFollowingList(d.users || []); else if (d.msg) { setFollowingList([]); setFollowPrivateMsg(d.msg) } }).catch(() => {})
+    } else if (tab === 'followers') {
+      setFollowPrivateMsg(null)
+      fetch(`/api/users/${pid}/followers`, { credentials: 'include' }).then(r => r.json()).then(d => { if (d.ok) setFollowersList(d.users || []); else if (d.msg) { setFollowersList([]); setFollowPrivateMsg(d.msg) } }).catch(() => {})
+    }
+  }, [tab, profile, loggedIn, currentUser])
 
   const handleNoticeEdit = (n: Notice) => {
     setNoticeDetail(null)
@@ -197,10 +212,11 @@ export function ProfilePage({ nickname }: { nickname: string }) {
         <div className="py-8">
           {/* 个人资料区 */}
           <section className="flex items-start gap-5">
-            <Avatar nickname={profile.nickname} avatarUrl={profile.avatar_url} size={96} className="shrink-0" />
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
+            <Avatar nickname={profile.nickname} avatarUrl={profile.avatar_url} size={112} className="shrink-0" />
+            <div className="min-w-0 flex-1 self-stretch py-1">
+              <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-2xl font-bold text-white">{profile.nickname}</h1>
+                <span className="rounded-[8px] bg-[#0D0D0D] px-2 py-0.5 text-[11px] text-[#B0B0B0] ring-1 ring-[#1A1A1A]">🎵 免费用户</span>
                 {isSelf ? (
                   <button
                     type="button"
@@ -215,147 +231,206 @@ export function ProfilePage({ nickname }: { nickname: string }) {
                 )}
               </div>
               {profile.signature && <p className="mt-1 text-[14px] text-[#B0B0B0]">{profile.signature}</p>}
-              <p className="mt-2 text-[13px] text-[#8A8A8A]">
+              <p className="mt-1 text-[13px] text-[#8A8A8A]">
                 {profile.city}{instrument ? ` · ${instrument}` : ""}
               </p>
-              <span className="mt-3 inline-block rounded-[10px] bg-[#0D0D0D] px-2.5 py-1 text-[12px] text-[#B0B0B0] ring-1 ring-[#1A1A1A]">
-                🎵 免费用户
-              </span>
+              {styles.length > 0 && (
+                <p className="mt-1.5 text-[13px] text-[#8A8A8A]">风格偏好：{styles.join('、')}</p>
+              )}
             </div>
           </section>
 
           {/* 统计数据区 */}
           <section className="mt-8 grid grid-cols-4 gap-3">
             {[
-              { value: profile.works_count.toLocaleString(), label: "参与作品" },
-              { value: profile.total_likes.toLocaleString(), label: "获赞" },
-              { value: profile.following_count.toLocaleString(), label: "关注" },
-              { value: profile.followers_count.toLocaleString(), label: "粉丝" },
+              { value: profile.works_count.toLocaleString(), label: "参与作品", tab: 'works' as const, clickable: true },
+              { value: profile.total_likes.toLocaleString(), label: "获赞", tab: null, clickable: false },
+              { value: profile.following_count == null ? '--' : profile.following_count.toLocaleString(), label: "关注", tab: 'following' as const, clickable: true },
+              { value: profile.followers_count == null ? '--' : profile.followers_count.toLocaleString(), label: "粉丝", tab: 'followers' as const, clickable: true },
             ].map((s) => (
-              <div
+              <button
                 key={s.label}
-                className="flex flex-col items-center justify-center rounded-[10px] border border-[#1A1A1A] bg-[#0D0D0D] py-4"
+                type="button"
+                disabled={!s.clickable}
+                onClick={() => s.tab && setTab(s.tab as 'works' | 'notices' | 'favorites' | 'following' | 'followers')}
+                className={`flex flex-col items-center justify-center rounded-[10px] border border-[#1A1A1A] bg-[#0D0D0D] py-4 ${s.clickable ? 'cursor-pointer transition-colors hover:bg-white/5' : 'cursor-default'}`}
               >
                 <span className="text-[20px] font-bold text-white">{s.value}</span>
                 <span className="mt-1 text-[11px] text-[#8A8A8A]">{s.label}</span>
-              </div>
+              </button>
             ))}
           </section>
 
-          {/* 擅长风格区 */}
-          {styles.length > 0 && (
-            <section className="mt-10">
-              <SectionLabel>风格偏好</SectionLabel>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {styles.map((g) => (
-                  <span
-                    key={g}
-                    className="rounded-full px-3 py-1 text-[13px]"
-                    style={{ color: "#00AAFF", backgroundColor: "rgba(0,170,255,0.12)" }}
-                  >
-                    {g}
-                  </span>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {/* 作品记录区 */}
-          <section className="mt-10">
-            <div className="flex items-center justify-between">
-              <h2 className="text-[16px] font-bold text-white">我参与的作品</h2>
-              {isSelf && (
-                <button
-                  type="button"
-                  onClick={() => router.push(`/profile/works?nickname=${encodeURIComponent(nickname)}`)}
-                  className="rounded-[10px] border px-3 py-1.5 text-xs transition-colors hover:bg-white/5"
-                  style={{ borderColor: "#2A2A2A", color: "#8A8A8A" }}
-                >
-                  显示全部
-                </button>
-              )}
-            </div>
-            {userWorks.length === 0 ? (
-              <p className="mt-4 text-sm" style={{ color: "#8A8A8A" }}>暂无作品记录</p>
-            ) : (
-            <div className="mt-4 grid grid-cols-4 gap-3">
-              {userWorks.slice(0, 8).map((w: any) => {
-                const me = w.authors?.find((a: any) => a.user_id === currentUser?.id)
-                const isAnon = me?.is_anonymous === true
-                const canAnonymize = isSelf && !!me && !isAnon
-                const track: Track = {
-                  id: String(w.id), title: w.title, author: w.author, type: w.type,
-                  nature: w.nature, styles: w.styles || [], instruments: w.instruments || [],
-                  plays: w.plays, likes: w.likes, comments: w.comments, duration: w.duration,
-                  gradient: w.gradient, date: w.date, members: w.members || [],
-                  coverImage: w.coverImage, mp3Url: w.mp3Url, isLiked: w.isLiked ?? false,
-                }
-                return (
-                  <TrackCard
-                    key={w.id}
-                    track={track}
-                    size="compact"
-                    extraMenuItems={canAnonymize ? [{ label: "取消署名", danger: true, onClick: () => setAnonymizeTarget({ id: w.id, title: w.title }) }] : undefined}
-                    badges={isSelf && me && isAnon ? [{ text: "你已匿名", color: "#9A9A9A" }] : undefined}
-                  />
-                )
-              })}
-            </div>
-            )}
+          {/* tab 头 */}
+          <section className="mt-8 flex gap-1 border-b border-[#1A1A1A]">
+            {([
+              { key: 'works', label: '作品' },
+              { key: 'notices', label: '公告' },
+              ...(isSelf ? [{ key: 'favorites', label: '收藏' }] : []),
+              { key: 'following', label: '关注' },
+              { key: 'followers', label: '粉丝' },
+            ] as const).map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => setTab(t.key as 'works' | 'notices' | 'favorites' | 'following' | 'followers')}
+                className="relative px-4 py-2.5 text-[14px] transition-colors"
+                style={{ color: tab === t.key ? '#fff' : '#8A8A8A', fontWeight: tab === t.key ? 600 : 400 }}
+              >
+                {t.label}
+                {tab === t.key && <span className="absolute inset-x-3 -bottom-px h-0.5" style={{ background: '#00AAFF' }} />}
+              </button>
+            ))}
           </section>
 
-          {/* 发布的公告 */}
-          <section className="mt-10">
-            <h2 className="text-[16px] font-bold text-white">发布的公告</h2>
-            {myNotices.length === 0 ? (
-              <p className="mt-4 text-sm" style={{ color: "#8A8A8A" }}>暂无公告</p>
-            ) : (
-              <div className="mt-4 flex flex-col gap-2">
-                {myNotices.map((n) => {
-                  const expired = !!n.expireAt && new Date(n.expireAt).getTime() < Date.now()
-                  return (
-                    <button key={n.id} onClick={() => setNoticeDetail(n)}
-                      className="flex items-center gap-3 rounded-lg border px-4 py-3 text-left transition-colors hover:bg-white/5"
-                      style={{ borderColor: "#1A1A1A", opacity: expired ? 0.5 : 1 }}>
-                      <span className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ backgroundColor: NOTICE_TYPE_COLOR[n.type] }} />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-white">{n.title}</p>
-                        <p className="text-xs" style={{ color: "#8A8A8A" }}>{NOTICE_TYPE_LABEL[n.type]} · {n.city} · {n.time}</p>
-                      </div>
-                      {expired && <span className="text-xs" style={{ color: "#FF5C5C" }}>已过期</span>}
-                    </button>
-                  )
-                })}
+          {/* tab body */}
+          <section className="mt-6 min-h-[200px]">
+            {tab === 'works' && (
+              <div>
+                {isSelf && userWorks.length > 0 && (
+                  <div className="mb-3 flex justify-end">
+                    <button type="button" onClick={() => router.push(`/profile/works?nickname=${encodeURIComponent(nickname)}`)}
+                      className="rounded-[10px] border px-3 py-1.5 text-xs transition-colors hover:bg-white/5"
+                      style={{ borderColor: '#2A2A2A', color: '#8A8A8A' }}>显示全部</button>
+                  </div>
+                )}
+                {userWorks.length === 0 ? (
+                  <p className="text-sm" style={{ color: '#8A8A8A' }}>暂无作品记录</p>
+                ) : (
+                  <div className="grid grid-cols-4 gap-3">
+                    {userWorks.slice(0, 8).map((w: any) => {
+                      const me = w.authors?.find((a: any) => a.user_id === currentUser?.id)
+                      const isAnon = me?.is_anonymous === true
+                      const canAnonymize = isSelf && !!me && !isAnon
+                      const track: Track = {
+                        id: String(w.id), title: w.title, author: w.author, type: w.type,
+                        nature: w.nature, styles: w.styles || [], instruments: w.instruments || [],
+                        plays: w.plays, likes: w.likes, comments: w.comments, duration: w.duration,
+                        gradient: w.gradient, date: w.date, members: w.members || [],
+                        coverImage: w.coverImage, mp3Url: w.mp3Url, isLiked: w.isLiked ?? false,
+                      }
+                      return (
+                        <TrackCard key={w.id} track={track} size="compact"
+                          extraMenuItems={canAnonymize ? [{ label: "取消署名", danger: true, onClick: () => setAnonymizeTarget({ id: w.id, title: w.title }) }] : undefined}
+                          badges={isSelf && me && isAnon ? [{ text: "你已匿名", color: "#9A9A9A" }] : undefined}
+                        />
+                      )
+                    })}
+                  </div>
+                )}
               </div>
             )}
-          </section>
 
-          {/* 我的收藏 */}
-          <section className="mt-10">
-            <h2 className="text-[16px] font-bold text-white">我的收藏</h2>
-            {myFavorites.length === 0 ? (
-              <p className="mt-4 text-sm" style={{ color: "#8A8A8A" }}>暂无收藏</p>
-            ) : (
-              <div className="mt-4 flex flex-col gap-2">
-                {myFavorites.map((n) => {
-                  const expired = !!n.expireAt && new Date(n.expireAt).getTime() < Date.now()
-                  return (
-                    <button key={n.id} onClick={() => setFavDetail(n)}
-                      className="flex items-center gap-3 rounded-lg border px-4 py-3 text-left transition-colors hover:bg-white/5"
-                      style={{ borderColor: "#1A1A1A", opacity: expired ? 0.5 : 1 }}>
-                      <span className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ backgroundColor: NOTICE_TYPE_COLOR[n.type] }} />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-white">{n.title}</p>
-                        <p className="text-xs" style={{ color: "#8A8A8A" }}>{NOTICE_TYPE_LABEL[n.type]} · {n.city} · {n.time}</p>
-                        <p className="mt-0.5 flex items-center gap-1 text-xs" style={{ color: "#8A8A8A" }}>
-                          <Avatar nickname={n.author} avatarUrl={n.authorAvatar} size={14} />
-                          <UserPopover nickname={n.author}>{n.author}</UserPopover>
-                        </p>
-                      </div>
-                      {expired && <span className="text-xs" style={{ color: "#FF5C5C" }}>已过期</span>}
-                    </button>
-                  )
-                })}
+            {tab === 'notices' && (
+              <div>
+                {myNotices.length === 0 ? (
+                  <p className="text-sm" style={{ color: '#8A8A8A' }}>暂无公告</p>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {myNotices.map((n) => {
+                      const expired = !!n.expireAt && new Date(n.expireAt).getTime() < Date.now()
+                      return (
+                        <button key={n.id} onClick={() => setNoticeDetail(n)}
+                          className="flex items-center gap-3 rounded-lg border px-4 py-3 text-left transition-colors hover:bg-white/5"
+                          style={{ borderColor: '#1A1A1A', opacity: expired ? 0.5 : 1 }}>
+                          <span className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ backgroundColor: NOTICE_TYPE_COLOR[n.type] }} />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium text-white">{n.title}</p>
+                            <p className="text-xs" style={{ color: '#8A8A8A' }}>{NOTICE_TYPE_LABEL[n.type]} · {n.city} · {n.time}</p>
+                          </div>
+                          {expired && <span className="text-xs" style={{ color: '#FF5C5C' }}>已过期</span>}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {tab === 'favorites' && isSelf && (
+              <div className="flex flex-col gap-6">
+                <div>
+                  <h3 className="mb-3 text-[13px] text-[#8A8A8A]">收藏的公告</h3>
+                  {myFavorites.length === 0 ? (
+                    <p className="text-sm" style={{ color: '#8A8A8A' }}>暂无</p>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      {myFavorites.map((n) => {
+                        const expired = !!n.expireAt && new Date(n.expireAt).getTime() < Date.now()
+                        return (
+                          <button key={n.id} onClick={() => setFavDetail(n)}
+                            className="flex items-center gap-3 rounded-lg border px-4 py-3 text-left transition-colors hover:bg-white/5"
+                            style={{ borderColor: '#1A1A1A', opacity: expired ? 0.5 : 1 }}>
+                            <span className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ backgroundColor: NOTICE_TYPE_COLOR[n.type] }} />
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-medium text-white">{n.title}</p>
+                              <p className="text-xs" style={{ color: '#8A8A8A' }}>{NOTICE_TYPE_LABEL[n.type]} · {n.city} · {n.time}</p>
+                              <p className="mt-0.5 flex items-center gap-1 text-xs" style={{ color: '#8A8A8A' }}>
+                                <Avatar nickname={n.author} avatarUrl={n.authorAvatar} size={14} />
+                                <UserPopover nickname={n.author}>{n.author}</UserPopover>
+                              </p>
+                            </div>
+                            {expired && <span className="text-xs" style={{ color: '#FF5C5C' }}>已过期</span>}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <h3 className="mb-3 text-[13px] text-[#8A8A8A]">收藏的作品</h3>
+                  {myFavWorks.length === 0 ? (
+                    <p className="text-sm" style={{ color: '#8A8A8A' }}>暂无</p>
+                  ) : (
+                    <div className="grid grid-cols-4 gap-3">
+                      {myFavWorks.map((w: any) => {
+                        const track: Track = {
+                          id: String(w.id), title: w.title,
+                          author: w.author_anonymous ? '匿名乐手' : (w.author_name || '未知'),
+                          type: 'jam', nature: w.copyright_type === 'cover' ? 'cover' : 'original', styles: [], instruments: [],
+                          plays: w.plays || 0, likes: w.likes || 0, comments: w.comments || 0,
+                          duration: w.duration || '', gradient: w.cover_gradient || '',
+                          date: w.created_at || '', members: [],
+                          coverImage: w.cover_image_path ? w.cover_image_path.replace('/var/jamony/works', '/works') : '',
+                          mp3Url: w.mp3_path ? w.mp3_path.replace('/var/jamony/works', '/works') : '',
+                          isLiked: false,
+                        }
+                        return (
+                          <TrackCard key={w.id} track={track} size="compact" />
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {(tab === 'following' || tab === 'followers') && (
+              <div>
+                {followPrivateMsg ? (
+                  <p className="flex h-32 items-center justify-center text-sm" style={{ color: '#8A8A8A' }}>{followPrivateMsg}</p>
+                ) : (tab === 'following' ? followingList : followersList) === null ? (
+                  <p className="text-sm" style={{ color: '#8A8A8A' }}>加载中...</p>
+                ) : (tab === 'following' ? followingList : followersList)!.length === 0 ? (
+                  <p className="text-sm" style={{ color: '#8A8A8A' }}>暂无</p>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {(tab === 'following' ? followingList : followersList)!.map((u: any) => (
+                      <button key={u.id} onClick={() => router.push(`/profile?nickname=${encodeURIComponent(u.nickname)}`)}
+                        className="flex items-center gap-3 rounded-lg border px-4 py-3 text-left transition-colors hover:bg-white/5"
+                        style={{ borderColor: '#1A1A1A' }}>
+                        <Avatar nickname={u.nickname} avatarUrl={u.avatar_url} size={36} />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-white">{u.nickname}</p>
+                          <p className="text-xs" style={{ color: '#8A8A8A' }}>{u.city}{u.instrument_category ? ` · ${u.instrument_category}` : ''}</p>
+                        </div>
+                        {currentUser?.id !== u.id && (
+                          <FollowButton targetUserId={u.id} initialIsFollowing={!!u.is_following} onAfterToggle={refreshProfile} />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </section>

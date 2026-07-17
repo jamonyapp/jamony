@@ -171,10 +171,10 @@ function FaderMeter({
           <div ref={trackRef} className="relative flex-1 w-6 cursor-ns-resize overflow-visible rounded-sm"
             style={{ background: "#0c0c0c", boxShadow: "inset 0 0 0 1px #2c2c2c" }}
             onPointerDown={(e) => { draggingRef.current = true; updateFromClientY(e.clientY) }}>
-            {/* 电平条（底部向上，绿→黄→红；无 transition 避免 60fps 卡顿） */}
+            {/* 电平条（底部向上，蓝→绿→黄；无 transition 避免 60fps 卡顿） */}
             <div className="absolute inset-x-0 bottom-0 overflow-hidden rounded-sm" style={{
               height: `${meterPercent}%`,
-              background: `linear-gradient(to top, ${MIXER_COLORS.blue}, ${MIXER_COLORS.green} 55%, ${MIXER_COLORS.yellow} 80%, ${MIXER_COLORS.red} 95%)`,
+              background: `linear-gradient(to top, ${MIXER_COLORS.blue}, ${MIXER_COLORS.green} 55%, ${MIXER_COLORS.yellow} 80%)`,
             }} />
             {/* 0dB 参考线 */}
             <div className="pointer-events-none absolute inset-x-0 h-px" style={{ bottom: `${dbToPercent(0)}%`, background: "#666" }} />
