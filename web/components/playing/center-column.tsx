@@ -314,7 +314,7 @@ function RecordingPanel({
 
   // 录音状态同步（他人开始/停止录音）
   useEffect(() => {
-    if (realtimeRecordingActive === null) return
+    if (realtimeRecordingActive == null) return
     setRecording(realtimeRecordingActive)
     if (!realtimeRecordingActive) setRecordingMine(false)
   }, [realtimeRecordingActive])

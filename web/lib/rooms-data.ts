@@ -14,10 +14,10 @@ export type Room = {
   name: string
   emoji: string
   style: string
-  category: string
-  subStyle: string
+  category?: string
+  subStyle?: string
   description: string
-  createdAt: string
+  createdAt?: string
   owner: { name: string; avatarUrl?: string; color: "blue" | "purple" | "pink" | "lime" }
   ownerOnline: boolean
   instruments: string[]
@@ -27,9 +27,9 @@ export type Room = {
   isPrivate: boolean
   proficiency?: string
   listener_count?: number
-  serverIp: string
-  port: number
-  members: RoomMember[]
+  serverIp?: string
+  port?: number
+  members?: RoomMember[]
 }
 
 export type SubCategory = { id: string; label: string }

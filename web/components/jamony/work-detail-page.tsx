@@ -85,6 +85,7 @@ interface Comment {
   replies: Comment[]
   likes: number
   is_liked: boolean
+  avatar_url?: string
 }
 
 // 相对时间格式化（刚刚 / X分钟前 / X小时前 / X天前 / 日期）
@@ -336,6 +337,7 @@ function WorkDetailInner() {
   const isCurrentPlaying = isCurrent && isPlaying
 
   function handlePlay() {
+    if (!track) return
     if (isCurrent) {
       togglePlay()
     } else {

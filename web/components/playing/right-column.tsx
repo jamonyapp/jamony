@@ -42,7 +42,7 @@ function latencyColor(ms: number): string {
   return "#FF33AA"
 }
 
-export function RightColumn({ roomId, room, refreshTrigger, realtimeMembers, currentUserId, hostId, onKick }: { roomId?: string; room: RoomInfo | null; refreshTrigger?: number; realtimeMembers?: Member[]; currentUserId?: number; hostId?: number; onKick?: (target: Member) => void }) {
+export function RightColumn({ roomId, room, refreshTrigger, realtimeMembers, currentUserId, hostId, onKick }: { roomId?: string; room: RoomInfo | null; refreshTrigger?: number; realtimeMembers?: Member[]; currentUserId?: number; hostId?: number; onKick?: (target: { user_id: number; nickname: string }) => void }) {
   const [members, setMembers] = useState<Member[]>([])
   const [listenersModalOpen, setListenersModalOpen] = useState(false)
   const [copied, setCopied] = useState(false)

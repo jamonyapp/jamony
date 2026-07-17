@@ -204,7 +204,7 @@ export function hashGradient(seed: string): string {
 // ── 作品库 Track ──
 
 export type TrackType = "rehearsal" | "jam"
-export type TrackNature = "original" | "cover"
+export type TrackNature = "original" | "cover" | "remix"
 
 export interface Track {
   id: string
