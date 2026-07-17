@@ -1433,7 +1433,7 @@ app.post('/api/rooms/:code/recording/stop', requireAuth, async (req, res) => {
     // 创建 session，启动倒计时
     const sess = await pool.query(
       `INSERT INTO recording_sessions (room_id, index, duration, countdown_seconds, expires_at)
-       VALUES ($1, $2, $3, $4, NOW() + make_interval(secs => $5::double precision)) RETURNING *`,
+       VALUES ($1, $2, $3, $4, NOW() + ($5 * interval '1 second')) RETURNING *`,
       [id, index, duration || '0:00', RECORDING_COUNTDOWN_SECONDS, RECORDING_COUNTDOWN_SECONDS]
     )
     const sessionId = sess.rows[0].id
@@ -2581,7 +2581,7 @@ app.get('/api/rooms/:code/sessions', async (req, res) => {
     const id = await getRoomIdByCode(req.params.code)
     if (!id) return res.status(404).json({ ok: false, msg: '房间不存在' })
     const changed = await applyExpiry(id)
-    if (changed) broadcastSessions(code)
+    if (changed) broadcastSessions(req.params.code)
     const sessions = await getRoomSessions(id)
     res.json({ ok: true, sessions })
   } catch (err) {
