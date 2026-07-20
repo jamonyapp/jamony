@@ -1,6 +1,6 @@
-const { app, BrowserWindow, ipcMain, session } = require('electron')
+const { app, BrowserWindow, ipcMain, session, dialog } = require('electron')
 const path = require('path')
-const { spawn } = require('child_process')
+const { spawn, execSync } = require('child_process')
 
 // 云端页面地址
 const WEB_URL = process.env.JAMONY_WEB_URL || 'http://39.96.30.128'
@@ -49,6 +49,23 @@ function createWindow() {
     },
   })
 
+  // jamony: 叉掉窗口时（jamsoul 在跑）弹确认，取消则不关窗口
+  mainWindow.on('close', (e) => {
+    if (jamsoulProcess && !isQuitting) {
+      e.preventDefault()
+      dialog.showMessageBox(mainWindow, {
+        type: 'question', buttons: ['退出', '取消'], defaultId: 0, title: '退出 jamony',
+        message: '退出 jamony 将关闭 jamsoul 并离开房间，确认退出？'
+      }).then(({ response }) => {
+        if (response === 0) {
+          isQuitting = true
+          killJamsoul(true)
+          mainWindow.close()  // 确认后关（isQuitting true 不再拦截）→ beforeunload leave → app.quit
+        }
+      }).catch(() => {})
+    }
+  })
+
   // 品牌开屏动画（4 秒）
   mainWindow.loadFile(path.join(__dirname, 'splash.html'))
 
@@ -71,9 +88,16 @@ function createWindow() {
 }
 
 // 调起 jamsoul 子进程
-function launchJamsoul(serverIp, port) {
-  // 使用 jamulus 原生的 --connect 参数自动连接服务器
+function launchJamsoul(serverIp, port, nickname) {
+  // jamony: 排重——jamsoul 已启动则不重启（避免硬刷新重复启动多个 jamsoul）
+  if (jamsoulProcess) {
+    console.log('[jamony] jamsoul already running, skip launch')
+    if (mainWindow) { mainWindow.webContents.send('jamsoul-launched', { ok: true, alreadyRunning: true }) }
+    return jamsoulProcess
+  }
+  // 使用 jamulus 原生的 --connect 参数自动连接服务器；--clientname 传 jamony 昵称（调音台 fader tag 显示）
   const args = ['--connect', `${serverIp}:${port}`]
+  if (nickname) args.push('--clientname', nickname)
 
   console.log(`[jamony] Launching jamsoul: ${JAMSOUL_BIN} ${args.join(' ')}`)
 
@@ -94,9 +118,32 @@ function launchJamsoul(serverIp, port) {
     child.on('exit', (code, signal) => {
       console.log(`[jamony] jamsoul exited (code=${code}, signal=${signal})`)
       jamsoulProcess = null
+      // jamony: jamsoul 退出通知网页（反向交互，让页面感知 jamsoul 关闭）
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('jamsoul-exited', { code, signal })
+      }
     })
 
     jamsoulProcess = child
+
+    // jamony: jamsoul 启动后用 AppleScript 调整窗口（贴 jamony 右边框 + 等高）
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      const b = mainWindow.getBounds()
+      const x = b.x + b.width
+      const y = b.y
+      const h = b.height
+      setTimeout(() => {
+        try {
+          // 获取 jamsoul 窗口当前 width（原版默认，按 fader 数量自适应）+ 设 bounds（贴 jamony 右边框 + 等高，width 保持）
+          const sizeOut = execSync(`osascript -e 'tell application "System Events" to get size of window 1 of process "jamsoul"'`).toString().trim()
+          const match = sizeOut.match(/(\d+),\s*(\d+)/)
+          const jw = match ? parseInt(match[1]) : 800
+          execSync(`osascript -e 'tell application "System Events" to set bounds of window 1 of process "jamsoul" to {${x}, ${y}, ${x + jw}, ${y + h}}'`)
+          console.log(`[jamony] jamsoul window adjusted: x=${x} y=${y} w=${jw} h=${h}`)
+        } catch (e) { console.error('[jamony] AppleScript window adjust failed:', e.message) }
+      }, 2500)
+    }
+
     return child
   } catch (err) {
     console.error(`[jamony] Error launching jamsoul: ${err.message}`)
@@ -105,17 +152,23 @@ function launchJamsoul(serverIp, port) {
 }
 
 // 清理 jamsoul 子进程
-function killJamsoul() {
+function killJamsoul(immediate = false) {
   if (jamsoulProcess) {
     console.log('[jamony] Killing jamsoul child process')
-    jamsoulProcess.kill('SIGTERM')
-    // 给 jamsoul 3 秒时间优雅退出，超时强制杀死
-    setTimeout(() => {
-      if (jamsoulProcess) {
-        try { jamsoulProcess.kill('SIGKILL') } catch (_) {}
-        jamsoulProcess = null
-      }
-    }, 3000)
+    if (immediate) {
+      // 立即强制杀（退出 jamony 时，不等优雅退出，否则 Electron 退出 setTimeout 不跑 → 孤儿）
+      try { jamsoulProcess.kill('SIGKILL') } catch (_) {}
+      jamsoulProcess = null
+    } else {
+      jamsoulProcess.kill('SIGTERM')
+      // 给 jamsoul 3 秒时间优雅退出，超时强制杀死
+      setTimeout(() => {
+        if (jamsoulProcess) {
+          try { jamsoulProcess.kill('SIGKILL') } catch (_) {}
+          jamsoulProcess = null
+        }
+      }, 3000)
+    }
   }
 }
 
@@ -130,7 +183,7 @@ ipcMain.on('join-room', (_event, payload) => {
     return
   }
 
-  launchJamsoul(payload.serverIp, payload.port)
+  launchJamsoul(payload.serverIp, payload.port, payload.nickname)
 
   // 通知网页端 jamsoul 已启动
   if (mainWindow) {
@@ -149,8 +202,30 @@ ipcMain.on('kill-jamsoul', () => {
 // ══════════════════════════════════════
 app.whenReady().then(createWindow)
 
-// 退出 jamony 时自动杀掉 jamsoul 子进程
-app.on('before-quit', killJamsoul)
+// 退出 jamony 时：有 jamsoul 则弹窗确认 + 立即 SIGKILL；无 jamsoul 直接退
+let isQuitting = false
+app.on('before-quit', (e) => {
+  if (isQuitting) { killJamsoul(true); return }
+  if (jamsoulProcess) {
+    e.preventDefault()
+    isQuitting = true
+    dialog.showMessageBox(mainWindow, {
+      type: 'question', buttons: ['退出', '取消'], defaultId: 0, title: '退出 jamony',
+      message: '退出 jamony 将关闭 jamsoul 并离开房间，确认退出？'
+    }).then(({ response }) => {
+      if (response === 0) {
+        killJamsoul(true)
+        // 不 app.exit()，改 mainWindow.close() → 触发 beforeunload leave 房间 → window-all-closed → app.quit
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close()
+        else app.exit()
+      } else {
+        isQuitting = false
+      }
+    }).catch(() => { killJamsoul(true); app.exit() })
+  } else {
+    killJamsoul(true)
+  }
+})
 
 // 关闭窗口 → 退出整个应用（连带杀掉 jamsoul）
 app.on('window-all-closed', () => {

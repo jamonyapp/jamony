@@ -18,9 +18,10 @@ import { useChatSocket } from "@/lib/chat-socket"
 declare global {
   interface Window {
     jamonyAPI?: {
-      joinRoom: (p: { serverIp: string; port: number }) => void
+      joinRoom: (p: { serverIp: string; port: number; nickname?: string }) => void
       killJamsoul: () => void
       onJamsoulLaunched: (cb: (data: unknown) => void) => void
+      onJamsoulExited?: (cb: (data: unknown) => void) => void
     }
   }
 }
@@ -78,6 +79,7 @@ export function PlayingPage() {
   const [confirmTarget, setConfirmTarget] = useState<"stay" | "home" | "lobby">("stay")
   const [listenerKey, setListenerKey] = useState(0)
   const pendingSwitchRef = useRef(false) // v3 — 监听→合奏切换：Icecast 停干净后再启动 jamsoul
+  const killingRef = useRef(false) // 主动杀 jamsoul 标记（doDisconnect 主动杀时 true，jamsoul-exited 不重复 alert）
 
   // 踢人相关：房主踢人确认 + 自己被踢通知
   const [kickTarget, setKickTarget] = useState<{ user_id: number; nickname: string } | null>(null)
@@ -95,7 +97,7 @@ export function PlayingPage() {
   // v3: 提取 launchJamsoul 为可复用的回调，供 useEffect 和 handleReconnect 共用
   const launchJamsoul = useCallback(() => {
     if (!room) return
-    const payload = { serverIp: room.stored_server_ip || "39.96.30.128", port: room.server_port }
+    const payload = { serverIp: room.stored_server_ip || "39.96.30.128", port: room.server_port, nickname: user?.nickname }
     if (window.jamonyAPI) { window.jamonyAPI.joinRoom(payload) }
     else { window.postMessage({ type: "JOIN_ROOM", payload }, "*") }
     setAudioConnected(true)
@@ -154,7 +156,7 @@ export function PlayingPage() {
           // 仅合奏者自动调起 jamsoul
           if (role === "musician") {
             setTimeout(() => {
-              const payload = { serverIp: "39.96.30.128", port: roomData.server_port }
+              const payload = { serverIp: "39.96.30.128", port: roomData.server_port, nickname: user?.nickname }
               if (window.jamonyAPI) {
                 window.jamonyAPI.joinRoom(payload)
               } else {
@@ -176,6 +178,7 @@ export function PlayingPage() {
 
   const doDisconnect = (target: "stay" | "home" | "lobby") => {
     setConfirmOpen(false)
+    killingRef.current = true  // 标记主动杀，jamsoul-exited 不重复 alert
     window.jamonyAPI?.killJamsoul?.()
     setAudioConnected(false)
     const rid = params?.code
@@ -240,6 +243,42 @@ export function PlayingPage() {
       // 成员列表靠 members-update 自动刷新，无需手动 setRefreshTrigger
     }).catch(() => {})
   }
+
+  // jamony: 退出 jamony（页面 unload）→ leave 房间（服务器清理 room_members + 进程，避免房间残留回不去）
+  useEffect(() => {
+    const handler = () => {
+      const rid = params?.code
+      if (rid && user?.id && (myRole === "musician" || myRole === "listener")) {
+        fetch(`/api/rooms/${rid}/leave`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: user.id }), keepalive: true,
+        }).catch(() => {})
+      }
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [myRole, params, user])
+
+  // jamsoul 子进程退出（用户叉掉/直接退出 jamsoul）→ 感知 + 切听众（主动杀时不 alert）
+  useEffect(() => {
+    const cleanup = window.jamonyAPI?.onJamsoulExited?.(() => {
+      if (killingRef.current) { killingRef.current = false; return }  // doDisconnect 主动杀，不重复 alert
+      if (!audioConnected) return
+      setAudioConnected(false)
+      setMyRole("listener")
+      setListenerActive(false)
+      setListenerKey(n => n + 1)
+      const rid = params?.code
+      if (rid && user?.id) {
+        fetch(`/api/rooms/${rid}/join`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: user.id, role: "listener" }),
+        }).then(() => setRefreshTrigger(n => n + 1)).catch(() => {})
+      }
+      alert("jamsoul 已关闭，已切换为听众身份")
+    })
+    return cleanup
+  }, [audioConnected, params, user])
 
   // 收到 member-kicked 事件：若是自己被踢 → 断音频 + 弹通知（幂等）
   useEffect(() => {

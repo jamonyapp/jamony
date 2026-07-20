@@ -18,6 +18,12 @@ contextBridge.exposeInMainWorld('jamonyAPI', {
   onJamsoulLaunched: (callback) => {
     ipcRenderer.on('jamsoul-launched', (_event, data) => callback(data))
   },
+  // 监听 jamsoul 退出（反向交互，jamsoul 关闭时通知页面）；返回 cleanup 防 listener 累积
+  onJamsoulExited: (callback) => {
+    const handler = (_event, data) => callback(data)
+    ipcRenderer.on('jamsoul-exited', handler)
+    return () => ipcRenderer.removeListener('jamsoul-exited', handler)
+  },
 })
 
 // 拦截网页的 window.postMessage，如果内容是 JOIN_ROOM 则转发到主进程

@@ -34,10 +34,11 @@ function BackLinkButton({
   }, [])
 
   const handleClick = () => {
-    setShow(false)
     if (onClick) {
-      setTimeout(onClick, 350)
+      // jamony: 有 onClick（弹窗确认）不淡出，选"继续合奏"按钮还在
+      onClick()
     } else {
+      setShow(false)
       setTimeout(() => { router.push(link.href) }, 350)
     }
   }
@@ -159,6 +160,7 @@ export function TopNav({
     >
       {/* Left side: jamony logo + 返回按钮 */}
       <div className="flex items-center gap-2">
+        <img src="/jamony_logo.png" alt="jamony" className="h-7 w-auto" />
         <span className="shrink-0 text-[18px] font-bold tracking-tight text-white">
           jamony
         </span>
