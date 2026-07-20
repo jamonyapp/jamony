@@ -49,13 +49,14 @@ function createWindow() {
     },
   })
 
-  // jamony: 叉掉窗口时（jamsoul 在跑）弹确认，取消则不关窗口
+  // jamony: 叉掉窗口时（在房间=合奏者或听众）弹确认，取消则不关窗口
   mainWindow.on('close', (e) => {
-    if (jamsoulProcess && !isQuitting) {
+    const isInRoom = mainWindow.webContents.getURL().includes('/room')
+    if ((jamsoulProcess || isInRoom) && !isQuitting) {
       e.preventDefault()
       dialog.showMessageBox(mainWindow, {
         type: 'question', buttons: ['退出', '取消'], defaultId: 0, title: '退出 jamony',
-        message: '退出 jamony 将关闭 jamsoul 并离开房间，确认退出？'
+        message: jamsoulProcess ? '退出 jamony 将关闭 jamsoul 并离开房间，确认退出？' : '退出 jamony 将离开当前房间，确认退出？'
       }).then(({ response }) => {
         if (response === 0) {
           isQuitting = true
@@ -102,8 +103,15 @@ function launchJamsoul(serverIp, port, nickname) {
   console.log(`[jamony] Launching jamsoul: ${JAMSOUL_BIN} ${args.join(' ')}`)
 
   try {
+    // jamony: 传 jamony 窗口位置给 jamsoul（env），jamsoul 启动时自己设窗口贴附 jamony 右边框 + 等高
+    const jamonyEnv = { ...process.env }
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      const b = mainWindow.getBounds()
+      jamonyEnv.JAMONY_BOUNDS = `${b.x + b.width},${b.y},${b.height}`
+    }
     const child = spawn(JAMSOUL_BIN, args, {
       stdio: 'ignore',
+      env: jamonyEnv,
     })
 
     child.on('error', (err) => {
@@ -119,30 +127,12 @@ function launchJamsoul(serverIp, port, nickname) {
       console.log(`[jamony] jamsoul exited (code=${code}, signal=${signal})`)
       jamsoulProcess = null
       // jamony: jamsoul 退出通知网页（反向交互，让页面感知 jamsoul 关闭）
-      if (mainWindow && !mainWindow.isDestroyed()) {
+      if (!isQuitting && mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('jamsoul-exited', { code, signal })
       }
     })
 
     jamsoulProcess = child
-
-    // jamony: jamsoul 启动后用 AppleScript 调整窗口（贴 jamony 右边框 + 等高）
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      const b = mainWindow.getBounds()
-      const x = b.x + b.width
-      const y = b.y
-      const h = b.height
-      setTimeout(() => {
-        try {
-          // 获取 jamsoul 窗口当前 width（原版默认，按 fader 数量自适应）+ 设 bounds（贴 jamony 右边框 + 等高，width 保持）
-          const sizeOut = execSync(`osascript -e 'tell application "System Events" to get size of window 1 of process "jamsoul"'`).toString().trim()
-          const match = sizeOut.match(/(\d+),\s*(\d+)/)
-          const jw = match ? parseInt(match[1]) : 800
-          execSync(`osascript -e 'tell application "System Events" to set bounds of window 1 of process "jamsoul" to {${x}, ${y}, ${x + jw}, ${y + h}}'`)
-          console.log(`[jamony] jamsoul window adjusted: x=${x} y=${y} w=${jw} h=${h}`)
-        } catch (e) { console.error('[jamony] AppleScript window adjust failed:', e.message) }
-      }, 2500)
-    }
 
     return child
   } catch (err) {
@@ -202,20 +192,20 @@ ipcMain.on('kill-jamsoul', () => {
 // ══════════════════════════════════════
 app.whenReady().then(createWindow)
 
-// 退出 jamony 时：有 jamsoul 则弹窗确认 + 立即 SIGKILL；无 jamsoul 直接退
+// 退出 jamony 时：在房间（合奏者或听众）弹窗确认 + SIGKILL；不在房间直接退
 let isQuitting = false
 app.on('before-quit', (e) => {
   if (isQuitting) { killJamsoul(true); return }
-  if (jamsoulProcess) {
+  const isInRoom = mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents.getURL().includes('/room')
+  if (jamsoulProcess || isInRoom) {
     e.preventDefault()
     isQuitting = true
     dialog.showMessageBox(mainWindow, {
       type: 'question', buttons: ['退出', '取消'], defaultId: 0, title: '退出 jamony',
-      message: '退出 jamony 将关闭 jamsoul 并离开房间，确认退出？'
+      message: jamsoulProcess ? '退出 jamony 将关闭 jamsoul 并离开房间，确认退出？' : '退出 jamony 将离开当前房间，确认退出？'
     }).then(({ response }) => {
       if (response === 0) {
         killJamsoul(true)
-        // 不 app.exit()，改 mainWindow.close() → 触发 beforeunload leave 房间 → window-all-closed → app.quit
         if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close()
         else app.exit()
       } else {
