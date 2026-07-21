@@ -158,12 +158,15 @@ function WorkDetailInner() {
       })
       const data = await r.json()
       if (data.ok) {
+        // 客户端补头像：POST 返回体可能不带 avatar_url，用当前登录用户头像兜底
+        // （与公告牌 comment-section.tsx 同规则，评论后立刻显示真实头像，无需刷新）
+        const nc = { ...data.comment, avatar_url: user.avatarUrl }
         if (parentId) {
           // 回复：追加到父评论 replies（回复不计入 works.comments）
-          setComments((cs) => cs.map((c) => c.id === parentId ? { ...c, replies: [...c.replies, data.comment] } : c))
+          setComments((cs) => cs.map((c) => c.id === parentId ? { ...c, replies: [...c.replies, nc] } : c))
         } else {
           // 一级评论：顶部 + 评论数 +1
-          setComments((cs) => [data.comment, ...cs])
+          setComments((cs) => [nc, ...cs])
           adjustCount(track.id, 1, track.comments)
         }
       }

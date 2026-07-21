@@ -2063,9 +2063,12 @@ app.post('/api/works/:id/comments', requireAuth, async (req, res) => {
     if (content.length > 200) {
       return res.status(400).json({ ok: false, msg: '评论不超过200字' })
     }
-    const userRow = await pool.query('SELECT nickname FROM users WHERE id=$1', [userId])
+    const userRow = await pool.query('SELECT nickname, avatar_url FROM users WHERE id=$1', [userId])
     if (userRow.rows.length === 0) return res.status(400).json({ ok: false, msg: '用户不存在' })
     const nickname = userRow.rows[0].nickname
+    const avatarUrl = userRow.rows[0].avatar_url
+      ? userRow.rows[0].avatar_url.replace('/var/jamony/avatars', '/avatars')
+      : ''
     const ins = await pool.query(
       `INSERT INTO work_comments (work_id, user_id, nickname, content, parent_id, reply_to_nickname)
        VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, created_at`,
@@ -2094,6 +2097,7 @@ app.post('/api/works/:id/comments', requireAuth, async (req, res) => {
         id: ins.rows[0].id,
         user_id: userId,
         nickname,
+        avatar_url: avatarUrl,
         content: content.trim(),
         parent_id: parentId || null,
         reply_to_nickname: replyToNickname || null,
@@ -2418,9 +2422,12 @@ app.post('/api/notices/:id/comments', requireAuth, async (req, res) => {
     if (content.length > 200) {
       return res.status(400).json({ ok: false, msg: '评论不超过200字' })
     }
-    const userRow = await pool.query('SELECT nickname FROM users WHERE id=$1', [userId])
+    const userRow = await pool.query('SELECT nickname, avatar_url FROM users WHERE id=$1', [userId])
     if (userRow.rows.length === 0) return res.status(400).json({ ok: false, msg: '用户不存在' })
     const nickname = userRow.rows[0].nickname
+    const avatarUrl = userRow.rows[0].avatar_url
+      ? userRow.rows[0].avatar_url.replace('/var/jamony/avatars', '/avatars')
+      : ''
     const ins = await pool.query(
       `INSERT INTO notice_comments (notice_id, user_id, nickname, content, parent_id, reply_to_nickname)
        VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, created_at`,
@@ -2449,6 +2456,7 @@ app.post('/api/notices/:id/comments', requireAuth, async (req, res) => {
         id: ins.rows[0].id,
         user_id: userId,
         nickname,
+        avatar_url: avatarUrl,
         content: content.trim(),
         parent_id: parentId || null,
         reply_to_nickname: replyToNickname || null,
