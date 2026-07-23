@@ -221,8 +221,6 @@ export function LeftColumn({
         </button>
       )}
 
-      {/* debug version marker */}
-      <p className="mt-2 text-center text-[10px]" style={{ color: "#333" }}>{buildVersion || ""}</p>
     </aside>
   )
 }
