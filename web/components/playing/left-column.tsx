@@ -27,7 +27,6 @@ export function LeftColumn({
   roomPort,
   listenerActive,
   listenerKey,
-  buildVersion,
   onStartListening,
   onDisconnect,
   onReconnect,
@@ -44,7 +43,6 @@ export function LeftColumn({
   roomPort?: number
   listenerActive?: boolean
   listenerKey?: number
-  buildVersion?: string
   onStartListening?: () => void
   onDisconnect: () => void
   onReconnect: () => void

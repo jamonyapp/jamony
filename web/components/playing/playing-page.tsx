@@ -67,7 +67,6 @@ export function PlayingPage() {
   useEffect(() => { if (realtimeChords.length > 0) { setChords(realtimeChords); setChordTextFromPush(realtimeChords.join(' ')) } }, [realtimeChords])
   useEffect(() => { if (realtimeTheme) setCustomTheme(realtimeTheme) }, [realtimeTheme])
   const initBpmRef = useRef(false)
-  const BUILD_VERSION = "2026-06-23-v3"
   useEffect(() => {
     if (realtimeBpm > 0) { setCurrentBpm(realtimeBpm); initBpmRef.current = true }
     else if (initBpmRef.current && realtimeBpm === 0) setCurrentBpm(0)
@@ -360,7 +359,6 @@ export function PlayingPage() {
             roomPort={room?.server_port}
             listenerActive={listenerActive}
             listenerKey={listenerKey}
-            buildVersion={BUILD_VERSION}
             onStartListening={() => setListenerActive(p => !p)}
             onDisconnect={() => { setConfirmTarget("stay"); setConfirmOpen(true) }}
             onReconnect={handleReconnect}
