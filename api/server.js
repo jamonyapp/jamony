@@ -3048,6 +3048,13 @@ io.on("connection", (socket) => {
       time: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
       isSelf: false,
     })
+    // jamony: 异步存证(180天证据保全, 不阻塞实时转发)
+    if (roomId && socket.userId && message) {
+      pool.query(
+        'INSERT INTO chat_messages (room_code, user_id, nickname, avatar_url, content) VALUES ($1, $2, $3, $4, $5)',
+        [roomId, socket.userId, socket.nickname, socket.avatarUrl || '', message]
+      ).catch(e => console.error('chat_messages insert error:', e.message))
+    }
   })
 
   socket.on("push-chords", async (data) => {
@@ -3193,6 +3200,16 @@ async function cleanupOrphanProcesses() {
 }
 cleanupOrphanProcesses()  // 启动时立即跑一次（pm2 重启后清上次残留）
 setInterval(cleanupOrphanProcesses, 600000)  // 每 10 分钟复核一次
+
+// jamony: 聊天记录证据保全 — 每 6 小时清理 180 天前的记录
+async function cleanupOldChatMessages() {
+  try {
+    const r = await pool.query("DELETE FROM chat_messages WHERE created_at < NOW() - INTERVAL '180 days'")
+    if (r.rowCount > 0) console.log(`Chat cleanup: deleted ${r.rowCount} messages older than 180 days`)
+  } catch (e) { console.error('Chat cleanup error:', e.message) }
+}
+cleanupOldChatMessages()
+setInterval(cleanupOldChatMessages, 6 * 3600 * 1000)
 
 server.listen(PORT, '127.0.0.1', () => {
   console.log('jamony API running on http://127.0.0.1:' + PORT)

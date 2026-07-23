@@ -10,6 +10,7 @@ import { DisconnectDialog } from "@/components/playing/disconnect-dialog"
 import { KickConfirmDialog } from "@/components/playing/kick-confirm-dialog"
 import { KickedDialog } from "@/components/playing/kicked-dialog"
 import { DissolvedDialog } from "@/components/playing/dissolved-dialog"
+import { JamsoulExitedDialog } from "@/components/playing/jamsoul-exited-dialog"
 import { BecomeHostDialog } from "@/components/playing/become-host-dialog"
 import { ShareRoomHintDialog } from "@/components/playing/share-room-hint-dialog"
 import { useAuth } from "@/lib/auth-context"
@@ -88,6 +89,7 @@ export function PlayingPage() {
   const kickedHandledRef = useRef(false) // 双 socket 实例都会收到 member-kicked，幂等防重复处理
   const [dissolvedOpen, setDissolvedOpen] = useState(false)
   const dissolvedHandledRef = useRef(false) // 房间解散广播全员收到，幂等防重复处理
+  const [jamsoulExitedOpen, setJamsoulExitedOpen] = useState(false) // jamsoul被叉掉→切听众后弹窗通知
 
   // 房主转移：effectiveHostId 实时跟随 broadcastMembers 的 hostId；转移给自己时弹通知
   const effectiveHostId = realtimeHostId ?? room?.host_id
@@ -275,7 +277,7 @@ export function PlayingPage() {
           body: JSON.stringify({ userId: user.id, role: "listener" }),
         }).then(() => setRefreshTrigger(n => n + 1)).catch(() => {})
       }
-      alert("jamsoul 已关闭，已切换为听众身份")
+      setJamsoulExitedOpen(true) // 状态驱动：React先渲染听众页面，弹窗由state控制渲染
     })
     return cleanup
   }, [audioConnected, params, user])
@@ -407,6 +409,10 @@ export function PlayingPage() {
       <BecomeHostDialog
         open={becomeHostOpen}
         onConfirm={() => setBecomeHostOpen(false)}
+      />
+      <JamsoulExitedDialog
+        open={jamsoulExitedOpen}
+        onConfirm={() => setJamsoulExitedOpen(false)}
       />
       <ShareRoomHintDialog
         open={showShareHint && !!room}
