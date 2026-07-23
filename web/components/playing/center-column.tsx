@@ -391,7 +391,7 @@ function RecordingPanel({
             本房间录音
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            {sessions.length === 0 ? "朋友们还没有录音" : `已录制 ${sessions.length} 段`}
+            {sessions.length === 0 ? "大家还没有录音" : `已录制 ${sessions.length} 段`}
           </p>
         </div>
 
@@ -421,7 +421,7 @@ function RecordingPanel({
       {/* 录音记录 —— 可滚动 */}
       <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin p-4">
         {sessions.length === 0 ? (
-          <div className="grid h-full place-items-center text-sm text-muted-foreground">朋友们还没有录音</div>
+          <div className="grid h-full place-items-center text-sm text-muted-foreground">大家还没有录音</div>
         ) : (
           <div className="flex flex-col gap-2">
             {sessions.map((s) => (

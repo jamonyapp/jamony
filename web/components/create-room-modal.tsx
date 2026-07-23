@@ -120,7 +120,7 @@ export function CreateRoomModal({
 
           {/* 演奏水平（乐谱力度记号）*/}
           <div>
-            <label className="mb-1.5 block text-xs font-medium" style={{ color: "#9A9A9A" }}>演奏水平 *（jamony 力度记号）</label>
+            <label className="mb-1.5 block text-xs font-medium" style={{ color: "#9A9A9A" }}>演奏水平 *</label>
             <div className="flex gap-2">
               {PROFICIENCY_ORDER.map((p) => {
                 const info = PROFICIENCY_MAP[p]
@@ -129,7 +129,7 @@ export function CreateRoomModal({
                   <button key={p} type="button" onClick={() => setProficiency(p)}
                     className="flex-1 rounded-[10px] border py-2 text-center transition-all"
                     style={{ background: active ? "rgba(153,51,255,0.12)" : "#141414", borderColor: active ? info.color : "#2A2A2A" }}>
-                    <span className="block italic text-sm font-bold" style={{ color: active ? info.color : "#B0B0B0" }}>Lv={p}</span>
+                    <span className="block text-sm font-bold" style={{ color: active ? info.color : "#B0B0B0" }}>Lv=<em>{p}</em></span>
                   </button>
                 )
               })}

@@ -5,6 +5,7 @@ import { Send, Users, Signal, Crown, Headphones, UserCheck, UserX, Share2 } from
 import { useChatSocket } from "@/lib/chat-socket"
 import { useAuth } from "@/lib/auth-context"
 import { Avatar } from "@/components/jamony/avatar"
+import { ProficiencyBadge } from "@/components/proficiency-badge"
 import { ListenersModal } from "@/components/playing/listeners-modal"
 import { copyShareText } from "@/lib/share-room"
 
@@ -34,6 +35,7 @@ type RoomInfo = {
   musician_count: number
   listener_count: number
   max_musicians: number
+  proficiency?: string
 }
 
 function latencyColor(ms: number): string {
@@ -106,6 +108,7 @@ export function RightColumn({ roomId, room, refreshTrigger, realtimeMembers, cur
               <span className="rounded-[6px] px-1.5 py-[1px] text-[10px]" style={{ background: "rgba(255,255,255,0.06)", color: "#8A8A8A" }}>
                 {room.style || "通用"}
               </span>
+              <ProficiencyBadge proficiency={room.proficiency} />
             </div>
             <p className="mt-1.5 text-xs leading-relaxed" style={{ color: "#8A8A8A" }}>{room.description}</p>
             <p className="mt-1.5 flex items-center gap-1 text-[11px]" style={{ color: "#8A8A8A" }}>
