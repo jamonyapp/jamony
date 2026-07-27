@@ -49,6 +49,9 @@ function createWindow() {
     },
   })
 
+  // jamony: jamsoul 跟随前置 (点击 jamony → jamsoul 跟随到最前, 不抢焦点; 不跟随移动——跨进程跟随移动卡顿)
+  mainWindow.on('focus', () => sendToJamsoul({ cmd: 'raise' }))
+
   // jamony: 叉掉窗口时（在房间=合奏者或听众）弹确认，取消则不关窗口
   mainWindow.on('close', (e) => {
     const isInRoom = mainWindow.webContents.getURL().includes('/room')
@@ -88,6 +91,13 @@ function createWindow() {
   })
 }
 
+// jamony: 通过 stdin 给 jamsoul 发窗口跟随指令 (raise/move)
+function sendToJamsoul(obj) {
+  if (jamsoulProcess && jamsoulProcess.stdin && jamsoulProcess.stdin.writable) {
+    jamsoulProcess.stdin.write(JSON.stringify(obj) + '\n')
+  }
+}
+
 // 调起 jamsoul 子进程
 function launchJamsoul(serverIp, port, nickname) {
   // jamony: 排重——jamsoul 已启动则不重启（避免硬刷新重复启动多个 jamsoul）
@@ -110,7 +120,7 @@ function launchJamsoul(serverIp, port, nickname) {
       jamonyEnv.JAMONY_BOUNDS = `${b.x + b.width},${b.y},${b.height}`
     }
     const child = spawn(JAMSOUL_BIN, args, {
-      stdio: 'ignore',
+      stdio: ['pipe', 'ignore', 'ignore'], // jamony: 开 stdin pipe 给 jamsoul 发窗口跟随指令
       env: jamonyEnv,
     })
 
