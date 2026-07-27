@@ -1,0 +1,20 @@
+[Unit]
+Description=JACK Audio Server (jamony)
+# 注：原 Before=jamony-api 已删除——jamony-api 是 pm2 进程非 systemd unit，
+# Before= 依赖无效（systemd 报 "Failed to add dependency" 警告）。JACK 作为独立
+# 系统服务常驻，开机自启，不依赖 pm2。房间隔离在 jamulus 层（每房间独立
+# headless+ghost，按 UDP 端口区分），JACK 是共享音频总线，不影响隔离。
+
+[Service]
+Type=simple
+# systemd 环境无 D-Bus session bus(无 X11/$DISPLAY)，jackd 做 ALSA 设备预留会失败
+# ("Audio device hw:Loopback cannot be acquired")。Loopback 是虚拟设备无需预留，绕过。
+Environment=JACK_NO_AUDIO_RESERVATION=1
+ExecStartPre=/bin/sh -c 'modprobe snd-aloop 2>/dev/null || true'
+ExecStart=/usr/bin/jackd -d alsa -d hw:Loopback -p 1024 -r 48000
+Restart=always
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target

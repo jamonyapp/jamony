@@ -37,6 +37,7 @@ release-*/
 build/
 deploy/*
 !deploy/nginx-jamony.conf
+!deploy/jack.service
 build-gui/
 build-nox/
 jamulus.sln

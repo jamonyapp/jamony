@@ -68,6 +68,18 @@ if (CMD === 'start') {
   var st = getState()
   st[PORT] = Object.assign({}, st[PORT], { headlessPid: p.pid })
   saveState(st)
+  // 等 headless bind UDP 端口就绪再返回，避免 ghost 启动时 headless 还没 bind（时序竞态）
+  // 最多等 5s；期间 headless 进程死掉则提前退出
+  const deadline = Date.now() + 5000
+  while ( Date.now() < deadline ) {
+    try {
+      execSync ( 'ss -ulnp | grep ' + PORT, { stdio: 'pipe' } )
+      break // 端口已 bind
+    } catch {
+      if ( !pidAlive ( p.pid ) ) { console.error ( 'HEADLESS ' + PORT + ' died before bind' ); break }
+      execSync ( 'sleep 0.2', { stdio: 'pipe' } )
+    }
+  }
   console.log('HEADLESS ' + PORT + ' ch=' + finalCh + ' PID=' + p.pid + ' RPC=' + rpcPort + ' rec=' + recDir)
 }
 
