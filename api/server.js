@@ -1244,77 +1244,72 @@ app.post('/api/rooms/:code/join', requireAuth, async (req, res) => {
 })
 
 // 离开房间
+// 移除成员并检查房间是否解散（/leave 和 socket disconnect 共用，L2 兜底也走这个）
+// 返回 true=房间已解散（杀进程+删房间），false=房间还在（房主可能已转移给最久的合奏者）
+async function removeMemberAndCheckDissolve(userId, roomId, roomCode) {
+  await pool.query('DELETE FROM room_members WHERE room_id = $1 AND user_id = $2', [roomId, userId])
+
+  // 没有合奏者则解散房间（听众不参与房间存亡；jamony 定位是服务合奏者，没合奏者的房间无意义）
+  const musicianCount = await pool.query(
+    "SELECT COUNT(*) AS c FROM room_members WHERE room_id = $1 AND role = 'musician'", [roomId]
+  )
+  if (parseInt(musicianCount.rows[0].c) === 0) {
+    const roomInfo = await pool.query('SELECT server_port FROM rooms WHERE id = $1', [roomId])
+    const closePort = roomInfo.rows[0]?.server_port
+    if (closePort) {
+      try { execSync(`node /var/www/jamony/api/manage-jamulus.js drums-stop ${closePort}`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve drums-stop ' + closePort + ':', e.message) }
+      try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop ${closePort}`, { timeout: 10000, stdio: 'pipe' }) } catch (e) { console.error('dissolve stop ' + closePort + ':', e.message) }
+      try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop-ghost ${closePort}`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve stop-ghost ' + closePort + ':', e.message) }
+      // 兜底：杀 watchdog 竞态拉起的孤儿 ffmpeg（leave 杀的是 ghost.json 记录的 pid，watchdog 新拉的会漏杀）
+      try { execSync(`pkill -f "jm-stream-${closePort}"`, { timeout: 3000, stdio: 'pipe' }) } catch (e) { /* 无进程时 pkill 返回非 0，正常，忽略 */ }
+      try { execSync(`rm -rf /var/jamony/recordings/room-${closePort}-records/`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve rm recordings ' + closePort + ':', e.message) }
+      // 兜底：杀残留 ffmpeg + 清 ghost.json 条目（stop 已处理，此处防 state 漏记）
+      try {
+        const ghostState = JSON.parse(fs.readFileSync('/var/lib/jamony/ghost.json', 'utf8').toString() || '{}')
+        const entry = ghostState[String(closePort)]
+        if (entry && entry.ffmpegPid) { try { process.kill(entry.ffmpegPid) } catch (e) { console.error('dissolve kill ffmpeg ' + entry.ffmpegPid + ':', e.message) } }
+        delete ghostState[String(closePort)]
+        fs.writeFileSync('/var/lib/jamony/ghost.json', JSON.stringify(ghostState, null, 2))
+      } catch (e) { console.error('dissolve ghost cleanup ' + closePort + ':', e.message) }
+    }
+    // 广播房间解散，让听众客户端弹窗"房间已解散"+跳大厅（在踢出 DB 成员前发，确保听众 socket 仍在线收到）
+    io.to(roomCode).emit('room-dissolved', { roomCode })
+    await pool.query('DELETE FROM room_members WHERE room_id = $1', [roomId])
+    // 有作品 → archived，无作品 → 硬删
+    const pubCount = await pool.query('SELECT COUNT(*) AS c FROM works WHERE room_id = $1', [roomId])
+    if (parseInt(pubCount.rows[0].c) > 0) {
+      await pool.query("UPDATE rooms SET status='archived' WHERE id=$1", [roomId])
+    } else {
+      await pool.query('DELETE FROM rooms WHERE id = $1', [roomId])
+    }
+    return true
+  }
+
+  // 房间还在：房主离开则转移给在房间最久的合奏者（调起 jamsoul 时间最长，用 joined_at 近似）
+  const roomResult = await pool.query('SELECT host_id FROM rooms WHERE id = $1', [roomId])
+  if (roomResult.rows.length > 0 && roomResult.rows[0].host_id === parseInt(userId)) {
+    const newHost = await pool.query(
+      "SELECT user_id FROM room_members WHERE room_id = $1 AND role = 'musician' ORDER BY joined_at LIMIT 1",
+      [roomId]
+    )
+    if (newHost.rows.length > 0) {
+      await pool.query('UPDATE rooms SET host_id = $1 WHERE id = $2', [newHost.rows[0].user_id, roomId])
+    }
+  }
+  await broadcastMembers(roomCode)
+  return false
+}
+
 app.post('/api/rooms/:code/leave', requireAuth, async (req, res) => {
   try {
     const { code } = req.params
     const userId = req.userId
     const id = await getRoomIdByCode(code)
     if (!id) return res.status(404).json({ ok: false, msg: '房间不存在' })
-
-    const memberResult = await pool.query(
-      'SELECT * FROM room_members WHERE room_id = $1 AND user_id = $2', [id, userId]
-    )
-    if (memberResult.rows.length === 0) {
-      return res.status(404).json({ ok: false, msg: '你不在这个房间' })
-    }
-
-    await pool.query('DELETE FROM room_members WHERE room_id = $1 AND user_id = $2', [id, userId])
-
-    // 没有合奏者则解散房间（听众不参与房间存亡；jamony 定位是服务合奏者，没合奏者的房间无意义）
-    const musicianCount = await pool.query(
-      "SELECT COUNT(*) AS c FROM room_members WHERE room_id = $1 AND role = 'musician'", [id]
-    )
-    if (parseInt(musicianCount.rows[0].c) === 0) {
-      const roomInfo = await pool.query('SELECT server_port FROM rooms WHERE id = $1', [id])
-      const closePort = roomInfo.rows[0]?.server_port
-      if (closePort) {
-        try { execSync(`node /var/www/jamony/api/manage-jamulus.js drums-stop ${closePort}`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve drums-stop ' + closePort + ':', e.message) }
-        try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop ${closePort}`, { timeout: 10000, stdio: 'pipe' }) } catch (e) { console.error('dissolve stop ' + closePort + ':', e.message) }
-        try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop-ghost ${closePort}`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve stop-ghost ' + closePort + ':', e.message) }
-        // 兜底：杀 watchdog 竞态拉起的孤儿 ffmpeg（leave 杀的是 ghost.json 记录的 pid，watchdog 新拉的会漏杀）
-        try { execSync(`pkill -f "jm-stream-${closePort}"`, { timeout: 3000, stdio: 'pipe' }) } catch (e) { /* 无进程时 pkill 返回非 0，正常，忽略 */ }
-        try { execSync(`rm -rf /var/jamony/recordings/room-${closePort}-records/`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve rm recordings ' + closePort + ':', e.message) }
-        // 兜底：杀残留 ffmpeg + 清 ghost.json 条目（stop 已处理，此处防 state 漏记）
-        try {
-          const ghostState = JSON.parse(fs.readFileSync('/var/lib/jamony/ghost.json', 'utf8').toString() || '{}')
-          const entry = ghostState[String(closePort)]
-          if (entry && entry.ffmpegPid) { try { process.kill(entry.ffmpegPid) } catch (e) { console.error('dissolve kill ffmpeg ' + entry.ffmpegPid + ':', e.message) } }
-          delete ghostState[String(closePort)]
-          fs.writeFileSync('/var/lib/jamony/ghost.json', JSON.stringify(ghostState, null, 2))
-        } catch (e) { console.error('dissolve ghost cleanup ' + closePort + ':', e.message) }
-      }
-      // 广播房间解散，让听众客户端弹窗"房间已解散"+跳大厅（在踢出 DB 成员前发，确保听众 socket 仍在线收到）
-      io.to(code).emit('room-dissolved', { roomCode: code })
-      // 踢出所有剩余成员（听众）
-      await pool.query('DELETE FROM room_members WHERE room_id = $1', [id])
-      // 有作品 → archived，无作品 → 硬删
-      const pubCount = await pool.query('SELECT COUNT(*) AS c FROM works WHERE room_id = $1', [id])
-      if (parseInt(pubCount.rows[0].c) > 0) {
-        await pool.query("UPDATE rooms SET status='archived' WHERE id=$1", [id])
-      } else {
-        await pool.query('DELETE FROM rooms WHERE id = $1', [id])
-      }
-      return res.json({ ok: true, msg: '已退出房间' })
-    }
-
-    // 房主离开，移交给在房间最久的合奏者（调起 jamsoul 时间最长，用 joined_at 近似）
-    const roomResult = await pool.query('SELECT host_id, server_port FROM rooms WHERE id = $1', [id])
-    if (roomResult.rows.length === 0) {
-      return res.json({ ok: true, msg: '房间已不存在' })
-    }
-
-    if (roomResult.rows[0].host_id === parseInt(userId)) {
-      const newHost = await pool.query(
-        "SELECT user_id FROM room_members WHERE room_id = $1 AND role = 'musician' ORDER BY joined_at LIMIT 1",
-        [id]
-      )
-      if (newHost.rows.length > 0) {
-        await pool.query('UPDATE rooms SET host_id = $1 WHERE id = $2', [newHost.rows[0].user_id, id])
-      }
-    }
-
+    const memberResult = await pool.query('SELECT * FROM room_members WHERE room_id = $1 AND user_id = $2', [id, userId])
+    if (memberResult.rows.length === 0) return res.status(404).json({ ok: false, msg: '你不在这个房间' })
+    await removeMemberAndCheckDissolve(userId, id, code)
     res.json({ ok: true, msg: '已退出房间' })
-    await broadcastMembers(code)
   } catch (err) {
     console.error('Room leave error:', err)
     res.status(500).json({ ok: false, msg: '服务器错误' })
@@ -3082,8 +3077,19 @@ io.on("connection", (socket) => {
     io.to(roomId).emit("theme-update", { theme })
   })
 
-  socket.on("disconnect", () => {
-    console.log("Socket disconnected")
+  socket.on("disconnect", async () => {
+    console.log("Socket disconnected, userId:", socket.userId)
+    if (!socket.userId) return
+    // L2 兜底：崩溃/强杀/断网时客户端没机会发 leave，socket 断开（pingTimeout 后）这里清成员 + 检查解散
+    try {
+      const rooms = await pool.query(
+        "SELECT rm.room_id, r.room_code FROM room_members rm JOIN rooms r ON r.id = rm.room_id WHERE rm.user_id = $1 AND r.status NOT IN ('closed','archived')",
+        [socket.userId]
+      )
+      for (const row of rooms.rows) {
+        await removeMemberAndCheckDissolve(socket.userId, row.room_id, row.room_code)
+      }
+    } catch (e) { console.error('disconnect cleanup error:', e) }
   })
 })
 
