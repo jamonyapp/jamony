@@ -5,17 +5,17 @@ import { Headphones } from "lucide-react"
 export function JamsoulExitedDialog({
   open,
   onConfirm,
-  isLastMusician,
+  isDissolved,
 }: {
   open: boolean
   onConfirm: () => void
-  isLastMusician?: boolean
+  isDissolved?: boolean
 }) {
   if (!open) return null
 
   // jamony: 唯一合奏者叉掉 jamsoul → 房间已解散（文案不同于普通切听众）
-  const title = isLastMusician ? "房间已解散" : "音频链接已断开"
-  const desc = isLastMusician ? "将返回房间大厅" : "已切换为听众身份"
+  const title = isDissolved ? "房间已解散" : "音频链接已断开"
+  const desc = isDissolved ? "将返回房间大厅" : "已切换为听众身份"
 
   return (
     <div

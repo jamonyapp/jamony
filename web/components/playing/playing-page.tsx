@@ -451,7 +451,7 @@ export function PlayingPage() {
       />
       <JamsoulExitedDialog
         open={jamsoulExitedOpen}
-        isLastMusician={jamsoulExitedDissolve}
+        isDissolved={jamsoulExitedDissolve}
         onConfirm={() => {
           setJamsoulExitedOpen(false)
           if (jamsoulExitedDissolve) {
