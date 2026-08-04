@@ -1260,7 +1260,7 @@ app.post('/api/rooms/:code/leave', requireAuth, async (req, res) => {
 
     await pool.query('DELETE FROM room_members WHERE room_id = $1 AND user_id = $2', [id, userId])
 
-    // 只看合奏者——没有合奏者则解散房间（听众自动踢出）
+    // 没有合奏者则解散房间（听众不参与房间存亡；jamony 定位是服务合奏者，没合奏者的房间无意义）
     const musicianCount = await pool.query(
       "SELECT COUNT(*) AS c FROM room_members WHERE room_id = $1 AND role = 'musician'", [id]
     )
@@ -1271,6 +1271,8 @@ app.post('/api/rooms/:code/leave', requireAuth, async (req, res) => {
         try { execSync(`node /var/www/jamony/api/manage-jamulus.js drums-stop ${closePort}`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve drums-stop ' + closePort + ':', e.message) }
         try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop ${closePort}`, { timeout: 10000, stdio: 'pipe' }) } catch (e) { console.error('dissolve stop ' + closePort + ':', e.message) }
         try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop-ghost ${closePort}`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve stop-ghost ' + closePort + ':', e.message) }
+        // 兜底：杀 watchdog 竞态拉起的孤儿 ffmpeg（leave 杀的是 ghost.json 记录的 pid，watchdog 新拉的会漏杀）
+        try { execSync(`pkill -f "jm-stream-${closePort}"`, { timeout: 3000, stdio: 'pipe' }) } catch (e) { /* 无进程时 pkill 返回非 0，正常，忽略 */ }
         try { execSync(`rm -rf /var/jamony/recordings/room-${closePort}-records/`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve rm recordings ' + closePort + ':', e.message) }
         // 兜底：杀残留 ffmpeg + 清 ghost.json 条目（stop 已处理，此处防 state 漏记）
         try {
@@ -1295,7 +1297,7 @@ app.post('/api/rooms/:code/leave', requireAuth, async (req, res) => {
       return res.json({ ok: true, msg: '已退出房间' })
     }
 
-    // 房主离开，移交给在房间最久的合奏者
+    // 房主离开，移交给在房间最久的合奏者（调起 jamsoul 时间最长，用 joined_at 近似）
     const roomResult = await pool.query('SELECT host_id, server_port FROM rooms WHERE id = $1', [id])
     if (roomResult.rows.length === 0) {
       return res.json({ ok: true, msg: '房间已不存在' })
@@ -3122,6 +3124,7 @@ app.post('/api/users/:userId/leave-all-rooms', requireAuth, async (req, res) => 
           try { execSync(`node /var/www/jamony/api/manage-jamulus.js drums-stop ${closePort2}`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve drums-stop ' + closePort2 + ':', e.message) }
           try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop ${closePort2}`, { timeout: 10000, stdio: 'pipe' }) } catch (e) { console.error('dissolve stop ' + closePort2 + ':', e.message) }
           try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop-ghost ${closePort2}`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve stop-ghost ' + closePort2 + ':', e.message) }
+          try { execSync(`pkill -f "jm-stream-${closePort2}"`, { timeout: 3000, stdio: 'pipe' }) } catch (e) { /* 无进程时 pkill 返回非 0，正常，忽略 */ }
           try { execSync(`rm -rf /var/jamony/recordings/room-${closePort2}-records/`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve rm recordings ' + closePort2 + ':', e.message) }
           try {
             const gs = JSON.parse(fs.readFileSync('/var/lib/jamony/ghost.json', 'utf8').toString() || '{}')

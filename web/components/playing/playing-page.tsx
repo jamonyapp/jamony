@@ -21,6 +21,8 @@ declare global {
     jamonyAPI?: {
       joinRoom: (p: { serverIp: string; port: number; nickname?: string }) => void
       killJamsoul: () => void
+      enterRoom: (p: { roomCode: string; userId: number }) => void
+      leaveRoom: () => void
       onJamsoulLaunched: (cb: (data: unknown) => void) => void
       onJamsoulExited?: (cb: (data: unknown) => void) => void
     }
@@ -89,6 +91,7 @@ export function PlayingPage() {
   const [dissolvedOpen, setDissolvedOpen] = useState(false)
   const dissolvedHandledRef = useRef(false) // 房间解散广播全员收到，幂等防重复处理
   const [jamsoulExitedOpen, setJamsoulExitedOpen] = useState(false) // jamsoul被叉掉→切听众后弹窗通知
+  const [jamsoulExitedDissolve, setJamsoulExitedDissolve] = useState(false) // jamony: 叉 jamsoul 导致房间解散（非切听众）
 
   // 房主转移：effectiveHostId 实时跟随 broadcastMembers 的 hostId；转移给自己时弹通知
   const effectiveHostId = realtimeHostId ?? room?.host_id
@@ -185,6 +188,17 @@ export function PlayingPage() {
     const rid = params?.code
     if (!rid || !user?.id) return
 
+    // jamony: 唯一合奏者——任何断开操作都解散房间（没其他合奏者能维持房间）
+    if (isLastMusician) {
+      fetch(`/api/rooms/${rid}/leave`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id }),
+      }).then(() => setRoomGone(true)).catch(() => {})
+      router.push(target === "lobby" ? "/lobby" : "/")
+      return
+    }
+
     if (target === "stay") {
       // 断开但不离开页面 → 切换为听众
       setMyRole("listener")
@@ -245,6 +259,22 @@ export function PlayingPage() {
     }).catch(() => {})
   }
 
+  // jamony: 通知主进程当前所在房间 —— 主进程退出时据此可靠发 leave（替代 renderer beforeunload 的竞态：renderer 在退出时序下 fetch 发不出，主进程不受影响）
+  useEffect(() => {
+    const code = params?.code
+    const uid = user?.id
+    if (code && uid) {
+      window.jamonyAPI?.enterRoom?.({ roomCode: String(code), userId: uid })
+      return () => { window.jamonyAPI?.leaveRoom?.() }
+    }
+  }, [params?.code, user?.id])
+
+  // jamony: 是否唯一合奏者（doDisconnect/onJamsoulExited 路由 + 主进程叉 jamony/dock 弹窗文案）
+  const isLastMusician = Number(room?.musician_count) === 1 && myRole === "musician"
+  useEffect(() => {
+    window.jamonyAPI?.setLastMusician?.(isLastMusician)
+  }, [isLastMusician])
+
   // jamony: 退出 jamony（页面 unload）→ leave 房间（服务器清理 room_members + 进程，避免房间残留回不去）
   useEffect(() => {
     const handler = () => {
@@ -265,11 +295,22 @@ export function PlayingPage() {
     const cleanup = window.jamonyAPI?.onJamsoulExited?.(() => {
       if (killingRef.current) { killingRef.current = false; return }  // doDisconnect 主动杀，不重复 alert
       if (!audioConnected) return
+      const rid = params?.code
+      // jamony: 唯一合奏者叉掉 jamsoul → 房间解散（leave，不切听众、不改 audioConnected，避免背景闪现听众视角）
+      if (isLastMusician && rid && user?.id) {
+        fetch(`/api/rooms/${rid}/leave`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: user.id }), keepalive: true,
+        }).then(() => setRoomGone(true)).catch(() => {})
+        setJamsoulExitedDissolve(true)
+        setJamsoulExitedOpen(true)
+        return  // 不 setAudioConnected(false)/setMyRole，保持合奏者视角直到跳大厅
+      }
+      // 非唯一合奏者：切听众
       setAudioConnected(false)
       setMyRole("listener")
       setListenerActive(false)
       setListenerKey(n => n + 1)
-      const rid = params?.code
       if (rid && user?.id) {
         fetch(`/api/rooms/${rid}/join`, {
           method: "POST", headers: { "Content-Type": "application/json" },
@@ -279,7 +320,7 @@ export function PlayingPage() {
       setJamsoulExitedOpen(true) // 状态驱动：React先渲染听众页面，弹窗由state控制渲染
     })
     return cleanup
-  }, [audioConnected, params, user])
+  }, [audioConnected, params, user, isLastMusician])
 
   // 收到 member-kicked 事件：若是自己被踢 → 断音频 + 弹通知（幂等）
   useEffect(() => {
@@ -410,7 +451,14 @@ export function PlayingPage() {
       />
       <JamsoulExitedDialog
         open={jamsoulExitedOpen}
-        onConfirm={() => setJamsoulExitedOpen(false)}
+        isLastMusician={jamsoulExitedDissolve}
+        onConfirm={() => {
+          setJamsoulExitedOpen(false)
+          if (jamsoulExitedDissolve) {
+            setJamsoulExitedDissolve(false)
+            router.push("/lobby")
+          }
+        }}
       />
       <ShareRoomHintDialog
         open={showShareHint && !!room}

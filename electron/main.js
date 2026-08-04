@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, session, dialog } = require('electron')
+const { app, BrowserWindow, ipcMain, session, dialog, net } = require('electron')
 const path = require('path')
 const { spawn, execSync } = require('child_process')
 
@@ -19,6 +19,8 @@ const JAMSOUL_BIN = process.env.JAMSOUL_BIN || (
 
 let mainWindow = null
 let jamsoulProcess = null
+let currentRoom = null  // jamony: 当前所在房间 { roomCode, userId }，供退出时主进程可靠发 leave
+let isLastMusician = false  // jamony: 当前用户是否房间唯一合奏者（叉 jamony/dock 退出弹窗文案用）
 
 function createWindow() {
   // #3 安全白名单：只允许白名单域加载，防注入恶意页面（file: 本地页 + 内测IP + 公测域名）
@@ -59,12 +61,13 @@ function createWindow() {
       e.preventDefault()
       dialog.showMessageBox(mainWindow, {
         type: 'question', buttons: ['退出', '取消'], defaultId: 0, title: '退出 jamony',
-        message: jamsoulProcess ? '退出 jamony 将关闭 jamsoul 并离开房间，确认退出？' : '退出 jamony 将离开当前房间，确认退出？'
-      }).then(({ response }) => {
+        message: isLastMusician ? '你当前是唯一合奏者，退出 jamony 将关闭 jamsoul 并解散房间，确认退出？' : (jamsoulProcess ? '退出 jamony 将关闭 jamsoul 并离开房间，确认退出？' : '退出 jamony 将离开当前房间，确认退出？')
+      }).then(async ({ response }) => {
         if (response === 0) {
+          await sendLeaveRequest()  // jamony: 主进程先可靠发 leave（有界3s），再杀 jamsoul + 关窗
           isQuitting = true
           killJamsoul(true)
-          mainWindow.close()  // 确认后关（isQuitting true 不再拦截）→ beforeunload leave → app.quit
+          mainWindow.close()  // isQuitting true 不再拦截 → app.quit
         }
       }).catch(() => {})
     }
@@ -172,6 +175,31 @@ function killJamsoul(immediate = false) {
   }
 }
 
+// jamony: 退出前同步发 leave 给服务器（主进程发，不依赖 renderer beforeunload 的竞态）
+// 用 net 模块 + 默认 session（自动携带 httpOnly cookie 鉴权）；有界 3s 超时，失败也不阻塞退出
+function sendLeaveRequest() {
+  return new Promise((resolve) => {
+    if (!currentRoom) return resolve(false)
+    const { roomCode, userId } = currentRoom
+    console.log(`[jamony] Sending leave for room ${roomCode} (user ${userId})`)
+    let done = false
+    const finish = (ok) => { if (!done) { done = true; currentRoom = null; resolve(ok) } }
+    const timer = setTimeout(() => { console.log('[jamony] leave request timeout (3s)'); finish(false) }, 3000)
+    try {
+      const req = net.request({ url: `${WEB_URL}/api/rooms/${roomCode}/leave`, method: 'POST', session: session.defaultSession })
+      req.setHeader('Content-Type', 'application/json')
+      req.on('response', () => { clearTimeout(timer); console.log('[jamony] leave request sent ok'); finish(true) })
+      req.on('error', (e) => { clearTimeout(timer); console.log('[jamony] leave request error:', e.message); finish(false) })
+      req.write(JSON.stringify({ userId }))
+      req.end()
+    } catch (e) {
+      clearTimeout(timer)
+      console.log('[jamony] leave request exception:', e.message)
+      finish(false)
+    }
+  })
+}
+
 // ══════════════════════════════════════
 // IPC 处理 — 来自网页的 JOIN_ROOM 请求
 // ══════════════════════════════════════
@@ -197,6 +225,23 @@ ipcMain.on('kill-jamsoul', () => {
   killJamsoul()
 })
 
+// jamony: 网页进入/离开房间 → 主进程缓存当前房间（退出时据此发 leave）
+ipcMain.on('enter-room', (_event, payload) => {
+  currentRoom = (payload && payload.roomCode && payload.userId) ? { roomCode: payload.roomCode, userId: payload.userId } : null
+  isLastMusician = false  // 进新房间重置（防上个房间残留）
+  console.log('[jamony] entered room:', currentRoom)
+})
+ipcMain.on('leave-room', () => {
+  currentRoom = null
+  isLastMusician = false
+  console.log('[jamony] left room (main cache cleared)')
+})
+// jamony: 前端告知当前是否唯一合奏者 → 缓存（供叉 jamony/dock 退出弹窗选文案）
+ipcMain.on('set-last-musician', (_event, payload) => {
+  isLastMusician = !!(payload && payload.value)
+  console.log('[jamony] isLastMusician:', isLastMusician)
+})
+
 // ══════════════════════════════════════
 // 生命周期
 // ══════════════════════════════════════
@@ -212,9 +257,10 @@ app.on('before-quit', (e) => {
     isQuitting = true
     dialog.showMessageBox(mainWindow, {
       type: 'question', buttons: ['退出', '取消'], defaultId: 0, title: '退出 jamony',
-      message: jamsoulProcess ? '退出 jamony 将关闭 jamsoul 并离开房间，确认退出？' : '退出 jamony 将离开当前房间，确认退出？'
-    }).then(({ response }) => {
+      message: isLastMusician ? '你当前是唯一合奏者，退出 jamony 将关闭 jamsoul 并解散房间，确认退出？' : (jamsoulProcess ? '退出 jamony 将关闭 jamsoul 并离开房间，确认退出？' : '退出 jamony 将离开当前房间，确认退出？')
+    }).then(async ({ response }) => {
       if (response === 0) {
+        await sendLeaveRequest()  // jamony: 主进程先可靠发 leave（有界3s），再退出
         killJamsoul(true)
         if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close()
         else app.exit()

@@ -14,6 +14,17 @@ contextBridge.exposeInMainWorld('jamonyAPI', {
   killJamsoul: () => {
     ipcRenderer.send('kill-jamsoul')
   },
+  // jamony: 通知主进程进入/离开房间（主进程据此在退出时可靠发送 leave，不依赖 renderer beforeunload 的竞态）
+  enterRoom: (payload) => {
+    ipcRenderer.send('enter-room', payload)
+  },
+  leaveRoom: () => {
+    ipcRenderer.send('leave-room')
+  },
+  // jamony: 告知主进程当前是否唯一合奏者（主进程叉 jamony/dock 退出弹窗文案用）
+  setLastMusician: (value) => {
+    ipcRenderer.send('set-last-musician', { value })
+  },
   // 监听来自主进程的事件（如 jamsoul 启动状态）
   onJamsoulLaunched: (callback) => {
     ipcRenderer.on('jamsoul-launched', (_event, data) => callback(data))
