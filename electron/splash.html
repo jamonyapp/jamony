@@ -36,6 +36,9 @@ body {
 
 /* ============ Logo 容器 ============ */
 .container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;      /* 垂直堆叠 + 交叉轴居中, logo 与文案共享同一中轴线 */
   text-align: center;
   position: relative;
 }
@@ -46,14 +49,14 @@ body {
   height: auto;
   display: block;
   opacity: 0;
-  /* 多层霓虹辉光 —— 用 drop-shadow 沿 PNG 透明边缘发光 */
+  /* 欢哥 08-31 定稿节奏: 摩斯码 HELLO 频闪(0.4s起2.4s发完,单位49ms)
+     → 点亮进入常亮(neonOn forwards 终态亮度压低防过曝), 常亮到切页 */
   animation:
-    neonFlicker 0.5s ease 0.3s 4,
-    neonOn      1.5s ease 2.3s forwards,
-    neonFlow    3s ease-in-out 3.8s infinite;
+    morseHello 2.40s step-end 0.4s 1,
+    neonOn      1.0s ease 2.9s forwards;
 }
 
-/* 🌟 阶段一：霓虹点亮（0.3s → 1.8s） */
+/* 🌟 阶段一：霓虹点亮（摩斯码结束→亮起, 欢哥: 终态亮度压低防过曝） */
 @keyframes neonOn {
   0% {
     opacity: 0;
@@ -61,89 +64,83 @@ body {
       drop-shadow(0 0 0px rgba(0,170,255,0))
       drop-shadow(0 0 0px rgba(153,51,255,0));
   }
-  30% {
-    opacity: 0.15;
-    filter:
-      drop-shadow(0 0 5px rgba(0,170,255,0.2))
-      drop-shadow(0 0 15px rgba(153,51,255,0.1));
-  }
   60% {
-    opacity: 0.6;
+    opacity: 0.55;
     filter:
-      drop-shadow(0 0 20px rgba(0,170,255,0.4))
-      drop-shadow(0 0 50px rgba(153,51,255,0.25))
-      drop-shadow(0 0 80px rgba(255,51,170,0.1));
+      drop-shadow(0 0 7px rgba(0,170,255,0.15))
+      drop-shadow(0 0 17px rgba(153,51,255,0.09));
   }
   100% {
-    opacity: 1;
+    opacity: 0.85;
     filter:
-      drop-shadow(0 0 25px rgba(0,170,255,0.6))
-      drop-shadow(0 0 60px rgba(153,51,255,0.35))
-      drop-shadow(0 0 100px rgba(255,51,170,0.15));
+      drop-shadow(0 0 8px rgba(0,170,255,0.16))
+      drop-shadow(0 0 18px rgba(153,51,255,0.09))
+      drop-shadow(0 0 30px rgba(255,51,170,0.04));
   }
 }
 
-/* 🌟 阶段二：光晕流动（品牌色循环） */
-@keyframes neonFlow {
-  0% {
-    filter:
-      drop-shadow(0 0 25px rgba(0,170,255,0.6))
-      drop-shadow(0 0 60px rgba(153,51,255,0.35))
-      drop-shadow(0 0 100px rgba(255,51,170,0.15));
-  }
-  25% {
-    filter:
-      drop-shadow(0 0 25px rgba(153,51,255,0.6))
-      drop-shadow(0 0 60px rgba(255,51,170,0.35))
-      drop-shadow(0 0 100px rgba(187,238,0,0.1));
-  }
-  50% {
-    filter:
-      drop-shadow(0 0 25px rgba(255,51,170,0.6))
-      drop-shadow(0 0 60px rgba(187,238,0,0.35))
-      drop-shadow(0 0 100px rgba(0,170,255,0.1));
-  }
-  75% {
-    filter:
-      drop-shadow(0 0 25px rgba(187,238,0,0.5))
-      drop-shadow(0 0 60px rgba(0,170,255,0.35))
-      drop-shadow(0 0 100px rgba(153,51,255,0.1));
-  }
-  100% {
-    filter:
-      drop-shadow(0 0 25px rgba(0,170,255,0.6))
-      drop-shadow(0 0 60px rgba(153,51,255,0.35))
-      drop-shadow(0 0 100px rgba(255,51,170,0.15));
-  }
-}
-
-/* 🌟 阶段三：霓虹接触不良闪烁 */
-@keyframes neonFlicker {
-  0%   { opacity: 0; }
-  10%  { opacity: 0.8; filter: drop-shadow(0 0 8px rgba(0,170,255,0.3)); }
-  15%  { opacity: 0.1; }
-  20%  { opacity: 0.7; filter: drop-shadow(0 0 6px rgba(0,170,255,0.2)); }
-  25%  { opacity: 0; }
-  35%  { opacity: 0.5; filter: drop-shadow(0 0 10px rgba(153,51,255,0.25)); }
-  40%  { opacity: 0.05; }
-  50%  { opacity: 0.6; filter: drop-shadow(0 0 12px rgba(153,51,255,0.3)); }
-  55%  { opacity: 0; }
-  70%  { opacity: 0.3; }
+/* 🌟 阶段零：摩斯码 HELLO 频闪（.... . .-.. .-.. ---）
+   单位49ms(欢哥: 2.5秒内完成): dit=49ms dah=147ms; step-end 硬切,
+   时长2.40s, 百分比与单位时长无关(等比) */
+@keyframes morseHello {
+  0.00% { opacity: 0.75; }
+  2.04% { opacity: 0; }
+  4.08% { opacity: 0.75; }
+  6.12% { opacity: 0; }
+  8.16% { opacity: 0.75; }
+  10.20% { opacity: 0; }
+  12.24% { opacity: 0.75; }
+  14.29% { opacity: 0; }
+  20.41% { opacity: 0.75; }
+  22.45% { opacity: 0; }
+  28.57% { opacity: 0.75; }
+  30.61% { opacity: 0; }
+  32.65% { opacity: 0.75; }
+  38.78% { opacity: 0; }
+  40.82% { opacity: 0.75; }
+  42.86% { opacity: 0; }
+  44.90% { opacity: 0.75; }
+  46.94% { opacity: 0; }
+  53.06% { opacity: 0.75; }
+  55.10% { opacity: 0; }
+  57.14% { opacity: 0.75; }
+  63.27% { opacity: 0; }
+  65.31% { opacity: 0.75; }
+  67.35% { opacity: 0; }
+  69.39% { opacity: 0.75; }
+  71.43% { opacity: 0; }
+  77.55% { opacity: 0.75; }
+  83.67% { opacity: 0; }
+  85.71% { opacity: 0.75; }
+  91.84% { opacity: 0; }
+  93.88% { opacity: 0.75; }
   100% { opacity: 0; }
 }
 
-/* ============ 标语 ============ */
-.slogan {
-  margin-top: 48px;
-  font-size: 30px;
-  font-weight: 800;
-  color: #FFFFFF;
-  letter-spacing: 8px;
-  text-shadow: 0 0 20px rgba(255,255,255,0.15);
+/* ============ 产品名 + 标语（欢哥 08-31: 闪烁结束进入常亮时已出现完毕,
+     完整展示约2秒到切页; 淡入落在摩斯码末段, 3.3s常亮时正好就位） ============ */
+.brand {
+  margin-top: 36px;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: rgba(255,255,255,0.85);
   opacity: 0;
-  animation: sloganFadeIn 0.8s ease 1.8s forwards;
+  animation: textFadeIn 0.6s ease 2.7s forwards;
 }
-@keyframes sloganFadeIn {
+
+.slogan {
+  margin-top: 18px;
+  font-size: 24px;
+  font-weight: 300;                        /* 细体 —— 去掉笨重感 */
+  color: rgba(255,255,255,0.60);           /* 降亮度, 不再纯白刺眼 */
+  letter-spacing: 8px;                     /* 适中字距 */
+  text-indent: 8px;                        /* 平衡末字后的字距, 保证视觉居中 */
+  text-shadow: 0 0 20px rgba(255,255,255,0.10);
+  opacity: 0;
+  animation: textFadeIn 0.6s ease 2.7s forwards;
+}
+@keyframes textFadeIn {
   from { opacity: 0; transform: translateY(12px); }
   to   { opacity: 1; transform: translateY(0); }
 }
@@ -177,8 +174,9 @@ body {
 <div class="glow-bg glow-bg-1"></div>
 <div class="glow-bg glow-bg-2"></div>
 <div class="container">
-  <img src="icon.png" class="logo" alt="jamony">
-  <p class="slogan">嘤其鸣矣，求其友声</p>
+  <img src="logo-transparent.png" class="logo" alt="jamony">
+  <p class="brand">jamony·即鸣</p>
+  <p class="slogan">嘤其鸣矣，求其友声。</p>
 </div>
 <div class="loading-bar"><div class="loading-bar-fill"></div></div>
 </body>
