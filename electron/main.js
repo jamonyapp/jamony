@@ -225,6 +225,12 @@ ipcMain.on('kill-jamsoul', () => {
   killJamsoul()
 })
 
+// jamony 08-27 调试: 手动弹 jamsoul 反馈保护弹窗（验收用, testfeedback 指令走 stdin）
+ipcMain.on('test-feedback', () => {
+  console.log('[jamony] IPC test-feedback received')
+  sendToJamsoul({ cmd: 'testfeedback' })
+})
+
 // jamony: 网页进入/离开房间 → 主进程缓存当前房间（退出时据此发 leave）
 ipcMain.on('enter-room', (_event, payload) => {
   currentRoom = (payload && payload.roomCode && payload.userId) ? { roomCode: payload.roomCode, userId: payload.userId } : null

@@ -199,6 +199,7 @@ app.post('/api/login', async (req, res) => {
       id: user.id,
       nickname: user.nickname,
       avatarIndex: user.avatar_index,
+      avatarUrl: user.avatar_url ? user.avatar_url.replace('/var/jamony/avatars', '/avatars') : '', // 08-30 修复: 登录响应补头像, 顶栏此前显示渐变兜底
       bio: user.bio,
       city: user.city,
       primaryInstrument: user.primary_instrument,
@@ -245,7 +246,7 @@ app.post('/api/register', async (req, res) => {
     const result = await pool.query(
       `INSERT INTO users (nickname, password_hash, primary_instrument, instrument_category, avatar_index, bio, city, level, points)
        VALUES ($1, $2, $3, $5, $4, '', '', 1, 0)
-       RETURNING id, nickname, avatar_index, bio, city, primary_instrument, instrument_category, level, points`,
+       RETURNING id, nickname, avatar_index, avatar_url, bio, city, primary_instrument, instrument_category, level, points`,
       [nickname, hash, primaryInstrument, avatar, cat]
     )
 
@@ -254,6 +255,7 @@ app.post('/api/register', async (req, res) => {
       id: user.id,
       nickname: user.nickname,
       avatarIndex: user.avatar_index,
+      avatarUrl: user.avatar_url ? user.avatar_url.replace('/var/jamony/avatars', '/avatars') : '', // 08-30 修复: 与 login 同步补头像
       bio: user.bio || '',
       city: user.city || '',
       primaryInstrument: user.primary_instrument,

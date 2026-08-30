@@ -14,6 +14,10 @@ contextBridge.exposeInMainWorld('jamonyAPI', {
   killJamsoul: () => {
     ipcRenderer.send('kill-jamsoul')
   },
+  // jamony 08-27 调试: 手动弹 jamsoul 反馈保护弹窗（验收用）
+  testFeedback: () => {
+    ipcRenderer.send('test-feedback')
+  },
   // jamony: 通知主进程进入/离开房间（主进程据此在退出时可靠发送 leave，不依赖 renderer beforeunload 的竞态）
   enterRoom: (payload) => {
     ipcRenderer.send('enter-room', payload)
