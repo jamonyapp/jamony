@@ -23,6 +23,8 @@ declare global {
       killJamsoul: () => void
       enterRoom: (p: { roomCode: string; userId: number }) => void
       leaveRoom: () => void
+      setLastMusician: (value: boolean) => void  // jamony 08-31 补声明(8-5加的API, 类型漏了)
+      testFeedback: () => void                    // jamony 08-27 反馈保护弹窗debug通道
       onJamsoulLaunched: (cb: (data: unknown) => void) => void
       onJamsoulExited?: (cb: (data: unknown) => void) => void
     }

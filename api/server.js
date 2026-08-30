@@ -1793,7 +1793,8 @@ app.get('/api/works', async (req, res) => {
 
     let order = 'ORDER BY w.created_at DESC, w.id DESC'
     if (sort === 'plays') order = 'ORDER BY w.plays DESC, w.id DESC'
-    if (sort === 'likes') order = 'ORDER BY w.likes DESC, w.id DESC'
+    // 欢哥 08-31 定稿: likes 排序三级权重——点赞>播放>发布时间(新在前)
+    if (sort === 'likes') order = 'ORDER BY w.likes DESC, w.plays DESC, w.created_at DESC, w.id DESC'
 
     const countResult = await pool.query("SELECT COUNT(*) FROM works WHERE status = 'published'")
     const total = parseInt(countResult.rows[0].count)

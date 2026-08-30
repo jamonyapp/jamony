@@ -10,7 +10,8 @@ import { useRouter } from "next/navigation"
 import { SectionHeader } from "./section-header"
 
 
-// Deep "underground rehearsal room" palette: dark base + neon accent stripe.
+// Deep "underground rehearsal room" palette: dark base per theme
+// (欢哥 08-31: stripe 发光条已移除, 仅保留底色区分主题).
 const noteThemes = [
   { bg: "#4A1515", stripe: "#FF33AA" }, // 深红
   { bg: "#15254A", stripe: "#00AAFF" }, // 深蓝
@@ -22,6 +23,7 @@ const noteThemes = [
 // 4 columns × 2 rows fixed grid. Each card fills a random fraction (76%–100%) of its
 // grid cell so the wall still looks casually "hand-pinned" with notes of varied sizes,
 // while always keeping exactly 4 per row. justify controls which edge it hugs.
+// (欢哥 08-31: pin 字段保留占位避免改动数组结构, 图钉已不再渲染)
 type Layout = { rotate: number; mt: number; pin: string; wPct: number; justify: string }
 const layouts: Layout[] = [
   { rotate: -2.5, mt: 6, pin: "tl", wPct: 92, justify: "flex-start" },
@@ -34,29 +36,7 @@ const layouts: Layout[] = [
   { rotate: 2.4, mt: -4, pin: "br", wPct: 100, justify: "flex-end" },
 ]
 
-const pinPos: Record<string, string> = {
-  tl: "left-3 top-2",
-  tr: "right-3 top-2",
-  bl: "left-3 bottom-2",
-  br: "right-3 bottom-2",
-}
-
-function Pin({ pos, color }: { pos: string; color: string }) {
-  return (
-    <span className={`absolute z-10 ${pinPos[pos]}`} aria-hidden>
-      <span
-        className="jamony-pin block h-3 w-3 rounded-full"
-        style={
-          {
-            background: `radial-gradient(circle at 35% 30%, #ffffff 0%, ${color} 45%, ${color} 100%)`,
-            boxShadow: "0 2px 3px rgba(0,0,0,0.7), inset 0 1px 1px rgba(255,255,255,0.6)",
-            "--stripe": color,
-          } as React.CSSProperties
-        }
-      />
-    </span>
-  )
-}
+// 欢哥 08-31: Pin 彩色图钉组件已移除（连同 pinPos 表, 觉得土）
 
 function NoteCard({ notice, index, onOpen }: { notice: Notice; index: number; onOpen: () => void }) {
   const theme = noteThemes[index % noteThemes.length]
@@ -76,7 +56,7 @@ function NoteCard({ notice, index, onOpen }: { notice: Notice; index: number; on
           } as React.CSSProperties
         }
       >
-        <Pin pos={l.pin} color={theme.stripe} />
+      {/* 欢哥 08-31: 移除彩色图钉+左侧发光条（照片背景保留——欢哥只让移除外层墙面大图） */}
       <div
         className="relative overflow-hidden rounded-[4px] p-4 pl-5"
         style={{
@@ -94,12 +74,6 @@ function NoteCard({ notice, index, onOpen }: { notice: Notice; index: number; on
           style={{ background: "linear-gradient(to top, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.5) 60%, rgba(0,0,0,0.25) 100%)" }}
           aria-hidden
         />
-        {/* left neon category stripe */}
-        <span
-          className="jamony-stripe absolute inset-y-0 left-0 w-1"
-          style={{ background: theme.stripe, "--stripe": theme.stripe } as React.CSSProperties}
-        />
-
         <div className="relative">
           <h3 className="text-[15px] font-bold leading-snug" style={{ color: "#FFFFFF" }}>
             {notice.title}
@@ -155,29 +129,11 @@ export function BoardScreen() {
     <section>
       <SectionHeader title="公告牌" linkLabel="全部公告" onLink={() => router.push("/board")} />
 
-      {/* neon-wall photo background */}
-      <div
-        className="relative overflow-hidden rounded-xl p-6"
-        style={{
-          backgroundColor: "#000000",
-          backgroundImage: "url('/images/board-background.png')",
-          backgroundSize: "cover",
-          backgroundPosition: "center",
-          boxShadow: "inset 0 0 60px rgba(0,0,0,0.8)",
-        }}
-      >
-        {/* dark overlay so the pinned notes stay readable on top of the neon wall */}
-        <span
-          className="pointer-events-none absolute inset-0"
-          style={{ background: "rgba(0,0,0,0.55)" }}
-          aria-hidden
-        />
-
-        <div className="relative grid grid-cols-4 items-start gap-x-6 gap-y-10">
-          {list.slice(0, 8).map((notice, i) => (
-            <NoteCard key={notice.id} notice={notice} index={i} onOpen={() => setActiveNotice(notice)} />
-          ))}
-        </div>
+      {/* 欢哥 08-31: 外层背景整体移除——参考高光时刻, 卡片直接裸放在页面上 */}
+      <div className="grid grid-cols-4 items-start gap-x-6 gap-y-10">
+        {list.slice(0, 8).map((notice, i) => (
+          <NoteCard key={notice.id} notice={notice} index={i} onOpen={() => setActiveNotice(notice)} />
+        ))}
       </div>
 
       {activeNotice && <NoticeDetailModal notice={activeNotice} onClose={() => setActiveNotice(null)} />}

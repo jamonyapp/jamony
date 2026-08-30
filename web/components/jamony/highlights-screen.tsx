@@ -466,7 +466,7 @@ function HighlightsInner() {
 
   useEffect(() => {
     const qs = user?.id ? `&userId=${user.id}` : ""
-    fetch(`/api/works?limit=4&sort=likes${qs}`)
+    fetch(`/api/works?limit=8&sort=likes${qs}`)
       .then(r => r.json())
       .then(data => {
         if (!data.ok) return

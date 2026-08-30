@@ -101,10 +101,10 @@ export function LeftSidebar() {
             </span>
           </div>
           <p className="mt-2 text-[11px] leading-relaxed" style={{ color: "#C8C8C8" }}>
-            jamony 可能还不够好，但我们一直在向前，就像玩音乐。
+            我们可能还不够好，但我们一直在努力，就像练琴。
           </p>
           <p className="mt-2 text-right text-[11px]" style={{ color: "#8A8A8A" }}>
-            —— jamony 工作室
+            ——jamony工作室
           </p>
         </div>
         <button
@@ -167,7 +167,7 @@ function FeedbackModal({ onClose }: { onClose: () => void }) {
         <textarea
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          placeholder="请告诉我你的想法或问题..."
+          placeholder="请告诉我们你的想法或问题…"
           rows={5}
           className="mt-4 w-full resize-none rounded-xl border bg-transparent p-3 text-[14px] text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
           style={{ borderColor: "#1A1A1A" }}
