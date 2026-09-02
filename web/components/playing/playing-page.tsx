@@ -271,6 +271,19 @@ export function PlayingPage() {
     }
   }, [params?.code, user?.id])
 
+  // jamony: 60s 乐手心跳（活跃乐手榜计时）——仅 musician + jamsoul 已调起时发；
+  // audioConnected 翻 false（jamsoul 退出/被踢/解散）→ 心跳自停 → 时长冻结在 last_seen
+  useEffect(() => {
+    const code = params?.code
+    if (!code || !user?.id || myRole !== "musician" || !audioConnected) return
+    const beat = () => {
+      fetch(`/api/rooms/${code}/heartbeat`, { method: "POST", headers: { "Content-Type": "application/json" } }).catch(() => {})
+    }
+    beat()  // 立即首拍：会话 started_at 从 jamsoul 调起时刻起算
+    const t = setInterval(beat, 60000)
+    return () => clearInterval(t)
+  }, [params?.code, user?.id, myRole, audioConnected])
+
   // jamony: 是否唯一合奏者（doDisconnect/onJamsoulExited 路由 + 主进程叉 jamony/dock 弹窗文案）
   const isLastMusician = Number(room?.musician_count) === 1 && myRole === "musician"
   useEffect(() => {

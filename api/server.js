@@ -103,6 +103,9 @@ function clearLoginFail(nickname) {
   loginFailBuckets.delete(nickname)
 }
 
+// 活跃乐手榜 60s 内存缓存（所有客户端共享一份；策展型模块无需实时；仅缓存规范请求 page=1&limit=16）
+const activeMusiciansCache = { data: null, expiresAt: 0 }
+
 // ========== JWT 鉴权基础设施 ==========
 const jwt = require('jsonwebtoken')
 const JWT_SECRET = process.env.JWT_SECRET || 'jamony-dev-secret-change-in-prod'
@@ -380,19 +383,57 @@ app.get('/api/users', async (req, res) => {
     const page = parseInt(req.query.page) || 1
     const limit = parseInt(req.query.limit) || 20
     const offset = (page - 1) * limit
-    const result = await pool.query(
-      `SELECT id, nickname, bio, city, primary_instrument, instrument_category, avatar_index, avatar_url,
-              level, points, works_count, total_likes
-       FROM users ORDER BY id LIMIT $1 OFFSET $2`, [limit, offset]
+    // 60s 缓存命中直接返回（仅规范请求；其余参数现场算）
+    if (page === 1 && limit === 16 && activeMusiciansCache.data && Date.now() < activeMusiciansCache.expiresAt) {
+      return res.json(activeMusiciansCache.data)
+    }
+
+    // ===== 真用户档：门槛档（近3天合奏≥1h）+ 补位档（有会话记录的真人），同权重排序 =====
+    // 权重口径与 by-nickname 端点一致：公开署名（is_anonymous=FALSE）作品的 likes/followers/plays
+    const real = await pool.query(
+      `WITH sess AS (
+         SELECT user_id,
+                SUM(GREATEST(0, EXTRACT(EPOCH FROM (LEAST(COALESCE(ended_at, last_seen), NOW())
+                     - GREATEST(started_at, NOW() - INTERVAL '3 days')))))::int AS secs_3d
+         FROM musician_sessions GROUP BY user_id
+       )
+       SELECT u.id, u.nickname, u.primary_instrument, u.instrument_category, u.avatar_index, u.avatar_url,
+              (SELECT COALESCE(SUM(w.likes), 0) FROM works w JOIN work_authors wa ON wa.work_id = w.id
+                WHERE wa.user_id = u.id AND wa.is_anonymous = FALSE)::int AS total_likes,
+              (SELECT COUNT(*) FROM follows WHERE followee_id = u.id)::int AS followers_count,
+              (SELECT COALESCE(SUM(w.plays), 0) FROM works w JOIN work_authors wa ON wa.work_id = w.id
+                WHERE wa.user_id = u.id AND wa.is_anonymous = FALSE)::int AS total_plays,
+              COALESCE((SELECT MAX(ms.last_seen) FROM musician_sessions ms WHERE ms.user_id = u.id), u.created_at) AS last_activity,
+              CASE WHEN COALESCE(s.secs_3d, 0) >= 3600 THEN 0 ELSE 1 END AS tier
+       FROM users u LEFT JOIN sess s ON s.user_id = u.id
+       WHERE u.id != 0 AND u.is_seed = FALSE
+         AND (COALESCE(s.secs_3d, 0) >= 3600
+              OR EXISTS (SELECT 1 FROM musician_sessions ms WHERE ms.user_id = u.id))
+       ORDER BY tier ASC, total_likes DESC, followers_count DESC, total_plays DESC, last_activity DESC
+       LIMIT $1 OFFSET $2`,
+      [limit, offset]
     )
-    const count = await pool.query('SELECT COUNT(*) FROM users')
-    res.json({
-      ok: true,
-      users: result.rows.map(r => { if (r.avatar_url) r.avatar_url = r.avatar_url.replace('/var/jamony/avatars', '/avatars'); return r }),
-      total: parseInt(count.rows[0].count),
-      page,
-      totalPages: Math.ceil(parseInt(count.rows[0].count) / limit),
-    })
+
+    let users = real.rows
+    // ===== 假号补位：真用户不足时按当日种子轮换补满（永远垫底；md5(id+当日日期) 同日所有人同批）=====
+    if (users.length < limit) {
+      const seed = await pool.query(
+        `SELECT id, nickname, primary_instrument, instrument_category, avatar_index, avatar_url, 2 AS tier
+         FROM users WHERE is_seed = TRUE AND id != 0
+         ORDER BY md5(id::text || ':' || CURRENT_DATE::text)
+         LIMIT $1`,
+        [limit - users.length]
+      )
+      users = users.concat(seed.rows)
+    }
+    users = users.map(r => { if (r.avatar_url) r.avatar_url = r.avatar_url.replace('/var/jamony/avatars', '/avatars'); return r })
+
+    const payload = { ok: true, users, total: users.length, page, totalPages: 1 }
+    if (page === 1 && limit === 16) {
+      activeMusiciansCache.data = payload
+      activeMusiciansCache.expiresAt = Date.now() + 60000
+    }
+    res.json(payload)
   } catch (err) {
     console.error('Users list error:', err)
     res.status(500).json({ ok: false, msg: '服务器错误' })
@@ -1199,6 +1240,7 @@ app.post('/api/rooms/:code/join', requireAuth, async (req, res) => {
         'UPDATE room_members SET role = $1, last_active_at = NOW() WHERE room_id = $2 AND user_id = $3',
         [acceptedRole, id, userId]
       )
+      if (acceptedRole === 'listener') await closeMusicianSession(userId, id)  // 翻回听众即闭会话
       await broadcastMembers(code)
       return res.json({ ok: true, msg: '已更新身份', role: acceptedRole })
     }
@@ -1249,6 +1291,7 @@ app.post('/api/rooms/:code/join', requireAuth, async (req, res) => {
 // 移除成员并检查房间是否解散（/leave 和 socket disconnect 共用，L2 兜底也走这个）
 // 返回 true=房间已解散（杀进程+删房间），false=房间还在（房主可能已转移给最久的合奏者）
 async function removeMemberAndCheckDissolve(userId, roomId, roomCode) {
+  await closeMusicianSession(userId, roomId)  // 闭会话须在删房前（会话无 FK 依赖房，但逻辑上先结算）
   await pool.query('DELETE FROM room_members WHERE room_id = $1 AND user_id = $2', [roomId, userId])
 
   // 没有合奏者则解散房间（听众不参与房间存亡；jamony 定位是服务合奏者，没合奏者的房间无意义）
@@ -1276,6 +1319,7 @@ async function removeMemberAndCheckDissolve(userId, roomId, roomCode) {
     }
     // 广播房间解散，让听众客户端弹窗"房间已解散"+跳大厅（在踢出 DB 成员前发，确保听众 socket 仍在线收到）
     io.to(roomCode).emit('room-dissolved', { roomCode })
+    await closeRoomMusicianSessions(roomId)  // 解散全员闭会话（删房后 room_id 无 FK 但会话须先结算）
     await pool.query('DELETE FROM room_members WHERE room_id = $1', [roomId])
     // 有作品 → archived，无作品 → 硬删
     const pubCount = await pool.query('SELECT COUNT(*) AS c FROM works WHERE room_id = $1', [roomId])
@@ -1344,6 +1388,7 @@ app.post('/api/rooms/:code/kick', requireAuth, async (req, res) => {
     }
 
     // 删 member + 写黑名单（复合主键去重）
+    await closeMusicianSession(targetUserId, id)  // 被踢者闭会话
     await pool.query('DELETE FROM room_members WHERE room_id = $1 AND user_id = $2', [id, targetUserId])
     await pool.query(
       `INSERT INTO room_kicked (room_id, user_id, kicked_by) VALUES ($1, $2, $3)
@@ -1371,6 +1416,11 @@ app.post('/api/rooms/:code/switch-role', requireAuth, async (req, res) => {
     const { newRole } = req.body
     const userId = req.userId
 
+    // newRole 校验（原版未验证，任意值可入库；join 端点有同款归一化）
+    if (newRole !== 'musician' && newRole !== 'listener') {
+      return res.status(400).json({ ok: false, msg: '无效身份' })
+    }
+
     if (newRole === 'musician') {
       const roomResult = await pool.query('SELECT max_musicians FROM rooms WHERE id = $1', [id])
       const count = await pool.query(
@@ -1385,6 +1435,7 @@ app.post('/api/rooms/:code/switch-role', requireAuth, async (req, res) => {
       'UPDATE room_members SET role = $1, last_active_at = NOW() WHERE room_id = $2 AND user_id = $3',
       [newRole, id, userId]
     )
+    if (newRole === 'listener') await closeMusicianSession(userId, id)  // 翻回听众即闭会话
 
     await broadcastMembers(code)
     res.json({ ok: true, msg: '身份已切换' })
@@ -1410,6 +1461,34 @@ app.post('/api/rooms/:code/members/:userId/audio-status', requireAuth, async (re
     res.json({ ok: true })
   } catch (err) {
     console.error('Audio status error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// ========== 乐手心跳（活跃乐手榜计时：房间页 60s 一次，myRole=musician && jamsoul 已调起时才发） ==========
+app.post('/api/rooms/:code/heartbeat', requireAuth, async (req, res) => {
+  try {
+    if (req.userId === 0) return res.json({ ok: true })  // jamony-looper 不计时
+    const { code } = req.params
+    const roomId = await getRoomIdByCode(code)
+    if (!roomId) return res.status(404).json({ ok: false, msg: '房间不存在' })
+    // 服务端验合奏者身份：离房后的迟到心跳 403，天然防幻影会话
+    if (!(await isRoomMusician(req.userId, code))) return res.status(403).json({ ok: false, msg: '仅合奏者' })
+    if (!rateCheck(`hb:${roomId}:${req.userId}`, 10, 60000)) return res.status(429).json({ ok: false })
+    // 先闭超过5分钟无心跳的陈旧开启会话（防同房重进把两次到访粘成一条）
+    await pool.query(
+      "UPDATE musician_sessions SET ended_at = last_seen WHERE user_id = $1 AND room_id = $2 AND ended_at IS NULL AND last_seen < NOW() - INTERVAL '5 minutes'",
+      [req.userId, roomId]
+    )
+    await pool.query(
+      `INSERT INTO musician_sessions (user_id, room_id, started_at, last_seen) VALUES ($1, $2, NOW(), NOW())
+       ON CONFLICT (user_id, room_id) WHERE ended_at IS NULL DO UPDATE SET last_seen = NOW()`,
+      [req.userId, roomId]
+    )
+    await pool.query('UPDATE room_members SET last_active_at = NOW() WHERE room_id = $1 AND user_id = $2', [roomId, req.userId])
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('Heartbeat error:', err)
     res.status(500).json({ ok: false, msg: '服务器错误' })
   }
 })
@@ -3010,6 +3089,16 @@ async function isRoomHost(userId, roomCode) {
   return r.rows.length > 0 && r.rows[0].host_id === parseInt(userId)
 }
 
+// ========== 乐手会话（活跃乐手榜计时） ==========
+// 关闭会话：时长记到 last_seen 为止（宁可少算不错算）；0 行更新无害
+async function closeMusicianSession(userId, roomId) {
+  await pool.query('UPDATE musician_sessions SET ended_at = last_seen WHERE user_id = $1 AND room_id = $2 AND ended_at IS NULL', [userId, roomId])
+}
+// 解散房间时全员闭
+async function closeRoomMusicianSessions(roomId) {
+  await pool.query('UPDATE musician_sessions SET ended_at = last_seen WHERE room_id = $1 AND ended_at IS NULL', [roomId])
+}
+
 // ========== WebSocket (Socket.IO) ==========
 // 握手认证：验 httpOnly cookie JWT → socket.userId（同域 cookie 自动携带，前端零改动）
 io.use(async (socket, next) => {
@@ -3123,6 +3212,7 @@ app.post('/api/users/:userId/leave-all-rooms', requireAuth, async (req, res) => 
     const userId = req.userId
     const rooms = await pool.query('SELECT room_id FROM room_members WHERE user_id = $1', [userId])
     for (const row of rooms.rows) {
+      await closeMusicianSession(userId, row.room_id)  // 闭会话（此端点是 removeMember 的复制粘贴变体，钩子单独加）
       await pool.query('DELETE FROM room_members WHERE room_id = $1 AND user_id = $2', [row.room_id, userId])
       const remaining = await pool.query("SELECT COUNT(*) FROM room_members WHERE room_id = $1 AND role = 'musician'", [row.room_id])
       if (parseInt(remaining.rows[0].count) === 0) {
@@ -3222,6 +3312,33 @@ async function cleanupOldChatMessages() {
 }
 cleanupOldChatMessages()
 setInterval(cleanupOldChatMessages, 6 * 3600 * 1000)
+
+// 乐手会话僵尸清扫：5 分钟无心跳即闭（时长冻结在 last_seen；钩子漏网+崩溃进程的兜底）
+async function closeZombieMusicianSessions() {
+  try {
+    const r = await pool.query("UPDATE musician_sessions SET ended_at = last_seen WHERE ended_at IS NULL AND last_seen < NOW() - INTERVAL '5 minutes'")
+    if (r.rowCount > 0) console.log(`Zombie sessions: closed ${r.rowCount}`)
+  } catch (e) { console.error('Zombie sessions error:', e.message) }
+}
+closeZombieMusicianSessions()  // 启动时立即跑一次（pm2 重启后清上次崩溃残留）
+setInterval(closeZombieMusicianSessions, 5 * 60000)
+
+// 乐手会话日清：7 天前明细聚合进 users.musician_seconds_archive 后删（单条 CTE 隐式事务，崩溃不会双计，幂等可重跑）
+async function archiveOldMusicianSessions() {
+  try {
+    const r = await pool.query(
+      `WITH del AS (
+         DELETE FROM musician_sessions WHERE started_at < NOW() - INTERVAL '7 days'
+         RETURNING user_id, EXTRACT(EPOCH FROM (COALESCE(ended_at, last_seen) - started_at))::bigint AS secs
+       ), agg AS (SELECT user_id, SUM(secs) AS total FROM del GROUP BY user_id)
+       UPDATE users u SET musician_seconds_archive = u.musician_seconds_archive + agg.total
+       FROM agg WHERE u.id = agg.user_id`
+    )
+    if (r.rowCount > 0) console.log(`Sessions archive: updated ${r.rowCount} users`)
+  } catch (e) { console.error('Sessions archive error:', e.message) }
+}
+archiveOldMusicianSessions()  // 启动时立即跑一次
+setInterval(archiveOldMusicianSessions, 24 * 3600000)
 
 server.listen(PORT, '127.0.0.1', () => {
   console.log('jamony API running on http://127.0.0.1:' + PORT)

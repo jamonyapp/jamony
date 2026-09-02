@@ -44,13 +44,29 @@ export function ActiveMusicians() {
   const [offset, setOffset] = useState(0)
   const [musicians, setMusicians] = useState<Musician[]>([])
 
+  // jamony: 进首页拉一次 + 每 5 分钟静默刷新（Electron 用户可能一直停在首页，纯挂载拉一次对他们是永久冻结）
+  // id 序列没变就不 setState → 无闪烁
   useEffect(() => {
-    fetch("/api/users?limit=16")
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.ok) setMusicians(data.users)
-      })
-      .catch(() => {})
+    let stopped = false
+    const load = () => {
+      fetch("/api/users?limit=16")
+        .then((r) => r.json())
+        .then((data) => {
+          if (stopped || !data.ok) return
+          setMusicians((prev) =>
+            prev.map((m) => m.id).join(",") === data.users.map((u: Musician) => u.id).join(",")
+              ? prev
+              : data.users
+          )
+        })
+        .catch(() => {})
+    }
+    load()
+    const t = setInterval(load, 300000)
+    return () => {
+      stopped = true
+      clearInterval(t)
+    }
   }, [])
 
   useEffect(() => {
