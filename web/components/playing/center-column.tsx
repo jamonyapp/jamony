@@ -877,7 +877,7 @@ function TrackRow({
           <div className="flex items-center gap-1">
             <DropdownSelect
               value={track.allow_use}
-              nullLabel="请选择"
+              nullLabel="选择授权"
               disabled={track.use_locked}
               options={[
                 { label: "可使用", value: true, className: "text-brand-green" },
@@ -890,7 +890,7 @@ function TrackRow({
           <div className="flex items-center gap-1">
             <DropdownSelect
               value={track.allow_attribution}
-              nullLabel="请选择"
+              nullLabel="选择署名"
               disabled={track.allow_use !== true || track.attribution_locked}
               options={[
                 { label: "可署名", value: true, className: "text-brand-green" },
@@ -903,7 +903,7 @@ function TrackRow({
           <div className="flex items-center gap-1">
             <DropdownSelect
               value={track.allow_download}
-              nullLabel="请选择"
+              nullLabel="下载权限"
               options={[
                 { label: "可下载", value: true, className: "text-brand-green" },
                 { label: "禁下载", value: false, className: "text-destructive" },

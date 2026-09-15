@@ -220,7 +220,7 @@ export function RightColumn({ roomId, room, refreshTrigger, realtimeMembers, cur
         )}
       </section>
 
-      {/* 聊天 — 占位 */}
+      {/* 聊天 */}
       <ChatPanel roomId={roomId} />
 
       <ListenersModal
