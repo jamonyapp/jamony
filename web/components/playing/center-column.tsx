@@ -138,6 +138,7 @@ export function CenterColumn({
   roomStyle,
   realtimeSessions,
   realtimeRecordingActive,
+  realtimeRecordingBy,
 }: {
   chords: string[]
   customTheme?: string
@@ -149,6 +150,7 @@ export function CenterColumn({
   roomStyle?: string
   realtimeSessions?: RecordingSession[] | null
   realtimeRecordingActive?: boolean | null
+  realtimeRecordingBy?: number | null
 }) {
   const [todayTheme, setTodayTheme] = useState({ title: "加载中...", emoji: "🎵" })
   useEffect(() => {
@@ -197,6 +199,7 @@ export function CenterColumn({
           roomStyle={roomStyle}
           realtimeSessions={realtimeSessions}
           realtimeRecordingActive={realtimeRecordingActive}
+          realtimeRecordingBy={realtimeRecordingBy}
         />
       )}
     </main>
@@ -254,6 +257,7 @@ function RecordingPanel({
   roomStyle,
   realtimeSessions,
   realtimeRecordingActive,
+  realtimeRecordingBy,
 }: {
   roomId?: string
   currentUserId?: number
@@ -261,6 +265,7 @@ function RecordingPanel({
   roomStyle?: string
   realtimeSessions?: RecordingSession[] | null
   realtimeRecordingActive?: boolean | null
+  realtimeRecordingBy?: number | null
 }) {
   const [sessions, setSessions] = useState<RecordingSession[]>([])
   const [expanded, setExpanded] = useState<number | null>(null)
@@ -312,12 +317,13 @@ function RecordingPanel({
     }
   }, [mixerSessionId, sessions, roomId, currentUserId, mixerEngine])
 
-  // 录音状态同步（他人开始/停止录音）
+  // 录音状态同步（他人开始/停止录音；发起者身份用于强刷回来恢复"停止"按钮归属）
   useEffect(() => {
     if (realtimeRecordingActive == null) return
     setRecording(realtimeRecordingActive)
+    setRecordingMine(realtimeRecordingActive && realtimeRecordingBy != null && realtimeRecordingBy === currentUserId)
     if (!realtimeRecordingActive) setRecordingMine(false)
-  }, [realtimeRecordingActive])
+  }, [realtimeRecordingActive, realtimeRecordingBy, currentUserId])
 
   // 录音计时
   useEffect(() => {

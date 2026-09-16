@@ -1520,6 +1520,7 @@ app.post('/api/rooms/:code/recording/start', requireAuth, async (req, res) => {
     // 录音中才开鼓机由 drums/start API 把标志置 true
     const drumsAlreadyRunning = isDrumsRunning(room.rows[0].server_port)
     await pool.query('UPDATE rooms SET recording_active=TRUE, drums_used_this_recording=$2 WHERE id=$1', [id, drumsAlreadyRunning])
+    recordingStarters.set(String(code), userId)  // 记发起者（join-room 补发用，强刷回来还能显示"停止"）
     io.to(code).emit('recording-state', { roomId: code, active: true, userId })
     res.json({ ok: true })
   } catch (err) {
@@ -1641,6 +1642,7 @@ app.post('/api/rooms/:code/recording/stop', requireAuth, async (req, res) => {
 
     // 结束录音状态并广播
     await pool.query('UPDATE rooms SET recording_active=FALSE, drums_used_this_recording=FALSE WHERE id=$1', [id])
+    recordingStarters.delete(String(code))
     io.to(code).emit('recording-state', { roomId: code, active: false })
     await broadcastSessions(code)
     res.json({ ok: true, session: sess.rows[0] });
@@ -3116,9 +3118,37 @@ io.use(async (socket, next) => {
   }
 })
 
+// L2 延迟清理表（2026-09-16 强刷保房改造）：key=`userId:room_code` → timer。
+// socket 断开不再立即清成员（强刷会被误杀），挂 60s 定时；期内同 userId 重连（join-room）即取消；
+// 到点先复查成员行（HTTP leave 可能已正常清过）再走 removeMemberAndCheckDissolve。
+// 明确退出（叉窗/dock/断开按钮）走 HTTP leave 不经过这里；内存态，pm2 重启丢（服务器重启本就全房报废，既有特性）。
+const pendingL2Cleanup = new Map()
+const L2_GRACE_MS = 60 * 1000
+// 录音发起者表（join-room 补发用）：room_code → 发起 userId。强刷回来后发起者才能显示"停止"按钮。
+// 内存态：服务器重启丢 → 降级为只显示"录音中"（同改造前），可接受。
+const recordingStarters = new Map()
+
 io.on("connection", (socket) => {
   socket.on("join-room", (roomId) => {
     socket.join(roomId)
+    // 强刷/断网抖动重连回来：取消该用户的 L2 延迟清理（人回来了，房不散）
+    if (socket.userId) {
+      for (const key of pendingL2Cleanup.keys()) {
+        if (key.startsWith(`${socket.userId}:`)) {
+          clearTimeout(pendingL2Cleanup.get(key))
+          pendingL2Cleanup.delete(key)
+          console.log(`L2 cleanup cancelled (user rejoined): ${key}`)
+        }
+      }
+    }
+    // 补发房间当前录音状态（强刷/后进房者同步"录音中"指示；只在录音中发，空闲不发——前端默认就是不录）
+    pool.query('SELECT recording_active FROM rooms WHERE room_code = $1', [roomId])
+      .then(r => {
+        if (r.rows.length > 0 && r.rows[0].recording_active) {
+          socket.emit('recording-state', { roomId, active: true, userId: recordingStarters.get(String(roomId)) })
+        }
+      })
+      .catch(() => {})
     console.log("Socket joined room:", roomId)
   })
 
@@ -3172,14 +3202,25 @@ io.on("connection", (socket) => {
   socket.on("disconnect", async () => {
     console.log("Socket disconnected, userId:", socket.userId)
     if (!socket.userId) return
-    // L2 兜底：崩溃/强杀/断网时客户端没机会发 leave，socket 断开（pingTimeout 后）这里清成员 + 检查解散
+    // L2 兜底（延迟版）：崩溃/强杀/断网/强刷时客户端没机会发 leave，socket 断开（pingTimeout 后）这里挂 60s 定时再清成员+检查解散。
+    // 强刷场景页面秒级重载重连（join-room 取消定时器），房间原地无伤；真崩溃/断电 60s 后照原逻辑清。
     try {
       const rooms = await pool.query(
         "SELECT rm.room_id, r.room_code FROM room_members rm JOIN rooms r ON r.id = rm.room_id WHERE rm.user_id = $1 AND r.status NOT IN ('closed','archived')",
         [socket.userId]
       )
       for (const row of rooms.rows) {
-        await removeMemberAndCheckDissolve(socket.userId, row.room_id, row.room_code)
+        const key = `${socket.userId}:${row.room_code}`
+        if (pendingL2Cleanup.has(key)) clearTimeout(pendingL2Cleanup.get(key))  // 双 socket 实例同 key 幂等覆盖
+        pendingL2Cleanup.set(key, setTimeout(async () => {
+          pendingL2Cleanup.delete(key)
+          try {
+            const still = await pool.query('SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2', [row.room_id, socket.userId])
+            if (still.rows.length === 0) return  // 期间已被 HTTP leave 正常清掉，不空跑
+            console.log(`L2 deferred cleanup: user ${socket.userId} room ${row.room_code}`)
+            await removeMemberAndCheckDissolve(socket.userId, row.room_id, row.room_code)
+          } catch (e) { console.error('L2 deferred cleanup error:', e) }
+        }, L2_GRACE_MS))
       }
     } catch (e) { console.error('disconnect cleanup error:', e) }
   })

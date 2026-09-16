@@ -23,6 +23,7 @@ export function useChatSocket(roomId?: string, nickname?: string) {
   const [realtimeHostId, setRealtimeHostId] = useState<number | null>(null)
   const [realtimeSessions, setRealtimeSessions] = useState<any[] | null>(null)
   const [realtimeRecordingActive, setRealtimeRecordingActive] = useState<boolean | null>(null)
+  const [realtimeRecordingBy, setRealtimeRecordingBy] = useState<number | null>(null) // 发起者（强刷回来恢复"停止"按钮归属）
   const [kickedEvent, setKickedEvent] = useState<{ userId: number; roomCode: string; ts: number } | null>(null)
   const [dissolvedEvent, setDissolvedEvent] = useState<{ roomCode: string; ts: number } | null>(null)
 
@@ -73,8 +74,9 @@ export function useChatSocket(roomId?: string, nickname?: string) {
       setRealtimeSessions(data.sessions || [])
     })
 
-    socket.on("recording-state", (data: { active: boolean }) => {
+    socket.on("recording-state", (data: { active: boolean; userId?: number }) => {
       setRealtimeRecordingActive(!!data.active)
+      setRealtimeRecordingBy(data.active ? (data.userId ?? null) : null)
     })
 
     socket.on("normalize-done", (data: { sessionId: number; trackId: number }) => {
@@ -119,5 +121,5 @@ export function useChatSocket(roomId?: string, nickname?: string) {
     setRealtimeTheme(theme)
   }
 
-  return { messages, sendMessage, connected, realtimeChords, pushChords, realtimeTheme, pushTheme, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, kickedEvent, dissolvedEvent }
+  return { messages, sendMessage, connected, realtimeChords, pushChords, realtimeTheme, pushTheme, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, kickedEvent, dissolvedEvent }
 }

@@ -53,7 +53,7 @@ export function PlayingPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { user } = useAuth()
-  const { realtimeChords, pushChords, realtimeTheme, pushTheme, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, kickedEvent, dissolvedEvent } = useChatSocket(params?.code as string, user?.nickname)
+  const { realtimeChords, pushChords, realtimeTheme, pushTheme, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, kickedEvent, dissolvedEvent } = useChatSocket(params?.code as string, user?.nickname)
   const [room, setRoom] = useState<RoomData | null>(null)
   const [showShareHint, setShowShareHint] = useState(false)
   // 建房跳转带 ?new=1 → 弹分享引导窗（room 加载完才弹），并清掉 query 避免刷新重复弹
@@ -91,6 +91,7 @@ export function PlayingPage() {
   const [kickedOpen, setKickedOpen] = useState(false)
   const kickedHandledRef = useRef(false) // 双 socket 实例都会收到 member-kicked，幂等防重复处理
   const [dissolvedOpen, setDissolvedOpen] = useState(false)
+  const [dissolvedMessage, setDissolvedMessage] = useState<string | undefined>() // 弹窗文案覆盖（!ok 场景用），undefined=默认"最后一位合奏者已离开"
   const dissolvedHandledRef = useRef(false) // 房间解散广播全员收到，幂等防重复处理
   const [jamsoulExitedOpen, setJamsoulExitedOpen] = useState(false) // jamsoul被叉掉→切听众后弹窗通知
   const [jamsoulExitedDissolve, setJamsoulExitedDissolve] = useState(false) // jamony: 叉 jamsoul 导致房间解散（非切听众）
@@ -177,6 +178,12 @@ export function PlayingPage() {
               }).catch(() => {})
             }, 500)
           }
+        } else {
+          // 房间不存在/已解散（强刷晚于 L2 60s 兜底才回来、或直接打开已散房间链接）
+          // → 杀本地孤儿 jamsoul（防花屏）+ 弹窗告知 + 回大厅
+          window.jamonyAPI?.killJamsoul?.()
+          setDissolvedMessage("房间不存在或已解散，将返回大厅。")
+          setDissolvedOpen(true)
         }
       })
       .catch(() => {})
@@ -290,20 +297,9 @@ export function PlayingPage() {
     window.jamonyAPI?.setLastMusician?.(isLastMusician)
   }, [isLastMusician])
 
-  // jamony: 退出 jamony（页面 unload）→ leave 房间（服务器清理 room_members + 进程，避免房间残留回不去）
-  useEffect(() => {
-    const handler = () => {
-      const rid = params?.code
-      if (rid && user?.id && (myRole === "musician" || myRole === "listener")) {
-        fetch(`/api/rooms/${rid}/leave`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userId: user.id }), keepalive: true,
-        }).catch(() => {})
-      }
-    }
-    window.addEventListener('beforeunload', handler)
-    return () => window.removeEventListener('beforeunload', handler)
-  }, [myRole, params, user])
+  // jamony: 删 renderer beforeunload leave（2026-09-16）——强刷会误发 leave 导致唯一合奏者房间被解散。
+  // 明确退出（叉窗/dock 退出/断开按钮）全走主进程 sendLeaveRequest（main.js 可靠 leave）；
+  // 意外断连由服务器 L2 延迟兜底。刷新场景：不发 leave，页面重载回来房间原样。
 
   // jamsoul 子进程退出（用户叉掉/直接退出 jamsoul）→ 感知 + 切听众（主动杀时不 alert）
   useEffect(() => {
@@ -357,6 +353,7 @@ export function PlayingPage() {
   useEffect(() => {
     if (!dissolvedEvent || dissolvedHandledRef.current) return
     dissolvedHandledRef.current = true
+    setDissolvedMessage(undefined)  // 真解散事件用默认文案（覆盖 !ok 场景可能设过的自定义文案）
     // 合奏者杀 jamsoul 进程；听众停 Icecast 收听
     if (myRole === "musician") {
       window.jamonyAPI?.killJamsoul?.()
@@ -432,6 +429,7 @@ export function PlayingPage() {
             roomStyle={room?.style || ""}
             realtimeSessions={realtimeSessions}
             realtimeRecordingActive={realtimeRecordingActive}
+            realtimeRecordingBy={realtimeRecordingBy}
           />
         </div>
         <div className="min-h-0">
@@ -458,6 +456,7 @@ export function PlayingPage() {
       />
       <DissolvedDialog
         open={dissolvedOpen}
+        message={dissolvedMessage}
         onConfirm={() => { setDissolvedOpen(false); router.replace("/lobby") }}
       />
       <BecomeHostDialog

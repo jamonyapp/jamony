@@ -4,9 +4,11 @@ import { LogOut } from "lucide-react"
 
 export function DissolvedDialog({
   open,
+  message,
   onConfirm,
 }: {
   open: boolean
+  message?: string  // 文案覆盖（房间不存在场景），缺省=默认"最后一位合奏者已离开"文案
   onConfirm: () => void
 }) {
   if (!open) return null
@@ -26,7 +28,7 @@ export function DissolvedDialog({
         </div>
         <h2 className="mt-4 text-lg font-semibold text-white">房间已解散</h2>
         <p className="mt-1 text-sm" style={{ color: "#8A8A8A" }}>
-          最后一位合奏者已离开，房间解散，将返回大厅。
+          {message || "最后一位合奏者已离开，房间解散，将返回大厅。"}
         </p>
         <button onClick={onConfirm}
           className="mt-6 w-full rounded-[10px] px-4 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
