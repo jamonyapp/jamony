@@ -139,6 +139,7 @@ export function CenterColumn({
   realtimeSessions,
   realtimeRecordingActive,
   realtimeRecordingBy,
+  realtimeRecordingStartedAt,
 }: {
   chords: string[]
   customTheme?: string
@@ -151,6 +152,7 @@ export function CenterColumn({
   realtimeSessions?: RecordingSession[] | null
   realtimeRecordingActive?: boolean | null
   realtimeRecordingBy?: number | null
+  realtimeRecordingStartedAt?: string | null
 }) {
   const [todayTheme, setTodayTheme] = useState({ title: "加载中...", emoji: "🎵" })
   useEffect(() => {
@@ -200,6 +202,7 @@ export function CenterColumn({
           realtimeSessions={realtimeSessions}
           realtimeRecordingActive={realtimeRecordingActive}
           realtimeRecordingBy={realtimeRecordingBy}
+          realtimeRecordingStartedAt={realtimeRecordingStartedAt}
         />
       )}
     </main>
@@ -258,6 +261,7 @@ function RecordingPanel({
   realtimeSessions,
   realtimeRecordingActive,
   realtimeRecordingBy,
+  realtimeRecordingStartedAt,
 }: {
   roomId?: string
   currentUserId?: number
@@ -266,6 +270,7 @@ function RecordingPanel({
   realtimeSessions?: RecordingSession[] | null
   realtimeRecordingActive?: boolean | null
   realtimeRecordingBy?: number | null
+  realtimeRecordingStartedAt?: string | null
 }) {
   const [sessions, setSessions] = useState<RecordingSession[]>([])
   const [expanded, setExpanded] = useState<number | null>(null)
@@ -317,13 +322,19 @@ function RecordingPanel({
     }
   }, [mixerSessionId, sessions, roomId, currentUserId, mixerEngine])
 
-  // 录音状态同步（他人开始/停止录音；发起者身份用于强刷回来恢复"停止"按钮归属）
+  // 录音状态同步（他人开始/停止录音；发起者身份恢复"停止"按钮归属；startedAt 让秒表跨强刷不归零）
   useEffect(() => {
     if (realtimeRecordingActive == null) return
     setRecording(realtimeRecordingActive)
     setRecordingMine(realtimeRecordingActive && realtimeRecordingBy != null && realtimeRecordingBy === currentUserId)
-    if (!realtimeRecordingActive) setRecordingMine(false)
-  }, [realtimeRecordingActive, realtimeRecordingBy, currentUserId])
+    if (realtimeRecordingActive) {
+      if (realtimeRecordingStartedAt) {
+        setRecTime(Math.max(0, Math.floor((Date.now() - new Date(realtimeRecordingStartedAt).getTime()) / 1000)))
+      }
+    } else {
+      setRecordingMine(false)
+    }
+  }, [realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, currentUserId])
 
   // 录音计时
   useEffect(() => {

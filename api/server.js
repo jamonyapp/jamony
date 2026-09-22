@@ -1519,9 +1519,10 @@ app.post('/api/rooms/:code/recording/start', requireAuth, async (req, res) => {
     // 录音开始时捕获鼓机是否已在运行（覆盖录音前就开鼓机的场景）；
     // 录音中才开鼓机由 drums/start API 把标志置 true
     const drumsAlreadyRunning = isDrumsRunning(room.rows[0].server_port)
-    await pool.query('UPDATE rooms SET recording_active=TRUE, drums_used_this_recording=$2 WHERE id=$1', [id, drumsAlreadyRunning])
+    const startedAt = new Date()  // 服务端权威起始时刻（stop 算真实时长 + 刷新回来校准客户端秒表）
+    await pool.query('UPDATE rooms SET recording_active=TRUE, recording_started_at=$2, drums_used_this_recording=$3 WHERE id=$1', [id, startedAt, drumsAlreadyRunning])
     recordingStarters.set(String(code), userId)  // 记发起者（join-room 补发用，强刷回来还能显示"停止"）
-    io.to(code).emit('recording-state', { roomId: code, active: true, userId })
+    io.to(code).emit('recording-state', { roomId: code, active: true, userId, startedAt: startedAt.toISOString() })
     res.json({ ok: true })
   } catch (err) {
     console.error('Recording start error:', err)
@@ -1541,9 +1542,17 @@ app.post('/api/rooms/:code/recording/stop', requireAuth, async (req, res) => {
     if (member.rows.length === 0 || member.rows[0].role !== 'musician') {
       return res.status(403).json({ ok: false, msg: '仅合奏者可录音' })
     }
-    const room = await pool.query('SELECT server_port, recording_active, drums_used_this_recording FROM rooms WHERE id=$1', [id])
+    const room = await pool.query('SELECT server_port, recording_active, drums_used_this_recording, recording_started_at FROM rooms WHERE id=$1', [id])
     if (room.rows.length === 0) return res.status(404).json({ ok: false, msg: '房间不存在' })
     const roomPort = room.rows[0].server_port
+
+    // 服务端权威时长：客户端秒表跨强刷会重置少算（音频无损仅标签偏短）；无起始时刻（异常）回退客户端上报值
+    let dur = duration || '0:00'
+    if (room.rows[0].recording_started_at) {
+      const secs = Math.max(1, Math.round((Date.now() - new Date(room.rows[0].recording_started_at).getTime()) / 1000))
+      dur = `${String(Math.floor(secs / 60)).padStart(2, '0')}:${String(secs % 60).padStart(2, '0')}`
+      console.log(`Recording duration (server): ${dur}, client reported: ${duration || 'none'}`)
+    }
 
     // JSON-RPC 获取录音目录并停止录音
     let recDir = ''
@@ -1584,7 +1593,7 @@ app.post('/api/rooms/:code/recording/stop', requireAuth, async (req, res) => {
     const sess = await pool.query(
       `INSERT INTO recording_sessions (room_id, index, duration, countdown_seconds, expires_at)
        VALUES ($1, $2, $3, $4, NOW() + ($5 * interval '1 second')) RETURNING *`,
-      [id, index, duration || '0:00', RECORDING_COUNTDOWN_SECONDS, RECORDING_COUNTDOWN_SECONDS]
+      [id, index, dur || '0:00', RECORDING_COUNTDOWN_SECONDS, RECORDING_COUNTDOWN_SECONDS]
     )
     const sessionId = sess.rows[0].id
 
@@ -1641,7 +1650,7 @@ app.post('/api/rooms/:code/recording/stop', requireAuth, async (req, res) => {
     }
 
     // 结束录音状态并广播
-    await pool.query('UPDATE rooms SET recording_active=FALSE, drums_used_this_recording=FALSE WHERE id=$1', [id])
+    await pool.query('UPDATE rooms SET recording_active=FALSE, recording_started_at=NULL, drums_used_this_recording=FALSE WHERE id=$1', [id])
     recordingStarters.delete(String(code))
     io.to(code).emit('recording-state', { roomId: code, active: false })
     await broadcastSessions(code)
@@ -3141,11 +3150,15 @@ io.on("connection", (socket) => {
         }
       }
     }
-    // 补发房间当前录音状态（强刷/后进房者同步"录音中"指示；只在录音中发，空闲不发——前端默认就是不录）
-    pool.query('SELECT recording_active FROM rooms WHERE room_code = $1', [roomId])
+    // 补发房间当前录音状态（强刷/后进房者同步"录音中"指示+已录秒数校准；只在录音中发，空闲不发——前端默认就是不录）
+    pool.query('SELECT recording_active, recording_started_at FROM rooms WHERE room_code = $1', [roomId])
       .then(r => {
         if (r.rows.length > 0 && r.rows[0].recording_active) {
-          socket.emit('recording-state', { roomId, active: true, userId: recordingStarters.get(String(roomId)) })
+          socket.emit('recording-state', {
+            roomId, active: true,
+            userId: recordingStarters.get(String(roomId)),
+            startedAt: r.rows[0].recording_started_at ? new Date(r.rows[0].recording_started_at).toISOString() : undefined,
+          })
         }
       })
       .catch(() => {})
