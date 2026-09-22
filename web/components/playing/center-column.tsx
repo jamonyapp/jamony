@@ -140,6 +140,7 @@ export function CenterColumn({
   realtimeRecordingActive,
   realtimeRecordingBy,
   realtimeRecordingStartedAt,
+  realtimeRecordingMax,
 }: {
   chords: string[]
   customTheme?: string
@@ -153,6 +154,7 @@ export function CenterColumn({
   realtimeRecordingActive?: boolean | null
   realtimeRecordingBy?: number | null
   realtimeRecordingStartedAt?: string | null
+  realtimeRecordingMax?: number | null
 }) {
   const [todayTheme, setTodayTheme] = useState({ title: "加载中...", emoji: "🎵" })
   useEffect(() => {
@@ -203,6 +205,7 @@ export function CenterColumn({
           realtimeRecordingActive={realtimeRecordingActive}
           realtimeRecordingBy={realtimeRecordingBy}
           realtimeRecordingStartedAt={realtimeRecordingStartedAt}
+          realtimeRecordingMax={realtimeRecordingMax}
         />
       )}
     </main>
@@ -262,6 +265,7 @@ function RecordingPanel({
   realtimeRecordingActive,
   realtimeRecordingBy,
   realtimeRecordingStartedAt,
+  realtimeRecordingMax,
 }: {
   roomId?: string
   currentUserId?: number
@@ -271,6 +275,7 @@ function RecordingPanel({
   realtimeRecordingActive?: boolean | null
   realtimeRecordingBy?: number | null
   realtimeRecordingStartedAt?: string | null
+  realtimeRecordingMax?: number | null
 }) {
   const [sessions, setSessions] = useState<RecordingSession[]>([])
   const [expanded, setExpanded] = useState<number | null>(null)
@@ -280,6 +285,7 @@ function RecordingPanel({
   const mixerTracksLoadedRef = useRef(false)
   const [recording, setRecording] = useState(false)
   const [recordingMine, setRecordingMine] = useState(false)
+  const [stopping, setStopping] = useState(false) // 停止中过渡态（0923：服务器快停响应回来前按钮显示"停止中…"并禁用，防连点误开新段）
   const [recTime, setRecTime] = useState(0)
   const [now, setNow] = useState(Date.now())
   const fetchingRef = useRef(false)
@@ -333,6 +339,7 @@ function RecordingPanel({
       }
     } else {
       setRecordingMine(false)
+      setStopping(false)  // socket 广播"已停"可能先于 HTTP 响应到达，兜底解除停止中
     }
   }, [realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, currentUserId])
 
@@ -378,12 +385,14 @@ function RecordingPanel({
   }
 
   const stopRecording = async () => {
-    if (!roomId || !currentUserId) return
+    if (!roomId || !currentUserId || stopping) return
+    setStopping(true)  // 点击瞬间进入停止中：按钮禁用+文案切换，连点全部吸收
     const res = await fetch(`/api/rooms/${roomId}/recording/stop`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ userId: currentUserId, duration: fmt(recTime) }),
     })
     const data = await res.json()
+    setStopping(false)
     if (data.ok) {
       setRecording(false); setRecordingMine(false); setRecTime(0)
     }
@@ -402,13 +411,16 @@ function RecordingPanel({
     <section className="flex min-h-0 flex-1 flex-col rounded-[10px] border border-border bg-card">
       {/* 录音控制栏（极简版 ~28px，欢哥 0923：再收一半） */}
       <div className="flex shrink-0 items-center justify-between gap-4 border-b border-border px-4 py-1.5">
-        <div className="flex items-center gap-2 text-xs font-semibold">
-          <Disc3 className="size-3.5 text-brand-pink" />
-          本房间录音
-          {sessions.length > 0 && (
-            <span className="text-[11px] font-normal text-muted-foreground">已录 {sessions.length} 段</span>
-          )}
-          <span className="ml-1 text-[11px] font-normal text-muted-foreground">录音将在房间解散后清除，请及时发表或下载</span>
+        <div className="flex flex-col gap-0.5">
+          <div className="flex items-center gap-2 text-xs font-semibold">
+            <Disc3 className="size-3.5 text-brand-pink" />
+            本房间录音
+            <span className="text-[11px] font-normal text-muted-foreground">每段最长 5 分钟</span>
+            {sessions.length > 0 && (
+              <span className="text-[11px] font-normal text-muted-foreground">已录 {sessions.length} 段</span>
+            )}
+          </div>
+          <p className="pl-[22px] text-[11px] font-normal leading-tight text-muted-foreground">录音将在房间解散后清除，请及时发表或下载</p>
         </div>
 
         <div className="flex items-center gap-2.5">
@@ -416,18 +428,19 @@ function RecordingPanel({
             <span className="flex items-center gap-1 font-mono text-xs text-brand-pink">
               <span className="size-1.5 animate-rec-pulse rounded-full bg-brand-pink" />
               {fmt(recTime)}
+              {realtimeRecordingMax ? ` / -${fmt(Math.max(0, realtimeRecordingMax - recTime))}` : ""}
             </span>
           )}
           <button
-            onClick={() => (recordingMine ? stopRecording() : !recording && startRecording())}
-            disabled={recording && !recordingMine}
+            onClick={() => (recordingMine ? stopRecording() : !recording && !stopping && startRecording())}
+            disabled={(recording && !recordingMine) || stopping}
             aria-label={recording ? "停止录音" : "开始录音"}
             className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold text-white transition-transform hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100 ${
               recording ? "bg-destructive" : "bg-brand-pink"
             }`}
           >
             {recording ? <Square className="size-3 fill-current" /> : <Circle className="size-3 fill-current" />}
-            {recording ? (recordingMine ? "停止" : "录音中") : "录音"}
+            {stopping ? "停止中…" : recording ? (recordingMine ? "停止" : "录音中") : "录音"}
           </button>
         </div>
       </div>

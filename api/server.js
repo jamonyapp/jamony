@@ -1495,6 +1495,8 @@ app.post('/api/rooms/:code/heartbeat', requireAuth, async (req, res) => {
 
 // ========== 录音 session（录音 → 授权 → 发表 全链路） ==========
 const RECORDING_COUNTDOWN_SECONDS = 60  // 倒计时秒数（测试用 60，后期改 600）
+const RECORDING_MAX_SECONDS = 5 * 60    // 单段录音上限（欢哥 0923：防滥用承压+引导少量多次+控制作品时长；5min 足够支撑排练/jam）
+const recordingTimers = new Map()       // room_code → 5min 到点自动停定时器
 
 // 开始录音（合奏者触发，一房一录）
 app.post('/api/rooms/:code/recording/start', requireAuth, async (req, res) => {
@@ -1522,7 +1524,18 @@ app.post('/api/rooms/:code/recording/start', requireAuth, async (req, res) => {
     const startedAt = new Date()  // 服务端权威起始时刻（stop 算真实时长 + 刷新回来校准客户端秒表）
     await pool.query('UPDATE rooms SET recording_active=TRUE, recording_started_at=$2, drums_used_this_recording=$3 WHERE id=$1', [id, startedAt, drumsAlreadyRunning])
     recordingStarters.set(String(code), userId)  // 记发起者（join-room 补发用，强刷回来还能显示"停止"）
-    io.to(code).emit('recording-state', { roomId: code, active: true, userId, startedAt: startedAt.toISOString() })
+    io.to(code).emit('recording-state', { roomId: code, active: true, userId, startedAt: startedAt.toISOString(), maxSeconds: RECORDING_MAX_SECONDS })
+    // 5min 到点自动停（与手动停同一核心流程；pm2 重启丢定时器由 5min 清扫任务兜底）
+    const maxTimer = setTimeout(async () => {
+      recordingTimers.delete(String(code))
+      try {
+        const rid = await getRoomIdByCode(code)
+        if (!rid) return
+        console.log(`Recording max ${RECORDING_MAX_SECONDS}s reached, auto-stop room ${code}`)
+        await stopRoomRecording(code, rid, undefined)
+      } catch (e) { console.error('recording auto-stop error:', e) }
+    }, RECORDING_MAX_SECONDS * 1000)
+    recordingTimers.set(String(code), maxTimer)
     res.json({ ok: true })
   } catch (err) {
     console.error('Recording start error:', err)
@@ -1531,20 +1544,16 @@ app.post('/api/rooms/:code/recording/start', requireAuth, async (req, res) => {
 })
 
 // 停止录音 → 创建 session + 分轨快照 + jamony-looper 检测 + 启动倒计时
-app.post('/api/rooms/:code/recording/stop', requireAuth, async (req, res) => {
+// 停止录音核心流程（手动停 / 5min 到点自动停 共用）：鉴权由调用方负责，
+// 这里走"快停快应（状态翻转+广播）+ 后台落档（等WAV→建session/分轨→标准化）"
+async function stopRoomRecording(code, id, duration) {
   try {
-    const { code } = req.params
-    const { duration } = req.body
-    const userId = req.userId
-    const id = await getRoomIdByCode(code)
-    if (!id) return res.status(404).json({ ok: false, msg: '房间不存在' })
-    const member = await pool.query('SELECT role FROM room_members WHERE room_id=$1 AND user_id=$2', [id, userId])
-    if (member.rows.length === 0 || member.rows[0].role !== 'musician') {
-      return res.status(403).json({ ok: false, msg: '仅合奏者可录音' })
-    }
     const room = await pool.query('SELECT server_port, recording_active, drums_used_this_recording, recording_started_at FROM rooms WHERE id=$1', [id])
     if (room.rows.length === 0) return res.status(404).json({ ok: false, msg: '房间不存在' })
     const roomPort = room.rows[0].server_port
+    // 幂等防重：已在非录音态（另一 tab 已停过/自动停已触发）直接成功返回，不再重复建 session
+    if (!room.rows[0].recording_active) return { ok: true }
+    const drumsUsedThisRecording = room.rows[0].drums_used_this_recording  // UPDATE 置 FALSE 前先捕获（后台落档要用）
 
     // 服务端权威时长：客户端秒表跨强刷会重置少算（音频无损仅标签偏短）；无起始时刻（异常）回退客户端上报值
     let dur = duration || '0:00'
@@ -1567,23 +1576,39 @@ app.post('/api/rooms/:code/recording/stop', requireAuth, async (req, res) => {
     } catch (e) {
       console.error('stopRecording error:', e.message)
     }
-    // 等待 headless 写完 WAV 文件
-    await new Promise(r => setTimeout(r, 2000))
-
-    // 扫描 WAV 目录（找最新的 Jam-* 子目录）
-    const wavFiles = []
-    let recSessDir = ''
+    // ★ 响应前钉死本次录音子目录：快停放开状态后若立刻开新段会新建 Jam-* 目录，
+    //   后台落档只处理这份钉死目录，防扫描"最新目录"抓到新段（欢哥的时序预案）
+    let pinnedDir = ''
     if (recDir && fs.existsSync(recDir)) {
       const subdirs = fs.readdirSync(recDir).filter(d => d.startsWith('Jam-')).sort()
-      if (subdirs.length > 0) {
-        recSessDir = path.join(recDir, subdirs[subdirs.length - 1])
-        const files = fs.readdirSync(recSessDir).filter(f => f.endsWith('.wav')).sort()
-        for (const f of files) {
-          wavFiles.push({ filename: f, fullPath: path.join(recSessDir, f) })
-        }
-        console.log('WAV files found:', wavFiles.length, 'in', recSessDir)
-      }
+      if (subdirs.length > 0) pinnedDir = path.join(recDir, subdirs[subdirs.length - 1])
     }
+
+    // ★ 快停快应（2026-09-23）：原先"2s 等 WAV 落盘 + 扫文件 + 建 session"全部串行挡在响应里，
+    //   按钮僵 ~5s（录音越长 RPC 越慢还会更长）→ 用户连点 → 翻面后误开新段。
+    //   现在响应路径只留必要三件事：状态翻 FALSE + 广播已停 + 回包，按钮延迟降到 RPC 的 ~1s。
+    // 原子翻转：手动停与 5min 到点自动停并发时，只有一方能翻转成功（另一方 0 行直接返回，不重复落档）
+    const flipped = await pool.query("UPDATE rooms SET recording_active=FALSE, recording_started_at=NULL, drums_used_this_recording=FALSE WHERE id=$1 AND recording_active=TRUE RETURNING id", [id])
+    if (flipped.rows.length === 0) return { ok: true }
+    const rt = recordingTimers.get(String(code))
+    if (rt) { clearTimeout(rt); recordingTimers.delete(String(code)) }  // 手动停到点前，撤自动停定时器
+    recordingStarters.delete(String(code))
+    io.to(code).emit('recording-state', { roomId: code, active: false })
+
+    // ★ 后台落档：等 headless 写完 WAV → 只扫钉死目录 → 建 session/分轨 → 广播 + 标准化
+    setTimeout(() => {
+      (async () => {
+        try {
+          await new Promise(r => setTimeout(r, 2000))
+          const wavFiles = []
+          const recSessDir = pinnedDir
+          if (recSessDir && fs.existsSync(recSessDir)) {
+            const files = fs.readdirSync(recSessDir).filter(f => f.endsWith('.wav')).sort()
+            for (const f of files) {
+              wavFiles.push({ filename: f, fullPath: path.join(recSessDir, f) })
+            }
+            console.log('WAV files found:', wavFiles.length, 'in', recSessDir)
+          }
 
     // 段落序号 = 房间已有 session 数 + 1
     const cnt = await pool.query('SELECT COUNT(*) AS c FROM recording_sessions WHERE room_id=$1', [id])
@@ -1638,7 +1663,7 @@ app.post('/api/rooms/:code/recording/stop', requireAuth, async (req, res) => {
     }
 
     // jamony-looper：录音期间只要启动过鼓机，looper 分轨里就必然有鼓声，应展示
-    const drumsUsedThisRecording = room.rows[0].drums_used_this_recording
+    // （drumsUsedThisRecording 已在 UPDATE 置 FALSE 前捕获，见顶部）
     if (drumsUsedThisRecording) {
       const looperWav = wavFiles.find(w => w.filename.startsWith('jamony-looper'))
       await pool.query(
@@ -1649,14 +1674,9 @@ app.post('/api/rooms/:code/recording/stop', requireAuth, async (req, res) => {
       )
     }
 
-    // 结束录音状态并广播
-    await pool.query('UPDATE rooms SET recording_active=FALSE, recording_started_at=NULL, drums_used_this_recording=FALSE WHERE id=$1', [id])
-    recordingStarters.delete(String(code))
-    io.to(code).emit('recording-state', { roomId: code, active: false })
-    await broadcastSessions(code)
-    res.json({ ok: true, session: sess.rows[0] });
-    // 异步音量标准化（完成后 socket 通知前端）
-    setTimeout(() => {
+          await broadcastSessions(code)
+          // 异步音量标准化（完成后 socket 通知前端）
+          setTimeout(() => {
       (async () => {
         try {
           const tracks = await pool.query(
@@ -1682,10 +1702,29 @@ app.post('/api/rooms/:code/recording/stop', requireAuth, async (req, res) => {
         }
       })();
     }, 0);
+        } catch (e) {
+          console.error('Recording stop background error:', e)
+        }
+      })()
+    }, 0)
+    return { ok: true }
   } catch (err) {
     console.error('Recording stop error:', err)
-    res.status(500).json({ ok: false, msg: '服务器错误' })
+    return { ok: false, msg: '服务器错误' }
   }
+}
+
+// 手动停止录音（合奏者）：鉴权后走核心流程
+app.post('/api/rooms/:code/recording/stop', requireAuth, async (req, res) => {
+  const { code } = req.params
+  const { duration } = req.body
+  const id = await getRoomIdByCode(code)
+  if (!id) return res.status(404).json({ ok: false, msg: '房间不存在' })
+  const member = await pool.query('SELECT role FROM room_members WHERE room_id=$1 AND user_id=$2', [id, req.userId])
+  if (member.rows.length === 0 || member.rows[0].role !== 'musician') {
+    return res.status(403).json({ ok: false, msg: '仅合奏者可录音' })
+  }
+  res.json(await stopRoomRecording(code, id, duration))
 })
 // 下载分轨 WAV（混音/发表试听用）
 app.get('/api/rooms/:code/sessions/:sid/tracks/:tid/download', requireAuth, async (req, res) => {
@@ -3158,6 +3197,7 @@ io.on("connection", (socket) => {
             roomId, active: true,
             userId: recordingStarters.get(String(roomId)),
             startedAt: r.rows[0].recording_started_at ? new Date(r.rows[0].recording_started_at).toISOString() : undefined,
+            maxSeconds: RECORDING_MAX_SECONDS,
           })
         }
       })
@@ -3376,6 +3416,22 @@ async function closeZombieMusicianSessions() {
 }
 closeZombieMusicianSessions()  // 启动时立即跑一次（pm2 重启后清上次崩溃残留）
 setInterval(closeZombieMusicianSessions, 5 * 60000)
+
+// 录音超时兜底：pm2 重启会丢掉到点自动停的内存定时器，这里每 5 分钟扫一遍
+// recording_active=TRUE 且 started_at 超 5min 的房间，补一刀自动停（与手动停同一流程）
+async function enforceRecordingMaxDuration() {
+  try {
+    const stale = await pool.query(
+      "SELECT id, room_code FROM rooms WHERE recording_active=TRUE AND recording_started_at < NOW() - ($1 * interval '1 second')",
+      [RECORDING_MAX_SECONDS]
+    )
+    for (const r of stale.rows) {
+      console.log(`Recording over max (sweeper fallback), auto-stop room ${r.room_code}`)
+      await stopRoomRecording(String(r.room_code).trim(), r.id, undefined)
+    }
+  } catch (e) { console.error('enforceRecordingMaxDuration error:', e.message) }
+}
+setInterval(enforceRecordingMaxDuration, 5 * 60000)
 
 // 乐手会话日清：7 天前明细聚合进 users.musician_seconds_archive 后删（单条 CTE 隐式事务，崩溃不会双计，幂等可重跑）
 async function archiveOldMusicianSessions() {

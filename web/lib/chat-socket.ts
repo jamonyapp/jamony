@@ -25,6 +25,7 @@ export function useChatSocket(roomId?: string, nickname?: string) {
   const [realtimeRecordingActive, setRealtimeRecordingActive] = useState<boolean | null>(null)
   const [realtimeRecordingBy, setRealtimeRecordingBy] = useState<number | null>(null) // 发起者（强刷回来恢复"停止"按钮归属）
   const [realtimeRecordingStartedAt, setRealtimeRecordingStartedAt] = useState<string | null>(null) // 服务端起始时刻（强刷回来秒表校准不归零）
+  const [realtimeRecordingMax, setRealtimeRecordingMax] = useState<number | null>(null) // 单段上限秒数（服务器下发，前端双计时显示剩余）
   const [kickedEvent, setKickedEvent] = useState<{ userId: number; roomCode: string; ts: number } | null>(null)
   const [dissolvedEvent, setDissolvedEvent] = useState<{ roomCode: string; ts: number } | null>(null)
 
@@ -75,10 +76,11 @@ export function useChatSocket(roomId?: string, nickname?: string) {
       setRealtimeSessions(data.sessions || [])
     })
 
-    socket.on("recording-state", (data: { active: boolean; userId?: number; startedAt?: string }) => {
+    socket.on("recording-state", (data: { active: boolean; userId?: number; startedAt?: string; maxSeconds?: number }) => {
       setRealtimeRecordingActive(!!data.active)
       setRealtimeRecordingBy(data.active ? (data.userId ?? null) : null)
       setRealtimeRecordingStartedAt(data.active ? (data.startedAt ?? null) : null)
+      setRealtimeRecordingMax(data.active ? (data.maxSeconds ?? null) : null)
     })
 
     socket.on("normalize-done", (data: { sessionId: number; trackId: number }) => {
@@ -123,5 +125,5 @@ export function useChatSocket(roomId?: string, nickname?: string) {
     setRealtimeTheme(theme)
   }
 
-  return { messages, sendMessage, connected, realtimeChords, pushChords, realtimeTheme, pushTheme, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, kickedEvent, dissolvedEvent }
+  return { messages, sendMessage, connected, realtimeChords, pushChords, realtimeTheme, pushTheme, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, kickedEvent, dissolvedEvent }
 }

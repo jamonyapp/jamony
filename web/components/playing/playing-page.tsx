@@ -53,7 +53,7 @@ export function PlayingPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { user } = useAuth()
-  const { realtimeChords, pushChords, realtimeTheme, pushTheme, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, kickedEvent, dissolvedEvent } = useChatSocket(params?.code as string, user?.nickname)
+  const { realtimeChords, pushChords, realtimeTheme, pushTheme, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, kickedEvent, dissolvedEvent } = useChatSocket(params?.code as string, user?.nickname)
   const [room, setRoom] = useState<RoomData | null>(null)
   const [showShareHint, setShowShareHint] = useState(false)
   // 建房跳转带 ?new=1 → 弹分享引导窗（room 加载完才弹），并清掉 query 避免刷新重复弹
@@ -431,6 +431,7 @@ export function PlayingPage() {
             realtimeRecordingActive={realtimeRecordingActive}
             realtimeRecordingBy={realtimeRecordingBy}
             realtimeRecordingStartedAt={realtimeRecordingStartedAt}
+            realtimeRecordingMax={realtimeRecordingMax}
           />
         </div>
         <div className="min-h-0">
