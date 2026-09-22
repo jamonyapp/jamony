@@ -99,7 +99,7 @@ function DropdownSelect({
             <button
               key={String(opt.value)}
               onClick={() => { onChange(opt.value); setOpen(false) }}
-              className={`whitespace-nowrap px-3 py-1.5 text-left text-[11px] font-bold transition-colors hover:bg-accent ${
+              className={`whitespace-nowrap px-3 py-1 text-left text-[11px] font-bold transition-colors hover:bg-accent ${
                 value === opt.value ? (opt.className || "text-foreground") : "text-muted-foreground"
               } ${value === opt.value ? "bg-accent" : ""}`}
             >
@@ -173,20 +173,20 @@ export function CenterColumn({
         <div className="absolute inset-0 opacity-50" style={{ background: "radial-gradient(60% 50% at 50% 40%, rgba(153,51,255,0.35), transparent 70%)" }} />
         <div className="relative flex h-full flex-col items-center justify-center gap-5 px-6 py-6 text-center">
           <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-white/50">本房间主题</p>
+            <p className="text-xs font-bold uppercase tracking-[0.1em] text-white/50">本房间主题</p>
             <p className="mt-2 text-2xl font-bold text-white sm:text-3xl lg:text-4xl">
               {customTheme && customTheme.length > 0 ? customTheme : `${todayTheme.emoji} ${todayTheme.title}`}
             </p>
           </div>
           {chords.length > 0 && (
             <div className="w-full">
-              <p className="text-center text-xs uppercase tracking-[0.3em] text-white/50">和弦进程</p>
+              <p className="text-center text-xs font-bold uppercase tracking-[0.1em] text-white/50">和弦进程</p>
               <div className="mt-3"><ChordBoard chords={chords} /></div>
             </div>
           )}
           <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-white/50">拍速</p>
-            <p className="mt-1 text-xl font-bold text-white lg:text-2xl">{currentBpm && currentBpm > 0 ? currentBpm + " BPM" : "custom"}</p>
+            <p className="text-xs font-bold uppercase tracking-[0.1em] text-white/50">BPM</p>
+            <p className="mt-1 text-xl font-bold text-white lg:text-2xl">{currentBpm && currentBpm > 0 ? currentBpm : "custom"}</p>
           </div>
         </div>
         <div className="absolute inset-x-0 bottom-0 h-0.5" style={{ background: "linear-gradient(90deg, #00AAFF, #9933FF, #FF33AA, #BBEE00)" }} />
@@ -400,22 +400,21 @@ function RecordingPanel({
 
   return (<>
     <section className="flex min-h-0 flex-1 flex-col rounded-[10px] border border-border bg-card">
-      {/* 录音控制栏 */}
-      <div className="flex shrink-0 items-center justify-between gap-4 border-b border-border p-4">
-        <div>
-          <div className="flex items-center gap-2 text-sm font-semibold">
-            <Disc3 className="size-4 text-brand-pink" />
-            本房间录音
-          </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {sessions.length === 0 ? "大家还没有录音" : `已录制 ${sessions.length} 段`}
-          </p>
+      {/* 录音控制栏（极简版 ~28px，欢哥 0923：再收一半） */}
+      <div className="flex shrink-0 items-center justify-between gap-4 border-b border-border px-4 py-1.5">
+        <div className="flex items-center gap-2 text-xs font-semibold">
+          <Disc3 className="size-3.5 text-brand-pink" />
+          本房间录音
+          {sessions.length > 0 && (
+            <span className="text-[11px] font-normal text-muted-foreground">已录 {sessions.length} 段</span>
+          )}
+          <span className="ml-1 text-[11px] font-normal text-muted-foreground">录音将在房间解散后清除，请及时发表或下载</span>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5">
           {recording && (
-            <span className="flex items-center gap-2 font-mono text-sm text-brand-pink">
-              <span className="size-2 animate-rec-pulse rounded-full bg-brand-pink" />
+            <span className="flex items-center gap-1 font-mono text-xs text-brand-pink">
+              <span className="size-1.5 animate-rec-pulse rounded-full bg-brand-pink" />
               {fmt(recTime)}
             </span>
           )}
@@ -423,13 +422,11 @@ function RecordingPanel({
             onClick={() => (recordingMine ? stopRecording() : !recording && startRecording())}
             disabled={recording && !recordingMine}
             aria-label={recording ? "停止录音" : "开始录音"}
-            className={`flex items-center gap-2 rounded-full pl-3 pr-5 text-sm font-bold text-white transition-transform hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100 ${
+            className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold text-white transition-transform hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100 ${
               recording ? "bg-destructive" : "bg-brand-pink"
             }`}
           >
-            <span className={`my-1 grid size-11 place-items-center rounded-full bg-white/20 ${recording ? "animate-rec-pulse" : ""}`}>
-              {recording ? <Square className="size-5 fill-current" /> : <Circle className="size-5 fill-current" />}
-            </span>
+            {recording ? <Square className="size-3 fill-current" /> : <Circle className="size-3 fill-current" />}
             {recording ? (recordingMine ? "停止" : "录音中") : "录音"}
           </button>
         </div>
@@ -440,7 +437,7 @@ function RecordingPanel({
         {sessions.length === 0 ? (
           <div className="grid h-full place-items-center text-sm text-muted-foreground">大家还没有录音</div>
         ) : (
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-1.5">
             {sessions.map((s) => (
               <SessionCard
                 key={s.id}
@@ -598,40 +595,40 @@ function SessionCard({
 
   return (
     <div className="rounded-[10px] border border-border bg-secondary">
-      {/* 头部：段落信息 + 倒计时 + 发表按钮 + 展开 */}
-      <div className="flex items-center justify-between px-3 py-2.5">
-        <div className="flex items-center gap-1">
+      {/* 头部：段落信息 + 倒计时 + 发表按钮 + 展开（纤细版，欢哥 0923 瘦身） */}
+      <div className="flex items-center justify-between px-3 py-1.5">
+        <div className="flex items-center gap-1.5">
           {onPreview && (
             <button type="button" onClick={onPreview}
-              className="flex size-7 items-center justify-center rounded-full transition-all hover:scale-105"
+              className="flex size-5 items-center justify-center rounded-full transition-all hover:scale-105"
               style={{color:"#FFFFFF",background:"rgba(255,255,255,0.1)",boxShadow:"0 0 0 1px rgba(255,255,255,0.2)"}}
               aria-label="试听混音">
-              <Headphones size={15} />
+              <Headphones size={12} />
             </button>
           )}
-          <button onClick={onToggle} className="flex items-center gap-3 text-left text-sm transition-colors hover:opacity-80">
-            <span className="grid size-7 place-items-center rounded-[8px] bg-primary/20 text-xs font-bold text-brand-purple">{session.index}</span>
+          <button onClick={onToggle} className="flex items-center gap-2 text-left text-xs transition-colors hover:opacity-80">
+            <span className="grid size-5 place-items-center rounded-[6px] bg-primary/20 text-[10px] font-bold text-brand-purple">{session.index}</span>
             <span>
               <span className="font-medium">段落 {session.index}</span>
-              <span className="ml-2 text-xs text-muted-foreground">{session.duration} · {session.tracks.filter(t => !t.is_system).length} 人</span>
+              <span className="ml-2 text-[11px] text-muted-foreground">{session.duration} · {session.tracks.filter(t => !t.is_system).length} 人</span>
             </span>
           </button></div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5">
           {/* 倒计时 —— 全员共看一个，显示在去发表按钮左边 */}
           {showCountdown && (
-            <span className="font-mono text-xs text-brand-pink">{fmt(remaining)} 后默认授权+署名</span>
+            <span className="font-mono text-[11px] text-brand-pink">{fmt(remaining)} 后默认授权+署名</span>
           )}
           {/* 发表状态卡片 —— 全员 ①② 锁定后出现 */}
           {session.all_locked && (
             <>
               {session.status === "published" ? (
-                <span className="rounded-full bg-brand-green/20 px-4 py-1.5 text-xs font-bold text-brand-green">
+                <span className="rounded-full bg-brand-green/20 px-3 py-1 text-[11px] font-bold text-brand-green">
                   ✓ 已发表
                 </span>
               ) : (
                 <>
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-[11px] text-muted-foreground">
                     <span className="font-semibold text-brand-green">{session.agreed_count}人已授权</span> · {refusedCount}人拒绝
                   </span>
                   {canPublish && handlePublishButton()}
@@ -640,14 +637,14 @@ function SessionCard({
             </>
           )}
           <button onClick={onToggle} className="text-muted-foreground transition-colors hover:text-foreground">
-            <ChevronDown className={`size-4 transition-transform ${open ? "rotate-180" : ""}`} />
+            <ChevronDown className={`size-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
           </button>
         </div>
       </div>
 
       {open && (
-        <div className="border-t border-border px-3 py-3">
-          <div className="flex flex-col gap-2">
+        <div className="border-t border-border px-3 py-1.5">
+          <div className="flex flex-col gap-1">
             {session.tracks.map((t) => (
               <TrackRow key={t.id} track={t} session={session} roomId={roomId} currentUserId={currentUserId} onPatch={onPatch} />
             ))}
@@ -839,7 +836,7 @@ function SessionCard({
           setPublishOpen(true)
         }}
         disabled={claiming || isOthers}
-        className={`rounded-full px-4 py-1.5 text-xs font-bold text-white transition-all duration-200
+        className={`rounded-full px-3 py-1 text-xs font-bold text-white transition-all duration-200
           ${claiming ? "animate-pulse opacity-50" : ""}
           ${isOthers ? "cursor-not-allowed opacity-40" : "hover:scale-[1.03]"}
           ${isMine ? "bg-brand-green" : ""}
@@ -884,13 +881,13 @@ function TrackRow({
     : "确认你的选择吗？确认后不可修改。"
 
   return (
-    <div className="flex items-center gap-3 rounded-[8px] px-2 py-1 text-sm">
+    <div className="flex items-center gap-2.5 rounded-[8px] px-2 py-1 text-xs">
       <span>{emoji}</span>
       <span className="w-20 shrink-0 font-medium">{track.nickname}</span>
 
       {/* 三个授权下拉（只有自己可见） */}
       {isSelf && (
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2.5">
           <div className="flex items-center gap-1">
             <DropdownSelect
               value={track.allow_use}
@@ -957,31 +954,31 @@ function TrackRow({
         </div>
       )}
 
-      {/* 下载按钮：自己始终可见；他人 ③=可下载见下载 icon，否则见禁下载 icon */}
+      {/* 下载按钮：自己始终可见；他人 ③=可下载见下载 icon，否则见禁下载 icon（纤细版 20px） */}
       <div className="ml-auto">
         {isSelf ? (
           track.normalized ? (
-            <a href={`/api/rooms/${roomId}/sessions/${session.id}/tracks/${track.id}/download?userId=${currentUserId}`} className="grid size-7 place-items-center rounded-[6px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" title="下载我的分轨" download>
-              <Download className="size-3.5" />
+            <a href={`/api/rooms/${roomId}/sessions/${session.id}/tracks/${track.id}/download?userId=${currentUserId}`} className="grid size-5 place-items-center rounded-[6px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" title="下载我的分轨" download>
+              <Download className="size-3" />
             </a>
           ) : (
-            <span className="grid size-7 place-items-center cursor-not-allowed text-muted-foreground/40" title="音轨准备中">
-              <span className="size-3.5 text-[9px] font-bold text-muted-foreground/30">⏳</span>
+            <span className="grid size-5 place-items-center cursor-not-allowed text-muted-foreground/40" title="音轨准备中">
+              <span className="size-3 text-[8px] font-bold text-muted-foreground/30">⏳</span>
             </span>
           )
         ) : track.allow_download === true ? (
           track.normalized ? (
-            <a href={`/api/rooms/${roomId}/sessions/${session.id}/tracks/${track.id}/download?userId=${currentUserId}`} className="grid size-7 place-items-center rounded-[6px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" title={`下载 ${track.nickname} 的分轨`} download>
-              <Download className="size-3.5" />
+            <a href={`/api/rooms/${roomId}/sessions/${session.id}/tracks/${track.id}/download?userId=${currentUserId}`} className="grid size-5 place-items-center rounded-[6px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" title={`下载 ${track.nickname} 的分轨`} download>
+              <Download className="size-3" />
             </a>
           ) : (
-            <span className="grid size-7 place-items-center cursor-not-allowed text-muted-foreground/40" title="音轨准备中">
-              <span className="size-3.5 text-[9px] font-bold text-muted-foreground/30">⏳</span>
+            <span className="grid size-5 place-items-center cursor-not-allowed text-muted-foreground/40" title="音轨准备中">
+              <span className="size-3 text-[8px] font-bold text-muted-foreground/30">⏳</span>
             </span>
           )
         ) : (
-          <span className="grid size-7 place-items-center text-muted-foreground/40" title={track.allow_download === false ? `${track.nickname} 禁止下载` : "待授权"}>
-            <Ban className="size-3.5" />
+          <span className="grid size-5 place-items-center text-muted-foreground/40" title={track.allow_download === false ? `${track.nickname} 禁止下载` : "待授权"}>
+            <Ban className="size-3" />
           </span>
         )}
       </div>

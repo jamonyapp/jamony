@@ -226,7 +226,7 @@ export function LeftColumn({
 function DrumMachineTool({ roomId, realtimeBpm }: { roomId?: string; realtimeBpm?: number }) {
   const [running, setRunning] = useState(false)
   const [bpm, setBpm] = useState(120)
-  const [style, setStyle] = useState("rock")
+  const [style, setStyle] = useState("basic")  // 默认基础节奏（欢哥 0923 定）
   const [styles, setStyles] = useState<string[]>([])
   const [files, setFiles] = useState<string[]>([])
   const [selectedFile, setSelectedFile] = useState("")
@@ -256,7 +256,8 @@ function DrumMachineTool({ roomId, realtimeBpm }: { roomId?: string; realtimeBpm
       .then(data => {
         if (data.ok) {
           setStyles(Object.keys(data.styles))
-          setFiles(data.styles.rock || [])
+          // 文件列表由下面 [style] effect 统一加载（原先这里硬编码 rock 初始化，
+          // 与 [style] effect 异步竞态可能列表/选中错位，删掉让单一数据源）
         }
       })
       .catch(() => {})
@@ -278,7 +279,7 @@ function DrumMachineTool({ roomId, realtimeBpm }: { roomId?: string; realtimeBpm
         if (data.ok) {
           const flist = data.styles[style] || []
           setFiles(flist)
-          setSelectedFile(flist[Math.floor(Math.random() * flist.length)] || "")
+          setSelectedFile(flist[0] || "")  // 默认第一个节奏型（原随机选，欢哥 0923 定）
         }
       })
       .catch(() => {})
