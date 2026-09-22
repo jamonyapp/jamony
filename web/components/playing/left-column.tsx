@@ -12,7 +12,7 @@ import {
   generateProgression,
 } from "@/lib/jam-data"
 
-type Tool = "chords" | "metronome"
+type Tool = "chords" | "drums"
 
 export function LeftColumn({
   onPushChord,
@@ -47,7 +47,7 @@ export function LeftColumn({
   onDisconnect: () => void
   onReconnect: () => void
 }) {
-  const [tool, setTool] = useState<Tool>("chords")
+  const [tool, setTool] = useState<Tool>("drums")  // 默认鼓机（使用概率高于灵感进程，欢哥 2026-09-23 定）
   const [style, setStyle] = useState<string>(CHORD_STYLES[0])
   const [phrases, setPhrases] = useState<number>(2)
   const [chordText, setChordText] = useState("")
@@ -141,8 +141,8 @@ export function LeftColumn({
             <select value={tool} onChange={(e) => setTool(e.target.value as Tool)}
               className="rounded-[10px] border px-3 py-2.5 text-sm font-medium text-white outline-none"
               style={{ borderColor: "#1A1A1A", background: "#141414" }}>
-              <option value="chords">💡 灵感进程</option>
               <option value="drums">🥁 鼓机</option>
+              <option value="chords">💡 灵感进程</option>
             </select>
           </label>
 
