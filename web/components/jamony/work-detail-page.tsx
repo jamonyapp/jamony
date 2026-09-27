@@ -358,7 +358,6 @@ function WorkDetailInner() {
 
   return (
     <div className="min-h-screen bg-black text-white">
-      {/* 09-27 左栏常驻: 原 TopNav backLinks(返回作品库/返回筛选)由壳层返回箭头承接(libFrom 双态) */}
       <div className="mx-auto w-full max-w-3xl px-4 pb-32">
         {/* 主视觉区 */}
         <section className="flex flex-col gap-5 pt-2 sm:flex-row sm:items-stretch">

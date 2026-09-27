@@ -16,13 +16,8 @@ function getParent(
   if (pathname === "/lobby")
     return typeParam === "public" || typeParam === "private" ? "/lobby" : "/"
   if (pathname === "/board" || pathname === "/library" || pathname === "/profile") return "/"
-  if (pathname === "/library/category") return "/library"
-  if (pathname.startsWith("/library/")) {
-    // 作品详情：来源是筛选页（track-card 跳转前 sessionStorage 标记 libFrom="filter"）→返回筛选，否则返回作品库
-    if (typeof window !== "undefined" && sessionStorage.getItem("libFrom") === "filter")
-      return "/library/category"
-    return "/library"
-  }
+  // 作品详情 → 作品库（09-28 改版后筛选页即一级页，libFrom 双态区分退役）
+  if (pathname.startsWith("/library/")) return "/library"
   if (pathname === "/profile/works")
     return nicknameParam ? `/profile?nickname=${encodeURIComponent(nicknameParam)}` : "/profile"
   if (pathname === "/settings")

@@ -94,11 +94,12 @@ function CategoryListInner() {
   const sentinelRef = useRef<HTMLDivElement | null>(null)
 
   // 切 Tab 同步到 URL（刷新/后退可还原状态）
+  // 09-28 改版：本页升为 /library 一级页，URL 同步到 /library
   function changeTab(next: Tab) {
     setTab(next)
     const param = next === "排练作品" ? "rehearsal" : next === "Jam 时刻" ? "jam" : ""
     const qs = param ? `?tab=${param}` : ""
-    router.replace(`/library/category${qs}`, { scroll: false })
+    router.replace(`/library${qs}`, { scroll: false })
   }
 
   // 从 API 读取作品
@@ -176,6 +177,10 @@ function CategoryListInner() {
   return (
     <div className="min-h-screen bg-black pb-28">
       <div className="mx-auto max-w-7xl px-4 md:px-6">
+        {/* 标题（09-28 升为一级页后补，对齐房间大厅/公告牌节奏） */}
+        <header className="mb-8">
+          <h1 className="text-3xl font-bold tracking-tight">作品库</h1>
+        </header>
 
         {/* 第一行：Tabs + 搜索框 */}
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

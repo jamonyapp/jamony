@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { useRouter, usePathname } from "next/navigation"
+import { useRouter } from "next/navigation"
 import { MoreHorizontal, Pause, Play, Heart, MessageCircle } from "lucide-react"
 import { VinylRecord } from "@/components/jamony/vinyl-record"
 import { usePlayer } from "@/components/jamony/player-context"
@@ -42,7 +42,7 @@ export function TrackCard({
   const { current, isPlaying, playTrack, togglePlay, addToPlaylist } = usePlayer()
   const { loggedIn, setShowLoginModal } = useAuth()
   const router = useRouter()
-  const pathname = usePathname()
+  
   const compact = size === "compact"
   const titleClass = compact ? "text-[13px]" : "text-[15px]"
   const statClass = compact ? "text-[11px]" : "text-[12px]"
@@ -91,12 +91,6 @@ export function TrackCard({
     console.log("[v0] 菜单操作:", action, "-", track.title)
     if (action === "detail") {
       if (!loggedIn) { setShowLoginModal(true); return }
-      // 标记来源为筛选页（客户端导航下 document.referrer 不更新，用 sessionStorage 传递）
-      if (pathname.startsWith("/library/category")) {
-        sessionStorage.setItem("libFrom", "filter")
-      } else {
-        sessionStorage.removeItem("libFrom")
-      }
       router.push(`/library/${track.id}`)
       return
     }
