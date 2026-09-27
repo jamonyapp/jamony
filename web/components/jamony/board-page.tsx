@@ -133,7 +133,7 @@ export function BoardPage() {
             <h1 className="text-2xl font-bold tracking-tight md:text-3xl">公告牌</h1>
             <nav className="-mb-1.5 flex flex-wrap gap-6">
               <TabButton
-                label="全部"
+                label="全部公告"
                 active={activeTab === "all"}
                 onClick={() => {
                   setActiveTab("all")
@@ -201,7 +201,7 @@ export function BoardPage() {
               setCityFilter(v)
               resetPaging()
             }}
-            options={[{ value: "all", label: "全部" }, ...cities.map((c) => ({ value: c, label: c }))]}
+            options={[{ value: "all", label: "城市" }, ...cities.map((c) => ({ value: c, label: c }))]}
           />
           <FilterSelect
             label="风格"
@@ -210,7 +210,7 @@ export function BoardPage() {
               setStyleFilter(v)
               resetPaging()
             }}
-            options={[{ value: "all", label: "全部" }, ...styles.map((s) => ({ value: s, label: s }))]}
+            options={[{ value: "all", label: "风格" }, ...styles.map((s) => ({ value: s, label: s }))]}
           />
         </div>
 
@@ -278,25 +278,24 @@ function FilterSelect({
   onChange: (v: string) => void
   options: { value: string; label: string }[]
 }) {
+  // 09-28 套用作品库筛选逻辑：无外部说明文案，标注进下拉默认项（label 转 aria-label）
   return (
-    <label className="flex items-center gap-2 text-sm text-[#8A8A8A]">
-      {label}：
-      <div className="relative">
-        <select
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          className="appearance-none rounded-lg border py-1.5 pl-3 pr-8 text-sm text-white outline-none transition-colors focus:border-[#9933FF]"
-          style={{ backgroundColor: "#141414", borderColor: "#2A2A2A" }}
-        >
-          {options.map((o) => (
-            <option key={o.value} value={o.value} className="bg-[#141414] text-white">
-              {o.label}
-            </option>
-          ))}
-        </select>
-        <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8A8A8A]" />
-      </div>
-    </label>
+    <div className="relative">
+      <select
+        aria-label={label}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="appearance-none rounded-lg border py-1.5 pl-3 pr-8 text-sm text-white outline-none transition-colors focus:border-[#9933FF]"
+        style={{ backgroundColor: "#141414", borderColor: "#2A2A2A" }}
+      >
+        {options.map((o) => (
+          <option key={o.value} value={o.value} className="bg-[#141414] text-white">
+            {o.label}
+          </option>
+        ))}
+      </select>
+      <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8A8A8A]" />
+    </div>
   )
 }
 
