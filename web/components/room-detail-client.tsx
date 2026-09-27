@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { Headphones, ArrowLeft, Crown, Lock, Loader2, Check, UserCheck, X, ShieldAlert } from "lucide-react"
+import { Headphones, Crown, Lock, Loader2, Check, UserCheck, X, ShieldAlert } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
 import { Avatar } from "@/components/jamony/avatar"
 import { RoomPasswordModal } from "@/components/room-password-modal"
@@ -136,17 +136,7 @@ export function RoomDetailClient() {
 
   return (
     <div className="min-h-screen bg-black">
-      <header className="sticky top-0 z-20 flex items-center justify-between border-b px-4 py-3 backdrop-blur-md sm:px-6"
-        style={{ borderColor: "rgba(255,255,255,0.1)", background: "rgba(0,0,0,0.8)" }}>
-        <div className="flex items-center gap-3">
-          <button onClick={() => router.push("/lobby")} aria-label="返回"
-            className="flex h-9 w-9 items-center justify-center rounded-[10px] text-white transition-all hover:bg-white/10 active:scale-95">
-            <ArrowLeft className="h-5 w-5" />
-          </button>
-          <span className="text-lg font-bold tracking-tight text-white">jamony</span>
-        </div>
-      </header>
-
+      {/* 09-27 左栏常驻: 自画返回 header 已删（返回大厅由壳层左栏"房间大厅"+返回箭头承接） */}
       <main className="mx-auto max-w-3xl px-4 pt-8">
         <div className="rounded-2xl border p-6" style={{ borderColor: "#1A1A1A", background: "#0D0D0D" }}>
           <h1 className="text-2xl font-bold text-white">{room.name}</h1>
