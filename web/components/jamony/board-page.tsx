@@ -131,7 +131,7 @@ export function BoardPage() {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex flex-col gap-2">
             <h1 className="text-2xl font-bold tracking-tight md:text-3xl">公告牌</h1>
-            <nav className="flex flex-wrap gap-6">
+            <nav className="-mb-1.5 flex flex-wrap gap-6">
               <TabButton
                 label="全部"
                 active={activeTab === "all"}

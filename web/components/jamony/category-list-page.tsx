@@ -182,7 +182,7 @@ function CategoryListInner() {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex flex-col gap-2">
             <h1 className="text-3xl font-bold tracking-tight">作品库</h1>
-            <nav className="flex flex-wrap gap-6">
+            <nav className="-mb-1.5 flex flex-wrap gap-6">
               {TABS.map((t) => (
                 <button
                   key={t}
