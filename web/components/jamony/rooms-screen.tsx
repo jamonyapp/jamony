@@ -75,8 +75,8 @@ function RoomCard({ room, angle, latency, onJoin }: { room: Room; angle: number;
         <div className="flex items-center gap-1.5">
           <SoundWavePin />
           {room.is_private && (
-            <span className="flex items-center gap-1 text-[11px] font-medium" style={{ color: "#9AB8FF" }} title="加密房间">
-              <Lock className="h-3.5 w-3.5" />
+            <span className="flex items-center gap-1 text-[11px] font-medium" title="加密房间">
+              <Lock className="h-3.5 w-3.5" style={{ color: "#B4CDFF", filter: "drop-shadow(0 0 6px rgba(154,184,255,0.9))" }} />
             </span>
           )}
         </div>
