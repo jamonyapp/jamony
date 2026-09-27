@@ -33,14 +33,14 @@ export function LeftSidebar() {
       className="fixed bottom-0 left-0 top-0 z-40 flex w-60 flex-col border-r px-3 pt-4 pb-20"
       style={{ background: "transparent", borderColor: "#1A1A1A" }}
     >
-      {/* Logo — 09-27 无顶栏布局后 logo 进侧栏顶部，点击回首页（与"首页"菜单双保险） */}
+      {/* Logo — 09-28 放大并居中（logo 28→36px，字 18→22px），点击回首页（与"首页"菜单双保险） */}
       <button
-        className="flex h-11 items-center gap-2 px-1"
+        className="flex h-11 items-center justify-center gap-2"
         onClick={() => router.push("/")}
         aria-label="回首页"
       >
-        <img src="/jamony_logo.png" alt="jamony" className="h-7 w-auto" />
-        <span className="shrink-0 text-[18px] font-bold tracking-tight text-white">
+        <img src="/jamony_logo.png" alt="jamony" className="h-9 w-auto" />
+        <span className="shrink-0 text-[22px] font-bold tracking-tight text-white">
           jamony
         </span>
       </button>
