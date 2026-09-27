@@ -128,7 +128,7 @@ export function BoardPage() {
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
         {/* 标题区 */}
         <header className="mb-8 flex items-center justify-between">
-          <h1 className="text-2xl font-bold md:text-3xl">公告牌</h1>
+          <h1 className="text-2xl font-bold tracking-tight md:text-3xl">公告牌</h1>
           <button
             onClick={() => requireAuth(() => setPublishOpen(true))}
             className="flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90"
@@ -257,7 +257,7 @@ function TabButton({ label, active, onClick }: { label: string; active: boolean;
   return (
     <button
       onClick={onClick}
-      className="relative px-4 py-3 text-sm font-medium transition-colors"
+      className="relative py-3 pl-0 pr-4 text-sm font-medium transition-colors"
       style={{ color: active ? "#fff" : "#8A8A8A" }}
     >
       {label}
