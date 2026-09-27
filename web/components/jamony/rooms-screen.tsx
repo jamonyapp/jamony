@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { User, Headphones } from "lucide-react"
+import { User, Headphones, Lock } from "lucide-react"
 import { SectionHeader } from "./section-header"
 import { RoomDetailModal } from "@/components/room-detail-modal"
 import { Avatar } from "@/components/jamony/avatar"
@@ -52,6 +52,7 @@ type Room = {
   max_musicians: number
   listener_count: number
   proficiency?: string
+  is_private?: boolean
 }
 
 function RoomCard({ room, angle, latency, onJoin }: { room: Room; angle: number; latency: number; onJoin: () => void }) {
@@ -71,7 +72,14 @@ function RoomCard({ room, angle, latency, onJoin }: { room: Room; angle: number;
       <span className="jamony-sheen pointer-events-none absolute inset-0 rounded-[10px]" aria-hidden />
 
       <div className="flex items-start justify-between">
-        <SoundWavePin />
+        <div className="flex items-center gap-1.5">
+          <SoundWavePin />
+          {room.is_private && (
+            <span className="flex items-center gap-1 text-[11px] font-medium" style={{ color: "#9AB8FF" }} title="加密房间">
+              <Lock className="h-3.5 w-3.5" />
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-2">
           <ProficiencyBadge proficiency={room.proficiency} />
           <span className="flex items-center gap-1 text-[12px] font-medium text-white"><User className="h-3.5 w-3.5" style={{ color: "#9933FF" }} />{room.musician_count}/{room.max_musicians}</span>
@@ -116,7 +124,11 @@ export function RoomsScreen() {
         .then(r => r.json())
         .then(data => {
           setLatency(Date.now() - start)
-          if (data.ok) setRooms(data.rooms.slice(0, 4))
+          // 09-28 欢哥: 热门房间公开优先、加密靠后（组内保持 API 原序），再取前4
+          if (data.ok) {
+            const sorted = [...data.rooms].sort((a, b) => (a.is_private ? 1 : 0) - (b.is_private ? 1 : 0))
+            setRooms(sorted.slice(0, 4))
+          }
         })
         .catch(() => {})
     }
