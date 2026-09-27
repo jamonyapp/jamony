@@ -49,11 +49,12 @@ body {
   height: auto;
   display: block;
   opacity: 0;
-  /* 欢哥 08-31 定稿节奏: 摩斯码 HELLO 频闪(0.4s起2.4s发完,单位49ms)
+  /* 欢哥 09-27 改摩斯码 CQ(呼叫所有人,呼朋唤侣正合"求其友声"): 0.4s起1.32s发完
+     (比 HELLO 2.40s 省 1.08s, 单位仍 49ms)
      → 点亮进入常亮(neonOn forwards 终态亮度压低防过曝), 常亮到切页 */
   animation:
-    morseHello 2.40s step-end 0.4s 1,
-    neonOn      1.0s ease 2.9s forwards;
+    morseCQ 1.32s step-end 0.4s 1,
+    neonOn  1.0s ease 1.82s forwards;
 }
 
 /* 🌟 阶段一：霓虹点亮（摩斯码结束→亮起, 欢哥: 终态亮度压低防过曝） */
@@ -79,46 +80,30 @@ body {
   }
 }
 
-/* 🌟 阶段零：摩斯码 HELLO 频闪（.... . .-.. .-.. ---）
-   单位49ms(欢哥: 2.5秒内完成): dit=49ms dah=147ms; step-end 硬切,
-   时长2.40s, 百分比与单位时长无关(等比) */
-@keyframes morseHello {
+/* 🌟 阶段零：摩斯码 CQ 频闪（-.-. --.-  呼叫所有人）
+   单位49ms: dit=49ms dah=147ms; 27单位共1.32s(HELLO 49单位2.40s);
+   step-end 硬切, 百分比与单位时长无关(等比) */
+@keyframes morseCQ {
   0.00% { opacity: 0.75; }
-  2.04% { opacity: 0; }
-  4.08% { opacity: 0.75; }
-  6.12% { opacity: 0; }
-  8.16% { opacity: 0.75; }
-  10.20% { opacity: 0; }
-  12.24% { opacity: 0.75; }
-  14.29% { opacity: 0; }
-  20.41% { opacity: 0.75; }
-  22.45% { opacity: 0; }
-  28.57% { opacity: 0.75; }
-  30.61% { opacity: 0; }
-  32.65% { opacity: 0.75; }
-  38.78% { opacity: 0; }
-  40.82% { opacity: 0.75; }
-  42.86% { opacity: 0; }
-  44.90% { opacity: 0.75; }
-  46.94% { opacity: 0; }
-  53.06% { opacity: 0.75; }
-  55.10% { opacity: 0; }
-  57.14% { opacity: 0.75; }
-  63.27% { opacity: 0; }
-  65.31% { opacity: 0.75; }
-  67.35% { opacity: 0; }
-  69.39% { opacity: 0.75; }
-  71.43% { opacity: 0; }
-  77.55% { opacity: 0.75; }
-  83.67% { opacity: 0; }
-  85.71% { opacity: 0.75; }
-  91.84% { opacity: 0; }
-  93.88% { opacity: 0.75; }
+  11.11% { opacity: 0; }
+  14.81% { opacity: 0.75; }
+  18.52% { opacity: 0; }
+  22.22% { opacity: 0.75; }
+  33.33% { opacity: 0; }
+  37.04% { opacity: 0.75; }
+  40.74% { opacity: 0; }
+  51.85% { opacity: 0.75; }
+  62.96% { opacity: 0; }
+  66.67% { opacity: 0.75; }
+  77.78% { opacity: 0; }
+  81.48% { opacity: 0.75; }
+  85.19% { opacity: 0; }
+  88.89% { opacity: 0.75; }
   100% { opacity: 0; }
 }
 
-/* ============ 产品名 + 标语（欢哥 08-31: 闪烁结束进入常亮时已出现完毕,
-     完整展示约2秒到切页; 淡入落在摩斯码末段, 3.3s常亮时正好就位） ============ */
+/* ============ 产品名 + 标语（淡入落在摩斯码末段, 2.22s就位;
+     常亮定格 2.82s 起, 完整展示约2.2秒到切页） ============ */
 .brand {
   margin-top: 36px;
   font-size: 24px;
@@ -126,7 +111,7 @@ body {
   letter-spacing: 0.02em;
   color: rgba(255,255,255,0.85);
   opacity: 0;
-  animation: textFadeIn 0.6s ease 2.7s forwards;
+  animation: textFadeIn 0.6s ease 1.62s forwards;
 }
 
 .slogan {
@@ -138,7 +123,7 @@ body {
   text-indent: 8px;                        /* 平衡末字后的字距, 保证视觉居中 */
   text-shadow: 0 0 20px rgba(255,255,255,0.10);
   opacity: 0;
-  animation: textFadeIn 0.6s ease 2.7s forwards;
+  animation: textFadeIn 0.6s ease 1.62s forwards;
 }
 @keyframes textFadeIn {
   from { opacity: 0; transform: translateY(12px); }
