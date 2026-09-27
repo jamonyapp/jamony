@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Search, Disc3, ChevronRight, Target } from "lucide-react"
-import { TopNav } from "@/components/jamony/top-nav"
 import { TrackCard } from "@/components/jamony/track-card"
 import { usePlayer } from "@/components/jamony/player-context"
 import { useAuth } from "@/lib/auth-context"
@@ -130,8 +129,7 @@ function LibraryInner() {
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <TopNav onRefresh={() => window.location.reload()} />
-      <div className="mx-auto max-w-7xl px-4 pb-28 pt-[3.25rem] md:px-6">
+      <div className="mx-auto max-w-7xl px-4 pb-28 md:px-6">
         {/* 标题 + 搜索 */}
         <div className="mb-8 flex flex-col gap-4 pt-4 sm:flex-row sm:items-center sm:justify-between">
           <div>

@@ -30,9 +30,23 @@ export function LeftSidebar() {
 
   return (
     <aside
-      className="fixed bottom-0 left-0 top-11 z-40 flex w-60 flex-col border-r px-3 pt-4 pb-20"
+      className="fixed bottom-0 left-0 top-0 z-40 flex w-60 flex-col border-r px-3 pt-4 pb-20"
       style={{ background: "transparent", borderColor: "#1A1A1A" }}
     >
+      {/* Logo — 09-27 无顶栏布局后 logo 进侧栏顶部，点击回首页（与"首页"菜单双保险） */}
+      <button
+        className="flex h-11 items-center gap-2 px-1"
+        onClick={() => router.push("/")}
+        aria-label="回首页"
+      >
+        <img src="/jamony_logo.png" alt="jamony" className="h-7 w-auto" />
+        <span className="shrink-0 text-[18px] font-bold tracking-tight text-white">
+          jamony
+        </span>
+      </button>
+
+      <div className="my-2 h-px" style={{ background: "#1A1A1A" }} />
+
       {/* CTA buttons */}
       <div className="flex flex-col gap-2">
         <button
@@ -58,7 +72,8 @@ export function LeftSidebar() {
       {/* Nav */}
       <nav className="flex flex-col gap-0.5">
         {navItems.map((item) => {
-          const active = item.href === pathname || (item.href === "/" && pathname === "/")
+          // 前缀匹配: /library/123 也高亮"作品库"(首页须精确, 否则所有路径都命中)
+          const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href)
           return (
             <button
               key={item.label}

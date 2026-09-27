@@ -7,7 +7,6 @@ import { TrackCard } from "@/components/jamony/track-card"
 import { usePlayer } from "@/components/jamony/player-context"
 import { useAuth } from "@/lib/auth-context"
 import { TracksSkeleton } from "@/components/jamony/tracks-skeleton"
-import { TopNav } from "@/components/jamony/top-nav"
 import { type Track } from "@/lib/jamony-data"
 
 const GRADIENTS = [
@@ -176,8 +175,7 @@ function CategoryListInner() {
 
   return (
     <div className="min-h-screen bg-black pb-28">
-      <TopNav backLinks={[{ label: "返回作品库", href: "/library" }]} />
-      <div className="mx-auto max-w-7xl px-4 pt-[3.25rem] md:px-6">
+      <div className="mx-auto max-w-7xl px-4 md:px-6">
 
         {/* 第一行：Tabs + 搜索框 */}
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

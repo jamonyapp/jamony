@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Play, Pause, ThumbsUp, MessageCircle, Check, ListMusic, Trash2 } from "lucide-react"
-import { TopNav } from "@/components/jamony/top-nav"
 import { usePlayer } from "@/components/jamony/player-context"
 import { LikeButton } from "@/components/jamony/like-button"
 import { CommentCount } from "@/components/jamony/comment-count"
@@ -116,7 +115,6 @@ function WorkDetailInner() {
   const [liked, setLiked] = useState(false)
   const [likeCount, setLikeCount] = useState(0)
   const [commentText, setCommentText] = useState("")
-  const [fromFilter, setFromFilter] = useState(false)
   const [track, setTrack] = useState<Track | null>(null)
   const [workAuthors, setWorkAuthors] = useState<any[]>([])
   const [anonymousCount, setAnonymousCount] = useState(0)
@@ -134,13 +132,6 @@ function WorkDetailInner() {
   const [reportSent, setReportSent] = useState(false)
   const { loggedIn, setShowLoginModal, user } = useAuth()
   const { adjustCount } = useComments()
-
-  // 检测来源是否为筛选页（track-card 跳转前在 sessionStorage 标记；客户端导航下 document.referrer 不更新）
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      setFromFilter(sessionStorage.getItem("libFrom") === "filter")
-    }
-  }, [])
 
   const handleSendComment = async () => {
     if (!loggedIn) { setShowLoginModal(true); return }
@@ -379,15 +370,8 @@ function WorkDetailInner() {
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <TopNav
-        backLinks={
-          fromFilter
-            ? [{ label: "返回作品库", href: "/library" }, { label: "返回筛选", href: "/library/category" }]
-            : [{ label: "返回作品库", href: "/library" }]
-        }
-      />
-
-      <div className="mx-auto w-full max-w-3xl px-4 pb-32 pt-[3.75rem]">
+      {/* 09-27 左栏常驻: 原 TopNav backLinks(返回作品库/返回筛选)由壳层返回箭头承接(libFrom 双态) */}
+      <div className="mx-auto w-full max-w-3xl px-4 pb-32">
         {/* 主视觉区 */}
         <section className="flex flex-col gap-5 pt-2 sm:flex-row sm:items-stretch">
           <button

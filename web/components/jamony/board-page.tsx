@@ -12,7 +12,6 @@ import {
 } from "@/lib/jamony-data"
 import { mapNotice } from "@/lib/notice-mappers"
 import { PublishNoticeModal } from "@/components/jamony/publish-notice-modal"
-import { TopNav } from "@/components/jamony/top-nav"
 import { useAuth } from "@/lib/auth-context"
 import { UserPopover } from "@/components/jamony/user-popover"
 import { Avatar } from "@/components/jamony/avatar"
@@ -124,20 +123,9 @@ export function BoardPage() {
 
   const resetPaging = () => setVisibleCount(PAGE_SIZE)
 
-  const handleRefresh = () => {
-    fetchNotices()
-    setActiveTab("all")
-    setSearch("")
-    setSort("latest")
-    setCityFilter("all")
-    setStyleFilter("all")
-    setVisibleCount(PAGE_SIZE)
-  }
-
   return (
     <div className="min-h-screen bg-black text-white">
-      <TopNav onRefresh={handleRefresh} />
-      <div className="mx-auto max-w-7xl px-4 py-8 pt-[2.75rem] md:px-8">
+      <div className="mx-auto max-w-7xl px-4 py-8 md:px-8">
         {/* 标题区 */}
         <header className="mb-8 flex items-center justify-between">
           <h1 className="text-2xl font-bold md:text-3xl">公告牌</h1>

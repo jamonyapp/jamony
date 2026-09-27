@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { Search, Plus, ChevronDown, KeyRound, ArrowRight } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { TopNav } from "@/components/jamony/top-nav"
 import { RoomCard } from "@/components/room-card"
 import { EmptyState } from "@/components/empty-state"
 import { CreateRoomModal } from "@/components/create-room-modal"
@@ -198,12 +197,8 @@ export function RoomListPage() {
     const title = listType === "public" ? "公开房间" : "加密房间"
     return (
       <div className="min-h-screen bg-black text-white">
-        <TopNav onRefresh={fetchRooms} />
-        <main className="mx-auto max-w-7xl px-4 py-8 pt-11 sm:px-6">
+        <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
           <div className="mb-4">{renderCodeJoin()}</div>
-          <button onClick={() => router.push("/lobby")} className="mb-4 text-sm transition-colors hover:text-white" style={{ color: "#8A8A8A" }}>
-            ← 返回大厅
-          </button>
           <h1 className="flex items-center gap-2 text-3xl font-bold tracking-tight">
             <span aria-hidden>{listType === "public" ? "🎸" : "🔒"}</span>{title}
           </h1>
@@ -234,8 +229,7 @@ export function RoomListPage() {
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <TopNav onRefresh={fetchRooms} />
-      <main className="mx-auto max-w-7xl px-4 py-8 pt-11 sm:px-6">
+      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex flex-col gap-2">
             <h1 className="flex items-center gap-2 text-3xl font-bold tracking-tight">
