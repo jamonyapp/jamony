@@ -23,7 +23,7 @@ const STYLE_EMOJI: Record<string, string> = {
 function SoundWavePin() {
   const bars = [0, 1, 2, 3, 4]
   return (
-    <div className="flex h-5 items-end gap-[2px]" aria-hidden>
+    <div className="flex h-4 items-end gap-[2px]" aria-hidden>
       {bars.map((i) => (
         <span
           key={i}
