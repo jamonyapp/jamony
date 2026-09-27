@@ -1,7 +1,9 @@
-export function VinylRecord() {
+// 无封面时的默认唱片纹（16%透明镂空纹，透出品牌渐变底色）
+// centered: 圆心垂直居中（详情页封面无底部文字时用；默认 42% 给卡片底部文字留位）
+export function VinylRecord({ centered = false }: { centered?: boolean }) {
   return (
     <svg
-      className="pointer-events-none absolute left-1/2 top-[42%] h-[68%] w-[68%] -translate-x-1/2 -translate-y-1/2"
+      className={`pointer-events-none absolute left-1/2 ${centered ? "top-1/2" : "top-[42%]"} h-[68%] w-[68%] -translate-x-1/2 -translate-y-1/2`}
       viewBox="0 0 100 100"
       fill="none"
       style={{ opacity: 0.16 }}

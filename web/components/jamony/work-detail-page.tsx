@@ -20,6 +20,7 @@ const GRADIENTS = [
   "linear-gradient(135deg, #9933FF, #BBEE00)",
 ]
 import { UserPopover } from "@/components/jamony/user-popover"
+import { VinylRecord } from "@/components/jamony/vinyl-record"
 
 function VinylCover({ track }: { track: Track }) {
   return (
@@ -27,26 +28,13 @@ function VinylCover({ track }: { track: Track }) {
       className="relative aspect-square w-44 shrink-0 overflow-hidden rounded-xl sm:w-48"
       style={{ background: track.gradient }}
     >
-      <div className="absolute inset-0 bg-black/35" />
-      <svg viewBox="0 0 200 200" className="absolute inset-0 h-full w-full" aria-hidden>
-        <defs>
-          <radialGradient id="detail-vinyl-sheen" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="rgba(255,255,255,0.12)" />
-            <stop offset="60%" stopColor="rgba(255,255,255,0)" />
-          </radialGradient>
-        </defs>
-        <circle cx="100" cy="100" r="82" fill="#111111" opacity="0.92" />
-        {[72, 64, 56, 48, 40].map((r) => (
-          <circle key={r} cx="100" cy="100" r={r} fill="none" stroke="rgba(255,255,255,0.10)" strokeWidth="1" />
-        ))}
-        <circle cx="100" cy="100" r="82" fill="url(#detail-vinyl-sheen)" />
-        <circle cx="100" cy="100" r="30" fill="#1c1c1c" />
-        <circle cx="100" cy="100" r="30" fill="none" stroke="rgba(255,255,255,0.18)" strokeWidth="1" />
-        <circle cx="100" cy="100" r="5" fill="#0a0a0a" />
-      </svg>
-      {track.coverImage && (
+      {/* 09-27 欢哥: 无封面时与作品库卡片同款——纯渐变底+VinylRecord镂空唱片纹
+          (原实心#111圆盘+黑纱盖住渐变的样式废弃) */}
+      {track.coverImage ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={track.coverImage} alt={track.title} className="absolute inset-0 h-full w-full object-cover" />
+      ) : (
+        <VinylRecord centered />
       )}
     </div>
   )
