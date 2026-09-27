@@ -232,8 +232,8 @@ export function RoomListPage() {
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex flex-col gap-2">
-            <h1 className="flex items-center gap-2 text-3xl font-bold tracking-tight">
-              <span aria-hidden>🎸</span>房间大厅
+            <h1 className="text-3xl font-bold tracking-tight">
+              房间大厅
             </h1>
             <p className="text-sm" style={{ color: "#8A8A8A" }}>选择一个房间加入，或创建你自己的房间</p>
           </div>
