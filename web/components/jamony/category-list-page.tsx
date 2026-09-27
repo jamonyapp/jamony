@@ -208,7 +208,7 @@ function CategoryListInner() {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="搜作品名、作者、标签..."
-                className="w-full rounded-full border border-[#1A1A1A] bg-[#0D0D0D] py-2 pl-9 pr-4 text-sm text-white placeholder:text-[#666] focus:border-[#00AAFF] focus:outline-none"
+                className="w-full rounded-full border border-[#1A1A1A] bg-[#0D0D0D] py-1.5 pl-9 pr-4 text-sm text-white placeholder:text-[#666] focus:border-[#00AAFF] focus:outline-none"
               />
             </div>
           </div>

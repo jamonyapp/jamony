@@ -132,11 +132,11 @@ export function RoomListPage() {
         <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" style={{ color: "#9933FF" }} />
         <input value={codeInput} onChange={(e) => setCodeInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") handleJoinByCode() }}
           placeholder="输入8位门牌码加入房间"
-          className="w-full rounded-[10px] border px-4 py-2.5 pl-10 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
+          className="w-full rounded-[10px] border px-4 py-1.5 pl-10 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
           style={{ background: "#0D0D0D", borderColor: "#2A2A2A" }} />
       </div>
       <button onClick={handleJoinByCode}
-        className="flex shrink-0 items-center gap-1 rounded-[10px] border px-4 py-2.5 text-sm font-medium text-white transition-colors hover:border-[#9933FF]"
+        className="flex shrink-0 items-center gap-1 rounded-[10px] border px-4 py-1.5 text-sm font-medium text-white transition-colors hover:border-[#9933FF]"
         style={{ background: "#0D0D0D", borderColor: "#2A2A2A" }}>
         加入 <ArrowRight className="h-4 w-4" />
       </button>
@@ -150,12 +150,12 @@ export function RoomListPage() {
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" style={{ color: "#666" }} />
           <input value={query} onChange={(e) => setQuery(e.target.value)}
             placeholder="搜索房间名、风格..."
-            className="w-full rounded-[10px] border px-4 py-2.5 pl-10 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
+            className="w-full rounded-[10px] border px-4 py-1.5 pl-10 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
             style={{ background: "#0D0D0D", borderColor: "#2A2A2A" }} />
         </div>
         <div className="relative">
           <button onClick={() => setSortOpen((v) => !v)}
-            className="flex w-full items-center justify-between gap-2 rounded-[10px] border px-4 py-2.5 text-sm text-white transition-colors hover:border-[#9933FF] sm:w-44"
+            className="flex w-full items-center justify-between gap-2 rounded-[10px] border px-4 py-1.5 text-sm text-white transition-colors hover:border-[#9933FF] sm:w-44"
             style={{ background: "#0D0D0D", borderColor: "#2A2A2A" }}>
             <span style={{ color: "#8A8A8A" }}>排序：</span>
             <span className="flex-1 text-left">{sort === "members" ? "人数最多" : "最新创建"}</span>
@@ -240,7 +240,7 @@ export function RoomListPage() {
           <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center">
             {renderCodeJoin()}
             <button onClick={() => { if (!loggedIn) { setShowLoginModal(true); return }; setModalOpen(true) }}
-              className="flex items-center gap-1.5 self-start rounded-[10px] px-4 py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:brightness-110 active:scale-[0.97] sm:self-auto"
+              className="flex items-center gap-1.5 self-start rounded-[10px] px-4 py-2 text-sm font-semibold text-white transition-all duration-200 hover:brightness-110 active:scale-[0.97] sm:self-auto"
               style={{ backgroundImage: "linear-gradient(90deg, #9933ff 0%, #ff33aa 100%)" }}>
               <Plus className="h-4 w-4" />创建房间
             </button>
