@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { Search, Plus, ChevronDown, KeyRound, ArrowRight } from "lucide-react"
+import { Search, Plus, ChevronDown, KeyRound } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { RoomCard } from "@/components/room-card"
 import { EmptyState } from "@/components/empty-state"
@@ -135,11 +135,6 @@ export function RoomListPage() {
           className="w-full rounded-[10px] border px-4 py-1.5 pl-10 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
           style={{ background: "#0D0D0D", borderColor: "#2A2A2A" }} />
       </div>
-      <button onClick={handleJoinByCode}
-        className="flex shrink-0 items-center gap-1 rounded-[10px] border px-4 py-1.5 text-sm font-medium text-white transition-colors hover:border-[#9933FF]"
-        style={{ background: "#0D0D0D", borderColor: "#2A2A2A" }}>
-        加入 <ArrowRight className="h-4 w-4" />
-      </button>
     </div>
   )
 
