@@ -145,7 +145,7 @@ export function BoardPage() {
           className="mb-6 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b"
           style={{ borderColor: "#1A1A1A" }}
         >
-          <div className="flex flex-wrap gap-1">
+          <div className="flex flex-wrap gap-5">
             <TabButton
               label="全部"
               active={activeTab === "all"}
@@ -258,13 +258,13 @@ function TabButton({ label, active, onClick }: { label: string; active: boolean;
   return (
     <button
       onClick={onClick}
-      className="relative py-3 pl-0 pr-4 text-sm font-medium transition-colors"
+      className="relative py-3 text-sm font-medium transition-colors"
       style={{ color: active ? "#fff" : "#8A8A8A" }}
     >
       {label}
       {active && (
         <span
-          className="absolute inset-x-2 -bottom-px h-0.5 rounded-full"
+          className="absolute inset-x-0 -bottom-px h-0.5 rounded-full"
           style={{ backgroundColor: "#00AAFF" }}
         />
       )}

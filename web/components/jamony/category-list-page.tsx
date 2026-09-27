@@ -183,7 +183,7 @@ function CategoryListInner() {
         </header>
 
         {/* 第一行：Tabs + 搜索框 */}
-        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-center gap-6">
             {TABS.map((t) => (
               <button
