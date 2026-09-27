@@ -3,7 +3,6 @@
 import { use, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { ChevronLeft, Settings, Mail } from "lucide-react"
-import { TopNav } from "@/components/jamony/top-nav"
 import { useAuth } from "@/lib/auth-context"
 import { useDM } from "@/lib/dm-context"
 import { TrackCard } from "@/components/jamony/track-card"
@@ -161,23 +160,18 @@ export function ProfilePage({ nickname }: { nickname: string }) {
   }
 
   if (!ready) {
-    return <div className="min-h-screen bg-black text-white"><TopNav /></div>
+    return <div className="min-h-[60vh] bg-black text-white" />
   }
 
   // 未登录 → 显示透明占位（弹窗已弹出）
   if (!loggedIn) {
-    return (
-      <div className="min-h-screen bg-black text-white">
-        <TopNav />
-      </div>
-    )
+    return <div className="min-h-[60vh] bg-black text-white" />
   }
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-black text-white">
-        <TopNav />
-        <main className="mx-auto max-w-3xl px-4 pb-20 pt-11">
+      <div className="min-h-[60vh] bg-black text-white">
+        <main className="mx-auto max-w-3xl px-4 pb-20">
           <div className="flex h-64 items-center justify-center">
             <p className="text-[#8A8A8A]">加载中...</p>
           </div>
@@ -188,9 +182,8 @@ export function ProfilePage({ nickname }: { nickname: string }) {
 
   if (!profile) {
     return (
-      <div className="min-h-screen bg-black text-white">
-        <TopNav />
-        <main className="mx-auto max-w-3xl px-4 pb-20 pt-11">
+      <div className="min-h-[60vh] bg-black text-white">
+        <main className="mx-auto max-w-3xl px-4 pb-20">
           <div className="flex h-64 flex-col items-center justify-center gap-4">
             <p className="text-lg text-[#8A8A8A]">用户不存在</p>
             <button onClick={() => router.push("/")} className="text-sm text-[#00AAFF] hover:underline">
@@ -207,10 +200,8 @@ export function ProfilePage({ nickname }: { nickname: string }) {
   const instrument = profile.primary_instrument + (profile.secondary_instrument ? ` · ${profile.secondary_instrument}` : "")
 
   return (
-    <div className="min-h-screen bg-black text-white">
-      <TopNav />
-
-      <main className="mx-auto max-w-3xl px-4 pb-20 pt-11">
+    <div className="min-h-[60vh] bg-black text-white">
+      <main className="mx-auto max-w-3xl px-4 pb-20">
         <div className="py-8">
           {/* 个人资料区 */}
           <section className="flex items-start gap-5">

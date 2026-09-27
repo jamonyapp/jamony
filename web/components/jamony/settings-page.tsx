@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Check, ChevronDown, LogOut } from "lucide-react"
-import { TopNav } from "@/components/jamony/top-nav"
 import { useAuth } from "@/lib/auth-context"
 import { AvatarUpload } from "@/components/jamony/avatar-upload"
 
@@ -77,11 +76,11 @@ export function SettingsPage() {
   }, [ready, loggedIn, user, setShowLoginModal])
 
   if (!ready) {
-    return <div className="min-h-screen bg-black text-white"><TopNav /></div>
+    return <div className="min-h-[60vh] bg-black text-white" />
   }
 
   if (!loggedIn || !user) {
-    return <div className="min-h-screen bg-black text-white"><TopNav /></div>
+    return <div className="min-h-[60vh] bg-black text-white" />
   }
 
   const showCustomInput = instrument in CUSTOM_INSTRUMENT_PLACEHOLDER
@@ -159,8 +158,8 @@ export function SettingsPage() {
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <TopNav backLinks={[{ label: "返回个人主页", href: `/profile?nickname=${encodeURIComponent(user.nickname)}` }]} />
-      <div className="mx-auto max-w-3xl px-4 pb-20 pt-16">
+      {/* 09-27 左栏常驻: 原 TopNav backLinks"返回个人主页"由壳层返回箭头承接 */}
+      <div className="mx-auto max-w-3xl px-4 pb-20">
         <h1 className="mb-8 text-xl font-bold text-white">个人设置</h1>
 
         {/* ===== 编辑个人资料 ===== */}

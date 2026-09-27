@@ -1,7 +1,6 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { TopNav } from "@/components/jamony/top-nav"
 import { useAuth } from "@/lib/auth-context"
 import { TrackCard } from "@/components/jamony/track-card"
 import { AnonymizeDialog } from "@/components/jamony/anonymize-dialog"
@@ -70,8 +69,8 @@ export function ManageWorksPage({ nickname }: { nickname: string }) {
     if (data.ok) setWorks(data.works)
   }
 
-  if (!ready) return <div className="min-h-screen bg-black text-white"><TopNav /></div>
-  if (!loggedIn) return <div className="min-h-screen bg-black text-white"><TopNav /></div>
+  if (!ready) return <div className="min-h-[60vh] bg-black text-white" />
+  if (!loggedIn) return <div className="min-h-[60vh] bg-black text-white" />
 
   // 前端 Tab 筛选（仅自己视角；看别人后端只返回署名作品，无需筛选）
   let filteredWorks = works
@@ -85,8 +84,8 @@ export function ManageWorksPage({ nickname }: { nickname: string }) {
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <TopNav backLinks={[{ label: "返回个人主页", href: `/profile?nickname=${encodeURIComponent(nickname)}` }]} />
-      <main className="mx-auto max-w-7xl px-4 pb-20 pt-16 md:px-6">
+      {/* 09-27 左栏常驻: 原 TopNav backLinks"返回个人主页"由壳层返回箭头承接 */}
+      <main className="mx-auto max-w-7xl px-4 pb-20 md:px-6">
         <div className="flex items-end justify-between">
           <h1 className="text-xl font-bold text-white">{isSelf ? "我参与的作品" : `${nickname} 参与的作品`}</h1>
           <span className="text-xs" style={{ color: "#8A8A8A" }}>共 {filteredWorks.length} 个</span>
