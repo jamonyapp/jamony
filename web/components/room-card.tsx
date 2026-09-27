@@ -27,7 +27,7 @@ export function RoomCard({ room, onSelect }: { room: Room; onSelect?: () => void
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           {room.isPrivate ? (
-            <span className="flex items-center gap-1.5 text-xs font-medium text-foreground" title="加密房间"><Lock className="h-3.5 w-3.5" style={{ color: "#9AB8FF" }} />加密</span>
+            <span className="flex items-center gap-1.5 text-xs font-medium text-foreground" title="加密房间"><Lock className="h-3.5 w-3.5" style={{ color: "#B4CDFF", filter: "drop-shadow(0 0 6px rgba(154,184,255,0.9))" }} />加密</span>
           ) : (
             <span className="flex items-center gap-1.5 text-xs font-medium text-foreground">
               <span className="h-2 w-2 rounded-full bg-brand-lime shadow-[0_0_8px_var(--brand-lime)]" />公开
