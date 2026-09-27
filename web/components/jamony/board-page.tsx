@@ -125,7 +125,7 @@ export function BoardPage() {
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <div className="mx-auto max-w-7xl px-4 py-8 md:px-8">
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
         {/* 标题区 */}
         <header className="mb-8 flex items-center justify-between">
           <h1 className="text-2xl font-bold md:text-3xl">公告牌</h1>

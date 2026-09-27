@@ -176,7 +176,7 @@ function CategoryListInner() {
 
   return (
     <div className="min-h-screen bg-black pb-28">
-      <div className="mx-auto max-w-7xl px-4 md:px-6">
+      <div className="mx-auto max-w-7xl px-4 pt-8 sm:px-6">
         {/* 标题（09-28 升为一级页后补，对齐房间大厅/公告牌节奏） */}
         <header className="mb-8">
           <h1 className="text-3xl font-bold tracking-tight">作品库</h1>
