@@ -3,13 +3,13 @@
 import { useEffect, type ReactNode } from "react"
 import { usePlayer } from "@/components/jamony/player-context"
 
-// 进入房间准备页自动停止作品播放器，清空 current（09-27 左栏常驻改造：
-// 准备页搬进 (shell) 后，app/room/layout.tsx 不再覆盖本页，stop() 语义在此续接；
+// 进入房间准备页自动暂停作品播放（09-27 欢哥：由 stop 改 pause——停声但记住曲目，
+// 离开房间后底部 PlayerBar 继续显示之前在听的内容，点播放可续播；
 // 合奏场景与作品回放隔离，PlayerBar 在 /room 路由下也不渲染）
 export default function RoomPrepLayout({ children }: { children: ReactNode }) {
-  const { stop } = usePlayer()
+  const { pause } = usePlayer()
   useEffect(() => {
-    stop()
-  }, [stop])
+    pause()
+  }, [pause])
   return <>{children}</>
 }

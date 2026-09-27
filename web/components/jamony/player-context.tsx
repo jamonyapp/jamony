@@ -39,6 +39,7 @@ interface PlayerContextValue {
   setVolume: (v: number) => void
   playTrack: (track: Track) => void
   togglePlay: () => void
+  pause: () => void
   stop: () => void
   playNext: () => void
   playPrev: () => void
@@ -226,6 +227,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setIsPlaying((p) => !p)
   }, [current])
 
+  // 暂停但记住曲目：同步停声，保留 current/进度/时长（09-27 欢哥：进房间暂停作品，
+  // 离开房间后 PlayerBar 继续显示之前在听的内容，可续播。PlayerBar 在 /room 下由
+  // pathname 挡住不渲染，房间内行为不变）
+  const pause = useCallback(() => {
+    const audio = audioRef.current
+    if (audio) audio.pause()
+    setIsPlaying(false)
+  }, [])
+
   // 完全停止：同步暂停 audio + 清空当前曲目（用于离开播放场景，如跳转去房间大厅）
   // 同步操作 audioRef 立即停声，不依赖 isPlaying effect，避免跳转打断 effect 导致继续播放
   const stop = useCallback(() => {
@@ -275,12 +285,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     () => ({
       current, isPlaying, repeatMode, playlist,
       currentTime, duration, volume, setVolume,
-      playTrack, togglePlay, stop, playNext, playPrev, seekTo,
+      playTrack, togglePlay, pause, stop, playNext, playPrev, seekTo,
       setQueue, cycleRepeatMode, addToPlaylist, removeFromPlaylist,
     }),
     [
       current, isPlaying, repeatMode, playlist, currentTime, duration, volume,
-      playTrack, togglePlay, stop, playNext, playPrev, seekTo,
+      playTrack, togglePlay, pause, stop, playNext, playPrev, seekTo,
       cycleRepeatMode, addToPlaylist, removeFromPlaylist,
     ],
   )
