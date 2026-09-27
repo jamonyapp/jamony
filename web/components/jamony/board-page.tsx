@@ -126,9 +126,8 @@ export function BoardPage() {
   return (
     <div className="min-h-screen bg-black text-white">
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
-        {/* 标题区 —— mb-5 而非 mb-8: TabButton 有 pt-3(12px), 20+12=32px 使标题→Tab文字
-            距离与作品库/大厅(32px)统一 */}
-        <header className="mb-5 flex items-center justify-between">
+        {/* 标题区（mb-8 与作品库同拍：标题→Tab文字 32px，TabButton 已无顶部内边距） */}
+        <header className="mb-8 flex items-center justify-between">
           <h1 className="text-2xl font-bold tracking-tight md:text-3xl">公告牌</h1>
           <button
             onClick={() => requireAuth(() => setPublishOpen(true))}
@@ -140,12 +139,9 @@ export function BoardPage() {
           </button>
         </header>
 
-        {/* Tab 分类 */}
-        <nav
-          className="mb-6 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b"
-          style={{ borderColor: "#1A1A1A" }}
-        >
-          <div className="flex flex-wrap gap-5">
+        {/* Tab 分类 —— 09-28 套用作品库Tab样式：无灰底通栏，选中=文字同宽蓝色浮动下划线 */}
+        <nav className="mb-6 flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+          <div className="flex flex-wrap gap-6">
             <TabButton
               label="全部"
               active={activeTab === "all"}
@@ -167,7 +163,7 @@ export function BoardPage() {
             ))}
           </div>
 
-          <div className="relative mb-2">
+          <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8A8A8A]" />
             <input
               type="text"
@@ -258,15 +254,13 @@ function TabButton({ label, active, onClick }: { label: string; active: boolean;
   return (
     <button
       onClick={onClick}
-      className="relative py-3 text-sm font-medium transition-colors"
-      style={{ color: active ? "#fff" : "#8A8A8A" }}
+      className={`relative pb-1.5 text-sm font-medium transition-colors ${
+        active ? "text-white" : "text-[#9A9A9A] hover:text-white"
+      }`}
     >
       {label}
       {active && (
-        <span
-          className="absolute inset-x-0 -bottom-px h-0.5 rounded-full"
-          style={{ backgroundColor: "#00AAFF" }}
-        />
+        <span className="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-[#00AAFF]" />
       )}
     </button>
   )
