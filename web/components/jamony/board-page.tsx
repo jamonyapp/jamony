@@ -126,8 +126,9 @@ export function BoardPage() {
   return (
     <div className="min-h-screen bg-black text-white">
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
-        {/* 标题区 */}
-        <header className="mb-8 flex items-center justify-between">
+        {/* 标题区 —— mb-5 而非 mb-8: TabButton 有 pt-3(12px), 20+12=32px 使标题→Tab文字
+            距离与作品库/大厅(32px)统一 */}
+        <header className="mb-5 flex items-center justify-between">
           <h1 className="text-2xl font-bold tracking-tight md:text-3xl">公告牌</h1>
           <button
             onClick={() => requireAuth(() => setPublishOpen(true))}
