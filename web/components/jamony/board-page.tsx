@@ -286,10 +286,10 @@ function FilterSelect({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className="appearance-none rounded-lg border py-1.5 pl-3 pr-8 text-sm text-white outline-none transition-colors focus:border-[#9933FF]"
-        style={{ backgroundColor: "#141414", borderColor: "#2A2A2A" }}
+        style={{ backgroundColor: "#0D0D0D", borderColor: "#1A1A1A" }}
       >
         {options.map((o) => (
-          <option key={o.value} value={o.value} className="bg-[#141414] text-white">
+          <option key={o.value} value={o.value} className="bg-[#0D0D0D] text-white">
             {o.label}
           </option>
         ))}
