@@ -177,44 +177,45 @@ function CategoryListInner() {
   return (
     <div className="min-h-screen bg-black pb-28">
       <div className="mx-auto max-w-7xl px-4 pt-8 sm:px-6">
-        {/* 标题（09-28 升为一级页后补，对齐房间大厅/公告牌节奏） */}
-        <header className="mb-8">
-          <h1 className="text-3xl font-bold tracking-tight">作品库</h1>
-        </header>
-
-        {/* 第一行：Tabs + 搜索框 */}
-        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex items-center gap-6">
-            {TABS.map((t) => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => changeTab(t)}
-                className={`relative pb-1.5 text-sm font-medium transition-colors ${
-                  tab === t ? "text-white" : "text-[#9A9A9A] hover:text-white"
-                }`}
-              >
-                {t}
-                {tab === t && (
-                  <span className="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-[#00AAFF]" />
-                )}
-              </button>
-            ))}
+        {/* 头部 —— 09-28 套用房间大厅紧凑布局：左=标题+Tab行(副标题位,gap-2),
+            右=搜索框簇底对齐(items-end), 外层gap-4 */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div className="flex flex-col gap-2">
+            <h1 className="text-3xl font-bold tracking-tight">作品库</h1>
+            <nav className="flex flex-wrap gap-6">
+              {TABS.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => changeTab(t)}
+                  className={`relative pb-1.5 text-sm font-medium transition-colors ${
+                    tab === t ? "text-white" : "text-[#9A9A9A] hover:text-white"
+                  }`}
+                >
+                  {t}
+                  {tab === t && (
+                    <span className="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-[#00AAFF]" />
+                  )}
+                </button>
+              ))}
+            </nav>
           </div>
-          <div className="relative w-full sm:w-72">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#666]" />
-            <input
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="搜作品名、作者、标签..."
-              className="w-full rounded-full border border-[#1A1A1A] bg-[#0D0D0D] py-2 pl-9 pr-4 text-sm text-white placeholder:text-[#666] focus:border-[#00AAFF] focus:outline-none"
-            />
+          <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="relative w-full sm:w-72">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#666]" />
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="搜作品名、作者、标签..."
+                className="w-full rounded-full border border-[#1A1A1A] bg-[#0D0D0D] py-2 pl-9 pr-4 text-sm text-white placeholder:text-[#666] focus:border-[#00AAFF] focus:outline-none"
+              />
+            </div>
           </div>
         </div>
 
-        {/* 第二行：筛选器 */}
-        <div className="mb-6 flex flex-wrap items-center gap-3">
+        {/* 筛选器 —— 头部下方内容，间距对齐大厅 mt-8 */}
+        <div className="mb-6 mt-8 flex flex-wrap items-center gap-3">
           <FilterSelect label="风格" value={style} options={STYLE_OPTIONS} onChange={setStyle} />
           <FilterSelect label="性质" value={nature} options={NATURE_OPTIONS} onChange={setNature} />
           <FilterSelect label="乐器" value={instrument} options={INSTRUMENT_OPTIONS} onChange={setInstrument} />

@@ -126,61 +126,62 @@ export function BoardPage() {
   return (
     <div className="min-h-screen bg-black text-white">
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
-        {/* 标题区（mb-8 与作品库同拍：标题→Tab文字 32px，TabButton 已无顶部内边距） */}
-        <header className="mb-8 flex items-center justify-between">
-          <h1 className="text-2xl font-bold tracking-tight md:text-3xl">公告牌</h1>
-          <button
-            onClick={() => requireAuth(() => setPublishOpen(true))}
-            className="flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90"
-            style={{ background: "linear-gradient(90deg, #9933FF, #FF33AA)" }}
-          >
-            <Plus className="h-4 w-4" />
-            发布公告
-          </button>
-        </header>
-
-        {/* Tab 分类 —— 09-28 套用作品库Tab样式：无灰底通栏，选中=文字同宽蓝色浮动下划线 */}
-        <nav className="mb-6 flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
-          <div className="flex flex-wrap gap-6">
-            <TabButton
-              label="全部"
-              active={activeTab === "all"}
-              onClick={() => {
-                setActiveTab("all")
-                resetPaging()
-              }}
-            />
-            {NOTICE_TYPES.map((t) => (
+        {/* 头部 —— 09-28 套用房间大厅紧凑布局：左=标题+Tab行(副标题位,gap-2),
+            右=搜索框+发布公告簇底对齐(items-end), 外层gap-4；Tab样式=作品库同款 */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div className="flex flex-col gap-2">
+            <h1 className="text-2xl font-bold tracking-tight md:text-3xl">公告牌</h1>
+            <nav className="flex flex-wrap gap-6">
               <TabButton
-                key={t}
-                label={NOTICE_TYPE_LABEL[t]}
-                active={activeTab === t}
+                label="全部"
+                active={activeTab === "all"}
                 onClick={() => {
-                  setActiveTab(t)
+                  setActiveTab("all")
                   resetPaging()
                 }}
               />
-            ))}
+              {NOTICE_TYPES.map((t) => (
+                <TabButton
+                  key={t}
+                  label={NOTICE_TYPE_LABEL[t]}
+                  active={activeTab === t}
+                  onClick={() => {
+                    setActiveTab(t)
+                    resetPaging()
+                  }}
+                />
+              ))}
+            </nav>
           </div>
 
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8A8A8A]" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value)
-                resetPaging()
-              }}
-              placeholder="搜公告标题、作者..."
-              className="w-48 rounded-full border py-1.5 pl-9 pr-3 text-sm text-white placeholder:text-[#8A8A8A] outline-none transition-colors focus:border-[#9933FF] md:w-56"
-              style={{ backgroundColor: "#141414", borderColor: "#2A2A2A" }}
-            />
+          <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8A8A8A]" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value)
+                  resetPaging()
+                }}
+                placeholder="搜公告标题、作者..."
+                className="w-48 rounded-full border py-1.5 pl-9 pr-3 text-sm text-white placeholder:text-[#8A8A8A] outline-none transition-colors focus:border-[#9933FF] md:w-56"
+                style={{ backgroundColor: "#141414", borderColor: "#2A2A2A" }}
+              />
+            </div>
+            <button
+              onClick={() => requireAuth(() => setPublishOpen(true))}
+              className="flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+              style={{ background: "linear-gradient(90deg, #9933FF, #FF33AA)" }}
+            >
+              <Plus className="h-4 w-4" />
+              发布公告
+            </button>
           </div>
-        </nav>
+        </div>
 
-        {/* 筛选栏 */}
-        <div className="mb-8 flex flex-wrap items-center gap-4">
+        {/* 筛选栏 —— 头部下方内容，间距对齐大厅 mt-8 */}
+        <div className="mb-8 mt-8 flex flex-wrap items-center gap-4">
           <FilterSelect
             label="排序"
             value={sort}
