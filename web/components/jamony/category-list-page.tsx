@@ -43,7 +43,7 @@ function FilterSelect({
         aria-label={label}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className={`appearance-none rounded-lg border bg-[#0D0D0D] py-2 pl-3 pr-8 text-sm text-white transition-colors focus:outline-none ${
+        className={`appearance-none rounded-lg border bg-[#0D0D0D] py-1.5 pl-3 pr-8 text-sm text-white transition-colors focus:outline-none ${
           isActive ? "border-[#00AAFF]" : "border-[#1A1A1A]"
         }`}
       >
@@ -214,8 +214,8 @@ function CategoryListInner() {
           </div>
         </div>
 
-        {/* 筛选器 —— 头部下方内容，间距对齐大厅 mt-8 */}
-        <div className="mb-6 mt-8 flex flex-wrap items-center gap-3">
+        {/* 筛选器 —— 头部下方内容，间距对齐大厅 mt-8；按钮规格/间隔同公告牌 */}
+        <div className="mb-6 mt-8 flex flex-wrap items-center gap-4">
           <FilterSelect label="风格" value={style} options={STYLE_OPTIONS} onChange={setStyle} />
           <FilterSelect label="性质" value={nature} options={NATURE_OPTIONS} onChange={setNature} />
           <FilterSelect label="乐器" value={instrument} options={INSTRUMENT_OPTIONS} onChange={setInstrument} />
