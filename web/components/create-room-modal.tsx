@@ -4,6 +4,7 @@ import { useState } from "react"
 import { X, Loader2, Lock } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
+import { FilterSelect } from "@/components/jamony/filter-select"
 import { PROFICIENCY_ORDER, PROFICIENCY_MAP } from "@/lib/proficiency"
 
 const STYLES = ["摇滚","民谣","爵士","布鲁斯","放克","雷鬼","电子","古典","流行","嘻哈","R&B","国风","金属","ACG","实验"]
@@ -96,25 +97,14 @@ export function CreateRoomModal({
           <div className="flex gap-4">
             <div className="flex-1">
               <label className="mb-1.5 block text-xs font-medium" style={{ color: "#9A9A9A" }}>风格</label>
-              <div className="relative">
-                <select value={style} onChange={(e) => setStyle(e.target.value)}
-                  className="w-full rounded-[10px] border px-4 py-2.5 text-sm text-white outline-none transition-colors focus:border-[#9933FF] appearance-none"
-                  style={{ background: "#141414", borderColor: "#2A2A2A" }}>
-                  {STYLES.map((s) => (<option key={s} value={s} className="bg-[#141414] text-white">{s}</option>))}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2" style={{ color: "#8A8A8A" }} />
-              </div>
+              <FilterSelect variant="field" label="风格" value={style} onChange={setStyle}
+                options={STYLES.map((s) => ({ value: s, label: s }))} />
             </div>
             <div className="w-28">
               <label className="mb-1.5 block text-xs font-medium" style={{ color: "#9A9A9A" }}>合奏人数</label>
-              <div className="relative">
-                <select value={maxMusicians} onChange={(e) => setMaxMusicians(Number(e.target.value))}
-                  className="w-full rounded-[10px] border px-4 py-2.5 text-sm text-white outline-none transition-colors focus:border-[#9933FF] appearance-none"
-                  style={{ background: "#141414", borderColor: "#2A2A2A" }}>
-                  {[1,2,3,4,5,6,7,8].map((n) => (<option key={n} value={n} className="bg-[#141414] text-white">{n} 人</option>))}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2" style={{ color: "#8A8A8A" }} />
-              </div>
+              <FilterSelect variant="field" label="合奏人数" value={String(maxMusicians)}
+                onChange={(v) => setMaxMusicians(Number(v))}
+                options={[1, 2, 3, 4, 5, 6, 7, 8].map((n) => ({ value: String(n), label: `${n} 人` }))} />
             </div>
           </div>
 
@@ -178,13 +168,5 @@ export function CreateRoomModal({
         </div>
       </div>
     </div>
-  )
-}
-
-function ChevronDown({ className, style }: { className?: string; style?: React.CSSProperties }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} style={style}>
-      <path d="m6 9 6 6 6-6" />
-    </svg>
   )
 }

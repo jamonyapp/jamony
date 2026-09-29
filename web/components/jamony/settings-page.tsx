@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { Check, ChevronDown, LogOut } from "lucide-react"
+import { Check, LogOut } from "lucide-react"
+import { FilterSelect } from "@/components/jamony/filter-select"
 import { useAuth } from "@/lib/auth-context"
 import { AvatarUpload } from "@/components/jamony/avatar-upload"
 
@@ -179,22 +180,13 @@ export function SettingsPage() {
           </div>
           <div>
             <FieldLabel>城市</FieldLabel>
-            <div className="relative">
-              <select value={city} onChange={(e) => setCity(e.target.value)} className={`${inputClass} appearance-none pr-9`} style={{ background: "#141414", borderColor: "#2A2A2A" }}>
-                <option value="" className="bg-[#141414] text-[#6A6A6A]">选择所在城市</option>
-                {CITIES.map((c) => (<option key={c} value={c} className="bg-[#141414] text-white">{c}</option>))}
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2" style={{ color: "#8A8A8A" }} />
-            </div>
+            <FilterSelect variant="field" label="选择所在城市" value={city} onChange={setCity}
+              options={CITIES.map((c) => ({ value: c, label: c }))} />
           </div>
           <div>
             <FieldLabel>主力乐器</FieldLabel>
-            <div className="relative">
-              <select value={instrument} onChange={(e) => setInstrument(e.target.value)} className={`${inputClass} appearance-none pr-9`} style={{ background: "#141414", borderColor: "#2A2A2A" }}>
-                {INSTRUMENTS.map((i) => (<option key={i} value={i} className="bg-[#141414] text-white">{i}</option>))}
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2" style={{ color: "#8A8A8A" }} />
-            </div>
+            <FilterSelect variant="field" label="选择乐器" value={instrument} onChange={setInstrument}
+              options={INSTRUMENTS.map((i) => ({ value: i, label: i }))} />
             {showCustomInput && (
               <input type="text" className={`${inputClass} mt-3`} style={{ background: "#141414", borderColor: "#2A2A2A" }} value={customInstrument} onChange={(e) => setCustomInstrument(e.target.value)} placeholder={CUSTOM_INSTRUMENT_PLACEHOLDER[instrument]} />
             )}

@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useState } from "react"
 import { LevelMeter } from "@/components/playing/level-meter"
+import { FilterSelect } from "@/components/jamony/filter-select"
 import { useParams } from "next/navigation"
 import { Sparkles, PowerOff, Plug, Headphones, Play, Square } from "lucide-react"
 import {
@@ -138,12 +139,8 @@ export function LeftColumn({
 
           <label className="mt-3 flex flex-col gap-1">
             <span className="text-xs" style={{ color: "#8A8A8A" }}>选择工具</span>
-            <select value={tool} onChange={(e) => setTool(e.target.value as Tool)}
-              className="rounded-[10px] border px-3 py-2.5 text-sm font-medium text-white outline-none"
-              style={{ borderColor: "#1A1A1A", background: "#141414" }}>
-              <option value="drums">🥁 鼓机</option>
-              <option value="chords">💡 灵感进程</option>
-            </select>
+            <FilterSelect variant="field" label="选择工具" value={tool} onChange={(v) => setTool(v as Tool)}
+              options={[{ value: "drums", label: "🥁 鼓机" }, { value: "chords", label: "💡 灵感进程" }]} />
           </label>
 
           <div className="mt-4 flex-1">
@@ -152,18 +149,14 @@ export function LeftColumn({
                 <div className="grid grid-cols-2 gap-2 mt-1">
                   <label className="flex flex-col gap-1">
                     <span className="text-xs" style={{ color: "#8A8A8A" }}>风格</span>
-                    <select value={style} onChange={(e) => setStyle(e.target.value)} className="rounded-[10px] border px-2 py-2 text-sm text-white outline-none"
-                      style={{ borderColor: "#1A1A1A", background: "#141414" }}>
-                      {CHORD_STYLES.map((s) => (<option key={s} value={s}>{s}</option>))}
-                    </select>
+                    <FilterSelect variant="field" label="风格" value={style} onChange={setStyle}
+                      options={CHORD_STYLES.map((s) => ({ value: s, label: s }))} />
                   </label>
                   <label className="flex flex-col gap-1">
                     <span className="text-xs" style={{ color: "#8A8A8A" }}>乐句数量</span>
-                    <select value={phrases} onChange={(e) => setPhrases(Number(e.target.value))}
-                      className="rounded-[10px] border px-2 py-2 text-sm text-white outline-none disabled:opacity-50"
-                      style={{ borderColor: "#1A1A1A", background: "#141414" }}>
-                      {PHRASE_COUNTS.map((n) => (<option key={n} value={n}>{n} 句</option>))}
-                    </select>
+                    <FilterSelect variant="field" label="乐句数量" value={String(phrases)}
+                      onChange={(v) => setPhrases(Number(v))}
+                      options={PHRASE_COUNTS.map((n) => ({ value: String(n), label: `${n} 句` }))} />
                   </label>
                 </div>
 
@@ -328,13 +321,8 @@ function DrumMachineTool({ roomId, realtimeBpm }: { roomId?: string; realtimeBpm
       <div className="grid grid-cols-2 gap-2">
         <div>
           <label className="mb-1.5 block text-xs" style={{ color: "#8A8A8A" }}>风格</label>
-          <select value={style} onChange={(e) => setStyle(e.target.value)} disabled={running}
-            className="w-full rounded-[6px] border px-2 py-1.5 text-xs text-white outline-none disabled:opacity-50"
-            style={{ borderColor: "#222", background: "#0D0D0D" }}>
-            {styles.map((s) => (
-              <option key={s} value={s} className="bg-[#0D0D0D] text-white">{styleLabels[s] || s}</option>
-            ))}
-          </select>
+          <FilterSelect variant="compact" label="风格" value={style} onChange={setStyle} disabled={running}
+            options={styles.map((s) => ({ value: s, label: styleLabels[s] || s }))} />
         </div>
         <div className="group relative">
           <label className="mb-1.5 block text-xs" style={{ color: "#8A8A8A" }}>节奏型</label>
@@ -343,13 +331,8 @@ function DrumMachineTool({ roomId, realtimeBpm }: { roomId?: string; realtimeBpm
               {currentLabel}
             </span>
           )}
-          <select value={selectedFile} onChange={(e) => setSelectedFile(e.target.value)} disabled={running}
-            className="w-full rounded-[6px] border px-2 py-1.5 text-xs text-white outline-none disabled:opacity-50 truncate"
-            style={{ borderColor: "#222", background: "#0D0D0D" }}>
-            {files.map((f, i) => {
-              return <option key={f} value={f} className="bg-[#0D0D0D] text-white truncate">{extName(f)}</option>
-            })}
-          </select>
+          <FilterSelect variant="compact" label="节奏型" value={selectedFile} onChange={setSelectedFile} disabled={running}
+            options={files.map((f) => ({ value: f, label: extName(f) }))} />
         </div>
       </div>
 

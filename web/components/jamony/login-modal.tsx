@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { X, Loader2 } from "lucide-react"
+import { FilterSelect } from "@/components/jamony/filter-select"
 import { useAuth } from "@/lib/auth-context"
 
 const INSTRUMENTS = [
@@ -249,17 +250,13 @@ export function LoginModal() {
                 <label className="mb-1.5 block text-xs font-medium" style={{ color: "#9A9A9A" }}>
                   主力乐器
                 </label>
-                <select
+                <FilterSelect
+                  variant="field"
+                  label="选择你的乐器"
                   value={regInstrument}
-                  onChange={(e) => { setRegInstrument(e.target.value); setRegOtherInstrument("") }}
-                  className="w-full rounded-xl border px-4 py-2.5 text-sm text-white outline-none transition-colors focus:border-[#9933FF]"
-                  style={{ background: "#141414", borderColor: "#2A2A2A" }}
-                >
-                  <option value="" disabled className="bg-[#141414] text-[#666]">选择你的乐器</option>
-                  {INSTRUMENTS.map((ins) => (
-                    <option key={ins} value={ins} className="bg-[#141414] text-white">{ins}</option>
-                  ))}
-                </select>
+                  onChange={(v) => { setRegInstrument(v); setRegOtherInstrument("") }}
+                  options={INSTRUMENTS.map((ins) => ({ value: ins, label: ins }))}
+                />
                 {INSTRUMENT_NEEDS_INPUT.includes(regInstrument) && (
                   <input
                     type="text"

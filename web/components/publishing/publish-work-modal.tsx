@@ -19,6 +19,7 @@ import {
   Volume2,
 } from "lucide-react"
 import { autoMix, type MixTrackInfo } from "@/lib/auto-mix"
+import { FilterSelect } from "@/components/jamony/filter-select"
 
 /* ============ 类型 ============ */
 interface Author {
@@ -984,22 +985,13 @@ export default function PublishWorkModal({
                   <label className="text-xs" style={{ color: "#9A9A9A" }}>
                     风格 <span style={{ color: "#FF3B5C" }}>*</span>
                   </label>
-                  <div className="relative mt-1.5">
-                    <select
+                  <div className="mt-1.5">
+                    <FilterSelect
+                      variant="compact"
+                      label="风格"
                       value={style}
-                      onChange={(e) => setStyle(e.target.value)}
-                      className="jamony-input w-full appearance-none rounded-lg border px-3 py-2 pr-9 text-xs text-white transition-all duration-200"
-                      style={{ backgroundColor: "#141414", borderColor: "#2A2A2A" }}
-                    >
-                      {STYLES.map((s) => (
-                        <option key={s} value={s} style={{ backgroundColor: "#141414" }}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown
-                      className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2"
-                      style={{ color: "#8A8A8A" }}
+                      onChange={setStyle}
+                      options={STYLES.map((s) => ({ value: s, label: s }))}
                     />
                   </div>
                 </div>
