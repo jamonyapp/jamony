@@ -261,7 +261,7 @@ export function RoomListPage() {
           </div>
           <FilterSelect label="风格" value={style} options={categories} onChange={setStyle} />
           <FilterSelect label="合奏人数" value={players} options={PLAYER_OPTIONS} onChange={setPlayers} />
-          <FilterSelect label="Lv等级" value={prof} options={PROF_OPTIONS} onChange={setProf} />
+          <FilterSelect label="水平等级" value={prof} options={PROF_OPTIONS} onChange={setProf} />
           <FilterSelect label="排序" value={sort} options={SORT_OPTIONS} onChange={setSort} allValue={null} />
         </div>
 
