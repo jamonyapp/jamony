@@ -53,12 +53,11 @@ const TABS: { key: RoomTab; label: string }[] = [
   { key: "private", label: "加密房间" },
 ]
 
-// 合奏人数：当前正在合奏的人数下限档位
+// 合奏人数：按当前实时合奏人数分区间档位（0人空房不落档——找人不进空房）
 const PLAYER_OPTIONS = [
-  { value: "1", label: "1人+" },
-  { value: "2", label: "2人+" },
-  { value: "3", label: "3人+" },
-  { value: "4", label: "4人+" },
+  { value: "1-2", label: "1-2人" },
+  { value: "3-4", label: "3-4人" },
+  { value: "5+", label: "＞4人" },
 ]
 
 // Lv 等级：房主建房的演奏水平要求（p=新手局 … fff=大神局）
@@ -150,7 +149,14 @@ export function RoomListPage() {
   const filtered = useMemo(() => {
     let list = rooms.filter(r => r.is_private === (tab === "private"))
     if (style !== ALL) list = list.filter(r => r.style === style)
-    if (players !== ALL) list = list.filter(r => r.musician_count >= Number(players))
+    if (players !== ALL) {
+      list = list.filter(r => {
+        const n = r.musician_count
+        if (players === "1-2") return n >= 1 && n <= 2
+        if (players === "3-4") return n >= 3 && n <= 4
+        return n >= 5  // ＞4人
+      })
+    }
     if (prof !== ALL) list = list.filter(r => r.proficiency === prof)
     if (query.trim()) {
       const q = query.trim().toLowerCase()
