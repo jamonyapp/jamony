@@ -103,8 +103,14 @@ export function FilterSelect({
       </button>
       {open && (
         <>
-          {/* 点击空白处关闭（盖住弹窗等高层层级之下的所有内容） */}
-          <div className="fixed inset-0 z-[75]" onClick={() => setRect(null)} aria-hidden />
+          {/* 点击空白处关闭（盖住弹窗等高层层级之下的所有内容）。
+              stopPropagation+preventDefault：合奏页等场景组件被包在 <label> 里，
+              label 原生会把点击转发给关联按钮造成"选完又弹开"，这里一并阻断 */}
+          <div
+            className="fixed inset-0 z-[75]"
+            onClick={(e) => { e.stopPropagation(); e.preventDefault(); setRect(null) }}
+            aria-hidden
+          />
           <div
             className="fixed z-[80] w-max rounded-xl border p-1 shadow-2xl"
             style={{
@@ -120,7 +126,7 @@ export function FilterSelect({
               <button
                 key={o.value}
                 type="button"
-                onClick={() => { onChange(o.value); setRect(null) }}
+                onClick={(e) => { e.stopPropagation(); e.preventDefault(); onChange(o.value); setRect(null) }}
                 className="flex w-full items-center whitespace-nowrap rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-white/5"
                 style={{ color: o.value === value ? "#FFFFFF" : "#9A9A9A" }}
               >
