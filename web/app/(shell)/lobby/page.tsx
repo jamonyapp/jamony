@@ -1,11 +1,6 @@
-import { Suspense } from "react"
 import { RoomListPage } from "@/components/room-list-page"
 
-// useSearchParams 需 Suspense 边界（双栏首页 vs ?type=全列表）
+// 09-30 Tab 化：?tab= 经 window.location.search 读取（初始化时），无需 Suspense 边界
 export default function LobbyPage() {
-  return (
-    <Suspense fallback={null}>
-      <RoomListPage />
-    </Suspense>
-  )
+  return <RoomListPage />
 }

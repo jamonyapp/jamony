@@ -8,14 +8,12 @@ import { useAuth } from "@/lib/auth-context"
 // 09-27 左栏常驻改造：全站统一的返回箭头（欢哥设计：纯图标无文字，首页变暗不可点）
 function getParent(
   pathname: string,
-  typeParam: string | null,
   nicknameParam: string | null,
   selfNickname?: string
 ): string | null {
   if (pathname === "/") return null
-  if (pathname === "/lobby")
-    return typeParam === "public" || typeParam === "private" ? "/lobby" : "/"
-  if (pathname === "/board" || pathname === "/library" || pathname === "/profile") return "/"
+  // /lobby 09-30 Tab 化后 ?tab= 是页内状态（replace 不入历史），父级一律首页（同 /library）
+  if (pathname === "/lobby" || pathname === "/board" || pathname === "/library" || pathname === "/profile") return "/"
   // 作品详情 → 作品库（09-28 改版后筛选页即一级页，libFrom 双态区分退役）
   if (pathname.startsWith("/library/")) return "/library"
   if (pathname === "/profile/works")
@@ -33,7 +31,6 @@ export function ShellBack() {
   const { user } = useAuth()
   const parent = getParent(
     pathname,
-    searchParams.get("type"),
     searchParams.get("nickname"),
     user?.nickname
   )

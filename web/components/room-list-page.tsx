@@ -1,14 +1,14 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Search, Plus, ChevronDown, KeyRound } from "lucide-react"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useRouter } from "next/navigation"
 import { RoomCard } from "@/components/room-card"
 import { EmptyState } from "@/components/empty-state"
 import { CreateRoomModal } from "@/components/create-room-modal"
 import { RoomDetailModal } from "@/components/room-detail-modal"
-import { SectionHeader } from "@/components/jamony/section-header"
 import { useAuth } from "@/lib/auth-context"
+import { PROFICIENCY_MAP, PROFICIENCY_ORDER } from "@/lib/proficiency"
 
 type RoomItem = {
   id: number
@@ -42,7 +42,34 @@ const STYLE_EMOJI: Record<string, string> = {
 
 const CATEGORY_ORDER = ["全部", "摇滚", "爵士", "民谣", "流行", "电子", "嘻哈", "国风", "古典", "实验"]
 
-const ROOMS_PER_SECTION = 16  // 每栏展示 4排×4
+const PAGE_SIZE = 12  // 无限滚动每批（4列×3排），对齐作品库
+const ALL = "全部"
+
+// ───── Tab：公开 / 加密（09-30 欢哥定稿：不加"全部"，加密房只是浏览，进入靠门牌码）─────
+type RoomTab = "public" | "private"
+const TABS: { key: RoomTab; label: string }[] = [
+  { key: "public", label: "公开房间" },
+  { key: "private", label: "加密房间" },
+]
+
+// 合奏人数：当前正在合奏的人数下限档位
+const PLAYER_OPTIONS = [
+  { value: "1", label: "1人+" },
+  { value: "2", label: "2人+" },
+  { value: "3", label: "3人+" },
+  { value: "4", label: "4人+" },
+]
+
+// Lv 等级：房主建房的演奏水平要求（p=新手局 … fff=大神局）
+const PROF_OPTIONS = PROFICIENCY_ORDER.map((p) => ({
+  value: p,
+  label: `Lv=${p} · ${PROFICIENCY_MAP[p].label}`,
+}))
+
+const SORT_OPTIONS = [
+  { value: "members", label: "人数最多" },
+  { value: "newest", label: "最新创建" },
+]
 
 function mapRoomToCard(room: RoomItem, latency: number) {
   return {
@@ -63,14 +90,61 @@ function mapRoomToCard(room: RoomItem, latency: number) {
   }
 }
 
+// 筛选下拉（作品库/公告牌同款规格：34px 高、激活蓝边、暗色选项）
+function FilterSelect({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string
+  value: string
+  options: readonly { value: string; label: string }[]
+  onChange: (value: string) => void
+}) {
+  const isActive = value !== ALL
+  return (
+    <div className="relative">
+      <select
+        aria-label={label}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={`appearance-none rounded-lg border bg-[#0D0D0D] py-1.5 pl-3 pr-8 text-sm text-white transition-colors focus:outline-none ${
+          isActive ? "border-[#00AAFF]" : "border-[#1A1A1A]"
+        }`}
+      >
+        <option value={ALL} className="bg-[#0D0D0D] text-white">
+          {label}
+        </option>
+        {options.map((opt) => (
+          <option key={opt.value} value={opt.value} className="bg-[#0D0D0D] text-white">
+            {opt.label}
+          </option>
+        ))}
+      </select>
+      <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9A9A9A]" />
+    </div>
+  )
+}
+
+// Tab 初始值从 URL 还原（tab= 新参数；type= 为旧双栏时代链接，兼容直读）
+function resolveTabFromUrl(): RoomTab {
+  if (typeof window === "undefined") return "public"
+  const params = new URLSearchParams(window.location.search)
+  const t = params.get("tab") ?? params.get("type")
+  return t === "private" ? "private" : "public"
+}
+
 export function RoomListPage() {
   const router = useRouter()
-  const searchParams = useSearchParams()
-  const listType = searchParams.get("type") // null=双栏首页 | "public" | "private"
+  const [tab, setTab] = useState<RoomTab>(resolveTabFromUrl)
   const [query, setQuery] = useState("")
-  const [category, setCategory] = useState("全部")
+  const [style, setStyle] = useState(ALL)
+  const [players, setPlayers] = useState(ALL)
+  const [prof, setProf] = useState(ALL)
   const [sort, setSort] = useState("members")
-  const [sortOpen, setSortOpen] = useState(false)
+  const [visible, setVisible] = useState(PAGE_SIZE)
+  const sentinelRef = useRef<HTMLDivElement | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [detailRoomId, setDetailRoomId] = useState<string | null>(null)
   const [codeInput, setCodeInput] = useState("")
@@ -91,21 +165,29 @@ export function RoomListPage() {
 
   useEffect(() => {
     fetchRooms()
-    const t = setInterval(fetchRooms, 15000)  // 15秒刷新，卡片人数实时更新
+    const t = setInterval(fetchRooms, 15000)  // 15秒刷新，卡片人数实时更新（不影响滚动位置）
     return () => clearInterval(t)
   }, [])
 
+  // 切 Tab 同步到 URL（replace 不入历史，与作品库一致；刷新/收藏可还原）
+  function changeTab(next: RoomTab) {
+    setTab(next)
+    router.replace(next === "private" ? "/lobby?tab=private" : "/lobby", { scroll: false })
+  }
+
   const categories = useMemo(() => {
     const cats = new Set(rooms.map(r => r.style))
-    return ["全部", ...CATEGORY_ORDER.filter(c => c !== "全部" && cats.has(c)), ...Array.from(cats).filter(c => !CATEGORY_ORDER.includes(c))]
+    const known = CATEGORY_ORDER.filter(c => c !== "全部" && cats.has(c))
+    const extra = Array.from(cats).filter(c => !CATEGORY_ORDER.includes(c))
+    return [...known, ...extra].map(c => ({ value: c, label: c }))
   }, [rooms])
 
-  // 全列表过滤（搜索/分类/排序 + type）
+  // Tab + 搜索 + 风格/人数/Lv 筛选 + 排序（纯前端，房间数据本就全量拉取）
   const filtered = useMemo(() => {
-    let list = [...rooms]
-    if (listType === "public") list = list.filter(r => !r.is_private)
-    else if (listType === "private") list = list.filter(r => r.is_private)
-    if (category !== "全部") list = list.filter(r => r.style === category)
+    let list = rooms.filter(r => r.is_private === (tab === "private"))
+    if (style !== ALL) list = list.filter(r => r.style === style)
+    if (players !== ALL) list = list.filter(r => r.musician_count >= Number(players))
+    if (prof !== ALL) list = list.filter(r => r.proficiency === prof)
     if (query.trim()) {
       const q = query.trim().toLowerCase()
       list = list.filter(r => r.name.toLowerCase().includes(q) || r.style.toLowerCase().includes(q) || (r.room_code || "").toLowerCase().includes(q))
@@ -116,7 +198,32 @@ export function RoomListPage() {
       return 0
     })
     return list
-  }, [rooms, category, query, sort, listType])
+  }, [rooms, tab, style, players, prof, query, sort])
+
+  // 筛选条件变化时重置分页（rooms 轮询更新不在此列，不打断浏览位置）
+  useEffect(() => {
+    setVisible(PAGE_SIZE)
+  }, [tab, query, style, players, prof, sort])
+
+  const shown = filtered.slice(0, visible)
+  const hasMore = visible < filtered.length
+  const tabTotal = rooms.filter(r => r.is_private === (tab === "private")).length
+
+  // 无限滚动（作品库同款）
+  useEffect(() => {
+    const el = sentinelRef.current
+    if (!el || !hasMore) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setVisible((v) => v + PAGE_SIZE)
+        }
+      },
+      { rootMargin: "200px" },
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [hasMore, shown.length])
 
   // 门牌码加入：输入 8 位 code → 打开详情弹窗（RoomDetailModal 自行处理存在/不存在/加密房密码）
   const handleJoinByCode = () => {
@@ -126,114 +233,39 @@ export function RoomListPage() {
     setDetailRoomId(code)
   }
 
-  const renderCodeJoin = () => (
-    <div className="flex items-center gap-2">
-      <div className="relative flex-1 sm:flex-none sm:w-72">
-        <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" style={{ color: "#9933FF" }} />
-        <input value={codeInput} onChange={(e) => setCodeInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") handleJoinByCode() }}
-          placeholder="输入8位门牌码加入房间"
-          className="w-full rounded-[10px] border px-4 py-1.5 pl-10 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
-          style={{ background: "#0D0D0D", borderColor: "#2A2A2A" }} />
-      </div>
-    </div>
-  )
-
-  const renderSearchSort = () => (
-    <>
-      <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
-        <div className="relative flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" style={{ color: "#666" }} />
-          <input value={query} onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜索房间名、风格..."
-            className="w-full rounded-[10px] border px-4 py-1.5 pl-10 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
-            style={{ background: "#0D0D0D", borderColor: "#2A2A2A" }} />
-        </div>
-        <div className="relative">
-          <button onClick={() => setSortOpen((v) => !v)}
-            className="flex w-full items-center justify-between gap-2 rounded-[10px] border px-4 py-1.5 text-sm text-white transition-colors hover:border-[#9933FF] sm:w-44"
-            style={{ background: "#0D0D0D", borderColor: "#2A2A2A" }}>
-            <span style={{ color: "#8A8A8A" }}>排序：</span>
-            <span className="flex-1 text-left">{sort === "members" ? "人数最多" : "最新创建"}</span>
-            <ChevronDown className="h-4 w-4" style={{ color: "#8A8A8A" }} />
-          </button>
-          {sortOpen && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setSortOpen(false)} aria-hidden />
-              <div className="absolute right-0 top-full z-50 mt-2 w-full min-w-44 overflow-hidden rounded-xl border p-1 shadow-2xl"
-                style={{ background: "#0D0D0D", borderColor: "#2A2A2A" }}>
-                {([["members","人数最多"],["newest","最新创建"]] as const).map(([key, label]) => (
-                  <button key={key} onClick={() => { setSort(key); setSortOpen(false) }}
-                    className="flex w-full items-center rounded-lg px-3 py-2 text-sm transition-colors hover:bg-white/5"
-                    style={{ color: sort === key ? "#FFFFFF" : "#8A8A8A" }}>
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-
-      <div className="mt-6 flex flex-wrap gap-2 border-b pb-3" style={{ borderColor: "#2A2A2A" }}>
-        {categories.map((cat) => (
-          <button key={cat} onClick={() => setCategory(cat)}
-            className="relative px-3 py-1.5 text-sm transition-colors"
-            style={{ color: category === cat ? "#FFFFFF" : "#8A8A8A" }}>
-            {cat}
-            {category === cat && <span className="absolute inset-x-2 -bottom-3 h-0.5 rounded-full" style={{ background: "#00AAFF" }} />}
-          </button>
-        ))}
-      </div>
-    </>
-  )
-
-  // ───── 全列表模式（?type=public|private）─────
-  if (listType === "public" || listType === "private") {
-    const title = listType === "public" ? "公开房间" : "加密房间"
-    return (
-      <div className="min-h-screen bg-black text-white">
-        <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
-          <div className="mb-4">{renderCodeJoin()}</div>
-          <h1 className="flex items-center gap-2 text-3xl font-bold tracking-tight">
-            <span aria-hidden>{listType === "public" ? "🎸" : "🔒"}</span>{title}
-          </h1>
-          {renderSearchSort()}
-          {loading ? (
-            <div className="mt-20 text-center text-sm" style={{ color: "#8A8A8A" }}>加载中...</div>
-          ) : (
-            <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-              {filtered.length > 0 ? (
-                filtered.map((room) => (
-                  <RoomCard key={room.id} room={mapRoomToCard(room, latency)} onSelect={() => setDetailRoomId(room.room_code)} />
-                ))
-              ) : (
-                <EmptyState onCreate={() => setModalOpen(true)} />
-              )}
-            </div>
-          )}
-        </main>
-        <RoomDetailModal roomId={detailRoomId} onClose={() => { setDetailRoomId(null); fetchRooms() }} />
-        <CreateRoomModal open={modalOpen} onClose={() => { setModalOpen(false); fetchRooms() }} />
-      </div>
-    )
-  }
-
-  // ───── 双栏 shelf 首页 ─────
-  const publicRooms = rooms.filter(r => !r.is_private).slice(0, ROOMS_PER_SECTION)
-  const privateRooms = rooms.filter(r => r.is_private).slice(0, ROOMS_PER_SECTION)
-
   return (
     <div className="min-h-screen bg-black text-white">
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+        {/* 头部：左=标题+Tab行(副标题位) 右=门牌码+创建按钮簇底对齐（09-28 紧凑布局语言） */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex flex-col gap-2">
-            <h1 className="text-3xl font-bold tracking-tight">
-              房间大厅
-            </h1>
-            <p className="text-sm" style={{ color: "#8A8A8A" }}>选择一个房间加入，或创建你自己的房间</p>
+            <h1 className="text-3xl font-bold tracking-tight">房间大厅</h1>
+            <nav className="-mb-1.5 flex flex-wrap gap-6">
+              {TABS.map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => changeTab(t.key)}
+                  className={`relative pb-1.5 text-sm font-medium transition-colors ${
+                    tab === t.key ? "text-white" : "text-[#9A9A9A] hover:text-white"
+                  }`}
+                >
+                  {t.label}
+                  {tab === t.key && (
+                    <span className="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-[#00AAFF]" />
+                  )}
+                </button>
+              ))}
+            </nav>
           </div>
           <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center">
-            {renderCodeJoin()}
+            <div className="relative sm:w-72">
+              <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" style={{ color: "#9933FF" }} />
+              <input value={codeInput} onChange={(e) => setCodeInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") handleJoinByCode() }}
+                placeholder="输入8位门牌码加入房间"
+                className="w-full rounded-[10px] border px-4 py-1.5 pl-10 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
+                style={{ background: "#0D0D0D", borderColor: "#1A1A1A" }} />
+            </div>
             <button onClick={() => { if (!loggedIn) { setShowLoginModal(true); return }; setModalOpen(true) }}
               className="flex items-center gap-1.5 self-start rounded-[10px] px-4 py-2 text-sm font-semibold text-white transition-all duration-200 hover:brightness-110 active:scale-[0.97] sm:self-auto"
               style={{ backgroundImage: "linear-gradient(90deg, #9933ff 0%, #ff33aa 100%)" }}>
@@ -242,43 +274,46 @@ export function RoomListPage() {
           </div>
         </div>
 
+        {/* 筛选行：搜索 + 风格/合奏人数/Lv等级/排序（规格同作品库） */}
+        <div className="mb-6 mt-8 flex flex-wrap items-center gap-4">
+          <div className="relative w-full sm:w-72">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" style={{ color: "#666" }} />
+            <input value={query} onChange={(e) => setQuery(e.target.value)}
+              placeholder="搜索房间名、风格..."
+              className="w-full rounded-[10px] border px-4 py-1.5 pl-10 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
+              style={{ background: "#0D0D0D", borderColor: "#1A1A1A" }} />
+          </div>
+          <FilterSelect label="风格" value={style} options={categories} onChange={setStyle} />
+          <FilterSelect label="合奏人数" value={players} options={PLAYER_OPTIONS} onChange={setPlayers} />
+          <FilterSelect label="Lv等级" value={prof} options={PROF_OPTIONS} onChange={setProf} />
+          <FilterSelect label="排序" value={sort} options={SORT_OPTIONS} onChange={setSort} />
+        </div>
+
+        {/* 房间网格 */}
         {loading ? (
           <div className="mt-20 text-center text-sm" style={{ color: "#8A8A8A" }}>加载中...</div>
+        ) : shown.length > 0 ? (
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+            {shown.map((room) => (
+              <RoomCard key={room.id} room={mapRoomToCard(room, latency)} onSelect={() => setDetailRoomId(room.room_code)} />
+            ))}
+          </div>
+        ) : tabTotal === 0 ? (
+          <EmptyState
+            message={tab === "public" ? "还没有公开房间，来创建第一个吧！" : "还没有加密房间，来创建一个吧！"}
+            onCreate={() => setModalOpen(true)} />
         ) : (
-          <div className="mt-8 flex flex-col gap-10">
-            <section>
-              <SectionHeader title="公开房间" linkLabel="更多公开房间" onLink={() => router.push("/lobby?type=public")} />
-              {publicRooms.length > 0 ? (
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-                  {publicRooms.map((room) => (
-                    <RoomCard key={room.id} room={mapRoomToCard(room, latency)} onSelect={() => setDetailRoomId(room.room_code)} />
-                  ))}
-                </div>
-              ) : (
-                <div className="flex items-center justify-center rounded-[10px] border border-dashed py-12" style={{ borderColor: "#2A2A2A" }}>
-                  <p className="text-sm" style={{ color: "#8A8A8A" }}>暂无公开房间</p>
-                </div>
-              )}
-            </section>
+          <div className="py-[60px] text-center text-sm text-[#9A9A9A]">没有找到符合条件的房间</div>
+        )}
 
-            <section>
-              <SectionHeader title="加密房间" linkLabel="更多加密房间" onLink={() => router.push("/lobby?type=private")} />
-              {privateRooms.length > 0 ? (
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-                  {privateRooms.map((room) => (
-                    <RoomCard key={room.id} room={mapRoomToCard(room, latency)} onSelect={() => setDetailRoomId(room.room_code)} />
-                  ))}
-                </div>
-              ) : (
-                <div className="flex items-center justify-center rounded-[10px] border border-dashed py-12" style={{ borderColor: "#2A2A2A" }}>
-                  <p className="text-sm" style={{ color: "#8A8A8A" }}>暂无加密房间</p>
-                </div>
-              )}
-            </section>
+        {/* 无限滚动哨兵 / 结束提示 */}
+        {shown.length > 0 && (
+          <div ref={sentinelRef} className="py-8 text-center text-xs text-[#9A9A9A]">
+            {hasMore ? "加载中..." : "已展示全部房间"}
           </div>
         )}
       </main>
-      <RoomDetailModal roomId={detailRoomId ? String(detailRoomId) : null} onClose={() => { setDetailRoomId(null); fetchRooms() }} />
+      <RoomDetailModal roomId={detailRoomId} onClose={() => { setDetailRoomId(null); fetchRooms() }} />
       <CreateRoomModal open={modalOpen} onClose={() => { setModalOpen(false); fetchRooms() }} />
     </div>
   )
