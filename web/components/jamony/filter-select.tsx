@@ -17,8 +17,8 @@ export type FilterOption = { value: string; label: string }
 
 const VARIANT_BTN: Record<string, string> = {
   filter: "rounded-lg bg-[#0D0D0D] py-1.5 pl-3 pr-8 text-sm",
-  field: "rounded-[10px] bg-[#141414] px-4 py-2.5 text-sm",
-  compact: "rounded-lg bg-[#141414] px-3 py-1.5 text-xs",
+  field: "rounded-[10px] bg-[#141414] pl-4 pr-8 py-2.5 text-sm",
+  compact: "rounded-lg bg-[#141414] pl-3 pr-8 py-1.5 text-xs",
 }
 const VARIANT_IDLE: Record<string, string> = {
   filter: "border-[#1A1A1A]",
@@ -106,7 +106,7 @@ export function FilterSelect({
         } ${btnBorder} ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
         style={{ color: textColor }}
       >
-        <span className="truncate">{selected ? selected.label : label}</span>
+        <span className="min-w-0 flex-1 truncate">{selected ? selected.label : label}</span>
         <ChevronDown
           className={`pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9A9A9A] transition-transform duration-200 ${
             open ? "rotate-180" : ""
