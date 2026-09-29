@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useSearchParams } from "next/navigation"
-import { Plus, ChevronDown, Search } from "lucide-react"
+import { Plus, Search } from "lucide-react"
+import { FilterSelect } from "@/components/jamony/filter-select"
 import {
   type Notice,
   type NoticeType,
@@ -189,6 +190,7 @@ export function BoardPage() {
               setSort(v as SortOption)
               resetPaging()
             }}
+            allValue={null}
             options={[
               { value: "latest", label: "最新发布" },
               { value: "hot", label: "最热" },
@@ -201,6 +203,7 @@ export function BoardPage() {
               setCityFilter(v)
               resetPaging()
             }}
+            allValue="all"
             options={[{ value: "all", label: "城市" }, ...cities.map((c) => ({ value: c, label: c }))]}
           />
           <FilterSelect
@@ -210,6 +213,7 @@ export function BoardPage() {
               setStyleFilter(v)
               resetPaging()
             }}
+            allValue="all"
             options={[{ value: "all", label: "风格" }, ...styles.map((s) => ({ value: s, label: s }))]}
           />
         </div>
@@ -264,38 +268,6 @@ function TabButton({ label, active, onClick }: { label: string; active: boolean;
         <span className="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-[#00AAFF]" />
       )}
     </button>
-  )
-}
-
-function FilterSelect({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string
-  value: string
-  onChange: (v: string) => void
-  options: { value: string; label: string }[]
-}) {
-  // 09-28 套用作品库筛选逻辑：无外部说明文案，标注进下拉默认项（label 转 aria-label）
-  return (
-    <div className="relative">
-      <select
-        aria-label={label}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="appearance-none rounded-lg border py-1.5 pl-3 pr-8 text-sm text-white outline-none transition-colors focus:border-[#9933FF]"
-        style={{ backgroundColor: "#0D0D0D", borderColor: "#1A1A1A" }}
-      >
-        {options.map((o) => (
-          <option key={o.value} value={o.value} className="bg-[#0D0D0D] text-white">
-            {o.label}
-          </option>
-        ))}
-      </select>
-      <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8A8A8A]" />
-    </div>
   )
 }
 

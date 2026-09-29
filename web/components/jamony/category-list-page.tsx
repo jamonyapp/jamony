@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
-import { ChevronDown, Search } from "lucide-react"
+import { Search } from "lucide-react"
 import { TrackCard } from "@/components/jamony/track-card"
+import { FilterSelect } from "@/components/jamony/filter-select"
 import { usePlayer } from "@/components/jamony/player-context"
 import { useAuth } from "@/lib/auth-context"
 import { TracksSkeleton } from "@/components/jamony/tracks-skeleton"
@@ -24,42 +25,6 @@ const ALL = "全部"
 type Tab = "全部作品" | "排练作品" | "Jam 时刻"
 const TABS: Tab[] = ["全部作品", "排练作品", "Jam 时刻"]
 const NATURE_OPTIONS = ["Original", "Cover"]
-
-function FilterSelect({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string
-  value: string
-  options: readonly string[]
-  onChange: (value: string) => void
-}) {
-  const isActive = value !== ALL
-  return (
-    <div className="relative">
-      <select
-        aria-label={label}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className={`appearance-none rounded-lg border bg-[#0D0D0D] py-1.5 pl-3 pr-8 text-sm text-white transition-colors focus:outline-none ${
-          isActive ? "border-[#00AAFF]" : "border-[#1A1A1A]"
-        }`}
-      >
-        <option value={ALL} className="bg-[#0D0D0D] text-white">
-          {label}
-        </option>
-        {options.map((opt) => (
-          <option key={opt} value={opt} className="bg-[#0D0D0D] text-white">
-            {opt}
-          </option>
-        ))}
-      </select>
-      <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9A9A9A]" />
-    </div>
-  )
-}
 
 function matchTrack(t: Track, q: string): boolean {
   if (!q) return true
@@ -216,9 +181,9 @@ function CategoryListInner() {
 
         {/* 筛选器 —— 头部下方内容，间距对齐大厅 mt-8；按钮规格/间隔同公告牌 */}
         <div className="mb-6 mt-8 flex flex-wrap items-center gap-4">
-          <FilterSelect label="风格" value={style} options={STYLE_OPTIONS} onChange={setStyle} />
-          <FilterSelect label="性质" value={nature} options={NATURE_OPTIONS} onChange={setNature} />
-          <FilterSelect label="乐器" value={instrument} options={INSTRUMENT_OPTIONS} onChange={setInstrument} />
+          <FilterSelect label="风格" value={style} options={STYLE_OPTIONS.map((s) => ({ value: s, label: s }))} onChange={setStyle} />
+          <FilterSelect label="性质" value={nature} options={NATURE_OPTIONS.map((s) => ({ value: s, label: s }))} onChange={setNature} />
+          <FilterSelect label="乐器" value={instrument} options={INSTRUMENT_OPTIONS.map((s) => ({ value: s, label: s }))} onChange={setInstrument} />
         </div>
 
         {/* 作品网格 — 直接用现有的 TrackCard（已含 icon） */}

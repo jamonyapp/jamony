@@ -1,12 +1,13 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { Search, Plus, ChevronDown, KeyRound } from "lucide-react"
+import { Search, Plus, KeyRound } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { RoomCard } from "@/components/room-card"
 import { EmptyState } from "@/components/empty-state"
 import { CreateRoomModal } from "@/components/create-room-modal"
 import { RoomDetailModal } from "@/components/room-detail-modal"
+import { FilterSelect } from "@/components/jamony/filter-select"
 import { useAuth } from "@/lib/auth-context"
 import { PROFICIENCY_MAP, PROFICIENCY_ORDER } from "@/lib/proficiency"
 
@@ -88,43 +89,6 @@ function mapRoomToCard(room: RoomItem, latency: number) {
     proficiency: room.proficiency,
     listener_count: room.listener_count,
   }
-}
-
-// 筛选下拉（作品库/公告牌同款规格：34px 高、激活蓝边、暗色选项）
-function FilterSelect({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string
-  value: string
-  options: readonly { value: string; label: string }[]
-  onChange: (value: string) => void
-}) {
-  const isActive = value !== ALL
-  return (
-    <div className="relative">
-      <select
-        aria-label={label}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className={`appearance-none rounded-lg border bg-[#0D0D0D] py-1.5 pl-3 pr-8 text-sm text-white transition-colors focus:outline-none ${
-          isActive ? "border-[#00AAFF]" : "border-[#1A1A1A]"
-        }`}
-      >
-        <option value={ALL} className="bg-[#0D0D0D] text-white">
-          {label}
-        </option>
-        {options.map((opt) => (
-          <option key={opt.value} value={opt.value} className="bg-[#0D0D0D] text-white">
-            {opt.label}
-          </option>
-        ))}
-      </select>
-      <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9A9A9A]" />
-    </div>
-  )
 }
 
 // Tab 初始值从 URL 还原（tab= 新参数；type= 为旧双栏时代链接，兼容直读）
@@ -286,7 +250,7 @@ export function RoomListPage() {
           <FilterSelect label="风格" value={style} options={categories} onChange={setStyle} />
           <FilterSelect label="合奏人数" value={players} options={PLAYER_OPTIONS} onChange={setPlayers} />
           <FilterSelect label="Lv等级" value={prof} options={PROF_OPTIONS} onChange={setProf} />
-          <FilterSelect label="排序" value={sort} options={SORT_OPTIONS} onChange={setSort} />
+          <FilterSelect label="排序" value={sort} options={SORT_OPTIONS} onChange={setSort} allValue={null} />
         </div>
 
         {/* 房间网格 */}
