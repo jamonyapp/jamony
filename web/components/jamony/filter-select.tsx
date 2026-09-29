@@ -44,25 +44,37 @@ export function FilterSelect({
   disabled?: boolean
 }) {
   const btnRef = useRef<HTMLButtonElement | null>(null)
-  // 打开即持有按钮屏幕坐标（fixed 弹层定位用）
-  const [rect, setRect] = useState<{ left: number; top: number; width: number } | null>(null)
+  const menuRef = useRef<HTMLDivElement | null>(null)
+  // 打开即持有按钮屏幕坐标（fixed 弹层定位用）+ 下方剩余空间（长列表限高内部滚动，鼓机节奏型上百条）
+  const [rect, setRect] = useState<{ left: number; top: number; width: number; maxH: number } | null>(null)
   const open = rect !== null
 
   const openMenu = () => {
     const r = btnRef.current?.getBoundingClientRect()
-    if (r) setRect({ left: r.left, top: r.bottom + 6, width: r.width })
+    if (r) {
+      setRect({
+        left: r.left,
+        top: r.bottom + 6,
+        width: r.width,
+        maxH: Math.max(180, window.innerHeight - r.bottom - 24), // 保底 180px，正常取下方剩余空间
+      })
+    }
   }
 
-  // 滚动（capture 捕获任意容器）/缩放/Esc 时收起
+  // 滚动（capture 捕获任意容器）/缩放/Esc 时收起；弹层自身内部滚动豁免（长列表场景）
   useEffect(() => {
     if (!open) return
     const close = () => setRect(null)
+    const onScroll = (e: Event) => {
+      if (menuRef.current && e.target instanceof Node && menuRef.current.contains(e.target)) return
+      close()
+    }
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close() }
-    window.addEventListener("scroll", close, true)
+    window.addEventListener("scroll", onScroll, true)
     window.addEventListener("resize", close)
     window.addEventListener("keydown", onKey)
     return () => {
-      window.removeEventListener("scroll", close, true)
+      window.removeEventListener("scroll", onScroll, true)
       window.removeEventListener("resize", close)
       window.removeEventListener("keydown", onKey)
     }
@@ -112,12 +124,14 @@ export function FilterSelect({
             aria-hidden
           />
           <div
-            className="fixed z-[80] w-max rounded-xl border p-1 shadow-2xl"
+            ref={menuRef}
+            className="fixed z-[80] w-max overflow-y-auto overscroll-contain rounded-xl border p-1 shadow-2xl scrollbar-thin"
             style={{
               left: rect.left,
               top: rect.top,
               minWidth: rect.width,
               maxWidth: `calc(100vw - ${rect.left + 8}px)`,
+              maxHeight: rect.maxH,
               background: "#0D0D0D",
               borderColor: "#1A1A1A",
             }}
