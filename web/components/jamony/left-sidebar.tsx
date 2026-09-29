@@ -58,8 +58,8 @@ export function LeftSidebar() {
           创建房间
         </button>
         <button
-          className="flex items-center justify-center gap-2 rounded-[10px] border py-2.5 text-[14px] font-medium text-white transition-colors hover:bg-white/5 active:scale-[0.97]"
-          style={{ borderColor: "rgba(255,255,255,0.4)" }}
+          className="flex items-center justify-center gap-2 rounded-[10px] py-2.5 text-[14px] font-bold text-white transition-transform active:scale-[0.97]"
+          style={{ background: "linear-gradient(90deg, #00AAFF, #9933FF)" }}
           onClick={() => requireAuth(() => setPublishOpen(true))}
         >
           <Plus className="h-4 w-4" />
