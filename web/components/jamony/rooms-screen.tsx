@@ -142,7 +142,7 @@ export function RoomsScreen() {
       <SectionHeader title="热门房间" linkLabel="房间大厅" onLink={() => router.push("/lobby")} />
       {rooms.length === 0 ? (
         <div className="flex items-center justify-center rounded-[10px] border border-dashed py-12" style={{ borderColor: "#2A2A2A" }}>
-          <p className="text-sm" style={{ color: "#8A8A8A" }}>暂无房间，去大厅创建一个吧</p>
+          <p className="text-sm" style={{ color: "#8A8A8A" }}>暂无房间，去大厅创建一个吧！</p>
         </div>
       ) : (
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">

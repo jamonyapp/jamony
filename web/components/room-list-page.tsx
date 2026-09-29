@@ -276,7 +276,7 @@ export function RoomListPage() {
           </div>
         ) : tabTotal === 0 ? (
           <EmptyState
-            message={tab === "public" ? "还没有公开房间，来创建第一个吧！" : "还没有加密房间，来创建一个吧！"}
+            message={tab === "public" ? "还没有公开房间，来创建一个吧！" : "还没有加密房间，来创建一个吧！"}
             onCreate={() => setModalOpen(true)} />
         ) : (
           <div className="py-[60px] text-center text-sm text-[#9A9A9A]">没有找到符合条件的房间</div>
