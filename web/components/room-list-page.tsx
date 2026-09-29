@@ -138,12 +138,13 @@ export function RoomListPage() {
     router.replace(next === "private" ? "/lobby?tab=private" : "/lobby", { scroll: false })
   }
 
+  // 风格选项动态生成：取当前 Tab 下实际存在的风格（跟随 15s 轮询更新，新风格自动出现）
   const categories = useMemo(() => {
-    const cats = new Set(rooms.map(r => r.style))
+    const cats = new Set(rooms.filter(r => r.is_private === (tab === "private")).map(r => r.style))
     const known = CATEGORY_ORDER.filter(c => c !== "全部" && cats.has(c))
     const extra = Array.from(cats).filter(c => !CATEGORY_ORDER.includes(c))
     return [...known, ...extra].map(c => ({ value: c, label: c }))
-  }, [rooms])
+  }, [rooms, tab])
 
   // Tab + 搜索 + 风格/人数/Lv 筛选 + 排序（纯前端，房间数据本就全量拉取）
   const filtered = useMemo(() => {
@@ -174,6 +175,11 @@ export function RoomListPage() {
   useEffect(() => {
     setVisible(PAGE_SIZE)
   }, [tab, query, style, players, prof, sort])
+
+  // 选中风格在当前 Tab 下已无房间时（如切 Tab/房间解散），自动退回全部，避免"按钮看着没选却过滤成空"
+  useEffect(() => {
+    if (style !== ALL && !categories.some(c => c.value === style)) setStyle(ALL)
+  }, [categories, style])
 
   const shown = filtered.slice(0, visible)
   const hasMore = visible < filtered.length
