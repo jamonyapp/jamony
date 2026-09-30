@@ -116,10 +116,10 @@ export function LeftSidebar() {
             </span>
           </div>
           <p className="mt-2 text-[11px] leading-relaxed" style={{ color: "#C8C8C8" }}>
-            我们可能还不够好，但我们一直在努力，就像练琴。
+            我们可能不够好，但我们一直在努力。
           </p>
           <p className="mt-2 text-right text-[11px]" style={{ color: "#8A8A8A" }}>
-            ——jamony工作室
+            ——jamony
           </p>
         </div>
         <button
