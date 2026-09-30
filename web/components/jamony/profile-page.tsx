@@ -171,7 +171,7 @@ export function ProfilePage({ nickname }: { nickname: string }) {
   if (loading) {
     return (
       <div className="min-h-[60vh] bg-black text-white">
-        <main className="mx-auto max-w-3xl px-4 pb-20">
+        <main className="mx-auto max-w-3xl px-4 pb-28">
           <div className="flex h-64 items-center justify-center">
             <p className="text-[#8A8A8A]">加载中...</p>
           </div>
@@ -183,7 +183,7 @@ export function ProfilePage({ nickname }: { nickname: string }) {
   if (!profile) {
     return (
       <div className="min-h-[60vh] bg-black text-white">
-        <main className="mx-auto max-w-3xl px-4 pb-20">
+        <main className="mx-auto max-w-3xl px-4 pb-28">
           <div className="flex h-64 flex-col items-center justify-center gap-4">
             <p className="text-lg text-[#8A8A8A]">用户不存在</p>
             <button onClick={() => router.push("/")} className="text-sm text-[#00AAFF] hover:underline">
@@ -201,7 +201,7 @@ export function ProfilePage({ nickname }: { nickname: string }) {
 
   return (
     <div className="min-h-[60vh] bg-black text-white">
-      <main className="mx-auto max-w-3xl px-4 pb-20">
+      <main className="mx-auto max-w-3xl px-4 pb-28">
         <div className="py-8">
           {/* 个人资料区 */}
           <section className="flex items-start gap-5">

@@ -85,7 +85,7 @@ export function ManageWorksPage({ nickname }: { nickname: string }) {
   return (
     <div className="min-h-screen bg-black text-white">
       {/* 09-27 左栏常驻: 原 TopNav backLinks"返回个人主页"由壳层返回箭头承接 */}
-      <main className="mx-auto max-w-7xl px-4 pb-20 md:px-6">
+      <main className="mx-auto max-w-7xl px-4 pb-28 md:px-6">
         <div className="flex items-end justify-between">
           <h1 className="text-xl font-bold text-white">{isSelf ? "我参与的作品" : `${nickname} 参与的作品`}</h1>
           <span className="text-xs" style={{ color: "#8A8A8A" }}>共 {filteredWorks.length} 个</span>

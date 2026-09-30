@@ -357,7 +357,7 @@ function WorkDetailInner() {
   ]
 
   return (
-    <div className="min-h-screen bg-black text-white">
+    <div className="min-h-screen bg-black pb-28 text-white">
       <div className="mx-auto w-full max-w-3xl px-4 pb-32">
         {/* 主视觉区 */}
         <section className="flex flex-col gap-5 pt-2 sm:flex-row sm:items-stretch">

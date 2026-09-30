@@ -160,7 +160,7 @@ export function SettingsPage() {
   return (
     <div className="min-h-screen bg-black text-white">
       {/* 09-27 左栏常驻: 原 TopNav backLinks"返回个人主页"由壳层返回箭头承接 */}
-      <div className="mx-auto max-w-3xl px-4 pb-20">
+      <div className="mx-auto max-w-3xl px-4 pb-28">
         <h1 className="mb-8 text-xl font-bold text-white">个人设置</h1>
 
         {/* ===== 编辑个人资料 ===== */}
