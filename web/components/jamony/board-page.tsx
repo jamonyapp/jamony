@@ -125,7 +125,7 @@ export function BoardPage() {
   const resetPaging = () => setVisibleCount(PAGE_SIZE)
 
   return (
-    <div className="min-h-screen bg-black text-white">
+    <div className="min-h-screen bg-black pb-28 text-white">
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
         {/* 头部 —— 09-28 套用房间大厅紧凑布局：左=标题+Tab行(副标题位,gap-2),
             右=搜索框+发布公告簇底对齐(items-end), 外层gap-4；Tab样式=作品库同款 */}

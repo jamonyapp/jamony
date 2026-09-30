@@ -210,7 +210,7 @@ export function RoomListPage() {
   }
 
   return (
-    <div className="min-h-screen bg-black text-white">
+    <div className="min-h-screen bg-black pb-28 text-white">
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
         {/* 头部：左=标题+Tab行(副标题位) 右=门牌码+创建按钮簇底对齐（09-28 紧凑布局语言） */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
