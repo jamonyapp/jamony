@@ -25,7 +25,7 @@ declare global {
       leaveRoom: () => void
       setLastMusician: (value: boolean) => void  // jamony 08-31 补声明(8-5加的API, 类型漏了)
       testFeedback: () => void                    // jamony 08-27 反馈保护弹窗debug通道
-      onJamsoulLaunched: (cb: (data: unknown) => void) => void
+      onJamsoulLaunched: (cb: (data: unknown) => void) => () => void  // 09-30 起返回 cleanup
       onJamsoulExited?: (cb: (data: unknown) => void) => void
     }
   }
@@ -300,6 +300,23 @@ export function PlayingPage() {
   // jamony: 删 renderer beforeunload leave（2026-09-16）——强刷会误发 leave 导致唯一合奏者房间被解散。
   // 明确退出（叉窗/dock 退出/断开按钮）全走主进程 sendLeaveRequest（main.js 可靠 leave）；
   // 意外断连由服务器 L2 延迟兜底。刷新场景：不发 leave，页面重载回来房间原样。
+
+  // jamony 09-30: jamsoul 启动回执（主进程 3 秒存活确认）。失败=回滚合奏状态+可见提示
+  // （Win 缺 DLL/杀软拦截秒退场景，此前 spawn 即假成功——界面进合奏中但 jamsoul 没起来）
+  useEffect(() => {
+    const cleanup = window.jamonyAPI?.onJamsoulLaunched?.((data: any) => {
+      if (data?.ok) return
+      console.error("[jamony] jamsoul 启动失败:", data)
+      setAudioConnected(false)
+      const reasonMap: Record<string, string> = {
+        "spawn-error": "无法启动 jamsoul 程序",
+        "early-exit": "jamsoul 启动后立即退出了",
+      }
+      const why = reasonMap[data?.reason as string] || "未知原因"
+      alert(`jamsoul 启动失败：${why}\n\n请重新进入房间再试一次；若反复失败，请完全退出 jamony 再打开重试。`)
+    })
+    return () => { cleanup?.() }
+  }, [])
 
   // jamsoul 子进程退出（用户叉掉/直接退出 jamsoul）→ 感知 + 切听众（主动杀时不 alert）
   useEffect(() => {

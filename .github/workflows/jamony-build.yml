@@ -26,30 +26,23 @@ jobs:
           fetch-depth: 1
           path: jamsoul-source
 
-      - name: Apply jamony color patch + replace icons
-        run: |
-          cp jamony-private/patches/jamony-colors.patch jamsoul-source/
-          cd jamsoul-source
-          patch -p1 < jamony-colors.patch
-          grep '#define APP_NAME' src/global.h
-          # 替换 jamsoul 窗口图标为 jamony logo
-          cp jamony-private/patches/fronticon.png src/res/fronticon.png
-
+      # 09-30 欢哥拍板：删除 06-13 的颜色补丁步骤——7 月起大魔改已吸收全部改动，
+      # jamony-jamsoul 仓库 main 即唯一权威版本，checkout 直接编译
       - name: Install Qt
         run: |
           cd jamsoul-source
           QT_VERSION=6.10.2 TARGET_ARCHS='x86_64 arm64' ./.github/autobuild/mac.sh setup
         env:
-          JAMSOUL_BUILD_VERSION: '0.1.0'
-          JAMULUS_BUILD_VERSION: '0.1.0'
+          JAMSOUL_BUILD_VERSION: '1.0.0'
+          JAMULUS_BUILD_VERSION: '1.0.0'
 
       - name: Build jamsoul
         run: |
           cd jamsoul-source
           QT_VERSION=6.10.2 TARGET_ARCHS='x86_64 arm64' ./.github/autobuild/mac.sh build
         env:
-          JAMSOUL_BUILD_VERSION: '0.1.0'
-          JAMULUS_BUILD_VERSION: '0.1.0'
+          JAMSOUL_BUILD_VERSION: '1.0.0'
+          JAMULUS_BUILD_VERSION: '1.0.0'
 
       - name: Extract jamsoul.app (with Qt frameworks)
         run: |
@@ -117,25 +110,34 @@ jobs:
           modules: 'qtmultimedia'
           archives: 'qtbase qttools qttranslations'
 
-      - name: Apply jamony color patch + replace icons
-        shell: bash
+      # 09-30 删除颜色补丁步骤（jamsoul 仓库 main 即权威版，见上方 Mac job 注释）
+
+      - name: Install ASIO SDK
+        shell: pwsh
         run: |
-          cp jamony-private/patches/jamony-colors.patch jamsoul-source/
-          cd jamsoul-source
-          patch -p1 < jamony-colors.patch
-          grep '#define APP_NAME' src/global.h
-          # 替换 jamsoul 窗口图标为 jamony logo
-          cp jamony-private/patches/fronticon.png src/res/fronticon.png
+          # Windows 标准构建（ASIO 音频后端）必需：Jamulus.pro qmake 时强制检查 libs/ASIOSDK2/common
+          # 与 jamsoul 官方 CI 同源（windows/deploy_windows.ps1 Install-Dependency 同款 URL/布局）
+          $url = "https://download.steinberg.net/sdk_downloads/ASIO-SDK_2.3.4_2025-10-15.zip"
+          $tmp = "$env:TEMP\asio.zip"
+          Invoke-WebRequest -Uri $url -OutFile $tmp
+          $unpack = "$env:TEMP\asio-unpack"
+          Expand-Archive -Path $tmp -DestinationPath $unpack -Force
+          # zip 顶层目录即 SDK 根（common/host/...），整体搬为 libs/ASIOSDK2
+          New-Item -ItemType Directory -Force -Path jamsoul-source\libs | Out-Null
+          Move-Item -Path "$unpack\*" -Destination jamsoul-source\libs\ASIOSDK2
+          if (-not (Test-Path "jamsoul-source\libs\ASIOSDK2\common\asio.cpp")) { throw "ASIO SDK 结构不对：libs/ASIOSDK2/common 缺失" }
+          echo "ASIO SDK OK"
 
       - name: Build jamsoul
         shell: cmd
         run: |
           cd jamsoul-source
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          qmake Jamulus.pro "CONFIG+=nosound" -r -spec win32-msvc
+          rem 09-30 去掉 CONFIG+=nosound（06-13 的残血无音频配置，Win 版 jamsoul 秒退的根因）
+          qmake Jamulus.pro -r -spec win32-msvc
           nmake
           mkdir ..\jamony-private\dist\jamsoul-bin
-          copy release\Jamulus.exe ..\jamony-private\dist\jamsoul-bin\jamsoul.exe
+          copy release\jamulus.exe ..\jamony-private\dist\jamsoul-bin\jamsoul.exe
           where windeployqt
           windeployqt --release ..\jamony-private\dist\jamsoul-bin\jamsoul.exe
 

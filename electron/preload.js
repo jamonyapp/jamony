@@ -29,9 +29,12 @@ contextBridge.exposeInMainWorld('jamonyAPI', {
   setLastMusician: (value) => {
     ipcRenderer.send('set-last-musician', { value })
   },
-  // 监听来自主进程的事件（如 jamsoul 启动状态）
+  // 监听来自主进程的事件（如 jamsoul 启动状态）；返回 cleanup 防 listener 累积
+  // （09-30 反馈链重做：启动结果回执 ok:false=启动失败，前端需可见提示）
   onJamsoulLaunched: (callback) => {
-    ipcRenderer.on('jamsoul-launched', (_event, data) => callback(data))
+    const handler = (_event, data) => callback(data)
+    ipcRenderer.on('jamsoul-launched', handler)
+    return () => ipcRenderer.removeListener('jamsoul-launched', handler)
   },
   // 监听 jamsoul 退出（反向交互，jamsoul 关闭时通知页面）；返回 cleanup 防 listener 累积
   onJamsoulExited: (callback) => {

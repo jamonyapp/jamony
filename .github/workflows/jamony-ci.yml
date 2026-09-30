@@ -1,0 +1,48 @@
+name: jamony-ci
+
+# push 守门：类型检查 + 构建（demo 1.0.0 起类型系统重新生效，2026-09-30 关 ignoreBuildErrors）
+# 打包仍走 jamony-build.yml（手动触发），本 workflow 只挡回归不产出安装包
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  web:
+    name: Web tsc + build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build
+
+  api:
+    name: API syntax check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # api 是无构建单文件服务，先做语法级守门（重量级测试待补）
+      - name: node --check
+        run: node --check api/server.js

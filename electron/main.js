@@ -19,6 +19,8 @@ const JAMSOUL_BIN = process.env.JAMSOUL_BIN || (
 
 let mainWindow = null
 let jamsoulProcess = null
+// jamony 09-30: 启动存活确认的撤销句柄（killJamsoul 主动杀时用）
+let pendingLaunchSettle = null
 let currentRoom = null  // jamony: 当前所在房间 { roomCode, userId }，供退出时主进程可靠发 leave
 let isLastMusician = false  // jamony: 当前用户是否房间唯一合奏者（叉 jamony/dock 退出弹窗文案用）
 
@@ -102,6 +104,9 @@ function sendToJamsoul(obj) {
 }
 
 // 调起 jamsoul 子进程
+// jamony 09-30 反馈链重做：spawn 成功≠进程活着（Win 缺 DLL/杀软拦截的秒退场景）。
+// 3 秒存活确认后才向网页发 ok:true；启动期 exit/error 发 ok:false + 原因，
+// 并跳过 jamsoul-exited 广播（避免前端同时收到失败回执又走"切听众"分流打架）
 function launchJamsoul(serverIp, port, nickname) {
   // jamony: 排重——jamsoul 已启动则不重启（避免硬刷新重复启动多个 jamsoul）
   if (jamsoulProcess) {
@@ -127,23 +132,41 @@ function launchJamsoul(serverIp, port, nickname) {
       env: jamonyEnv,
     })
 
+    // 启动存活确认（结果一次性，防 exit/timeout 双发）
+    let launchSettled = false
+    const sendLaunchResult = (data) => {
+      if (launchSettled) return
+      launchSettled = true
+      console.log('[jamony] jamsoul-launched:', JSON.stringify(data))
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('jamsoul-launched', data)
+      }
+    }
+    pendingLaunchSettle = sendLaunchResult
+
     child.on('error', (err) => {
       console.error(`[jamony] Failed to launch jamsoul: ${err.message}`)
-      if (mainWindow) {
-        mainWindow.webContents.executeJavaScript(`
-          console.error("⚠️ jamsoul 未找到或启动失败，请确认已正确安装");
-        `)
-      }
+      sendLaunchResult({ ok: false, reason: 'spawn-error', message: err.message })
     })
 
     child.on('exit', (code, signal) => {
       console.log(`[jamony] jamsoul exited (code=${code}, signal=${signal})`)
       jamsoulProcess = null
+      if (!launchSettled) {
+        // 启动期秒退（缺 DLL/被拦截的典型症状）：只报启动失败，不发 exited
+        sendLaunchResult({ ok: false, reason: 'early-exit', code, signal })
+        return
+      }
       // jamony: jamsoul 退出通知网页（反向交互，让页面感知 jamsoul 关闭）
       if (!isQuitting && mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('jamsoul-exited', { code, signal })
       }
     })
+
+    // 3 秒仍存活 → 判定启动成功（jamsoulProcess 未被清且仍是本进程）
+    setTimeout(() => {
+      if (jamsoulProcess === child) sendLaunchResult({ ok: true })
+    }, 3000)
 
     jamsoulProcess = child
 
@@ -156,6 +179,11 @@ function launchJamsoul(serverIp, port, nickname) {
 
 // 清理 jamsoul 子进程
 function killJamsoul(immediate = false) {
+  // jamony 09-30: 用户主动杀时撤销启动期判定（避免 3 秒内断开被误报"启动失败"弹窗）
+  if (pendingLaunchSettle) {
+    pendingLaunchSettle({ ok: true, cancelled: true })
+    pendingLaunchSettle = null
+  }
   if (jamsoulProcess) {
     console.log('[jamony] Killing jamsoul child process')
     if (immediate) {
@@ -212,11 +240,7 @@ ipcMain.on('join-room', (_event, payload) => {
   }
 
   launchJamsoul(payload.serverIp, payload.port, payload.nickname)
-
-  // 通知网页端 jamsoul 已启动
-  if (mainWindow) {
-    mainWindow.webContents.send('jamsoul-launched', { ok: true })
-  }
+  // jamony 09-30: 不再无条件报成功——结果由 launchJamsoul 3 秒存活确认后发（真启动成功才 ok:true）
 })
 
 // 来自网页的 KILL_JAMSOUL 请求（断开合奏时）
