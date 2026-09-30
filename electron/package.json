@@ -21,13 +21,16 @@
       "preload.js",
       "splash.html",
       "offline.html",
+      "logo-transparent.png",
       "loading.html",
       "icon.png",
       "package.json"
     ],
     "extraResources": [],
     "mac": {
-      "target": ["dmg"],
+      "target": [
+        "dmg"
+      ],
       "icon": "icon.png",
       "category": "public.app-category.music",
       "extraResources": [
@@ -38,13 +41,17 @@
       ]
     },
     "win": {
-      "target": ["nsis"],
+      "target": [
+        "nsis"
+      ],
       "icon": "icon.png",
       "extraResources": [
         {
           "from": "../dist/jamsoul-bin",
           "to": "jamsoul-bin",
-          "filter": ["**/*"]
+          "filter": [
+            "**/*"
+          ]
         }
       ]
     },
