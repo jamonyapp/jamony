@@ -206,7 +206,7 @@ export function LoginModal() {
             <form onSubmit={handleRegister} className="flex flex-col gap-4">
               <div>
                 <label className="mb-1.5 block text-xs font-medium" style={{ color: "#9A9A9A" }}>
-                  用户名
+                  用户名 *
                 </label>
                 <input
                   type="text"
@@ -220,7 +220,7 @@ export function LoginModal() {
 
               <div>
                 <label className="mb-1.5 block text-xs font-medium" style={{ color: "#9A9A9A" }}>
-                  密码
+                  密码 *
                 </label>
                 <input
                   type="password"
@@ -234,7 +234,7 @@ export function LoginModal() {
 
               <div>
                 <label className="mb-1.5 block text-xs font-medium" style={{ color: "#9A9A9A" }}>
-                  确认密码
+                  确认密码 *
                 </label>
                 <input
                   type="password"
@@ -248,7 +248,7 @@ export function LoginModal() {
 
               <div>
                 <label className="mb-1.5 block text-xs font-medium" style={{ color: "#9A9A9A" }}>
-                  主力乐器
+                  主力乐器 *
                 </label>
                 <FilterSelect
                   variant="field"
