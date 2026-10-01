@@ -126,18 +126,9 @@ export function RoomDetailModal({
     router.push(`/room/${roomId}/playing`)
   }
 
-  const handleRoleSwitch = async (newRole: "musician" | "listener") => {
-    if (!user) return
-    await fetch(`/api/rooms/${roomId}/switch-role`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId: user.id, newRole }),
-    })
-    setMyRole(newRole)
-    const r = await fetch(`/api/rooms/${roomId}`)
-    const rd = await r.json()
-    if (rd.ok) { setRoom(rd.room); setMembers(rd.members || []) }
-  }
+  // jamony 10-01: 删除卡片上的"切为听众/切为合奏"——身份切换只保留合奏页内通道
+  // （断开连接/音频连接，天然绑定本机音频在场）。卡片切换不要求在场，是同账号
+  // 多设备翻身份的唯一漏洞入口（欢哥拍板：跨设备进房坚决堵死）
 
   const musicians = members.filter(m => m.role === "musician")
   const listeners = members.filter(m => m.role === "listener")
@@ -218,13 +209,6 @@ export function RoomDetailModal({
                       <Crown className="h-2.5 w-2.5" />房主
                     </span>
                   )}
-                  {m.user_id === user?.id && (
-                    <button onClick={() => handleRoleSwitch("listener")}
-                      className="rounded-md border px-2 py-0.5 text-[10px] transition-colors hover:bg-white/5"
-                      style={{ borderColor: "#2A2A2A", color: "#8A8A8A" }}>
-                      切为听众
-                    </button>
-                  )}
                 </div>
               ))}
             </div>
@@ -248,13 +232,6 @@ export function RoomDetailModal({
                   <span className="ml-1.5 text-xs" style={{ color: "#B0B0B0" }}>+{listeners.length - 8}</span>
                 )}
               </div>
-              {myRole === "listener" && (
-                <button onClick={() => handleRoleSwitch("musician")}
-                  className="shrink-0 rounded-md border px-2 py-1 text-[11px] transition-colors hover:bg-white/5"
-                  style={{ borderColor: "#2A2A2A", color: "#B0B0B0" }}>
-                  切为合奏
-                </button>
-              )}
             </div>
           </div>
           )}
