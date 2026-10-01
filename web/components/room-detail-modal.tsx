@@ -110,6 +110,9 @@ export function RoomDetailModal({
         router.push(`/room/${roomId}/playing`)
       } else if (data.code === "KICKED") {
         setKickedNotice(true)
+      } else {
+        // jamony 10-01: 服务端拒绝必须可见（一人一房等）——此前此处静默失败
+        alert(data.msg || "加入失败")
       }
     } catch {}
     setJoining(false)

@@ -911,15 +911,19 @@ app.post('/api/rooms', requireAuth, async (req, res) => {
       return res.status(404).json({ ok: false, msg: '用户不存在' })
     }
 
-    // jamony 10-01: 一人一房——已有进行中的自建房间则拒绝再建
-    // （同账号多端登录可双端各建一房的边界漏洞，欢哥拍板堵死；
-    //   房间解散/关闭后自动解锁，房主转移后旧房主也可再建）
-    const hosted = await pool.query(
-      "SELECT room_code, name FROM rooms WHERE host_id = $1 AND status NOT IN ('closed', 'archived') LIMIT 1",
+    // jamony 10-01: 一人一房（完全体）——已是任何活跃房间成员（任何身份/任何设备）
+    // 即拒绝建房。涵盖自己 hosting 的房间（建房即首位合奏成员，host 恒为成员）；
+    // 房间解散/关闭自动解锁；房主转移后原房主解锁。欢哥原则：多端登录自由，在场唯一。
+    const inRoom = await pool.query(
+      `SELECT r.room_code, r.name, r.host_id FROM room_members rm
+       JOIN rooms r ON r.id = rm.room_id
+       WHERE rm.user_id = $1 AND r.status NOT IN ('closed', 'archived') LIMIT 1`,
       [hostId]
     )
-    if (hosted.rows.length > 0) {
-      return res.status(400).json({ ok: false, msg: `你已有进行中的房间「${hosted.rows[0].name}」（门牌码 ${hosted.rows[0].room_code}），请先解散它再建新房` })
+    if (inRoom.rows.length > 0) {
+      const r0 = inRoom.rows[0]
+      const isHost = r0.host_id === hostId
+      return res.status(400).json({ ok: false, msg: `你已在房间「${r0.name}」中（门牌码 ${r0.room_code}${isHost ? '，你是房主' : ''}），请先${isHost ? '解散该房间' : '离开该房间'}再建新房` })
     }
 
     const port = await getAvailablePort()
@@ -1232,6 +1236,21 @@ app.post('/api/rooms/:code/join', requireAuth, async (req, res) => {
     const userResult = await pool.query('SELECT nickname FROM users WHERE id = $1', [userId])
     if (userResult.rows.length === 0) {
       return res.status(404).json({ ok: false, msg: '用户不存在' })
+    }
+
+    // jamony 10-01: 一人一房（完全体）——已是其他活跃房间成员（任何身份/任何设备）
+    // 则拒绝进入本房间。同房间的操作不受影响（room_id <> 本房放行强刷保房/房内身份切换）；
+    // L2 断线清理 60s 后自动解锁。
+    const otherRoom = await pool.query(
+      `SELECT r.room_code, r.name, r.host_id FROM room_members rm
+       JOIN rooms r ON r.id = rm.room_id
+       WHERE rm.user_id = $1 AND rm.room_id <> $2 AND r.status NOT IN ('closed', 'archived') LIMIT 1`,
+      [userId, id]
+    )
+    if (otherRoom.rows.length > 0) {
+      const or0 = otherRoom.rows[0]
+      const isHostThere = or0.host_id === userId
+      return res.status(400).json({ ok: false, code: 'ALREADY_IN_OTHER_ROOM', msg: `你已在房间「${or0.name}」中（门牌码 ${or0.room_code}${isHostThere ? '，你是房主' : ''}），请先${isHostThere ? '解散' : '离开'}该房间再进入其他房间` })
     }
 
     // 检查是否已在房间
