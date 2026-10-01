@@ -26,7 +26,9 @@ const geistMono = localFont({
 })
 
 export const metadata: Metadata = {
-  title: 'jamony · 首页',
+  // jamony 10-01: 标题只留品牌名——原"jamony · 首页"是全站写死的静态文案，
+  // 不随页面变化毫无指示意义（欢哥拍板删除；要动态指示需逐页配 metadata，将来再说）
+  title: 'jamony',
   description: '面向音乐人的远程合奏 —— 有人在里面玩音乐',
   icons: {
     icon: [
