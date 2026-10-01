@@ -86,7 +86,7 @@ export function CreateRoomModal({
           </div>
 
           <div>
-            <label className="mb-1.5 block text-xs font-medium" style={{ color: "#9A9A9A" }}>房间描述 *</label>
+            <label className="mb-1.5 block text-xs font-medium" style={{ color: "#9A9A9A" }}>房间描述</label>
             <textarea value={description} onChange={(e) => setDescription(e.target.value)}
               placeholder="简单介绍一下你的房间..."
               rows={2}
@@ -96,12 +96,12 @@ export function CreateRoomModal({
 
           <div className="flex gap-4">
             <div className="flex-1">
-              <label className="mb-1.5 block text-xs font-medium" style={{ color: "#9A9A9A" }}>风格 *</label>
+              <label className="mb-1.5 block text-xs font-medium" style={{ color: "#9A9A9A" }}>风格</label>
               <FilterSelect variant="field" label="风格" value={style} onChange={setStyle}
                 options={STYLES.map((s) => ({ value: s, label: s }))} />
             </div>
             <div className="w-28">
-              <label className="mb-1.5 block text-xs font-medium" style={{ color: "#9A9A9A" }}>合奏人数 *</label>
+              <label className="mb-1.5 block text-xs font-medium" style={{ color: "#9A9A9A" }}>合奏人数</label>
               <FilterSelect variant="field" label="合奏人数" value={String(maxMusicians)}
                 onChange={(v) => setMaxMusicians(Number(v))}
                 options={[1, 2, 3, 4, 5, 6, 7, 8].map((n) => ({ value: String(n), label: `${n} 人` }))} />
@@ -146,7 +146,7 @@ export function CreateRoomModal({
             </button>
             {isPrivate && (
               <div>
-                <label className="mb-1.5 block text-xs font-medium" style={{ color: "#9A9A9A" }}>房间密码（6位数字） *</label>
+                <label className="mb-1.5 block text-xs font-medium" style={{ color: "#9A9A9A" }}>房间密码（6位数字）</label>
                 <input type="password" inputMode="numeric" maxLength={6} value={password}
                   onChange={(e) => setPassword(e.target.value.replace(/\D/g, ""))}
                   placeholder="••••••"
