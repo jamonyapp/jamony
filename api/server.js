@@ -911,6 +911,17 @@ app.post('/api/rooms', requireAuth, async (req, res) => {
       return res.status(404).json({ ok: false, msg: '用户不存在' })
     }
 
+    // jamony 10-01: 一人一房——已有进行中的自建房间则拒绝再建
+    // （同账号多端登录可双端各建一房的边界漏洞，欢哥拍板堵死；
+    //   房间解散/关闭后自动解锁，房主转移后旧房主也可再建）
+    const hosted = await pool.query(
+      "SELECT room_code, name FROM rooms WHERE host_id = $1 AND status NOT IN ('closed', 'archived') LIMIT 1",
+      [hostId]
+    )
+    if (hosted.rows.length > 0) {
+      return res.status(400).json({ ok: false, msg: `你已有进行中的房间「${hosted.rows[0].name}」（门牌码 ${hosted.rows[0].room_code}），请先解散它再建新房` })
+    }
+
     const port = await getAvailablePort()
     const musicianLimit = Math.min(maxMusicians || 6, 8)
 
