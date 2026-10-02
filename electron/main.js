@@ -83,15 +83,25 @@ function createWindow() {
     Menu.setApplicationMenu(null)
   }
 
-  // jamony 10-02: 菜单没了，devtools 快捷键自注册（原靠默认 View 菜单打开）
-  // F12 / Ctrl+Shift+I (Win) / Cmd+Opt+I (Mac) —— 调试命根子不能断
+  // jamony 10-02: 菜单没了，devtools/刷新快捷键自注册（原靠默认菜单 role，删菜单必补）
+  // F12 / Ctrl+Shift+I (Win) / Cmd+Opt+I (Mac) = devtools
+  // F5 / Ctrl+R / Cmd+R = 普通刷新；Ctrl+Shift+R / Ctrl+F5 / Cmd+Shift+R = 强刷绕缓存
+  // （Electron 缓存顽固症对症药；强刷保房已工程化，刷新不断房）
   mainWindow.webContents.on('before-input-event', (e, input) => {
     const k = (input.key || '').toLowerCase()
-    if (input.type === 'keyDown' &&
-        (k === 'f12' ||
-         (input.control && input.shift && k === 'i') ||
-         (input.meta && input.alt && k === 'i'))) {
+    if (input.type !== 'keyDown') return
+    if (k === 'f12' ||
+        (input.control && input.shift && k === 'i') ||
+        (input.meta && input.alt && k === 'i')) {
       mainWindow.webContents.toggleDevTools()
+      e.preventDefault()
+    } else if (k === 'f5' ||
+               ((input.control || input.meta) && !input.shift && k === 'r')) {
+      mainWindow.webContents.reload()
+      e.preventDefault()
+    } else if ((input.control && (input.shift || k === 'f5') && (k === 'r' || k === 'f5')) ||
+               (input.meta && input.shift && k === 'r')) {
+      mainWindow.webContents.reloadIgnoringCache()
       e.preventDefault()
     }
   })
