@@ -171,3 +171,50 @@ jobs:
             jamony-private/dist/jamony*Setup*.exe
           retention-days: 30
           if-no-files-found: warn
+
+  # jamony 10-02: 云端 Linux 二进制改在 CI 编（runner 7G 内存），服务器(2G)只安装不再编译。
+  # 教训：10-02 服务器 make -j2 编 ghost 触发内存压死整机（OOM 抖动+重启恢复）。
+  # 产物：jamsoul-ghost（推流客户端=完整构建，服务器上 -n 运行）
+  #       jamsoul-headless（CONFIG+=headless 房间服务器）；ubuntu-24.04 与服务器同版(glibc 兼容)。
+  build-linux:
+    name: Build Linux
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          repository: jamonyapp/jamony-jamsoul
+          fetch-depth: 1
+          path: jamsoul-source
+
+      - name: Install Qt6 + JACK dev
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            qt6-base-dev qmake6 qt6-multimedia-dev qt6-l10n-tools libjack-jackd2-dev
+
+      - name: Build jamsoul-ghost (client)
+        run: |
+          cd jamsoul-source
+          mkdir -p build-ghost && cd build-ghost
+          qmake6 ../Jamulus.pro
+          make -j$(nproc)
+          cp release/jamulus ../jamsoul-ghost
+
+      - name: Build jamsoul-headless (server)
+        run: |
+          cd jamsoul-source
+          mkdir -p build-headless && cd build-headless
+          qmake6 ../Jamulus.pro "CONFIG+=headless"
+          make -j$(nproc)
+          cp release/jamulus ../jamsoul-headless
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jamony-${{ github.event.inputs.version }}-linux
+          path: |
+            jamsoul-source/jamsoul-ghost
+            jamsoul-source/jamsoul-headless
+          retention-days: 30
+          if-no-files-found: error
