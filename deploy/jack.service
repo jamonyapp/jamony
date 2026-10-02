@@ -2,7 +2,7 @@
 Description=JACK Audio Server (jamony)
 # 注：原 Before=jamony-api 已删除——jamony-api 是 pm2 进程非 systemd unit，
 # Before= 依赖无效（systemd 报 "Failed to add dependency" 警告）。JACK 作为独立
-# 系统服务常驻，开机自启，不依赖 pm2。房间隔离在 jamulus 层（每房间独立
+# 系统服务常驻，开机自启，不依赖 pm2。房间隔离在 jamsoul 层（每房间独立
 # headless+ghost，按 UDP 端口区分），JACK 是共享音频总线，不影响隔离。
 
 [Service]

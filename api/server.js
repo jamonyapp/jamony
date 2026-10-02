@@ -979,9 +979,9 @@ app.post('/api/rooms', requireAuth, async (req, res) => {
     )
 
     try {
-      execSync(`node /var/www/jamony/api/manage-jamulus.js start ${port} ${musicianLimit + 1}`, { timeout: 5000, stdio: 'pipe' }); try { spawn('node', ['/var/www/jamony/api/manage-jamulus.js', 'start-ghost', String(port), String(port)], { stdio: 'ignore', detached: true }).unref() } catch(e) { console.error('Ghost start failed:', e.message) }
+      execSync(`node /var/www/jamony/api/manage-jamsoul.js start ${port} ${musicianLimit + 1}`, { timeout: 5000, stdio: 'pipe' }); try { spawn('node', ['/var/www/jamony/api/manage-jamsoul.js', 'start-ghost', String(port), String(port)], { stdio: 'ignore', detached: true }).unref() } catch(e) { console.error('Ghost start failed:', e.message) }
     } catch (e) {
-      console.error('Failed to start jamulus:', e.stderr?.toString() || e.message)
+      console.error('Failed to start jamsoul:', e.stderr?.toString() || e.message)
     }
 
     res.json({ ok: true, room })
@@ -1043,7 +1043,7 @@ app.get('/api/rooms/:code', optionalAuth, async (req, res) => {
       [id]
     )
 
-    // 加密房：非成员隐藏 server_port（防直连 jamulus）+ password（防窃取密码）；
+    // 加密房：非成员隐藏 server_port（防直连 jamsoul）+ password（防窃取密码）；
     // 成员/房主保留明文 password 供「分享房间」复制。公开房 password 本就 null。
     if (room.is_private) {
       const isMember = members.rows.some(m => m.user_id === req.userId)
@@ -1082,7 +1082,7 @@ async function broadcastMembers(roomCode) {
 }
 
 
-// JSON-RPC 调用 jamulus headless（原始 TCP，一发一收）
+// JSON-RPC 调用 jamsoul headless（原始 TCP，一发一收）
 function jsonRpcCall(roomPort, method, params = {}) {
   return new Promise((resolve, reject) => {
     const rpcPort = roomPort + 10000;
@@ -1332,9 +1332,9 @@ async function removeMemberAndCheckDissolve(userId, roomId, roomCode) {
     const roomInfo = await pool.query('SELECT server_port FROM rooms WHERE id = $1', [roomId])
     const closePort = roomInfo.rows[0]?.server_port
     if (closePort) {
-      try { execSync(`node /var/www/jamony/api/manage-jamulus.js drums-stop ${closePort}`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve drums-stop ' + closePort + ':', e.message) }
-      try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop ${closePort}`, { timeout: 10000, stdio: 'pipe' }) } catch (e) { console.error('dissolve stop ' + closePort + ':', e.message) }
-      try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop-ghost ${closePort}`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve stop-ghost ' + closePort + ':', e.message) }
+      try { execSync(`node /var/www/jamony/api/manage-jamsoul.js drums-stop ${closePort}`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve drums-stop ' + closePort + ':', e.message) }
+      try { execSync(`node /var/www/jamony/api/manage-jamsoul.js stop ${closePort}`, { timeout: 10000, stdio: 'pipe' }) } catch (e) { console.error('dissolve stop ' + closePort + ':', e.message) }
+      try { execSync(`node /var/www/jamony/api/manage-jamsoul.js stop-ghost ${closePort}`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve stop-ghost ' + closePort + ':', e.message) }
       // 兜底：杀 watchdog 竞态拉起的孤儿 ffmpeg（leave 杀的是 ghost.json 记录的 pid，watchdog 新拉的会漏杀）
       try { execSync(`pkill -f "jm-stream-${closePort}"`, { timeout: 3000, stdio: 'pipe' }) } catch (e) { /* 无进程时 pkill 返回非 0，正常，忽略 */ }
       try { execSync(`rm -rf /var/jamony/recordings/room-${closePort}-records/`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve rm recordings ' + closePort + ':', e.message) }
@@ -3086,7 +3086,7 @@ app.post('/api/rooms/:code/drums/start', requireAuth, async (req, res) => {
     }
     
         const portRow = await pool.query('SELECT server_port FROM rooms WHERE id = $1', [roomId]);
-    const roomPort = portRow.rows[0]?.server_port || roomId; execSync('node /var/www/jamony/api/manage-jamulus.js drums-start ' + validStyle + ' ' + validBpm + ' "' + validFile + '" ' + roomPort, { timeout: 15000, stdio: 'pipe' })
+    const roomPort = portRow.rows[0]?.server_port || roomId; execSync('node /var/www/jamony/api/manage-jamsoul.js drums-start ' + validStyle + ' ' + validBpm + ' "' + validFile + '" ' + roomPort, { timeout: 15000, stdio: 'pipe' })
     await pool.query('UPDATE rooms SET current_bpm = $1, drums_used_this_recording = TRUE WHERE id = $2', [validBpm, roomId])
     io.to(code).emit('bpm-update', { bpm: validBpm })
     
@@ -3127,7 +3127,7 @@ app.post('/api/rooms/:code/drums/stop', requireAuth, async (req, res) => {
       return res.status(403).json({ ok: false, msg: '仅合奏者可操作鼓机' })
     }
     const roomPort = portRow.rows[0]?.server_port || roomId;
-    execSync('node /var/www/jamony/api/manage-jamulus.js drums-stop ' + roomPort, { timeout: 5000, stdio: 'pipe' })
+    execSync('node /var/www/jamony/api/manage-jamsoul.js drums-stop ' + roomPort, { timeout: 5000, stdio: 'pipe' })
     await pool.query('UPDATE rooms SET current_bpm = 0 WHERE id = $1', [roomId])
     io.to(code).emit('bpm-update', { bpm: 0 })
     res.json({ ok: true, msg: '鼓机已停止' })
@@ -3344,9 +3344,9 @@ app.post('/api/users/:userId/leave-all-rooms', requireAuth, async (req, res) => 
         const closePort2 = portResult.rows[0]?.server_port
         const dissolveCode = portResult.rows[0]?.room_code
         if (closePort2) {
-          try { execSync(`node /var/www/jamony/api/manage-jamulus.js drums-stop ${closePort2}`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve drums-stop ' + closePort2 + ':', e.message) }
-          try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop ${closePort2}`, { timeout: 10000, stdio: 'pipe' }) } catch (e) { console.error('dissolve stop ' + closePort2 + ':', e.message) }
-          try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop-ghost ${closePort2}`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve stop-ghost ' + closePort2 + ':', e.message) }
+          try { execSync(`node /var/www/jamony/api/manage-jamsoul.js drums-stop ${closePort2}`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve drums-stop ' + closePort2 + ':', e.message) }
+          try { execSync(`node /var/www/jamony/api/manage-jamsoul.js stop ${closePort2}`, { timeout: 10000, stdio: 'pipe' }) } catch (e) { console.error('dissolve stop ' + closePort2 + ':', e.message) }
+          try { execSync(`node /var/www/jamony/api/manage-jamsoul.js stop-ghost ${closePort2}`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve stop-ghost ' + closePort2 + ':', e.message) }
           try { execSync(`pkill -f "jm-stream-${closePort2}"`, { timeout: 3000, stdio: 'pipe' }) } catch (e) { /* 无进程时 pkill 返回非 0，正常，忽略 */ }
           try { execSync(`rm -rf /var/jamony/recordings/room-${closePort2}-records/`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve rm recordings ' + closePort2 + ':', e.message) }
           try {
@@ -3394,14 +3394,14 @@ async function scanExpiredNotices() {
 scanExpiredNotices()  // 启动时立即跑一次（pm2 重启后立即扫描，不漏）
 setInterval(scanExpiredNotices, 3600000)
 
-// 启动自检孤儿进程：pm2 重启后清理上次崩溃/删除房间残留的 jamulus headless/ghost/ffmpeg。
-// 扫描所有 jamulus-headless 监听的 UDP 端口，对比 rooms 表活跃房间，无对应房间的全部 kill。
+// 启动自检孤儿进程：pm2 重启后清理上次崩溃/删除房间残留的 jamsoul headless/ghost/ffmpeg。
+// 扫描所有 jamsoul-headless 监听的 UDP 端口，对比 rooms 表活跃房间，无对应房间的全部 kill。
 async function cleanupOrphanProcesses() {
   try {
-    // 1. 扫描所有 jamulus-headless 监听的 UDP 端口
+    // 1. 扫描所有 jamsoul-headless 监听的 UDP 端口
     let headlessPorts = []
     try {
-      const ssOut = execSync("ss -ulnp 2>/dev/null | grep jamulus-headles", { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).toString()
+      const ssOut = execSync("ss -ulnp 2>/dev/null | grep jamsoul-headles", { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).toString()
       headlessPorts = [...ssOut.matchAll(/(\d+\.\d+\.\d+\.\d+):(\d+)\s/g)].map(m => parseInt(m[2])).filter(p => p >= 1024)
     } catch (e) { /* 无 headless 进程，正常 */ }
 
@@ -3414,9 +3414,9 @@ async function cleanupOrphanProcesses() {
     if (orphans.length === 0) { console.log('Orphan check: clean'); return }
     for (const port of orphans) {
       console.log('Orphan check: cleaning port ' + port)
-      try { execSync(`node /var/www/jamony/api/manage-jamulus.js drums-stop ${port}`, { timeout: 5000, stdio: 'pipe' }) } catch {}
-      try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop ${port}`, { timeout: 10000, stdio: 'pipe' }) } catch (e) { console.error('orphan stop ' + port + ':', e.message) }
-      try { execSync(`node /var/www/jamony/api/manage-jamulus.js stop-ghost ${port}`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('orphan stop-ghost ' + port + ':', e.message) }
+      try { execSync(`node /var/www/jamony/api/manage-jamsoul.js drums-stop ${port}`, { timeout: 5000, stdio: 'pipe' }) } catch {}
+      try { execSync(`node /var/www/jamony/api/manage-jamsoul.js stop ${port}`, { timeout: 10000, stdio: 'pipe' }) } catch (e) { console.error('orphan stop ' + port + ':', e.message) }
+      try { execSync(`node /var/www/jamony/api/manage-jamsoul.js stop-ghost ${port}`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('orphan stop-ghost ' + port + ':', e.message) }
       // 残留的 ffmpeg/looper（state 可能没记录），精确按端口匹配兜底 kill
       try { execSync(`pkill -f 'jm-stream-${port}'`, { stdio: 'pipe' }) } catch {}
       try { execSync(`pkill -f '127.0.0.1:${port}'`, { stdio: 'pipe' }) } catch {}

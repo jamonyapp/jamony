@@ -12,8 +12,8 @@ const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
 
-const GHOST_BIN = '/usr/local/bin/jamulus-ghost'
-const HEADLESS_BIN = '/usr/bin/jamulus-headless'
+const GHOST_BIN = '/usr/local/bin/jamsoul-ghost'
+const HEADLESS_BIN = '/usr/bin/jamsoul-headless'
 const STATE_FILE = '/var/lib/jamony/ghost.json'
 
 const CMD = process.argv[2]
@@ -43,7 +43,7 @@ function killPid(pid) {
 }
 
 if (!CMD) {
-  console.log('用法: node manage-jamulus.js <start|stop|start-ghost|stop-ghost|status> [port] [params]')
+  console.log('用法: node manage-jamsoul.js <start|stop|start-ghost|stop-ghost|status> [port] [params]')
   process.exit(1)
 }
 
@@ -115,12 +115,12 @@ if (CMD === 'start-ghost') {
 
   var ghost = spawn(GHOST_BIN, ['-n', '--clientname', 'jamony-looper', '--connect', '127.0.0.1:' + PORT], {
     stdio: 'ignore', detached: true,
-    env: Object.assign({}, process.env, { JAMULUS_JACK_NAME: 'Jamulus-' + PORT })
+    env: Object.assign({}, process.env, { JAMSOUL_JACK_NAME: 'jamsoul-' + PORT })
   })
   ghost.unref()
 
   var st = getState()
-  st[PORT] = Object.assign({}, st[PORT], { ghostPid: ghost.pid, ffmpegPid: 0, ghostName: 'Jamulus-' + PORT, mountPath: mount, startedAt: new Date().toISOString() })
+  st[PORT] = Object.assign({}, st[PORT], { ghostPid: ghost.pid, ffmpegPid: 0, ghostName: 'jamsoul-' + PORT, mountPath: mount, startedAt: new Date().toISOString() })
   saveState(st)
   console.log('GHOST ' + PORT + ' ghostPid=' + ghost.pid + ' (JACK pending, watching)')
 
@@ -146,8 +146,8 @@ if (CMD === 'start-ghost') {
       try {
         var found = execSync('jack_lsp 2>/dev/null | grep -c "' + iceClient + ':input_1"', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).toString().trim()
         if (parseInt(found) > 0) {
-          execSync('jack_connect "' + iceClient + ':input_1" "Jamulus-' + PORT + ' jamony-looper:output left"', { stdio: 'pipe' })
-          execSync('jack_connect "' + iceClient + ':input_2" "Jamulus-' + PORT + ' jamony-looper:output right"', { stdio: 'pipe' })
+          execSync('jack_connect "' + iceClient + ':input_1" "jamsoul-' + PORT + ' jamony-looper:output left"', { stdio: 'pipe' })
+          execSync('jack_connect "' + iceClient + ':input_2" "jamsoul-' + PORT + ' jamony-looper:output right"', { stdio: 'pipe' })
           clearInterval(jcTimer)
           console.log('JACK connections made for ' + iceClient)
         }
@@ -242,8 +242,8 @@ if (CMD === 'health-check') {
           try {
             var found = execSync('jack_lsp 2>/dev/null | grep -c "' + client + ':input_1"', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).toString().trim()
             if (parseInt(found) > 0) {
-              execSync('jack_connect "' + client + ':input_1" "Jamulus-' + k2 + ' jamony-looper:output left"', { stdio: 'pipe' })
-              execSync('jack_connect "' + client + ':input_2" "Jamulus-' + k2 + ' jamony-looper:output right"', { stdio: 'pipe' })
+              execSync('jack_connect "' + client + ':input_1" "jamsoul-' + k2 + ' jamony-looper:output left"', { stdio: 'pipe' })
+              execSync('jack_connect "' + client + ':input_2" "jamsoul-' + k2 + ' jamony-looper:output right"', { stdio: 'pipe' })
               clearInterval(jcTimer2)
             }
           } catch(e) {}

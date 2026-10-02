@@ -15,7 +15,7 @@ function saveState(st) {
   fs.mkdirSync(path.dirname(STATE_FILE), { recursive: true })
   var tmp = STATE_FILE + ".tmp"
   fs.writeFileSync(tmp, JSON.stringify(st, null, 2))
-  fs.renameSync(tmp, STATE_FILE)  // 原子写，防与 manage-jamulus 并发写丢更新
+  fs.renameSync(tmp, STATE_FILE)  // 原子写，防与 manage-jamsoul 并发写丢更新
 }
 
 function pidAlive(pid) {
@@ -51,8 +51,8 @@ function ensureFfmpeg(port, s) {
     try {
       var found = execSync('jack_lsp 2>/dev/null | grep -c "' + iceClient + ':input_1"', { encoding: "utf8", stdio: ["pipe", "pipe", "ignore"] }).toString().trim()
       if (parseInt(found) > 0) {
-        execSync('jack_connect "' + iceClient + ':input_1" "Jamulus-' + port + ' jamony-looper:output left"', { stdio: "pipe" })
-        execSync('jack_connect "' + iceClient + ':input_2" "Jamulus-' + port + ' jamony-looper:output right"', { stdio: "pipe" })
+        execSync('jack_connect "' + iceClient + ':input_1" "jamsoul-' + port + ' jamony-looper:output left"', { stdio: "pipe" })
+        execSync('jack_connect "' + iceClient + ':input_2" "jamsoul-' + port + ' jamony-looper:output right"', { stdio: "pipe" })
         clearInterval(jcTimer)
       }
     } catch(e) {}
