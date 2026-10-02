@@ -194,13 +194,16 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             qt6-base-dev qmake6 qt6-multimedia-dev qt6-l10n-tools libjack-jackd2-dev
 
+      # jamony 10-02 坑：Linux qmake 产物=构建目录根上的 Jamulus（大写J、无release/子目录）
       - name: Build jamsoul-ghost (client)
         run: |
           cd jamsoul-source
           mkdir -p build-ghost && cd build-ghost
           qmake6 ../Jamulus.pro
           make -j$(nproc)
-          cp release/jamulus ../jamsoul-ghost
+          BIN=$(find . -maxdepth 1 -type f -iname jamulus -executable | head -1)
+          [ -n "$BIN" ] || { echo "jamulus binary not found"; find . -maxdepth 1 -type f; exit 1; }
+          cp "$BIN" ../jamsoul-ghost
 
       - name: Build jamsoul-headless (server)
         run: |
@@ -208,7 +211,9 @@ jobs:
           mkdir -p build-headless && cd build-headless
           qmake6 ../Jamulus.pro "CONFIG+=headless"
           make -j$(nproc)
-          cp release/jamulus ../jamsoul-headless
+          BIN=$(find . -maxdepth 1 -type f -iname jamulus -executable | head -1)
+          [ -n "$BIN" ] || { echo "jamulus binary not found"; find . -maxdepth 1 -type f; exit 1; }
+          cp "$BIN" ../jamsoul-headless
 
       - uses: actions/upload-artifact@v4
         with:
