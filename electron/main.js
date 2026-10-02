@@ -1,9 +1,13 @@
-const { app, BrowserWindow, ipcMain, session, dialog, net, Menu } = require('electron')
+const { app, BrowserWindow, ipcMain, session, dialog, net, Menu, shell } = require('electron')
 const path = require('path')
 const { spawn, execSync } = require('child_process')
 
 // 云端页面地址
 const WEB_URL = process.env.JAMONY_WEB_URL || 'http://39.96.30.128'
+
+// jamony 10-02: Mac 帮助菜单外链（欢哥后续做官网/FAQ页后改这里即可）
+const HELP_SITE_URL = 'https://jamonyapp.com'
+const HELP_FAQ_URL = `${WEB_URL}/faq`
 
 // jamsoul 可执行文件路径
 // 开发模式：../dist/jamsoul-bin/jamsoul (Mac) / jamsoul.exe (Win)
@@ -53,19 +57,26 @@ function createWindow() {
     },
   })
 
-  // jamony 10-02: 干掉原生菜单栏（欢哥拍板：File/Edit/View/Window/Help 无用）。
-  // Win/Linux: 整行移除; macOS: 系统菜单栏不可移（前台应用必有），瘦身到 jamony+编辑核心
-  // （编辑核心必须留——Mac 的 Cmd+C/V 等快捷键靠 Edit role 菜单存在，删了输入框没法复制粘贴）
+  // jamony 10-02: 干掉原生菜单栏（欢哥拍板：Win 整行移除）。
+  // macOS: 系统菜单栏不可移（前台应用必有），瘦身+中文化：jamony+编辑+帮助
+  // （编辑核心必须留——Mac 的 Cmd+C/V 等快捷键靠 Edit role 菜单存在，删了输入框没法复制粘贴；
+  //   帮助菜单=官网/FAQ入口，欢哥后续做网页，外链用 openExternal 开浏览器不动壳内页面防进房状态被打断）
   if (process.platform === 'darwin') {
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       { label: 'jamony', submenu: [
-        { role: 'about' }, { type: 'separator' },
-        { role: 'hide' }, { role: 'hideOthers' }, { type: 'separator' },
-        { role: 'quit' }
+        { role: 'about', label: '关于 jamony' }, { type: 'separator' },
+        { role: 'hide', label: '隐藏 jamony' },
+        { role: 'hideOthers', label: '隐藏其他' }, { type: 'separator' },
+        { role: 'quit', label: '退出 jamony' }
       ] },
       { label: '编辑', submenu: [
-        { role: 'undo' }, { role: 'redo' }, { type: 'separator' },
-        { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }
+        { role: 'undo', label: '撤销' }, { role: 'redo', label: '重做' }, { type: 'separator' },
+        { role: 'cut', label: '剪切' }, { role: 'copy', label: '复制' },
+        { role: 'paste', label: '粘贴' }, { role: 'selectAll', label: '全选' }
+      ] },
+      { label: '帮助', submenu: [
+        { label: 'jamony 官网', click: () => shell.openExternal(HELP_SITE_URL) },
+        { label: '常见问题', click: () => shell.openExternal(HELP_FAQ_URL) }
       ] }
     ]))
   } else {
