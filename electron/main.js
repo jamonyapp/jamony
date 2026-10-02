@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, session, dialog, net } = require('electron')
+const { app, BrowserWindow, ipcMain, session, dialog, net, Menu } = require('electron')
 const path = require('path')
 const { spawn, execSync } = require('child_process')
 
@@ -51,6 +51,38 @@ function createWindow() {
       nodeIntegration: false,
       sandbox: false,
     },
+  })
+
+  // jamony 10-02: 干掉原生菜单栏（欢哥拍板：File/Edit/View/Window/Help 无用）。
+  // Win/Linux: 整行移除; macOS: 系统菜单栏不可移（前台应用必有），瘦身到 jamony+编辑核心
+  // （编辑核心必须留——Mac 的 Cmd+C/V 等快捷键靠 Edit role 菜单存在，删了输入框没法复制粘贴）
+  if (process.platform === 'darwin') {
+    Menu.setApplicationMenu(Menu.buildFromTemplate([
+      { label: 'jamony', submenu: [
+        { role: 'about' }, { type: 'separator' },
+        { role: 'hide' }, { role: 'hideOthers' }, { type: 'separator' },
+        { role: 'quit' }
+      ] },
+      { label: '编辑', submenu: [
+        { role: 'undo' }, { role: 'redo' }, { type: 'separator' },
+        { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }
+      ] }
+    ]))
+  } else {
+    Menu.setApplicationMenu(null)
+  }
+
+  // jamony 10-02: 菜单没了，devtools 快捷键自注册（原靠默认 View 菜单打开）
+  // F12 / Ctrl+Shift+I (Win) / Cmd+Opt+I (Mac) —— 调试命根子不能断
+  mainWindow.webContents.on('before-input-event', (e, input) => {
+    const k = (input.key || '').toLowerCase()
+    if (input.type === 'keyDown' &&
+        (k === 'f12' ||
+         (input.control && input.shift && k === 'i') ||
+         (input.meta && input.alt && k === 'i'))) {
+      mainWindow.webContents.toggleDevTools()
+      e.preventDefault()
+    }
   })
 
   // jamony: jamsoul 跟随前置 (点击 jamony → jamsoul 跟随到最前, 不抢焦点; 不跟随移动——跨进程跟随移动卡顿)
