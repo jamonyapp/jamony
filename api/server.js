@@ -1096,7 +1096,7 @@ function jsonRpcCall(roomPort, method, params = {}) {
     let authed = false;
     const t = setTimeout(() => { client.destroy(); reject(new Error('RPC timeout')); }, 5000);
     client.connect(rpcPort, '127.0.0.1', () => {
-      client.write(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'jamulus/apiAuth', params: { secret } }) + '\n');
+      client.write(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'jamsoul/apiAuth', params: { secret } }) + '\n');
     });
     client.on('data', d => {
       buf += d.toString();
@@ -1544,7 +1544,7 @@ app.post('/api/rooms/:code/recording/start', requireAuth, async (req, res) => {
     if (room.rows[0].recording_active) return res.json({ ok: false, msg: '已在录音中' })
     // JSON-RPC 通知 headless 开始录音
     try {
-      await jsonRpcCall(room.rows[0].server_port, 'jamulusserver/startRecording')
+      await jsonRpcCall(room.rows[0].server_port, 'jamsoulserver/startRecording')
     } catch (e) {
       return res.status(500).json({ ok: false, msg: 'headless 未就绪，无法录音' })
     }
@@ -1596,13 +1596,13 @@ async function stopRoomRecording(code, id, duration) {
     // JSON-RPC 获取录音目录并停止录音
     let recDir = ''
     try {
-      const status = await jsonRpcCall(roomPort, 'jamulusserver/getRecorderStatus')
+      const status = await jsonRpcCall(roomPort, 'jamsoulserver/getRecorderStatus')
       recDir = (status && status.recordingDirectory) || ''
     } catch (e) {
       console.error('getRecorderStatus error:', e.message)
     }
     try {
-      await jsonRpcCall(roomPort, 'jamulusserver/stopRecording')
+      await jsonRpcCall(roomPort, 'jamsoulserver/stopRecording')
     } catch (e) {
       console.error('stopRecording error:', e.message)
     }
