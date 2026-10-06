@@ -306,7 +306,7 @@ function DrumMachineTool({ roomId, realtimeBpm }: { roomId?: string; realtimeBpm
   }
 
   const styleLabels: Record<string, string> = {
-    rock: "摇滚", funk: "放克", jazz: "爵士/布鲁斯",
+    rock: "摇滚", funk: "放克", jazz: "爵士", rnb: "RnB",
     metal: "金属", folk: "乡村/民谣", reggae: "雷鬼", basic: "基础节奏",
     pop: "流行", punk: "朋克", soul: "灵魂",
   }
