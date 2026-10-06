@@ -285,7 +285,7 @@ app.post('/api/logout', (req, res) => {
 app.get('/api/my-active-room', requireAuth, async (req, res) => {
   try {
     const r = await pool.query(
-      `SELECT r.room_code, r.name, r.host_id, rm.role
+      `SELECT r.room_code, r.name, r.host_id, r.musician_count, rm.role
        FROM room_members rm JOIN rooms r ON r.id = rm.room_id
        WHERE rm.user_id = $1 AND r.status NOT IN ('closed','archived')`,
       [req.userId]

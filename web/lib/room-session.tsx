@@ -15,6 +15,7 @@ type RoomSession = {
   name: string
   role: "musician" | "listener"
   hostId: number
+  musicianCount?: number  // 唯一合奏者判定（漫游态叉 jamsoul 分流用）
 }
 
 type RoomSessionContextValue = {
@@ -44,7 +45,7 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
       const r = await fetch("/api/my-active-room", { credentials: "include" })
       const d = await r.json()
       if (d.ok && d.room) {
-        setSession({ code: d.room.room_code, name: d.room.name, role: d.room.role, hostId: d.room.host_id })
+        setSession({ code: d.room.room_code, name: d.room.name, role: d.room.role, hostId: d.room.host_id, musicianCount: d.room.musician_count })
       } else {
         setSession(null)
       }
@@ -83,21 +84,33 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
     return () => clearInterval(t)
   }, [session?.code, loggedIn])
 
-  // 漫游中叉掉 jamsoul 窗口：音频在场结束 → 按断开处理（leave，唯一合奏者解散由服务端统一判）
+  // 漫游中叉掉 jamsoul 窗口：与 playing 页在场行为对齐（10-07 欢哥拍板）
+  // 唯一合奏者 → leave 房间解散；非唯一合奏者 → 切听众（session 保留、心跳降级，回来还能听）
   // playing 页在场时页面有自己的处理与弹窗，这里只管漫游态（pathname 排除 playing）
   useEffect(() => {
     if (/^\/room\/[^/]+\/playing/.test(pathname || "")) return
     const cleanup = window.jamonyAPI?.onJamsoulExited?.(() => {
       if (!session || session.role !== "musician") return
       const uid = user?.id
-      const code = session.code
-      setSession(null)
+      const s = session
       window.jamonyAPI?.killJamsoul?.()
-      if (uid) {
-        fetch(`/api/rooms/${code}/leave`, {
+      if (!uid) return
+      if (s.musicianCount === 1) {
+        // 唯一合奏者：房间解散
+        setSession(null)
+        fetch(`/api/rooms/${s.code}/leave`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ userId: uid }),
+          credentials: "include",
+        }).catch(() => {})
+      } else {
+        // 非唯一合奏者：切听众
+        setSession(prev => (prev ? { ...prev, role: "listener" } : prev))
+        fetch(`/api/rooms/${s.code}/join`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: uid, role: "listener" }),
           credentials: "include",
         }).catch(() => {})
       }
