@@ -232,6 +232,7 @@ export function PlayingPage() {
       }).catch(() => {})
     } else {
       // 离开房间
+      roomSession.stopListening()  // 10-07：Icecast 已全局常驻，离开房间显式停流
       fetch(`/api/rooms/${rid}/leave`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -410,6 +411,7 @@ export function PlayingPage() {
             onStartListening={() => { if (roomSession.listening != null) roomSession.stopListening(); else if (room?.server_port) roomSession.startListening(room.server_port) }}
             onDisconnect={() => { setConfirmTarget("stay"); setConfirmOpen(true) }}
             onReconnect={handleReconnect}
+            onLeaveRoom={() => { if (audioConnected) { setConfirmTarget("lobby"); setConfirmOpen(true) } else doDisconnect("lobby") }}
           />
         </div>
         <div className="min-h-0 border-b lg:border-b-0 lg:border-r" style={{ borderColor: "#1A1A1A" }}>
@@ -440,6 +442,7 @@ export function PlayingPage() {
         onCancel={() => setConfirmOpen(false)}
         onConfirm={() => doDisconnect(confirmTarget)}
         isListener={myRole === "listener" && !audioConnected}
+        variant={confirmTarget === "stay" ? "switch" : "leave"}
       />
       <KickConfirmDialog
         open={kickOpen}

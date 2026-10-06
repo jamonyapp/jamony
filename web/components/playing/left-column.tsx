@@ -29,6 +29,7 @@ export function LeftColumn({
   onStartListening,
   onDisconnect,
   onReconnect,
+  onLeaveRoom,
 }: {
   onPushChord: (chords: string[], style: string) => void
   onPushTheme: (theme: string) => void
@@ -43,6 +44,7 @@ export function LeftColumn({
   onStartListening?: () => void
   onDisconnect: () => void
   onReconnect: () => void
+  onLeaveRoom: () => void
 }) {
   const [tool, setTool] = useState<Tool>("drums")  // 默认鼓机（使用概率高于灵感进程，欢哥 2026-09-23 定）
   const [style, setStyle] = useState<string>(CHORD_STYLES[0])
@@ -192,20 +194,28 @@ export function LeftColumn({
           <PowerOff className="h-5 w-5" />
           房间已关闭
         </button>
-      ) : audioConnected ? (
-        <button onClick={onDisconnect}
-          className="flex items-center justify-center gap-2 rounded-[10px] px-4 py-3 text-base font-semibold text-white transition-opacity hover:opacity-90"
-          style={{ background: "#FF5C5C" }}>
-          <PowerOff className="h-5 w-5" />
-          断开连接
-        </button>
       ) : (
-        <button onClick={onReconnect}
-          className="flex items-center justify-center gap-2 rounded-[10px] px-4 py-3 text-base font-semibold transition-opacity hover:brightness-110 active:scale-[0.97]"
-          style={{ background: "#BBEE00", color: "#0D0D0D" }}>
-          <Plug className="h-5 w-5" />
-          音频连接
-        </button>
+        /* 10-07 漫游化收口：并排双按钮——身份切换（实心主按钮）+ 离开房间（深色配角） */
+        <div className="grid grid-cols-2 gap-2">
+          {audioConnected ? (
+            <button onClick={onDisconnect}
+              className="rounded-[10px] py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 active:scale-[0.97]"
+              style={{ background: "#FF5C5C" }}>
+              切为听众
+            </button>
+          ) : (
+            <button onClick={onReconnect}
+              className="rounded-[10px] py-2.5 text-sm font-semibold transition-opacity hover:brightness-110 active:scale-[0.97]"
+              style={{ background: "#BBEE00", color: "#0D0D0D" }}>
+              切为合奏者
+            </button>
+          )}
+          <button onClick={onLeaveRoom}
+            className="rounded-[10px] border py-2.5 text-sm font-medium transition-colors hover:bg-white/5 active:scale-[0.97]"
+            style={{ background: "#141414", borderColor: "#2A2A2A", color: "#B0B0B0" }}>
+            离开房间
+          </button>
+        </div>
       )}
 
     </aside>

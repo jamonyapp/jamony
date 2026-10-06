@@ -2,24 +2,45 @@
 
 import { AlertTriangle } from "lucide-react"
 
+// 断开类确认弹窗（10-07 变体化）：
+// variant="switch" → 合奏页「切为听众」：断音频+降级身份，留在房间
+// variant="leave"  → 「离开房间」/漫游态断开房间/退出登录：leave+回大厅（行为一致文案一致）
+// 无 variant + isListener → 原听众兜底文案（历史路径保留）
 export function DisconnectDialog({
   open,
   onCancel,
   onConfirm,
   isListener,
+  variant,
 }: {
   open: boolean
   onCancel: () => void
   onConfirm: () => void
   isListener?: boolean
+  variant?: "switch" | "leave"
 }) {
   if (!open) return null
 
-  // jamony: 合奏者统一文案（告知后果：若唯一合奏者将解散）；听众单独文案（无音频连接）
-  const title = isListener ? "确认退出房间？" : "确认要断开音频连接吗？"
-  const desc = isListener ? "" : "若你是唯一合奏者，将解散房间。"
-  const cancelText = isListener ? "继续旁听" : "继续合奏"
-  const confirmText = isListener ? "退出房间" : "断开连接"
+  const title = variant === "switch"
+    ? "确认要断开音频连接吗？"
+    : variant === "leave"
+      ? "确认要离开房间吗？"
+      : isListener ? "确认退出房间？" : "确认要断开音频连接吗？"
+  const desc = variant === "switch"
+    ? "断开后将切换为听众身份，若你是唯一合奏者，将解散房间。"
+    : variant === "leave"
+      ? "离开后将返回房间大厅，若你是唯一合奏者，将解散房间。"
+      : isListener ? "" : "若你是唯一合奏者，将解散房间。"
+  const cancelText = variant === "switch"
+    ? "继续合奏"
+    : variant === "leave"
+      ? "取消"
+      : isListener ? "继续旁听" : "继续合奏"
+  const confirmText = variant === "switch"
+    ? "切为听众"
+    : variant === "leave"
+      ? "离开房间"
+      : isListener ? "退出房间" : "断开连接"
 
   return (
     <div

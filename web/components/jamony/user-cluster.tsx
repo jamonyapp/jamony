@@ -241,6 +241,7 @@ export function UserCluster({ onRefresh }: { onRefresh?: () => void }) {
         onCancel={() => setPendingAction("none")}
         onConfirm={handleConfirm}
         isListener={false}
+        variant="leave"
       />
     </div>
   )
