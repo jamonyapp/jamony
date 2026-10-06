@@ -65,7 +65,8 @@ export function RoomDetailModal({
   const switchNextRef = useRef<null | (() => Promise<void>)>(null)
 
   useEffect(() => {
-    if (!roomId) { setRoom(null); setMembers([]); return }
+    if (!roomId) { setRoom(null); setMembers([]); setMyRole(null); return }
+    setMyRole(null)  // 10-07 修：切换房间时重置（防上一房残留导致弹窗误显"你已加入"）
     setLoading(true)
     // 延迟测纯网络（/api/ping 不查 DB）
     const pingStart = Date.now()
@@ -77,7 +78,7 @@ export function RoomDetailModal({
           setRoom(data.room)
           setMembers(data.members || [])
           const me = (data.members || []).find((m: Member) => m.user_id === user?.id)
-          if (me) setMyRole(me.role)
+          setMyRole(me ? me.role : null)  // 不在房里时显式置空（原只在有 me 时更新，残留旧值）
         }
         setLoading(false)
       })
