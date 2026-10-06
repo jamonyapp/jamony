@@ -306,8 +306,9 @@ function DrumMachineTool({ roomId, realtimeBpm }: { roomId?: string; realtimeBpm
   }
 
   const styleLabels: Record<string, string> = {
-    rock: "摇滚", funk: "放克", jazz: "爵士", blues: "布鲁斯",
-    metal: "金属", folk: "民谣", latin: "拉丁", basic: "基础节奏",
+    rock: "摇滚", funk: "放克", jazz: "爵士/布鲁斯",
+    metal: "金属", folk: "乡村/民谣", reggae: "雷鬼", basic: "基础节奏",
+    pop: "流行", punk: "朋克", soul: "灵魂",
   }
   const extName = (f: string) => {
     return f.replace(/.mid$/, '').split('/').pop() || ''

@@ -3047,7 +3047,7 @@ app.get('/api/rooms/:code/sessions/:sid/tracks/:tid/download', async (req, res) 
 })
 
 // ========== 鼓机控制 ==========
-const DRUM_STYLES = ['basic', 'rock', 'funk', 'jazz', 'blues', 'folk', 'metal', 'latin']
+const DRUM_STYLES = ['basic', 'rock', 'funk', 'jazz', 'folk', 'metal', 'reggae', 'pop', 'punk', 'soul']
 const DRUM_BASE_DIR = '/var/www/jamony/drum-loops'
 
 app.get('/api/drums/styles', (req, res) => {
