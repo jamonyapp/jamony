@@ -213,7 +213,7 @@ export function LeftColumn({
           <button onClick={onLeaveRoom}
             className="rounded-[10px] border py-2.5 text-sm font-medium transition-colors hover:bg-white/5 active:scale-[0.97]"
             style={{ background: "#141414", borderColor: "#2A2A2A", color: "#B0B0B0" }}>
-            断开房间
+            离开房间
           </button>
         </div>
       )}

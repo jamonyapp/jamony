@@ -34,7 +34,7 @@ export function UserCluster({ onRefresh }: { onRefresh?: () => void }) {
   const { unreadCount, refreshUnread } = useNotifications()
   const { session, disconnectRoom } = useRoomSession()
 
-  // 10-06 漫游改造：非 playing 页 + 有活跃房间 → 显示「回到房间/断开房间」
+  // 10-06 漫游改造：非 playing 页 + 有活跃房间 → 显示「回到房间/离开房间」
   // playing 页有自己的断开/返回出口，不重复展示
   const isPlayingRoute = /^\/room\/[^/]+\/playing/.test(pathname || "")
   const showRoomButtons = !isPlayingRoute && !!session
@@ -111,7 +111,7 @@ export function UserCluster({ onRefresh }: { onRefresh?: () => void }) {
 
       {loggedIn ? (
         <>
-          {/* 漫游态房间出口（10-06）：回到房间 / 断开房间 */}
+          {/* 漫游态房间出口（10-06）：回到房间 / 离开房间 */}
           {showRoomButtons && (
             <>
               <div className="group relative">
@@ -135,7 +135,7 @@ export function UserCluster({ onRefresh }: { onRefresh?: () => void }) {
                 className="flex h-7 items-center rounded-lg px-2.5 text-xs font-semibold text-white transition-colors hover:bg-white/5 active:scale-[0.97]"
                 style={{ borderColor: "#2A2A2A", borderWidth: 1.5, borderStyle: "solid" }}
               >
-                断开房间
+                离开房间
               </button>
             </>
           )}
@@ -235,7 +235,7 @@ export function UserCluster({ onRefresh }: { onRefresh?: () => void }) {
         </button>
       )}
 
-      {/* 断开房间/退出登录 共用确认弹窗（文案与合奏页返回弹窗一致，欢哥拍板复用） */}
+      {/* 离开房间/退出登录 共用确认弹窗（文案与合奏页返回弹窗一致，欢哥拍板复用） */}
       <DisconnectDialog
         open={pendingAction !== "none"}
         onCancel={() => setPendingAction("none")}
