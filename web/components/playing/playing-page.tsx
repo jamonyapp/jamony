@@ -392,21 +392,10 @@ export function PlayingPage() {
 
   return (
     <div className="flex h-screen flex-col pt-11 bg-black">
+      {/* 10-07 漫游改造：返回首页/返回大厅改为纯导航（TopNav 内置淡出+router.push，房间保持连接，
+          顶栏「回到房间」随时可回）；断开房间的出口=左栏断开连接/漫游态断开房间按钮 */}
       <TopNav
-        onBackHome={() => {
-          if (roomGone) { window.location.href = "/"; return }
-          if (audioConnected || myRole === "listener") { setConfirmTarget("home"); setConfirmOpen(true) }
-          else window.location.href = "/"
-        }}
-        backLinks={[{
-          label: "返回大厅",
-          href: "/lobby",
-          onClick: () => {
-            if (roomGone) { window.location.href = "/lobby"; return }
-            if (audioConnected || myRole === "listener") { setConfirmTarget("lobby"); setConfirmOpen(true) }
-            else window.location.href = "/lobby"
-          },
-        }]}
+        backLinks={[{ label: "返回大厅", href: "/lobby" }]}
       />
 
       <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[22%_minmax(0,1fr)_30%]">
