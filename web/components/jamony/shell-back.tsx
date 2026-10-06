@@ -1,11 +1,11 @@
 "use client"
 
-import { ArrowLeft } from "lucide-react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 
-// 返回父级表：每条路由的上一级；首页 → null（按钮禁用变暗）
-// 09-27 左栏常驻改造：全站统一的返回箭头（欢哥设计：纯图标无文字，首页变暗不可点）
+// 返回父级表：每条路由的上一级；首页 → null（按钮整个隐去，10-07 欢哥定稿：
+// 原灰色禁用态改为隐藏 + 图标 ArrowLeft 换成文字「＜」）
+// 09-27 左栏常驻改造：全站统一的返回按钮（纯符号无文字）
 function getParent(
   pathname: string,
   nicknameParam: string | null,
@@ -34,21 +34,18 @@ export function ShellBack() {
     searchParams.get("nickname"),
     user?.nickname
   )
-  const disabled = parent === null
+
+  // 首页无父级 → 整个隐去（不再是灰色不可点）
+  if (parent === null) return null
 
   return (
     <button
-      aria-label={disabled ? "已在首页" : "返回上一级"}
-      disabled={disabled}
-      onClick={() => parent && router.push(parent)}
-      className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors ${
-        disabled
-          ? "cursor-default opacity-30"
-          : "text-white hover:bg-white/5 active:scale-[0.97]"
-      }`}
-      title={disabled ? undefined : "返回上一级"}
+      aria-label="返回上一级"
+      onClick={() => router.push(parent)}
+      className="flex h-8 w-8 items-center justify-center rounded-lg text-white transition-colors hover:bg-white/5 active:scale-[0.97]"
+      title="返回上一级"
     >
-      <ArrowLeft className="h-[18px] w-[18px]" />
+      <span className="text-[18px] leading-none">＜</span>
     </button>
   )
 }
