@@ -25,9 +25,7 @@ export function LeftColumn({
   roomGone,
   myRole,
   roomName,
-  roomPort,
   listenerActive,
-  listenerKey,
   onStartListening,
   onDisconnect,
   onReconnect,
@@ -41,9 +39,7 @@ export function LeftColumn({
   roomGone?: boolean
   myRole: "musician" | "listener"
   roomName?: string
-  roomPort?: number
   listenerActive?: boolean
-  listenerKey?: number
   onStartListening?: () => void
   onDisconnect: () => void
   onReconnect: () => void
@@ -117,7 +113,7 @@ export function LeftColumn({
           <Headphones className="h-10 w-10" style={{ color: "#BBEE00" }} />
           <p className="mt-4 text-lg font-bold text-white">{listenerActive ? "收听中" : ""}</p>
 
-          {listenerActive && <LevelMeter key={listenerKey} port={roomPort} active={true} />}
+          {listenerActive && <LevelMeter active={true} />}
 
           {onStartListening && (
             <button onClick={onStartListening}

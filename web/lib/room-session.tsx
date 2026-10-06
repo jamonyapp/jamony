@@ -6,7 +6,7 @@
 // - 服务端 L2 兜底交叉验证心跳：socket断+心跳活=漫游保房；心跳也停=真失联才清
 // - 顶栏「回到房间/断开房间」按钮（非 playing 页）的数据源
 // - disconnectRoom()：断开原房间工具函数（断开按钮/切换房间/建房切换/退出登录 四处共用）
-import { createContext, useCallback, useContext, useEffect, useState } from "react"
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react"
 import { usePathname } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 
@@ -23,6 +23,14 @@ type RoomSessionContextValue = {
   refresh: () => Promise<void>
   setRole: (role: "musician" | "listener") => void
   disconnectRoom: () => Promise<void>
+  // 听众收听全局化（10-07 漫游续听）：音频元素+Analyser 常驻 Provider，漫游不断流
+  listening: number | null            // 正在收听的房间端口
+  pausedPort: number | null           // 被 playbar 竞权暂停的端口（可恢复）
+  startListening: (port: number) => void
+  stopListening: () => void
+  pauseForPlayback: () => void        // 竞权让路：暂停收听记住端口
+  resumeListening: () => void
+  analyserRef: React.RefObject<AnalyserNode | null>  // LevelMeter 画图消费
 }
 
 const RoomSessionContext = createContext<RoomSessionContextValue>({
@@ -30,6 +38,13 @@ const RoomSessionContext = createContext<RoomSessionContextValue>({
   refresh: async () => {},
   setRole: () => {},
   disconnectRoom: async () => {},
+  listening: null,
+  pausedPort: null,
+  startListening: () => {},
+  stopListening: () => {},
+  pauseForPlayback: () => {},
+  resumeListening: () => {},
+  analyserRef: { current: null },
 })
 
 export const useRoomSession = () => useContext(RoomSessionContext)
@@ -38,6 +53,80 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
   const { user, loggedIn, ready } = useAuth()
   const pathname = usePathname()
   const [session, setSession] = useState<RoomSession | null>(null)
+
+  // ===== 听众收听全局化（10-07）=====
+  const [listening, setListening] = useState<number | null>(null)
+  const [pausedPort, setPausedPort] = useState<number | null>(null)
+  const audioElRef = useRef<HTMLAudioElement | null>(null)
+  const audioCtxRef = useRef<AudioContext | null>(null)
+  const analyserRef = useRef<AnalyserNode | null>(null)
+
+  // 常驻音频图：audio + MediaElementSource + Analyser（建一次，漫游不拆）
+  useEffect(() => {
+    const audio = new Audio()
+    audio.preload = "none"
+    audio.crossOrigin = "anonymous"
+    audio.volume = 0.8
+    let ctx: AudioContext | null = null
+    try {
+      ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)()
+      const src = ctx.createMediaElementSource(audio)
+      const analyser = ctx.createAnalyser()
+      analyser.fftSize = 32
+      src.connect(analyser)
+      analyser.connect(ctx.destination)
+      analyserRef.current = analyser
+    } catch (e) {
+      console.log("[room-session] web audio init failed:", e)
+    }
+    audioElRef.current = audio
+    audioCtxRef.current = ctx
+    return () => {
+      audio.pause()
+      audio.src = ""
+      ctx?.close()
+      audioElRef.current = null
+      audioCtxRef.current = null
+      analyserRef.current = null
+    }
+  }, [])
+
+  // listening 驱动播放/停止（Icecast 流）
+  useEffect(() => {
+    const audio = audioElRef.current
+    const ctx = audioCtxRef.current
+    if (!audio) return
+    if (listening != null) {
+      audio.src = `${window.location.protocol}//${window.location.hostname}/stream/room-${listening}`
+      ctx?.resume().then(() => audio.play().catch((e: Error) => console.log("[icecast] play:", e.message)))
+    } else {
+      audio.pause()
+      audio.src = ""
+    }
+  }, [listening])
+
+  const startListening = useCallback((port: number) => {
+    setPausedPort(null)
+    setListening(port)
+  }, [])
+  const stopListening = useCallback(() => {
+    setPausedPort(null)
+    setListening(null)
+  }, [])
+  // playbar 竞权让路：暂停收听并记住端口（playbar 停止后不自动恢复，手动点"继续收听"）
+  const pauseForPlayback = useCallback(() => {
+    setListening(prev => {
+      if (prev != null) setPausedPort(prev)
+      return null
+    })
+  }, [])
+  const resumeListening = useCallback(() => {
+    setPausedPort(prev => {
+      if (prev != null) setListening(prev)
+      return null
+    })
+  }, [])
+  // ===== 收听全局化完 =====
 
   const refresh = useCallback(async () => {
     if (!loggedIn) { setSession(null); return }
@@ -124,10 +213,12 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
   }, [])
 
   // 断开原房间：musician 杀 jamsoul；两身份都 leave（唯一合奏者解散由服务端 removeMemberAndCheckDissolve 判）
+  // 听众断房同时停收听流（10-07）
   const disconnectRoom = useCallback(async () => {
     const s = session
     if (!s) return
     setSession(null)
+    stopListening()
     if (s.role === "musician") window.jamonyAPI?.killJamsoul?.()
     if (user?.id) {
       try {
@@ -139,10 +230,12 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
         })
       } catch {}
     }
-  }, [session, user?.id])
+  }, [session, user?.id, stopListening])
 
   return (
-    <RoomSessionContext.Provider value={{ session, refresh, setRole, disconnectRoom }}>
+    <RoomSessionContext.Provider
+      value={{ session, refresh, setRole, disconnectRoom, listening, pausedPort, startListening, stopListening, pauseForPlayback, resumeListening, analyserRef }}
+    >
       {children}
     </RoomSessionContext.Provider>
   )

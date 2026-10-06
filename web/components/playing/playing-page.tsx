@@ -55,6 +55,8 @@ export function PlayingPage() {
   const searchParams = useSearchParams()
   const { user } = useAuth()
   const roomSession = useRoomSession()
+  // 10-07 漫游续听：收听音频上移 Provider 全局常驻，listenerActive 为派生值（漫游不断流）
+  const listenerActive = roomSession.listening != null
   const { realtimeChords, pushChords, realtimeTheme, pushTheme, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, kickedEvent, dissolvedEvent } = useChatSocket(params?.code as string, user?.nickname)
   const [room, setRoom] = useState<RoomData | null>(null)
   const [showShareHint, setShowShareHint] = useState(false)
@@ -69,7 +71,6 @@ export function PlayingPage() {
   const [customTheme, setCustomTheme] = useState("")
   const [chordTextFromPush, setChordTextFromPush] = useState("")
   const [currentBpm, setCurrentBpm] = useState(0)
-  const [listenerActive, setListenerActive] = useState(false)
   useEffect(() => { if (realtimeChords.length > 0) { setChords(realtimeChords); setChordTextFromPush(realtimeChords.join(' ')) } }, [realtimeChords])
   useEffect(() => { if (realtimeTheme) setCustomTheme(realtimeTheme) }, [realtimeTheme])
   const initBpmRef = useRef(false)
@@ -83,7 +84,6 @@ export function PlayingPage() {
   const [myRole, setMyRole] = useState<"musician" | "listener">("musician")
   const [refreshTrigger, setRefreshTrigger] = useState(0) // v2 - listenerActive cleanup
   const [confirmTarget, setConfirmTarget] = useState<"stay" | "home" | "lobby">("stay")
-  const [listenerKey, setListenerKey] = useState(0)
   const pendingSwitchRef = useRef(false) // v3 — 监听→合奏切换：Icecast 停干净后再启动 jamsoul
   const killingRef = useRef(false) // 主动杀 jamsoul 标记（doDisconnect 主动杀时 true，jamsoul-exited 不重复 alert）
 
@@ -218,8 +218,7 @@ export function PlayingPage() {
       // 断开但不离开页面 → 切换为听众
       setMyRole("listener")
       roomSession.setRole("listener")  // 全局心跳降级（不再计乐手时长）
-      setListenerActive(false)  // 停 Icecast，回来时显示"开始收听"
-      setListenerKey(n => n + 1)
+      roomSession.stopListening()  // 停 Icecast，回来时显示"开始收听"
       fetch(`/api/rooms/${rid}/join`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -254,8 +253,7 @@ export function PlayingPage() {
     // v3: 如果正在收听 Icecast，先停掉 → useEffect 监听 listenerActive=false 后自动 launchJamsoul
     if (listenerActive) {
       pendingSwitchRef.current = true
-      setListenerActive(false)
-      setListenerKey(n => n + 1)
+      roomSession.stopListening()
     } else {
       launchJamsoul()
     }
@@ -330,8 +328,7 @@ export function PlayingPage() {
       setAudioConnected(false)
       setMyRole("listener")
       roomSession.setRole("listener")  // 全局心跳降级
-      setListenerActive(false)
-      setListenerKey(n => n + 1)
+      roomSession.stopListening()
       if (rid && user?.id) {
         fetch(`/api/rooms/${rid}/join`, {
           method: "POST", headers: { "Content-Type": "application/json" },
@@ -353,8 +350,7 @@ export function PlayingPage() {
       window.jamonyAPI?.killJamsoul?.()
       setAudioConnected(false)
     } else {
-      setListenerActive(false)
-      setListenerKey(n => n + 1)
+      roomSession.stopListening()
     }
     setKickedOpen(true)
     roomSession.refresh()  // 被踢出房 → 全局心跳停
@@ -370,8 +366,7 @@ export function PlayingPage() {
       window.jamonyAPI?.killJamsoul?.()
       setAudioConnected(false)
     } else {
-      setListenerActive(false)
-      setListenerKey(n => n + 1)
+      roomSession.stopListening()
     }
     setDissolvedOpen(true)
     roomSession.refresh()  // 房解散 → 全局心跳停
@@ -411,10 +406,8 @@ export function PlayingPage() {
             roomGone={roomGone}
             myRole={myRole}
             roomName={room?.name}
-            roomPort={room?.server_port}
             listenerActive={listenerActive}
-            listenerKey={listenerKey}
-            onStartListening={() => setListenerActive(p => !p)}
+            onStartListening={() => { if (roomSession.listening != null) roomSession.stopListening(); else if (room?.server_port) roomSession.startListening(room.server_port) }}
             onDisconnect={() => { setConfirmTarget("stay"); setConfirmOpen(true) }}
             onReconnect={handleReconnect}
           />
