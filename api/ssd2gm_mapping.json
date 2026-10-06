@@ -348,5 +348,10 @@
     "to": 45,
     "ssd": "Xtra Rack Tom Center",
     "gm": "Low Tom"
+  },
+  "101": {
+    "to": 42,
+    "ssd": "User 25",
+    "gm": "Closed Hi-Hat"
   }
 }
