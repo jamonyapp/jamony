@@ -110,9 +110,10 @@ function createWindow() {
   mainWindow.on('focus', () => sendToJamsoul({ cmd: 'raise' }))
 
   // jamony: 叉掉窗口时（在房间=合奏者或听众）弹确认，取消则不关窗口
+  // 10-07：条件补 currentRoom——漫游态（非房间页 URL）关窗也要可靠发 leave
   mainWindow.on('close', (e) => {
     const isInRoom = mainWindow.webContents.getURL().includes('/room')
-    if ((jamsoulProcess || isInRoom) && !isQuitting) {
+    if ((jamsoulProcess || isInRoom || currentRoom) && !isQuitting) {
       e.preventDefault()
       dialog.showMessageBox(mainWindow, {
         type: 'question', buttons: ['退出', '取消'], defaultId: 0, title: '退出 jamony',

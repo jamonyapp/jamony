@@ -276,15 +276,8 @@ export function PlayingPage() {
     }).catch(() => {})
   }
 
-  // jamony: 通知主进程当前所在房间 —— 主进程退出时据此可靠发 leave（替代 renderer beforeunload 的竞态：renderer 在退出时序下 fetch 发不出，主进程不受影响）
-  useEffect(() => {
-    const code = params?.code
-    const uid = user?.id
-    if (code && uid) {
-      window.jamonyAPI?.enterRoom?.({ roomCode: String(code), userId: uid })
-      return () => { window.jamonyAPI?.leaveRoom?.() }
-    }
-  }, [params?.code, user?.id])
+  // jamony: enter-room/leave-room 通知已上移到 RoomSessionProvider（10-07 漫游退出丢 leave 修复）
+  // ——主进程 currentRoom 跟随全局 session，不再随 playing 页卸载清空
 
   // jamony: 60s 心跳已上移到全局 RoomSessionProvider（10-06 漫游改造）——
   // 离开 playing 页漫游也持续发，L2 服务端交叉验证；此处不再页面级发（防双心跳）

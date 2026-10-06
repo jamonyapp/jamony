@@ -54,6 +54,14 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
   // auth 就绪后查一次（登录/登出/页面刷新恢复）
   useEffect(() => { if (ready) refresh() }, [ready, refresh])
 
+  // 10-07 修漫游退出丢 leave：主进程 currentRoom 改为跟随全局 session 生命周期
+  // （原绑在 playing 页 unmount 上，漫游改造后"离开playing页≠离开房间"，卸载清空导致
+  //   漫游态关 app 时 sendLeaveRequest 静默跳过，只能靠 L2 60s+ 兜底）
+  useEffect(() => {
+    if (session) window.jamonyAPI?.enterRoom?.({ roomCode: session.code, userId: user?.id ?? 0 })
+    else window.jamonyAPI?.leaveRoom?.()
+  }, [session?.code])
+
   // 全局心跳：有活跃房间就发，60s 一拍首拍立即
   // 403=已不在房间 404=房间没了 → 停心跳清状态（被清/房解散）
   useEffect(() => {
