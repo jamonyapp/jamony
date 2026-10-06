@@ -395,6 +395,7 @@ export function PlayingPage() {
       {/* 10-07 漫游改造：返回首页/返回大厅改为纯导航（TopNav 内置淡出+router.push，房间保持连接，
           顶栏「回到房间」随时可回）；断开房间的出口=左栏断开连接/漫游态断开房间按钮 */}
       <TopNav
+        onRefresh={() => window.location.reload()}
         backLinks={[{ label: "返回大厅", href: "/lobby" }]}
       />
 
