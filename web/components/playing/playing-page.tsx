@@ -197,6 +197,7 @@ export function PlayingPage() {
   const doDisconnect = (target: "stay" | "home" | "lobby") => {
     setConfirmOpen(false)
     killingRef.current = true  // 标记主动杀，jamsoul-exited 不重复 alert
+    roomSession.markManualKill()  // 全局 Provider 漫游分支同样跳过（防误 join 回房，10-07）
     window.jamonyAPI?.killJamsoul?.()
     setAudioConnected(false)
     const rid = params?.code
@@ -208,8 +209,8 @@ export function PlayingPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: user.id }),
-      }).then(() => setRoomGone(true)).catch(() => {})
-      roomSession.refresh()  // 离房 → 全局心跳停
+      }).then(() => { setRoomGone(true); roomSession.refresh() })  // leave 完成后才查（抢跑会把人重新置回漫游态）
+       .catch(() => roomSession.refresh())
       router.push(target === "lobby" ? "/lobby" : "/")
       return
     }
@@ -237,8 +238,8 @@ export function PlayingPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: user.id }),
-      }).then(() => setRoomGone(true)).catch(() => {})
-      roomSession.refresh()  // 离房 → 全局心跳停
+      }).then(() => { setRoomGone(true); roomSession.refresh() })  // leave 完成后才查（防抢跑残留 session）
+       .catch(() => roomSession.refresh())
       if (target === "home") router.push("/")
       else if (target === "lobby") router.push("/lobby")
     }

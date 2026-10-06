@@ -30,6 +30,7 @@ type RoomSessionContextValue = {
   stopListening: () => void
   pauseForPlayback: () => void        // 竞权让路：暂停收听记住端口
   resumeListening: () => void
+  markManualKill: () => void          // 主动杀 jamsoul 前置标记：漫游 exit 分支据此跳过（防误 join 回房）
   analyserRef: React.RefObject<AnalyserNode | null>  // LevelMeter 画图消费
 }
 
@@ -44,6 +45,7 @@ const RoomSessionContext = createContext<RoomSessionContextValue>({
   stopListening: () => {},
   pauseForPlayback: () => {},
   resumeListening: () => {},
+  markManualKill: () => {},
   analyserRef: { current: null },
 })
 
@@ -53,6 +55,12 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
   const { user, loggedIn, ready } = useAuth()
   const pathname = usePathname()
   const [session, setSession] = useState<RoomSession | null>(null)
+
+  // 主动杀 jamsoul 标记：doDisconnect(playing页)/disconnectRoom 杀进程前置 true，
+  // 漫游 exit 分支消费后跳过——否则主动杀的退出事件被误判为"用户手叉"，
+  // 把刚 leave 的人又 join 回房间当听众（10-07 实测 bug）
+  const manualKillRef = useRef(false)
+  const markManualKill = useCallback(() => { manualKillRef.current = true }, [])
 
   // ===== 听众收听全局化（10-07）=====
   const [listening, setListening] = useState<number | null>(null)
@@ -179,6 +187,7 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
   useEffect(() => {
     if (/^\/room\/[^/]+\/playing/.test(pathname || "")) return
     const cleanup = window.jamonyAPI?.onJamsoulExited?.(() => {
+      if (manualKillRef.current) { manualKillRef.current = false; return }  // 主动杀（doDisconnect/disconnectRoom），不处理
       if (!session || session.role !== "musician") return
       const uid = user?.id
       const s = session
@@ -219,7 +228,10 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
     if (!s) return
     setSession(null)
     stopListening()
-    if (s.role === "musician") window.jamonyAPI?.killJamsoul?.()
+    if (s.role === "musician") {
+      manualKillRef.current = true  // 主动杀：漫游 exit 分支跳过
+      window.jamonyAPI?.killJamsoul?.()
+    }
     if (user?.id) {
       try {
         await fetch(`/api/rooms/${s.code}/leave`, {
@@ -234,7 +246,7 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
 
   return (
     <RoomSessionContext.Provider
-      value={{ session, refresh, setRole, disconnectRoom, listening, pausedPort, startListening, stopListening, pauseForPlayback, resumeListening, analyserRef }}
+      value={{ session, refresh, setRole, disconnectRoom, listening, pausedPort, startListening, stopListening, pauseForPlayback, resumeListening, markManualKill, analyserRef }}
     >
       {children}
     </RoomSessionContext.Provider>
