@@ -15,6 +15,7 @@ import { BecomeHostDialog } from "@/components/playing/become-host-dialog"
 import { ShareRoomHintDialog } from "@/components/playing/share-room-hint-dialog"
 import { useAuth } from "@/lib/auth-context"
 import { useChatSocket } from "@/lib/chat-socket"
+import { useRoomSession } from "@/lib/room-session"
 
 declare global {
   interface Window {
@@ -26,7 +27,7 @@ declare global {
       setLastMusician: (value: boolean) => void  // jamony 08-31 补声明(8-5加的API, 类型漏了)
       testFeedback: () => void                    // jamony 08-27 反馈保护弹窗debug通道
       onJamsoulLaunched: (cb: (data: unknown) => void) => () => void  // 09-30 起返回 cleanup
-      onJamsoulExited?: (cb: (data: unknown) => void) => void
+      onJamsoulExited?: (cb: (data: unknown) => void) => () => void  // preload 实际返回 cleanup，10-06 补声明
     }
   }
 }
@@ -53,6 +54,7 @@ export function PlayingPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { user } = useAuth()
+  const roomSession = useRoomSession()
   const { realtimeChords, pushChords, realtimeTheme, pushTheme, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, kickedEvent, dissolvedEvent } = useChatSocket(params?.code as string, user?.nickname)
   const [room, setRoom] = useState<RoomData | null>(null)
   const [showShareHint, setShowShareHint] = useState(false)
@@ -109,6 +111,7 @@ export function PlayingPage() {
     else { window.postMessage({ type: "JOIN_ROOM", payload }, "*") }
     setAudioConnected(true)
     setMyRole("musician")
+    roomSession.setRole("musician")  // 全局心跳身份同步（乐手榜计时）
     if (user?.id && room?.id) {
       fetch(`/api/rooms/${room.room_code}/join`, {
         method: "POST",
@@ -153,6 +156,8 @@ export function PlayingPage() {
           const me = (data.members || []).find((m: any) => m.user_id === user.id)
           const role = me?.role || "musician"
           setMyRole(role)
+          // 10-06 漫游改造：进房确认 → 通知全局 Provider（启动全局心跳）
+          roomSession.refresh()
 
           // 加载已保存的房间主题
           if (data.room.current_theme) setCustomTheme(data.room.current_theme)
@@ -204,6 +209,7 @@ export function PlayingPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: user.id }),
       }).then(() => setRoomGone(true)).catch(() => {})
+      roomSession.refresh()  // 离房 → 全局心跳停
       router.push(target === "lobby" ? "/lobby" : "/")
       return
     }
@@ -211,6 +217,7 @@ export function PlayingPage() {
     if (target === "stay") {
       // 断开但不离开页面 → 切换为听众
       setMyRole("listener")
+      roomSession.setRole("listener")  // 全局心跳降级（不再计乐手时长）
       setListenerActive(false)  // 停 Icecast，回来时显示"开始收听"
       setListenerKey(n => n + 1)
       fetch(`/api/rooms/${rid}/join`, {
@@ -231,6 +238,7 @@ export function PlayingPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: user.id }),
       }).then(() => setRoomGone(true)).catch(() => {})
+      roomSession.refresh()  // 离房 → 全局心跳停
       if (target === "home") router.push("/")
       else if (target === "lobby") router.push("/lobby")
     }
@@ -278,18 +286,8 @@ export function PlayingPage() {
     }
   }, [params?.code, user?.id])
 
-  // jamony: 60s 乐手心跳（活跃乐手榜计时）——仅 musician + jamsoul 已调起时发；
-  // audioConnected 翻 false（jamsoul 退出/被踢/解散）→ 心跳自停 → 时长冻结在 last_seen
-  useEffect(() => {
-    const code = params?.code
-    if (!code || !user?.id || myRole !== "musician" || !audioConnected) return
-    const beat = () => {
-      fetch(`/api/rooms/${code}/heartbeat`, { method: "POST", headers: { "Content-Type": "application/json" } }).catch(() => {})
-    }
-    beat()  // 立即首拍：会话 started_at 从 jamsoul 调起时刻起算
-    const t = setInterval(beat, 60000)
-    return () => clearInterval(t)
-  }, [params?.code, user?.id, myRole, audioConnected])
+  // jamony: 60s 心跳已上移到全局 RoomSessionProvider（10-06 漫游改造）——
+  // 离开 playing 页漫游也持续发，L2 服务端交叉验证；此处不再页面级发（防双心跳）
 
   // jamony: 是否唯一合奏者（doDisconnect/onJamsoulExited 路由 + 主进程叉 jamony/dock 弹窗文案）
   const isLastMusician = Number(room?.musician_count) === 1 && myRole === "musician"
@@ -330,6 +328,7 @@ export function PlayingPage() {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ userId: user.id }), keepalive: true,
         }).then(() => setRoomGone(true)).catch(() => {})
+        roomSession.refresh()  // 房解散 → 全局心跳停
         setJamsoulExitedDissolve(true)
         setJamsoulExitedOpen(true)
         return  // 不 setAudioConnected(false)/setMyRole，保持合奏者视角直到跳大厅
@@ -337,6 +336,7 @@ export function PlayingPage() {
       // 非唯一合奏者：切听众
       setAudioConnected(false)
       setMyRole("listener")
+      roomSession.setRole("listener")  // 全局心跳降级
       setListenerActive(false)
       setListenerKey(n => n + 1)
       if (rid && user?.id) {
@@ -364,6 +364,7 @@ export function PlayingPage() {
       setListenerKey(n => n + 1)
     }
     setKickedOpen(true)
+    roomSession.refresh()  // 被踢出房 → 全局心跳停
   }, [kickedEvent, user, myRole])
 
   // 收到 room-dissolved 事件：房间解散（最后合奏者退出）→ 断音频 + 弹通知 + 跳大厅（全员收到，幂等）
@@ -380,6 +381,7 @@ export function PlayingPage() {
       setListenerKey(n => n + 1)
     }
     setDissolvedOpen(true)
+    roomSession.refresh()  // 房解散 → 全局心跳停
   }, [dissolvedEvent, myRole])
 
   // 房主转移感知：hostId 变化且新房主是自己（且之前不是）→ 弹「你已成为房主」

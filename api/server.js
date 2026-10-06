@@ -281,6 +281,23 @@ app.post('/api/logout', (req, res) => {
   res.json({ ok: true })
 })
 
+// ========== 当前活跃房间（10-06 漫游改造：壳层 mount 查询，决定顶栏"回到房间/断开房间"显隐） ==========
+app.get('/api/my-active-room', requireAuth, async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT r.room_code, r.name, r.host_id, rm.role
+       FROM room_members rm JOIN rooms r ON r.id = rm.room_id
+       WHERE rm.user_id = $1 AND r.status NOT IN ('closed','archived')`,
+      [req.userId]
+    )
+    if (r.rows.length === 0) return res.json({ ok: true, room: null })
+    res.json({ ok: true, room: r.rows[0] })
+  } catch (err) {
+    console.error('My active room error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
 // ========== 当前登录态（前端刷新恢复用）==========
 app.get('/api/me', requireAuth, async (req, res) => {
   try {
@@ -1495,26 +1512,33 @@ app.post('/api/rooms/:code/members/:userId/audio-status', requireAuth, async (re
   }
 })
 
-// ========== 乐手心跳（活跃乐手榜计时：房间页 60s 一次，myRole=musician && jamsoul 已调起时才发） ==========
+// ========== 房间心跳（10-06 漫游改造：从 playing 页提升到客户端全局层） ==========
+// musician：照旧写 musician_sessions（乐手时长榜口径不变）；listener：只刷在场时间戳。
+// 两种身份都刷 last_active_at —— L2 兜底交叉验证用（socket 断 + 心跳活 = 漫游保房）
 app.post('/api/rooms/:code/heartbeat', requireAuth, async (req, res) => {
   try {
     if (req.userId === 0) return res.json({ ok: true })  // jamony-looper 不计时
     const { code } = req.params
     const roomId = await getRoomIdByCode(code)
     if (!roomId) return res.status(404).json({ ok: false, msg: '房间不存在' })
-    // 服务端验合奏者身份：离房后的迟到心跳 403，天然防幻影会话
-    if (!(await isRoomMusician(req.userId, code))) return res.status(403).json({ ok: false, msg: '仅合奏者' })
+    // 服务端验在场身份：离房/被清后的迟到心跳 403，天然防幻影会话
+    const memberRow = await pool.query(
+      "SELECT rm.role FROM room_members rm WHERE rm.room_id = $1 AND rm.user_id = $2", [roomId, req.userId]
+    )
+    if (memberRow.rows.length === 0) return res.status(403).json({ ok: false, msg: '已不在房间' })
     if (!rateCheck(`hb:${roomId}:${req.userId}`, 10, 60000)) return res.status(429).json({ ok: false })
-    // 先闭超过5分钟无心跳的陈旧开启会话（防同房重进把两次到访粘成一条）
-    await pool.query(
-      "UPDATE musician_sessions SET ended_at = last_seen WHERE user_id = $1 AND room_id = $2 AND ended_at IS NULL AND last_seen < NOW() - INTERVAL '5 minutes'",
-      [req.userId, roomId]
-    )
-    await pool.query(
-      `INSERT INTO musician_sessions (user_id, room_id, started_at, last_seen) VALUES ($1, $2, NOW(), NOW())
-       ON CONFLICT (user_id, room_id) WHERE ended_at IS NULL DO UPDATE SET last_seen = NOW()`,
-      [req.userId, roomId]
-    )
+    if (memberRow.rows[0].role === 'musician') {
+      // 先闭超过5分钟无心跳的陈旧开启会话（防同房重进把两次到访粘成一条）
+      await pool.query(
+        "UPDATE musician_sessions SET ended_at = last_seen WHERE user_id = $1 AND room_id = $2 AND ended_at IS NULL AND last_seen < NOW() - INTERVAL '5 minutes'",
+        [req.userId, roomId]
+      )
+      await pool.query(
+        `INSERT INTO musician_sessions (user_id, room_id, started_at, last_seen) VALUES ($1, $2, NOW(), NOW())
+         ON CONFLICT (user_id, room_id) WHERE ended_at IS NULL DO UPDATE SET last_seen = NOW()`,
+        [req.userId, roomId]
+      )
+    }
     await pool.query('UPDATE room_members SET last_active_at = NOW() WHERE room_id = $1 AND user_id = $2', [roomId, req.userId])
     res.json({ ok: true })
   } catch (err) {
@@ -3295,15 +3319,27 @@ io.on("connection", (socket) => {
       for (const row of rooms.rows) {
         const key = `${socket.userId}:${row.room_code}`
         if (pendingL2Cleanup.has(key)) clearTimeout(pendingL2Cleanup.get(key))  // 双 socket 实例同 key 幂等覆盖
-        pendingL2Cleanup.set(key, setTimeout(async () => {
+        const l2Check = async () => {
           pendingL2Cleanup.delete(key)
           try {
             const still = await pool.query('SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2', [row.room_id, socket.userId])
             if (still.rows.length === 0) return  // 期间已被 HTTP leave 正常清掉，不空跑
+            // 10-06 漫游改造：交叉验证心跳——socket 断但心跳新鲜（HTTP 心跳还在发）
+            // = 客户端活着、人在房间外页面漫游 → 续期不清人；心跳也停 = 真失联（断电/断网/卡死/杀进程）才清
+            const beat = await pool.query(
+              "SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2 AND last_active_at > NOW() - INTERVAL '90 seconds'",
+              [row.room_id, socket.userId]
+            )
+            if (beat.rows.length > 0) {
+              console.log(`L2 renewed (roaming): user ${socket.userId} room ${row.room_code}`)
+              pendingL2Cleanup.set(key, setTimeout(l2Check, L2_GRACE_MS))
+              return
+            }
             console.log(`L2 deferred cleanup: user ${socket.userId} room ${row.room_code}`)
             await removeMemberAndCheckDissolve(socket.userId, row.room_id, row.room_code)
           } catch (e) { console.error('L2 deferred cleanup error:', e) }
-        }, L2_GRACE_MS))
+        }
+        pendingL2Cleanup.set(key, setTimeout(l2Check, L2_GRACE_MS))
       }
     } catch (e) { console.error('disconnect cleanup error:', e) }
   })

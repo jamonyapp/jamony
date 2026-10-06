@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import localFont from 'next/font/local'
 import './globals.css'
 import { AuthProvider } from '@/lib/auth-context'
+import { RoomSessionProvider } from '@/lib/room-session'
 import { LoginModal } from '@/components/jamony/login-modal'
 import { PlayerProvider } from '@/components/jamony/player-context'
 import { PlayerBar } from '@/components/jamony/player-bar'
@@ -78,6 +79,7 @@ export default function RootLayout({
       </head>
       <body className="font-sans antialiased" style={{ background: '#000000' }}>
         <AuthProvider>
+          <RoomSessionProvider>
           <PlayerProvider>
             <LikesProvider>
               <CommentsProvider>
@@ -94,6 +96,7 @@ export default function RootLayout({
               </CommentsProvider>
             </LikesProvider>
           </PlayerProvider>
+          </RoomSessionProvider>
           <LoginModal />
         </AuthProvider>
       </body>
