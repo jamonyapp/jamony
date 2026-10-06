@@ -1,6 +1,6 @@
 "use client"
 
-import { ChevronDown, DoorOpen, LogOut, Mail, RefreshCw, Settings, Unplug, User, LogIn } from "lucide-react"
+import { ChevronDown, LogOut, Mail, RefreshCw, Settings, User, LogIn } from "lucide-react"
 import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
 import { useAuth } from "@/lib/auth-context"
@@ -114,23 +114,28 @@ export function UserCluster({ onRefresh }: { onRefresh?: () => void }) {
           {/* 漫游态房间出口（10-06）：回到房间 / 断开房间 */}
           {showRoomButtons && (
             <>
-              <button
-                onClick={() => router.push(`/room/${session!.code}/playing`)}
-                className="flex h-8 items-center gap-1.5 rounded-lg border px-2.5 transition-colors hover:bg-white/5 active:scale-[0.97]"
-                style={{ borderColor: "#2A2A2A" }}
-                title={session!.name}
-              >
-                <DoorOpen className="h-[15px] w-[15px]" style={{ color: "#BBEE00" }} />
-                <span className="text-xs font-medium" style={{ color: "#BBEE00" }}>回到房间</span>
-              </button>
+              <div className="group relative">
+                <button
+                  onClick={() => router.push(`/room/${session!.code}/playing`)}
+                  className="flex h-8 items-center rounded-lg px-2.5 text-xs font-semibold transition-[filter] duration-100 hover:brightness-110 active:scale-[0.97]"
+                  style={{ background: "#BBEE00", color: "#0D0D0D" }}
+                >
+                  回到房间
+                </button>
+                {/* 房间名秒显 tooltip（照抄鼓机节奏型下拉的 group-hover 方案，替代原生 title 的 2-3s 延迟） */}
+                <span
+                  className="pointer-events-none absolute left-0 top-[calc(100%+6px)] z-50 rounded border bg-black px-1.5 py-0.5 text-xs text-white opacity-0 transition-opacity duration-75 group-hover:opacity-100"
+                  style={{ borderColor: "#333", whiteSpace: "nowrap" }}
+                >
+                  {session!.name}
+                </span>
+              </div>
               <button
                 onClick={handleDisconnectClick}
-                className="flex h-8 items-center gap-1.5 rounded-lg border px-2.5 transition-colors hover:bg-white/5 active:scale-[0.97]"
-                style={{ borderColor: "#2A2A2A" }}
-                title="断开当前房间连接"
+                className="flex h-8 items-center rounded-lg px-2.5 text-xs font-semibold text-white transition-[filter] duration-100 hover:brightness-110 active:scale-[0.97]"
+                style={{ background: "#FF5C5C" }}
               >
-                <Unplug className="h-[15px] w-[15px]" style={{ color: "#FF5C5C" }} />
-                <span className="text-xs font-medium" style={{ color: "#FF5C5C" }}>断开房间</span>
+                断开房间
               </button>
             </>
           )}
