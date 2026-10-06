@@ -1,14 +1,16 @@
 "use client"
 
-import { ChevronDown, LogOut, Mail, RefreshCw, Settings, User, LogIn } from "lucide-react"
-import { useRouter } from "next/navigation"
+import { ChevronDown, DoorOpen, LogOut, Mail, RefreshCw, Settings, Unplug, User, LogIn } from "lucide-react"
+import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
 import { useAuth } from "@/lib/auth-context"
 import { useNotifications } from "@/lib/notifications-context"
 import { useDM } from "@/lib/dm-context"
+import { useRoomSession } from "@/lib/room-session"
 import { Avatar } from "@/components/jamony/avatar"
 import { NotificationDrawer } from "@/components/jamony/notification-drawer"
 import { NoticeDetailModal } from "@/components/jamony/notice-detail-modal"
+import { DisconnectDialog } from "@/components/playing/disconnect-dialog"
 import { mapNotice } from "@/lib/notice-mappers"
 import { type Notice } from "@/lib/jamony-data"
 
@@ -22,6 +24,7 @@ const menuItems = [
 // TopNav(playing 页) 与 (shell) 布局共用一份，避免两处复制漂移
 export function UserCluster({ onRefresh }: { onRefresh?: () => void }) {
   const router = useRouter()
+  const pathname = usePathname()
   const [openMenu, setOpenMenu] = useState<"none" | "user">("none")
   const [refreshing, setRefreshing] = useState(false)
   const { drawerOpen, openDrawer, closeDrawer } = useDM()
@@ -29,6 +32,32 @@ export function UserCluster({ onRefresh }: { onRefresh?: () => void }) {
   const clusterRef = useRef<HTMLDivElement>(null)
   const { loggedIn, setShowLoginModal, logout, user } = useAuth()
   const { unreadCount, refreshUnread } = useNotifications()
+  const { session, disconnectRoom } = useRoomSession()
+
+  // 10-06 漫游改造：非 playing 页 + 有活跃房间 → 显示「回到房间/断开房间」
+  // playing 页有自己的断开/返回出口，不重复展示
+  const isPlayingRoute = /^\/room\/[^/]+\/playing/.test(pathname || "")
+  const showRoomButtons = !isPlayingRoute && !!session
+
+  // 断开确认弹窗（合奏者专属；听众直接断）与退出登录确认共用 DisconnectDialog，
+  // pendingAction 区分确认后的动作
+  const [pendingAction, setPendingAction] = useState<"none" | "disconnect" | "logout">("none")
+
+  const handleDisconnectClick = () => {
+    if (session?.role === "musician") setPendingAction("disconnect")
+    else disconnectRoom()  // 听众无音频资产，直接断
+  }
+
+  const handleConfirm = async () => {
+    const action = pendingAction
+    setPendingAction("none")
+    if (action === "none") return
+    await disconnectRoom()  // 先 leave（需要登录 cookie），后动登录态
+    if (action === "logout") {
+      logout()
+      router.push("/lobby")
+    }
+  }
 
   // 通知点击 → 全局弹公告详情（不跳转，任何页面都能看）
   const handleOpenNotice = async (noticeId: number) => {
@@ -82,6 +111,30 @@ export function UserCluster({ onRefresh }: { onRefresh?: () => void }) {
 
       {loggedIn ? (
         <>
+          {/* 漫游态房间出口（10-06）：回到房间 / 断开房间 */}
+          {showRoomButtons && (
+            <>
+              <button
+                onClick={() => router.push(`/room/${session!.code}/playing`)}
+                className="flex h-8 items-center gap-1.5 rounded-lg border px-2.5 transition-colors hover:bg-white/5 active:scale-[0.97]"
+                style={{ borderColor: "#2A2A2A" }}
+                title={session!.name}
+              >
+                <DoorOpen className="h-[15px] w-[15px]" style={{ color: "#BBEE00" }} />
+                <span className="text-xs font-medium" style={{ color: "#BBEE00" }}>回到房间</span>
+              </button>
+              <button
+                onClick={handleDisconnectClick}
+                className="flex h-8 items-center gap-1.5 rounded-lg border px-2.5 transition-colors hover:bg-white/5 active:scale-[0.97]"
+                style={{ borderColor: "#2A2A2A" }}
+                title="断开当前房间连接"
+              >
+                <Unplug className="h-[15px] w-[15px]" style={{ color: "#FF5C5C" }} />
+                <span className="text-xs font-medium" style={{ color: "#FF5C5C" }}>断开房间</span>
+              </button>
+            </>
+          )}
+
           {/* 通知 */}
           <div className="relative">
             <button
@@ -138,8 +191,10 @@ export function UserCluster({ onRefresh }: { onRefresh?: () => void }) {
                         style={{ color: "#E0E0E0" }}
                         onClick={() => {
                           if (item.id === "logout") {
-                            logout()
                             setOpenMenu("none")
+                            // 10-06：有活跃房间先弹断开确认（退出登录=断开连接语义，欢哥拍板复用弹窗）
+                            if (session) { setPendingAction("logout"); return }
+                            logout()
                             return
                           }
                           if (item.id === "profile" && user?.nickname) {
@@ -174,6 +229,14 @@ export function UserCluster({ onRefresh }: { onRefresh?: () => void }) {
           登录 / 注册
         </button>
       )}
+
+      {/* 断开房间/退出登录 共用确认弹窗（文案与合奏页返回弹窗一致，欢哥拍板复用） */}
+      <DisconnectDialog
+        open={pendingAction !== "none"}
+        onCancel={() => setPendingAction("none")}
+        onConfirm={handleConfirm}
+        isListener={false}
+      />
     </div>
   )
 }
