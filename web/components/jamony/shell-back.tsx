@@ -1,10 +1,11 @@
 "use client"
 
+import { ChevronLeft } from "lucide-react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 
-// 返回父级表：每条路由的上一级；首页 → null（按钮整个隐去，10-07 欢哥定稿：
-// 原灰色禁用态改为隐藏 + 图标 ArrowLeft 换成文字「＜」）
+// 返回父级表：每条路由的上一级；首页 → null（按钮视觉隐去但保留 w-8 占位，
+// 否则顶行 justify-between 只剩右簇会塌到左侧——10-07 踩坑）
 // 09-27 左栏常驻改造：全站统一的返回按钮（纯符号无文字）
 function getParent(
   pathname: string,
@@ -35,8 +36,8 @@ export function ShellBack() {
     user?.nickname
   )
 
-  // 首页无父级 → 整个隐去（不再是灰色不可点）
-  if (parent === null) return null
+  // 首页无父级 → 视觉隐去，保留等尺寸占位（顶行布局不塌）
+  if (parent === null) return <div className="h-8 w-8" aria-hidden />
 
   return (
     <button
@@ -45,7 +46,7 @@ export function ShellBack() {
       className="flex h-8 w-8 items-center justify-center rounded-lg text-white transition-colors hover:bg-white/5 active:scale-[0.97]"
       title="返回上一级"
     >
-      <span className="text-[18px] leading-none">＜</span>
+      <ChevronLeft className="h-5 w-5" />
     </button>
   )
 }
