@@ -117,8 +117,8 @@ export function UserCluster({ onRefresh }: { onRefresh?: () => void }) {
               <div className="group relative">
                 <button
                   onClick={() => router.push(`/room/${session!.code}/playing`)}
-                  className="flex h-8 items-center rounded-lg px-2.5 text-xs font-semibold transition-[filter] duration-100 hover:brightness-110 active:scale-[0.97]"
-                  style={{ background: "#BBEE00", color: "#0D0D0D" }}
+                  className="flex h-8 items-center rounded-lg px-2.5 text-xs font-semibold text-white transition-colors hover:bg-white/5 active:scale-[0.97]"
+                  style={{ borderColor: "#2A2A2A", borderWidth: 1.5, borderStyle: "solid" }}
                 >
                   回到房间
                 </button>
@@ -132,8 +132,8 @@ export function UserCluster({ onRefresh }: { onRefresh?: () => void }) {
               </div>
               <button
                 onClick={handleDisconnectClick}
-                className="flex h-8 items-center rounded-lg px-2.5 text-xs font-semibold text-white transition-[filter] duration-100 hover:brightness-110 active:scale-[0.97]"
-                style={{ background: "#FF5C5C" }}
+                className="flex h-8 items-center rounded-lg px-2.5 text-xs font-semibold text-white transition-colors hover:bg-white/5 active:scale-[0.97]"
+                style={{ borderColor: "#2A2A2A", borderWidth: 1.5, borderStyle: "solid" }}
               >
                 断开房间
               </button>
