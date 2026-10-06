@@ -1,11 +1,14 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Crown, Headphones, X, UserCheck, User, ShieldAlert } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
+import { useRoomSession } from "@/lib/room-session"
+import { waitJamsoulDead } from "@/lib/jamsoul-wait"
 import { Avatar } from "@/components/jamony/avatar"
 import { RoomPasswordModal } from "@/components/room-password-modal"
+import { SwitchRoomDialog } from "@/components/switch-room-dialog"
 
 type Member = {
   id: number
@@ -49,10 +52,17 @@ export function RoomDetailModal({
   const [joining, setJoining] = useState(false)
   const [latency, setLatency] = useState(28)
   const { user, loggedIn, setShowLoginModal } = useAuth()
+  const { session, disconnectRoom } = useRoomSession()
   const [myRole, setMyRole] = useState<"musician" | "listener" | null>(null)
   const [pwdOpen, setPwdOpen] = useState(false)
   const [pwdRole, setPwdRole] = useState<"musician" | "listener">("musician")
   const [kickedNotice, setKickedNotice] = useState(false) // 被房主移出后重新进入的提示
+
+  // 10-06 切换房间：已在他房时加入/建房前确认。switchNext 存确认后要继续的动作
+  // （明房=doJoin 走 join API；密码房=finishEnter 直接进——密码验证即已成 membership）
+  const [switchOpen, setSwitchOpen] = useState(false)
+  const [switchBusy, setSwitchBusy] = useState(false)
+  const switchNextRef = useRef<null | (() => Promise<void>)>(null)
 
   useEffect(() => {
     if (!roomId) { setRoom(null); setMembers([]); return }
@@ -82,21 +92,14 @@ export function RoomDetailModal({
 
   if (!roomId) return null
 
-  const handleJoin = async (role: "musician" | "listener") => {
-    if (!loggedIn) { setShowLoginModal(true); return }
-    if (!user) return
-    // 加密房非成员 → 弹密码框（已成员 myRole!=null 免密直接 join）
-    if (room?.is_private && !myRole) {
-      setPwdRole(role)
-      setPwdOpen(true)
-      return
-    }
+  // 实际加入 + 跳转（直接加入 / 切换房间完成后共用）
+  const doJoin = async (role: "musician" | "listener") => {
     setJoining(true)
     try {
       const res = await fetch(`/api/rooms/${roomId}/join`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: user.id, role }),
+        body: JSON.stringify({ userId: user!.id, role }),
       })
       const data = await res.json()
       if (data.ok) {
@@ -118,15 +121,65 @@ export function RoomDetailModal({
     setJoining(false)
   }
 
-  // 密码验证成功后跳 playing
-  const onPasswordSuccess = async (role: "musician" | "listener") => {
-    setPwdOpen(false)
-    setMyRole(role)
+  const handleJoin = async (role: "musician" | "listener") => {
+    if (!loggedIn) { setShowLoginModal(true); return }
+    if (!user) return
+    // 加密房非成员 → 弹密码框（已成员 myRole!=null 免密直接 join）
+    if (room?.is_private && !myRole) {
+      setPwdRole(role)
+      setPwdOpen(true)
+      return
+    }
+    // 10-06 漫游改造：已在他房 → 切换确认（一人一房，直接 join 会被服务端拒）
+    if (session) {
+      switchNextRef.current = () => doJoin(role)
+      setSwitchOpen(true)
+      return
+    }
+    await doJoin(role)
+  }
+
+  // 密码验证通过后的进房收尾（拉最新房态 + 跳转）
+  const finishEnter = async () => {
     const r = await fetch(`/api/rooms/${roomId}`)
     const rd = await r.json()
     if (rd.ok) { setRoom(rd.room); setMembers(rd.members || []) }
     onClose()
     router.push(`/room/${roomId}/playing`)
+  }
+
+  // 密码验证成功后跳 playing
+  const onPasswordSuccess = async (role: "musician" | "listener") => {
+    setPwdOpen(false)
+    setMyRole(role)
+    // 10-06：已在他房 → 切换确认（密码已验过，确认后直接进，不再走 join API）
+    if (session) {
+      switchNextRef.current = finishEnter
+      setSwitchOpen(true)
+      return
+    }
+    await finishEnter()
+  }
+
+  // 切换确认：先断原房（leave 需登录 cookie），musician 再等 jamsoul 真正退出
+  // （防 main.js already-running skip 竞态——连的还是旧房），然后继续原定动作
+  const confirmSwitch = async () => {
+    const next = switchNextRef.current
+    const wasMusician = session?.role === "musician"
+    setSwitchBusy(true)
+    try {
+      if (wasMusician) {
+        disconnectRoom()          // 内部同步 killJamsoul + await leave
+        await waitJamsoulDead()
+      } else {
+        await disconnectRoom()
+      }
+      setSwitchOpen(false)
+      switchNextRef.current = null
+      await next?.()
+    } finally {
+      setSwitchBusy(false)
+    }
   }
 
   // jamony 10-01: 删除卡片上的"切为听众/切为合奏"——身份切换只保留合奏页内通道
@@ -254,13 +307,27 @@ export function RoomDetailModal({
                 </button>
               </>
             ) : myRole === "musician" ? (
-              <div className="text-center text-sm py-2" style={{ color: "#BBEE00" }}>
-                {room?.host_id === user?.id ? "👑 你是房主" : "✅ 你已加入合奏"}
-              </div>
+              <>
+                <div className="text-center text-sm py-2" style={{ color: "#BBEE00" }}>
+                  {room?.host_id === user?.id ? "👑 你是房主" : "✅ 你已加入合奏"}
+                </div>
+                <button onClick={() => { onClose(); router.push(`/room/${roomId}/playing`) }}
+                  className="flex w-full items-center justify-center rounded-[10px] px-6 py-2.5 text-sm font-semibold transition-opacity hover:opacity-90 active:scale-[0.97]"
+                  style={{ background: "#BBEE00", color: "#0D0D0D" }}>
+                  回到房间
+                </button>
+              </>
             ) : (
-              <div className="text-center text-sm py-2" style={{ color: "#FF33AA" }}>
-                🎧 你正在旁听
-              </div>
+              <>
+                <div className="text-center text-sm py-2" style={{ color: "#FF33AA" }}>
+                  🎧 你正在旁听
+                </div>
+                <button onClick={() => { onClose(); router.push(`/room/${roomId}/playing`) }}
+                  className="flex w-full items-center justify-center rounded-[10px] px-6 py-2.5 text-sm font-semibold transition-opacity hover:opacity-90 active:scale-[0.97]"
+                  style={{ background: "#BBEE00", color: "#0D0D0D" }}>
+                  回到房间
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -271,6 +338,16 @@ export function RoomDetailModal({
       <RoomPasswordModal open={pwdOpen} roomId={roomId} role={pwdRole}
         onClose={() => setPwdOpen(false)} onSuccess={onPasswordSuccess}
         onKicked={() => setKickedNotice(true)} />
+      {/* 10-06 切换房间确认（已在他房时加入本房） */}
+      <SwitchRoomDialog
+        open={switchOpen}
+        title="切换房间？"
+        desc="加入该房间将断开你的原房间，若你是原房间唯一合奏者，原房间将解散。"
+        confirmText="确认切换"
+        busy={switchBusy}
+        onCancel={() => { setSwitchOpen(false); switchNextRef.current = null }}
+        onConfirm={confirmSwitch}
+      />
       {kickedNotice && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
           role="dialog" aria-modal="true">

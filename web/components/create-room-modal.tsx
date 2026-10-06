@@ -4,7 +4,10 @@ import { useState } from "react"
 import { X, Loader2, Lock } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
+import { useRoomSession } from "@/lib/room-session"
+import { waitJamsoulDead } from "@/lib/jamsoul-wait"
 import { FilterSelect } from "@/components/jamony/filter-select"
+import { SwitchRoomDialog } from "@/components/switch-room-dialog"
 import { PROFICIENCY_ORDER, PROFICIENCY_MAP } from "@/lib/proficiency"
 
 const STYLES = ["摇滚","民谣","爵士","布鲁斯","放克","雷鬼","电子","古典","流行","嘻哈","R&B","国风","金属","ACG","实验"]
@@ -17,6 +20,7 @@ export function CreateRoomModal({
   onClose: () => void
 }) {
   const { user } = useAuth()
+  const { session, disconnectRoom } = useRoomSession()
   const router = useRouter()
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
@@ -27,14 +31,13 @@ export function CreateRoomModal({
   const [proficiency, setProficiency] = useState<string>("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
+  // 10-06：已在他房又建房 → 切换确认（服务端一人一房会拒，这里先弹窗断旧再建）
+  const [switchOpen, setSwitchOpen] = useState(false)
+  const [switchBusy, setSwitchBusy] = useState(false)
 
   if (!open) return null
 
-  const handleCreate = async () => {
-    if (!name.trim()) { setError("请输入房间名"); return }
-    if (!user) { setError("请先登录"); return }
-    if (!proficiency) { setError("请选择演奏水平"); return }
-    if (isPrivate && !/^\d{6}$/.test(password)) { setError("加密房间密码须为6位数字"); return }
+  const doCreate = async () => {
     setLoading(true)
     setError("")
     try {
@@ -45,7 +48,7 @@ export function CreateRoomModal({
           name: name.trim(),
           description: description.trim(),
           style,
-          hostId: user.id,
+          hostId: user?.id,
           maxMusicians,
           is_private: isPrivate,
           password: isPrivate ? password : undefined,
@@ -60,6 +63,34 @@ export function CreateRoomModal({
     } catch {
       setError("网络错误")
       setLoading(false)
+    }
+  }
+
+  const handleCreate = async () => {
+    if (!name.trim()) { setError("请输入房间名"); return }
+    if (!user) { setError("请先登录"); return }
+    if (!proficiency) { setError("请选择演奏水平"); return }
+    if (isPrivate && !/^\d{6}$/.test(password)) { setError("加密房间密码须为6位数字"); return }
+    // 10-06：已在他房 → 切换确认（确认后断旧房再继续建房）
+    if (session) { setSwitchOpen(true); return }
+    await doCreate()
+  }
+
+  // 与加入房间同款切换时序：先 leave（登录 cookie）→ musician 等 jamsoul 真正退出 → 再建房
+  const confirmSwitch = async () => {
+    const wasMusician = session?.role === "musician"
+    setSwitchBusy(true)
+    try {
+      if (wasMusician) {
+        disconnectRoom()
+        await waitJamsoulDead()
+      } else {
+        await disconnectRoom()
+      }
+      setSwitchOpen(false)
+      await doCreate()
+    } finally {
+      setSwitchBusy(false)
     }
   }
 
@@ -167,6 +198,17 @@ export function CreateRoomModal({
           </button>
         </div>
       </div>
+
+      {/* 10-06：已在他房又建房 → 切换确认 */}
+      <SwitchRoomDialog
+        open={switchOpen}
+        title="创建新房间？"
+        desc="创建新房间将断开你的原房间，若你是原房间唯一合奏者，原房间将解散。"
+        confirmText="创建并切换"
+        busy={switchBusy}
+        onCancel={() => setSwitchOpen(false)}
+        onConfirm={confirmSwitch}
+      />
     </div>
   )
 }
