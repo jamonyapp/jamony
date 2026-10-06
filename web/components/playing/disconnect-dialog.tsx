@@ -39,7 +39,7 @@ export function DisconnectDialog({
   const confirmText = variant === "switch"
     ? "切为听众"
     : variant === "leave"
-      ? "离开房间"
+      ? "断开房间"
       : isListener ? "退出房间" : "断开连接"
 
   return (
