@@ -285,7 +285,8 @@ app.post('/api/logout', (req, res) => {
 app.get('/api/my-active-room', requireAuth, async (req, res) => {
   try {
     const r = await pool.query(
-      `SELECT r.room_code, r.name, r.host_id, r.musician_count, rm.role
+      `SELECT r.room_code, r.name, r.host_id, rm.role,
+              (SELECT COUNT(*) FROM room_members rm2 WHERE rm2.room_id = r.id AND rm2.role = 'musician')::int AS musician_count
        FROM room_members rm JOIN rooms r ON r.id = rm.room_id
        WHERE rm.user_id = $1 AND r.status NOT IN ('closed','archived')`,
       [req.userId]
