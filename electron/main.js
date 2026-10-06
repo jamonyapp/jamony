@@ -205,6 +205,8 @@ function launchJamsoul(serverIp, port, nickname) {
     child.on('exit', (code, signal) => {
       console.log(`[jamony] jamsoul exited (code=${code}, signal=${signal})`)
       jamsoulProcess = null
+      // 10-07：进程已正常退出，撤销 kill 兜底定时器（防残留定时器误杀切换后新进程）
+      if (killTimer) { clearTimeout(killTimer); killTimer = null }
       if (!launchSettled) {
         // 启动期秒退（缺 DLL/被拦截的典型症状）：只报启动失败，不发 exited
         sendLaunchResult({ ok: false, reason: 'early-exit', code, signal })
@@ -231,6 +233,7 @@ function launchJamsoul(serverIp, port, nickname) {
 }
 
 // 清理 jamsoul 子进程
+let killTimer = null  // SIGTERM 3 秒兜底定时器（10-07 修：只准杀自己那个进程，防误杀切换后新起的 jamsoul）
 function killJamsoul(immediate = false) {
   // jamony 09-30: 用户主动杀时撤销启动期判定（避免 3 秒内断开被误报"启动失败"弹窗）
   if (pendingLaunchSettle) {
@@ -244,11 +247,16 @@ function killJamsoul(immediate = false) {
       try { jamsoulProcess.kill('SIGKILL') } catch (_) {}
       jamsoulProcess = null
     } else {
-      jamsoulProcess.kill('SIGTERM')
-      // 给 jamsoul 3 秒时间优雅退出，超时强制杀死
-      setTimeout(() => {
-        if (jamsoulProcess) {
-          try { jamsoulProcess.kill('SIGKILL') } catch (_) {}
+      const dyingChild = jamsoulProcess
+      dyingChild.kill('SIGTERM')
+      // 给 jamsoul 3 秒时间优雅退出，超时强制杀死。
+      // 10-07 修切换误杀 bug：兜底只对"自己那个进程"生效（比对引用）——
+      // 旧 jamsoul 优雅退出后切换房间即刻 spawn 新 jamsoul，原写法只判 jamsoulProcess 非空，
+      // 3 秒定时器到点把新进程 SIGKILL 了（症状=切房后 jamsoul"启动后立即退出"）
+      if (killTimer) clearTimeout(killTimer)
+      killTimer = setTimeout(() => {
+        if (jamsoulProcess === dyingChild) {
+          try { dyingChild.kill('SIGKILL') } catch (_) {}
           jamsoulProcess = null
         }
       }, 3000)
