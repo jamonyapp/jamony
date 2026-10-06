@@ -4,43 +4,36 @@ import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import { UserCluster } from "@/components/jamony/user-cluster"
 
-// 额外返回按钮组件 — 独立淡入淡出（进入慢 800ms、退出快 350ms）
+// 额外返回按钮 — 入场淡入各自独立（30ms 延迟起 800ms 淡入）；
+// 出场淡出由 TopNav 统一驱动（exiting，与「返回首页」同步消失，10-07 欢哥定稿）
 function BackLinkButton({
   link,
-  onClick,
+  exiting,
+  onNavigate,
 }: {
   link: { label: string; href: string }
-  onClick?: () => void
+  exiting: boolean
+  onNavigate: (href: string) => void
 }) {
-  const router = useRouter()
-  const [show, setShow] = useState(false)
+  const [entered, setEntered] = useState(false)
   useEffect(() => {
-    const t = setTimeout(() => setShow(true), 30)
+    const t = setTimeout(() => setEntered(true), 30)
     return () => clearTimeout(t)
   }, [])
 
-  const handleClick = () => {
-    if (onClick) {
-      // jamony: 有 onClick（弹窗确认）不淡出，选"继续合奏"按钮还在
-      onClick()
-    } else {
-      setShow(false)
-      setTimeout(() => { router.push(link.href) }, 350)
-    }
-  }
-
+  const visible = entered && !exiting
   return (
     <div
       style={{
-        transition: show
+        transition: visible
           ? "opacity 800ms ease-out, visibility 800ms ease-out"
           : "opacity 350ms ease-in, visibility 350ms ease-in",
-        visibility: show ? "visible" : "hidden",
-        opacity: show ? 1 : 0,
+        visibility: visible ? "visible" : "hidden",
+        opacity: visible ? 1 : 0,
       }}
     >
       <button
-        onClick={handleClick}
+        onClick={() => onNavigate(link.href)}
         className="rounded-md border px-2 py-[2px] text-[12px] font-normal transition-colors active:scale-[0.97]"
         style={{ borderColor: "#2A2A2A", color: "#6A6A6A" }}
       >
@@ -53,23 +46,21 @@ function BackLinkButton({
 // 顶栏：仅 /room/[code]/playing（合奏页）使用——logo+返回首页+backLinks+用户簇。
 // 09-27 左栏常驻改造后，(shell) 页面不再渲染本组件（改用 LeftSidebar+UserCluster 的壳布局），
 // 右侧用户簇与壳共用 UserCluster 一份，视觉零变化。
+// 10-07 漫游改造：返回按钮全部为纯导航（房间保持连接），onBackHome/backLinks.onClick 旧钩子已废弃移除。
 export function TopNav({
   onRefresh,
   backLinks,
-  onBackHome,
 }: {
   onRefresh?: () => void
-  backLinks?: { label: string; href: string; onClick?: () => void }[]
-  onBackHome?: () => void
+  backLinks?: { label: string; href: string }[]
 }) {
   const pathname = usePathname()
   const router = useRouter()
   const isHome = pathname === "/"
 
-  // showBack: 返回首页按钮的淡入淡出
+  // showBack: 返回首页按钮的淡入
   // 从首页来 → false→setTimeout→true（800ms 淡入）
   // 从非首页来 → 直接 true（跳过淡入）
-  // 点击返回首页 → false（350ms 淡出）
   const [showBack, setShowBack] = useState(false)
 
   // 首页页面存标记，子页面检查标记判断是否来自首页
@@ -89,14 +80,15 @@ export function TopNav({
     }
   }, [isHome])
 
-  const handleBackHome = () => {
-    if (onBackHome) {
-      onBackHome()
-    } else {
-      setShowBack(false)
-      setTimeout(() => { router.push("/") }, 350)
-    }
+  // exiting: 点任意返回按钮 → 所有返回按钮同步淡出（350ms）→ 跳转目标页
+  const [exiting, setExiting] = useState(false)
+  const navigateAway = (href: string) => {
+    if (exiting) return
+    setExiting(true)
+    setTimeout(() => { router.push(href) }, 350)
   }
+
+  const backVisible = showBack && !exiting
 
   return (
     <header
@@ -110,19 +102,19 @@ export function TopNav({
           jamony
         </span>
 
-        {/* 返回首页 — showBack 容器，初始 true，仅点击首页时淡出 */}
+        {/* 返回首页 — showBack 淡入 + exiting 统一淡出 */}
         <div
           style={{
-            transition: showBack
+            transition: backVisible
               ? "opacity 800ms ease-out, visibility 800ms ease-out"
               : "opacity 350ms ease-in, visibility 350ms ease-in",
-            visibility: showBack ? "visible" : "hidden",
-            opacity: showBack ? 1 : 0,
+            visibility: backVisible ? "visible" : "hidden",
+            opacity: backVisible ? 1 : 0,
           }}
         >
           {!isHome && (
             <button
-              onClick={handleBackHome}
+              onClick={() => navigateAway("/")}
               className="rounded-md border px-2 py-[2px] text-[12px] font-normal transition-colors active:scale-[0.97]"
               style={{ borderColor: "#2A2A2A", color: "#6A6A6A" }}
             >
@@ -131,9 +123,9 @@ export function TopNav({
           )}
         </div>
 
-        {/* 额外返回按钮 — 各自独立淡入淡出 */}
+        {/* 额外返回按钮 — 各自淡入，exiting 统一淡出 */}
         {backLinks?.map((link) => (
-          <BackLinkButton key={link.href} link={link} onClick={link.onClick} />
+          <BackLinkButton key={link.href} link={link} exiting={exiting} onNavigate={navigateAway} />
         ))}
       </div>
 
