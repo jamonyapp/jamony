@@ -99,8 +99,8 @@ export function LeftSidebar() {
 
       <div className="my-4 h-px" style={{ background: "#1A1A1A" }} />
 
-      {/* Bottom area */}
-      <div className="mt-auto flex flex-col gap-2">
+      {/* 官方动态+意见反馈 — 10-07 欢哥定稿：原 mt-auto 沉底改为紧跟横线下方（间距=my-4 与作品库侧对称） */}
+      <div className="flex flex-col gap-2">
         {/* official update card */}
         <div
           className="rounded-[10px] border p-3"
