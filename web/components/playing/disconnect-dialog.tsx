@@ -31,16 +31,10 @@ export function DisconnectDialog({
     : variant === "leave"
       ? "离开后将返回房间大厅，若你是唯一合奏者，将解散房间。"
       : isListener ? "" : "若你是唯一合奏者，将解散房间。"
-  const cancelText = variant === "switch"
-    ? "继续合奏"
-    : variant === "leave"
-      ? "取消"
-      : isListener ? "继续旁听" : "继续合奏"
-  const confirmText = variant === "switch"
-    ? "切为听众"
-    : variant === "leave"
-      ? "断开房间"
-      : isListener ? "退出房间" : "断开连接"
+  // 10-07 欢哥定稿：按钮文案通用化（返回/确认）——标题与说明负责讲清场景后果，
+  // 按钮只表达动作，避免唯一合奏者等分支下"切为听众/断开房间"预告失真
+  const cancelText = "返回"
+  const confirmText = "确认"
 
   return (
     <div
