@@ -50,6 +50,9 @@ interface PlayerContextValue {
   removeFromPlaylist: (id: string) => void
 }
 
+import { useRoomSession } from "@/lib/room-session"
+import { AlertTriangle } from "lucide-react"
+
 const PlayerContext = createContext<PlayerContextValue | null>(null)
 
 export function PlayerProvider({ children }: { children: ReactNode }) {
@@ -227,6 +230,38 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setIsPlaying((p) => !p)
   }, [current])
 
+  // ===== 10-07 房间音频竞权守卫（全站播放入口统一拦截，含作品库等直调 playTrack 的页面）=====
+  const roomSession = useRoomSession()
+  const [playGuardOpen, setPlayGuardOpen] = useState(false)
+  const [noRemind, setNoRemind] = useState(false)
+  const pendingPlayRef = useRef<null | (() => void)>(null)
+
+  const guardedPlay = useCallback((action: () => void, isToggle = false) => {
+    if (isToggle && isPlaying) { action(); return }  // 暂停方向不拦
+    if (roomSession.listening != null) {             // 听众收听中 → Icecast 让路（胶囊可恢复）
+      roomSession.pauseForPlayback()
+      action()
+      return
+    }
+    if (roomSession.session?.role === "musician" && localStorage.getItem("jamony_playbar_musician_ok") !== "1") {
+      pendingPlayRef.current = action                // 合奏者 → 一次确认（不再提示）
+      setPlayGuardOpen(true)
+      return
+    }
+    action()
+  }, [isPlaying, roomSession])
+
+  const guardedPlayTrack = useCallback((track: Track) => guardedPlay(() => playTrack(track)), [guardedPlay, playTrack])
+  const guardedTogglePlay = useCallback(() => guardedPlay(togglePlay, true), [guardedPlay, togglePlay])
+
+  const confirmGuardedPlay = () => {
+    if (noRemind) localStorage.setItem("jamony_playbar_musician_ok", "1")
+    setPlayGuardOpen(false)
+    pendingPlayRef.current?.()
+    pendingPlayRef.current = null
+  }
+  // ===== 守卫完 =====
+
   // 暂停但记住曲目：同步停声，保留 current/进度/时长（09-27 欢哥：进房间暂停作品，
   // 离开房间后 PlayerBar 继续显示之前在听的内容，可续播。PlayerBar 在 /room 下由
   // pathname 挡住不渲染，房间内行为不变）
@@ -285,17 +320,49 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     () => ({
       current, isPlaying, repeatMode, playlist,
       currentTime, duration, volume, setVolume,
-      playTrack, togglePlay, pause, stop, playNext, playPrev, seekTo,
+      playTrack: guardedPlayTrack, togglePlay: guardedTogglePlay, pause, stop, playNext, playPrev, seekTo,
       setQueue, cycleRepeatMode, addToPlaylist, removeFromPlaylist,
     }),
     [
       current, isPlaying, repeatMode, playlist, currentTime, duration, volume,
-      playTrack, togglePlay, pause, stop, playNext, playPrev, seekTo,
+      guardedPlayTrack, guardedTogglePlay, pause, stop, playNext, playPrev, seekTo,
       cycleRepeatMode, addToPlaylist, removeFromPlaylist,
     ],
   )
 
-  return <PlayerContext.Provider value={value}>{children}</PlayerContext.Provider>
+  return (
+    <PlayerContext.Provider value={value}>
+      {children}
+      {/* 合奏者播放确认（守卫下沉后由 Provider 统一渲染，全站生效） */}
+      {playGuardOpen && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" onClick={() => { setPlayGuardOpen(false); pendingPlayRef.current = null }}>
+          <div className="w-full max-w-sm rounded-[10px] border p-6 text-center" style={{ borderColor: "#1A1A1A", background: "#0D0D0D" }} onClick={(e) => e.stopPropagation()}>
+            <div className="mx-auto grid size-12 place-items-center rounded-full" style={{ background: "rgba(255,184,77,0.15)" }}>
+              <AlertTriangle className="size-6" style={{ color: "#ffb84d" }} />
+            </div>
+            <h2 className="mt-4 text-lg font-semibold text-white">正在合奏中</h2>
+            <p className="mt-1 text-sm" style={{ color: "#8A8A8A" }}>
+              播放作品将与房间混音同时出声；若未戴耳机，作品声可能经麦克风传给房间成员。
+            </p>
+            <label className="mt-3 flex items-center justify-center gap-2 text-xs" style={{ color: "#8A8A8A" }}>
+              <input type="checkbox" checked={noRemind} onChange={(e) => setNoRemind(e.target.checked)} />
+              不再提示
+            </label>
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <button onClick={() => { setPlayGuardOpen(false); pendingPlayRef.current = null }}
+                className="rounded-[10px] px-4 py-2.5 text-sm font-medium" style={{ background: "#141414", color: "#B0B0B0" }}>
+                取消
+              </button>
+              <button onClick={confirmGuardedPlay}
+                className="rounded-[10px] px-4 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90" style={{ background: "#9933FF" }}>
+                播放
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </PlayerContext.Provider>
+  )
 }
 
 export function usePlayer() {

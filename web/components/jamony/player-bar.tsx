@@ -18,7 +18,7 @@ import { usePlayer, REPEAT_MODE_LABEL, type RepeatMode } from "@/components/jamo
 import { usePathname } from "next/navigation"
 import { formatCount } from "@/lib/jamony-data"
 import { useRoomSession } from "@/lib/room-session"
-import { AlertTriangle, Headphones } from "lucide-react"
+import { Headphones } from "lucide-react"
 
 function RepeatIcon({ mode }: { mode: RepeatMode }) {
   if (mode === "repeat-one") return <Repeat1 className="h-4 w-4" />
@@ -49,34 +49,8 @@ export function PlayerBar() {
   const [listOpen, setListOpen] = useState(false)
   const hasTrack = Boolean(current)
 
-  // ===== 10-07 房间音频竞权（漫游改造收尾）=====
+  // 10-07 竞权守卫已下沉 PlayerContext（全站播放入口统一拦截）；本组件仅保留"继续收听房间"胶囊
   const roomSession = useRoomSession()
-  const [playGuardOpen, setPlayGuardOpen] = useState(false)
-  const [noRemind, setNoRemind] = useState(false)
-  const pendingPlayRef = useRef<null | (() => void)>(null)
-
-  // 播放守卫：听众正在收听 → Icecast 自动让路；合奏者（jamsoul 音频在场）→ 一次确认可"不再提示"
-  const guardPlay = (action: () => void, isToggle = false) => {
-    if (isToggle && isPlaying) { action(); return }  // 暂停方向不拦
-    if (roomSession.listening != null) {
-      roomSession.pauseForPlayback()  // 收听让路（pausedPort 记住，"继续收听"胶囊可恢复）
-      action()
-      return
-    }
-    if (roomSession.session?.role === "musician" && localStorage.getItem("jamony_playbar_musician_ok") !== "1") {
-      pendingPlayRef.current = action
-      setPlayGuardOpen(true)
-      return
-    }
-    action()
-  }
-  const confirmGuardedPlay = () => {
-    if (noRemind) localStorage.setItem("jamony_playbar_musician_ok", "1")
-    setPlayGuardOpen(false)
-    pendingPlayRef.current?.()
-    pendingPlayRef.current = null
-  }
-  // ===== 竞权完 =====
 
   function formatTime(sec: number): string {
     const m = Math.floor(sec / 60)
@@ -143,37 +117,8 @@ export function PlayerBar() {
           style={{ borderColor: "#2A2A2A", color: "#BBEE00", background: "#0D0D0D" }}
         >
           <Headphones className="h-3.5 w-3.5" />
-          继续收听
+          继续收听房间
         </button>
-      )}
-
-      {/* 合奏者播放确认（作品声与房间混音叠加 + 麦克风串音风险） */}
-      {playGuardOpen && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" onClick={() => setPlayGuardOpen(false)}>
-          <div className="w-full max-w-sm rounded-[10px] border p-6 text-center" style={{ borderColor: "#1A1A1A", background: "#0D0D0D" }} onClick={(e) => e.stopPropagation()}>
-            <div className="mx-auto grid size-12 place-items-center rounded-full" style={{ background: "rgba(255,184,77,0.15)" }}>
-              <AlertTriangle className="size-6" style={{ color: "#ffb84d" }} />
-            </div>
-            <h2 className="mt-4 text-lg font-semibold text-white">正在合奏中</h2>
-            <p className="mt-1 text-sm" style={{ color: "#8A8A8A" }}>
-              播放作品将与房间混音同时出声；若未戴耳机，作品声可能经麦克风传给房间成员。
-            </p>
-            <label className="mt-3 flex items-center justify-center gap-2 text-xs" style={{ color: "#8A8A8A" }}>
-              <input type="checkbox" checked={noRemind} onChange={(e) => setNoRemind(e.target.checked)} />
-              不再提示
-            </label>
-            <div className="mt-5 grid grid-cols-2 gap-3">
-              <button onClick={() => { setPlayGuardOpen(false); pendingPlayRef.current = null }}
-                className="rounded-[10px] px-4 py-2.5 text-sm font-medium" style={{ background: "#141414", color: "#B0B0B0" }}>
-                取消
-              </button>
-              <button onClick={confirmGuardedPlay}
-                className="rounded-[10px] px-4 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90" style={{ background: "#9933FF" }}>
-                播放
-              </button>
-            </div>
-          </div>
-        </div>
       )}
 
       {/* 播放列表弹窗 */}
@@ -219,7 +164,7 @@ export function PlayerBar() {
                       className={`group flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-white/5 ${
                         active ? "bg-white/5" : ""
                       }`}
-                      onClick={() => guardPlay(() => playTrack(t))}
+                      onClick={() => playTrack(t)}
                     >
                       <div
                         className="h-10 w-10 shrink-0 rounded-md"
@@ -309,7 +254,7 @@ export function PlayerBar() {
             <button
               type="button"
               aria-label={isPlaying ? "暂停" : "播放"}
-              onClick={() => guardPlay(togglePlay, true)}
+              onClick={togglePlay}
               disabled={!hasTrack}
               className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-black transition-transform hover:scale-105 disabled:opacity-40 disabled:hover:scale-100"
             >
