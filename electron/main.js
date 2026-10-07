@@ -152,10 +152,13 @@ function createWindow() {
 }
 
 // jamony: 通过 stdin 给 jamsoul 发窗口跟随指令 (raise/move)
+// 10-07: writable 检查有竞态(子进程刚死管道未感知),write 的 EPIPE 同步路径也要兜住
 function sendToJamsoul(obj) {
-  if (jamsoulProcess && jamsoulProcess.stdin && jamsoulProcess.stdin.writable) {
-    jamsoulProcess.stdin.write(JSON.stringify(obj) + '\n')
-  }
+  try {
+    if (jamsoulProcess && jamsoulProcess.stdin && jamsoulProcess.stdin.writable) {
+      jamsoulProcess.stdin.write(JSON.stringify(obj) + '\n')
+    }
+  } catch (e) { /* jamsoul 已死,跟随指令丢弃 */ }
 }
 
 // 调起 jamsoul 子进程
@@ -186,6 +189,9 @@ function launchJamsoul(serverIp, port, nickname) {
       stdio: ['pipe', 'ignore', 'ignore'], // jamony: 开 stdin pipe 给 jamsoul 发窗口跟随指令
       env: jamonyEnv,
     })
+    // jamony 10-07: jamsoul 被杀后 stdin 管道写失败以异步 error 事件回来(EPIPE),
+    // 不挂监听=uncaught 'error' event→Electron 报错弹窗(欢哥朋友 Win 机实测);静默吞掉
+    child.stdin.on('error', (e) => { console.log('[jamony] jamsoul stdin 忽略写失败:', e.code) })
 
     // 启动存活确认（结果一次性，防 exit/timeout 双发）
     let launchSettled = false
