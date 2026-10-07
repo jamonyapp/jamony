@@ -131,9 +131,12 @@ export const CHAT_MESSAGES: ChatMessage[] = [
 ]
 
 // 房间投谱（10-07 魔盒 P1：图片集或 PDF；翻页纯本地各自看，不做房间级同步——欢哥定稿）
+// P2 加 gp：GP 谱广播渲染 + midUrl 给幽灵乐手（音频单源走 jamsoul，欢哥架构定稿）
 export type RoomScore = {
-  type: "images" | "pdf"
+  type: "images" | "pdf" | "gp"
   name: string
   files: string[]
   pushedBy?: number
+  midUrl?: string
+  tracks?: { name: string }[]
 }

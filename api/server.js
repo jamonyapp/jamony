@@ -42,11 +42,34 @@ const noticesDir = '/var/jamony/notices'
 try { if (!fs.existsSync(noticesDir)) fs.mkdirSync(noticesDir, { recursive: true }) } catch (e) { console.error('Notices dir error:', e) }
 const noticeImageUpload = multer({ dest: noticesDir, limits: { fileSize: 10 * 1024 * 1024 } })
 
-/* multer — 房间投谱上传（10-07 魔盒 P1：图片/PDF，排练物料，房间解散即清，不进作品库）
+/* multer — 房间投谱上传（10-07 魔盒 P1：图片/PDF；P2 加 GP 谱，排练物料，房间解散即清，不进作品库）
    按房间码分目录存，随机文件名保留后缀（sendFile 靠后缀出 Content-Type） */
 const scoresDir = '/var/jamony/scores'
 try { if (!fs.existsSync(scoresDir)) fs.mkdirSync(scoresDir, { recursive: true }) } catch (e) { console.error('Scores dir error:', e) }
-const SCORE_EXTS = ['.pdf', '.png', '.jpg', '.jpeg', '.webp']
+const SCORE_EXTS = ['.pdf', '.png', '.jpg', '.jpeg', '.webp', '.gp', '.gpx', '.gp3', '.gp4', '.gp5', '.musicxml', '.mxl', '.capx']
+const GP_EXTS = ['.gp', '.gpx', '.gp3', '.gp4', '.gp5']
+/* 需要服务端转 MIDI 的谱子格式（GP 全系 + MusicXML/Capella——古典乐手 Sibelius/MuseScore 习惯，欢哥 10-07 拍板放行）
+   musicxml/mxl 已真枪解析验证；capx 走 alphaTab 官方 Capella 解析器，坏文件返回明确报错 */
+const CONVERT_EXTS = [...GP_EXTS, '.musicxml', '.mxl', '.capx']
+
+/* alphaTab — GP 谱服务端转换（10-07 P2 步骤②前置：GP→MIDI 走 fluidsynth→幽灵乐手，音频单源=欢哥架构定稿）
+   ScoreLoader→MidiFileGenerator→toBinary 与 alphaTab 浏览器播放器同一条生成代码路径，时值无损 */
+const alphatab = require('@coderline/alphatab')
+
+// GP→MIDI：返回 { midPath, tracks } 或抛错（格式不支持/文件损坏）
+function gpToMidi(gpPath, midPath) {
+  const data = new Uint8Array(fs.readFileSync(gpPath))
+  const score = alphatab.importer.ScoreLoader.loadScoreFromBytes(data, null)
+  const midiFile = new alphatab.midi.MidiFile()
+  const handler = new alphatab.midi.AlphaSynthMidiFileHandler(midiFile, true)
+  const generator = new alphatab.midi.MidiFileGenerator(score, null, handler)
+  generator.generate()
+  fs.writeFileSync(midPath, Buffer.from(midiFile.toBinary()))
+  return {
+    midPath,
+    tracks: score.tracks.map(t => ({ name: String(t.name || '').slice(0, 40) })),
+  }
+}
 const scoreUpload = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => {
@@ -939,7 +962,22 @@ app.post('/api/rooms/:code/score/upload', requireAuth, scoreUpload.array('files'
       return res.status(403).json({ ok: false, msg: '仅合奏者可投谱' })
     }
     const files = (req.files).map(f => ({ url: `/api/rooms/${req.params.code}/score/files/${path.basename(f.path)}`, name: f.originalname }))
-    res.json({ ok: true, files })
+    // 谱子（GP/MusicXML/Capella）：当场转 MIDI（给幽灵乐手/fluidsynth 用）+ 提取分轨表（给前端分轨条）
+    let gp = null
+    const gpFile = req.files.find(f => CONVERT_EXTS.includes(path.extname(f.originalname || '').toLowerCase()))
+    if (gpFile) {
+      if (req.files.length > 1) return res.status(400).json({ ok: false, msg: '谱子文件请单独上传一份' })
+      try {
+        const midBasename = path.basename(gpFile.path).replace(/\.[^.]+$/, '') + '.mid'
+        const conv = gpToMidi(gpFile.path, path.join(path.dirname(gpFile.path), midBasename))
+        gp = { midUrl: `/api/rooms/${req.params.code}/score/files/${midBasename}`, tracks: conv.tracks }
+      } catch (err) {
+        console.error('GP convert error:', err.message)
+        try { fs.unlinkSync(gpFile.path) } catch (e) {}
+        return res.status(400).json({ ok: false, msg: '谱子解析失败（格式不支持或文件损坏）' })
+      }
+    }
+    res.json({ ok: true, files, gp })
   } catch (err) {
     console.error('Score upload error:', err)
     res.status(500).json({ ok: false, msg: '投谱上传失败' })
@@ -3370,7 +3408,18 @@ io.on("connection", (socket) => {
     const validFiles = (score && Array.isArray(score.files) ? score.files : [])
       .filter(f => typeof f === 'string' && f.startsWith(`/api/rooms/${roomId}/score/files/`))
     if (validFiles.length === 0) return
-    const safeScore = { type: score.type === 'pdf' ? 'pdf' : 'images', name: String(score.name || '').slice(0, 60), files: validFiles.slice(0, 30), pushedBy: socket.userId }
+    const validUrl = (u) => (typeof u === 'string' && u.startsWith(`/api/rooms/${roomId}/score/files/`)) ? u : undefined
+    const safeScore = {
+      type: ['pdf', 'images', 'gp'].includes(score.type) ? score.type : 'images',
+      name: String(score.name || '').slice(0, 60),
+      files: validFiles.slice(0, 30),
+      pushedBy: socket.userId,
+      // GP 附加物：MIDI 给幽灵乐手，tracks 给前端分轨条（10-07 P2）
+      midUrl: score.type === 'gp' ? validUrl(score.midUrl) : undefined,
+      tracks: score.type === 'gp' && Array.isArray(score.tracks)
+        ? score.tracks.filter(t => t && typeof t.name === 'string').slice(0, 16).map(t => ({ name: String(t.name).slice(0, 40) }))
+        : undefined,
+    }
     try { await pool.query('UPDATE rooms SET current_score = $1 WHERE room_code = $2', [JSON.stringify(safeScore), roomId]) }
     catch (e) { console.error('Score persist error:', e) }
     io.to(roomId).emit("score-update", { score: safeScore })

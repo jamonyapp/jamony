@@ -266,6 +266,9 @@ function ScoreViewer({ score, canClear, onClear }: { score: RoomScore; canClear?
   const zoomPct = Math.round(zoom * 100)
   const transformStyle = { transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }
 
+  // GP 谱走独立视图（alphaTab 渲染，自有滚动；不走图片缩放/翻页那套舞台）——须在全部 hooks 之后
+  if (score.type === "gp") return <GpScoreView score={score} canClear={canClear} onClear={onClear} />
+
   // 平移边界夹紧（10-07 欢哥实测：自由画布容易把谱面整个拖出视野）——内容始终盖住视口，到边即停
   // 注意 transform 的 scale 以元素中心为原点：放大时内容向两端生长，边界必须按"中心基准+平移"推导，
   // 长条页顶端对齐时 y 上界是 (ch-h)/2 而非 0（第一版公式把页首封死在界外——10-07 欢哥实测放大后边缘拖不回来）
@@ -1291,6 +1294,67 @@ function TrackRow({
           onCancel={() => setPending(null)}
         />
       )}
+    </div>
+  )
+}
+
+// GP 谱视图（10-07 P2 步骤①）：alphaTab 渲染到滚动区；音频由幽灵乐手经 jamsoul 广播，客户端零音源不出声
+function GpScoreView({ score, canClear, onClear }: { score: RoomScore; canClear?: boolean; onClear?: () => void }) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [err, setErr] = useState("")
+  const [loading, setLoading] = useState(true)
+  const url = score.files[0]
+
+  useEffect(() => {
+    let cancelled = false
+    let api: { destroy?: () => void } | null = null
+    ;(async () => {
+      try {
+        const at = await import("@coderline/alphatab")
+        const settings = new at.Settings()
+        settings.core.useWorkers = false          // V1 主线程渲染，免 webpack worker 配线（一次性渲染可接受）
+        settings.core.fontDirectory = "/alphatab-font/"
+        settings.player.enablePlayer = false      // 音频单源走幽灵乐手（欢哥架构定稿），不加载 soundfont
+        const res = await fetch(url)
+        if (!res.ok) throw new Error(`谱子文件加载失败(${res.status})`)
+        const buf = new Uint8Array(await res.arrayBuffer())
+        if (cancelled) return
+        const real = new at.AlphaTabApi(containerRef.current!, settings) as unknown as {
+          destroy?: () => void
+          load: (d: unknown, s?: () => void, e?: (x: Error) => void) => boolean
+          scoreLoaded?: { on: (cb: () => void) => void }
+          renderFinished?: { on: (cb: () => void) => void }
+        }
+        api = real
+        // 关加载指示器用事件（load 回调在 1.8.4 上不可靠，谱面已渲染但 success 未触发——10-07 欢哥实测）
+        real.scoreLoaded?.on?.(() => { if (!cancelled) setLoading(false) })
+        real.renderFinished?.on?.(() => { if (!cancelled) setLoading(false) })
+        real.load(buf, () => { if (!cancelled) setLoading(false) }, (e: Error) => { if (!cancelled) { setErr("谱子解析失败：" + e.message); setLoading(false) } })
+      } catch (e) {
+        if (!cancelled) { setErr((e as Error)?.message || "渲染失败"); setLoading(false) }
+      }
+    })()
+    return () => { cancelled = true; try { api?.destroy?.() } catch (e) { /* 卸载兜底 */ } }
+  }, [url])
+
+  return (
+    <div className="absolute inset-0 flex flex-col" style={{ background: "#0A0A0A" }}>
+      {/* 头部：谱名 + 轨数 + 收回 */}
+      <div className="flex shrink-0 items-center justify-between gap-2 px-3 py-1.5">
+        <span className="truncate text-xs font-semibold text-white">🎸 {score.name}</span>
+        <div className="flex shrink-0 items-center gap-2.5">
+          {!!score.tracks?.length && <span className="text-[11px] text-white/50">{score.tracks.length} 轨</span>}
+          {canClear && onClear && (
+            <button onClick={onClear} className="rounded-[6px] px-2 py-0.5 text-[11px] text-white/70 transition-colors hover:bg-white/10 hover:text-white">收回</button>
+          )}
+        </div>
+      </div>
+      {/* 谱面：白底滚动区（谱面可读性优先，纸上读谱） */}
+      <div className="relative min-h-0 flex-1">
+        {loading && !err && <p className="absolute inset-x-0 top-2 z-10 text-center text-[11px]" style={{ color: "#8A8A8A" }}>谱面渲染中…</p>}
+        {err && <p className="absolute inset-0 z-10 grid place-items-center bg-[#0A0A0A] px-6 text-center text-xs" style={{ color: "#FF5C5C" }}>{err}</p>}
+        <div ref={containerRef} className="h-full overflow-y-auto scrollbar-thin" style={{ background: "#fff" }} />
+      </div>
     </div>
   )
 }

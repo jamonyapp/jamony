@@ -203,7 +203,7 @@ export function LeftColumn({
                   {scoreModule === "images" ? (
                     <ScoreTool roomId={params?.code as string} currentScore={currentScore ?? null} onPushScore={onPushScore} onClearScore={onClearScore} />
                   ) : (
-                    <GpScorePlaceholder />
+                    <GpScoreTool roomId={params?.code as string} currentScore={currentScore ?? null} onPushScore={onPushScore} onClearScore={onClearScore} />
                   )}
                 </div>
               </div>
@@ -509,16 +509,99 @@ function ScoreTool({ roomId, currentScore, onPushScore, onClearScore }: {
   )
 }
 
-// 共享GP乐谱占位（P2：alphaTab 渲染 + 幽灵乐手音频链 + 服务器时钟走带同步，欢哥 10-07 定稿架构）
-function GpScorePlaceholder() {
+// 共享GP乐谱（10-07 P2 步骤①：上传→服务端转MIDI→广播→大屏 alphaTab 渲染；走带/放音是后续步骤）
+function GpScoreTool({ roomId, currentScore, onPushScore, onClearScore }: {
+  roomId?: string
+  currentScore: RoomScore | null
+  onPushScore: (score: RoomScore) => void
+  onClearScore: () => void
+}) {
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [picked, setPicked] = useState<File | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [error, setError] = useState("")
+  const isGpActive = currentScore?.type === "gp"
+
+  const handlePick = (e: import("react").ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0] || null
+    e.target.value = ""
+    setError("")
+    if (!f) return
+    if (!/\.(gp|gpx|gp[345]|musicxml|mxl|capx)$/i.test(f.name)) { setError("仅支持 GP(.gp/.gpx/.gp3~5)、MusicXML(.musicxml/.mxl)、Capella(.capx)"); return }
+    if (f.size > 20 * 1024 * 1024) { setError("文件超过 20MB 上限"); return }
+    setPicked(f)
+  }
+
+  const handlePush = async () => {
+    if (!roomId || !picked || uploading) return
+    setUploading(true)
+    setError("")
+    try {
+      const fd = new FormData()
+      fd.append("files", picked)
+      const res = await fetch(`/api/rooms/${roomId}/score/upload`, { method: "POST", body: fd })
+      const data = await res.json()
+      if (!data.ok) { setError(data.msg || "上传失败"); return }
+      if (!data.gp) { setError("上传的不是 GP 谱"); return }
+      onPushScore({
+        type: "gp",
+        name: picked.name.replace(/\.[^.]+$/, ""),
+        files: [data.files[0].url],
+        midUrl: data.gp.midUrl,
+        tracks: data.gp.tracks,
+      })
+      setPicked(null)
+    } catch {
+      setError("上传失败，请重试")
+    } finally {
+      setUploading(false)
+    }
+  }
+
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-2.5 py-6 text-center">
-      <span className="text-3xl">🎸</span>
-      <p className="text-xs font-medium text-white">共享 GP 乐谱</p>
-      <p className="px-2 text-[11px] leading-relaxed" style={{ color: "#8A8A8A" }}>
-        上传 Guitar Pro 谱子投至大屏，<br />全房同步走带、自动翻页，<br />各自看自己乐器的分轨
-      </p>
-      <span className="mt-1 rounded-full px-2.5 py-0.5 text-[10px]" style={{ background: "#141414", color: "#8A8A8A" }}>即将上线</span>
+    <div className="flex h-full flex-col gap-3 py-2">
+      {isGpActive ? (
+        <div className="rounded-[8px] border px-3 py-2.5" style={{ borderColor: "#2A2A2A", background: "#141414" }}>
+          <p className="truncate text-xs font-medium text-white">🎸 {currentScore!.name}</p>
+          <p className="mt-0.5 text-[11px]" style={{ color: "#8A8A8A" }}>
+            {(currentScore!.tracks?.length || 0)} 轨 · 大屏显示中{currentScore!.midUrl ? " · 走带就绪" : ""}
+          </p>
+          <button onClick={onClearScore}
+            className="mt-2 w-full rounded-[6px] border py-1.5 text-xs transition-colors hover:bg-white/5"
+            style={{ borderColor: "#2A2A2A", color: "#B0B0B0" }}>
+            收回大屏
+          </button>
+        </div>
+      ) : (
+        <p className="text-[11px] leading-relaxed" style={{ color: "#8A8A8A" }}>
+          上传 Guitar Pro / MusicXML 谱子投至大屏，全房同看一份谱。走带播放即将上线。
+        </p>
+      )}
+
+      <input ref={fileInputRef} type="file" accept=".gp,.gpx,.gp3,.gp4,.gp5,.musicxml,.mxl,.capx" hidden onChange={handlePick} />
+
+      <button onClick={() => fileInputRef.current?.click()} disabled={uploading}
+        className="flex w-full items-center justify-center gap-1.5 rounded-[6px] py-2 text-xs font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
+        style={{ background: "#222", color: "#DDD" }}>
+        <Upload className="h-3.5 w-3.5" />
+        {picked ? "重新选择" : "选择谱子文件"}
+      </button>
+
+      {picked && (
+        <>
+          <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin rounded-[8px] border px-2.5 py-2" style={{ borderColor: "#1A1A1A", background: "#141414" }}>
+            <p className="truncate text-[11px] text-white/80">{picked.name}</p>
+            <p className="mt-0.5 font-mono text-[11px]" style={{ color: "#666" }}>{(picked.size / 1024).toFixed(0)}K</p>
+          </div>
+          <button onClick={handlePush} disabled={uploading}
+            className="w-full rounded-[6px] py-2 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+            style={{ background: "#9933FF" }}>
+            {uploading ? "上传中…" : "共享乐谱"}
+          </button>
+        </>
+      )}
+
+      {error && <p className="text-[11px]" style={{ color: "#FF5C5C" }}>{error}</p>}
     </div>
   )
 }
