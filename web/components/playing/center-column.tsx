@@ -1,8 +1,8 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { Circle, Square, ChevronDown, Disc3, Headphones, ArrowRight, Download, Ban, Check, X, ChevronUp } from "lucide-react"
-import { instrumentEmoji, type RecordingSession, type Track } from "@/lib/jam-data"
+import { Circle, Square, ChevronDown, ChevronLeft, ChevronRight, Disc3, Headphones, ArrowRight, Download, Ban, Check, X, ChevronUp } from "lucide-react"
+import { instrumentEmoji, type RecordingSession, type Track, type RoomScore } from "@/lib/jam-data"
 import { MixerFullscreen } from "@/components/mixer/mixer-fullscreen"
 import { MixerMini } from "@/components/mixer/mixer-mini"
 import { useMixerEngine } from "@/hooks/useMixerEngine"
@@ -141,6 +141,8 @@ export function CenterColumn({
   realtimeRecordingBy,
   realtimeRecordingStartedAt,
   realtimeRecordingMax,
+  score,
+  onClearScore,
 }: {
   chords: string[]
   customTheme?: string
@@ -155,6 +157,8 @@ export function CenterColumn({
   realtimeRecordingBy?: number | null
   realtimeRecordingStartedAt?: string | null
   realtimeRecordingMax?: number | null
+  score?: RoomScore | null
+  onClearScore?: () => void
 }) {
   const [todayTheme, setTodayTheme] = useState({ title: "加载中...", emoji: "🎵" })
   useEffect(() => {
@@ -166,31 +170,45 @@ export function CenterColumn({
 
   const isListener = myRole === "listener"
 
+  // 录音抽屉（欢哥 10-07 定稿）：谱子投屏 → 自动收起，整块中间区让给谱面；收回谱子 → 自动展开。
+  // 各客户端独立开合，标题栏常驻——看谱期间录音/计时不受影响
+  const [drawerOpen, setDrawerOpen] = useState(true)
+  useEffect(() => { setDrawerOpen(score == null) }, [score])
+
   return (
     <main className="flex h-full flex-col gap-4 p-4">
-      {/* 合奏大屏 */}
-      <section className="relative aspect-video w-full shrink-0 overflow-hidden rounded-[10px] border" style={{ borderColor: "#1A1A1A" }}>
-        <img src="/images/stage-backdrop.png" alt="" aria-hidden className="absolute inset-0 size-full object-cover" />
-        <div className="absolute inset-0 bg-black/65" />
-        <div className="absolute inset-0 opacity-50" style={{ background: "radial-gradient(60% 50% at 50% 40%, rgba(153,51,255,0.35), transparent 70%)" }} />
-        <div className="relative flex h-full flex-col items-center justify-center gap-5 px-6 py-6 text-center">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.1em] text-white/50">本房间主题</p>
-            <p className="mt-2 text-2xl font-bold text-white sm:text-3xl lg:text-4xl">
-              {customTheme && customTheme.length > 0 ? customTheme : `${todayTheme.emoji} ${todayTheme.title}`}
-            </p>
-          </div>
-          {chords.length > 0 && (
-            <div className="w-full">
-              <p className="text-center text-xs font-bold uppercase tracking-[0.1em] text-white/50">和弦进程</p>
-              <div className="mt-3"><ChordBoard chords={chords} /></div>
+      {/* 合奏大屏 —— 有谱子时整块让给谱面并撑满中间区（后推覆盖，收回还原；缩放/翻页各自本地，欢哥 10-07 定稿） */}
+      <section
+        className={`relative w-full overflow-hidden rounded-[10px] border ${score ? "min-h-0 flex-1" : "aspect-video shrink-0"}`}
+        style={{ borderColor: "#1A1A1A" }}
+      >
+        {score ? (
+          <ScoreViewer score={score} canClear={myRole !== "listener"} onClear={onClearScore} />
+        ) : (
+          <>
+            <img src="/images/stage-backdrop.png" alt="" aria-hidden className="absolute inset-0 size-full object-cover" />
+            <div className="absolute inset-0 bg-black/65" />
+            <div className="absolute inset-0 opacity-50" style={{ background: "radial-gradient(60% 50% at 50% 40%, rgba(153,51,255,0.35), transparent 70%)" }} />
+            <div className="relative flex h-full flex-col items-center justify-center gap-5 px-6 py-6 text-center">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.1em] text-white/50">本房间主题</p>
+                <p className="mt-2 text-2xl font-bold text-white sm:text-3xl lg:text-4xl">
+                  {customTheme && customTheme.length > 0 ? customTheme : `${todayTheme.emoji} ${todayTheme.title}`}
+                </p>
+              </div>
+              {chords.length > 0 && (
+                <div className="w-full">
+                  <p className="text-center text-xs font-bold uppercase tracking-[0.1em] text-white/50">和弦进程</p>
+                  <div className="mt-3"><ChordBoard chords={chords} /></div>
+                </div>
+              )}
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.1em] text-white/50">BPM</p>
+                <p className="mt-1 text-xl font-bold text-white lg:text-2xl">{currentBpm && currentBpm > 0 ? currentBpm : "custom"}</p>
+              </div>
             </div>
-          )}
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.1em] text-white/50">BPM</p>
-            <p className="mt-1 text-xl font-bold text-white lg:text-2xl">{currentBpm && currentBpm > 0 ? currentBpm : "custom"}</p>
-          </div>
-        </div>
+          </>
+        )}
         <div className="absolute inset-x-0 bottom-0 h-0.5" style={{ background: "linear-gradient(90deg, #00AAFF, #9933FF, #FF33AA, #BBEE00)" }} />
       </section>
 
@@ -206,9 +224,256 @@ export function CenterColumn({
           realtimeRecordingBy={realtimeRecordingBy}
           realtimeRecordingStartedAt={realtimeRecordingStartedAt}
           realtimeRecordingMax={realtimeRecordingMax}
+          drawerOpen={drawerOpen}
+          onToggleDrawer={() => setDrawerOpen((o) => !o)}
         />
       )}
     </main>
+  )
+}
+
+// 谱面查看器：图片=各自本地翻页+缩放+拖拽（零同步，欢哥 10-07 定稿），PDF=Chromium 原生查看器自带全套
+function ScoreViewer({ score, canClear, onClear }: { score: RoomScore; canClear?: boolean; onClear?: () => void }) {
+  const [page, setPage] = useState(0)
+  const [zoom, setZoom] = useState(1)
+  const [pdfPages, setPdfPages] = useState(0)  // PDF 加载后才知道总页数（pdf.js 画布渲染，不依赖 Electron PDF 插件）
+  const [contentTaller, setContentTaller] = useState(false)  // 长条谱页适宽后高过舞台 → 顶端对齐从页首看起
+  const [pan, setPan] = useState({ x: 0, y: 0 })
+  const dragRef = useRef<{ sx: number; sy: number; ox: number; oy: number } | null>(null)
+  const stageRef = useRef<HTMLDivElement>(null)
+  const filesKey = score.files.join("|")
+  // 换谱子（同房间推了新谱）页码/缩放归零；自己的翻页缩放在谱子不变期间保留
+  useEffect(() => { setPage(0); setZoom(1); setPan({ x: 0, y: 0 }) }, [filesKey])
+  // 换页复位缩放（新页从 100% 看起）
+  useEffect(() => { setZoom(1); setPan({ x: 0, y: 0 }) }, [page])
+  // 缩放回 1 时平移清零
+  useEffect(() => { if (zoom === 1) setPan({ x: 0, y: 0 }) }, [zoom])
+
+  // 滚轮缩放（non-passive 才能 preventDefault 拦截页面滚动）
+  useEffect(() => {
+    const el = stageRef.current
+    if (!el) return
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      setZoom(z => Math.min(5, Math.max(1, +(z * (e.deltaY < 0 ? 1.15 : 1 / 1.15)).toFixed(3))))
+    }
+    el.addEventListener("wheel", onWheel, { passive: false })
+    return () => el.removeEventListener("wheel", onWheel)
+  }, [])
+
+  const isPdf = score.type === "pdf"
+  const total = isPdf ? pdfPages : score.files.length
+  const zoomPct = Math.round(zoom * 100)
+  const transformStyle = { transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }
+
+  // 平移边界夹紧（10-07 欢哥实测：自由画布容易把谱面整个拖出视野）——内容始终盖住视口，到边即停
+  // 注意 transform 的 scale 以元素中心为原点：放大时内容向两端生长，边界必须按"中心基准+平移"推导，
+  // 长条页顶端对齐时 y 上界是 (ch-h)/2 而非 0（第一版公式把页首封死在界外——10-07 欢哥实测放大后边缘拖不回来）
+  const clampPan = (p: { x: number; y: number }, z: number) => {
+    const stage = stageRef.current
+    const el = stage?.querySelector(isPdf ? "canvas" : "img") as HTMLElement | null
+    if (!stage || !el) return p
+    const vw = stage.clientWidth, vh = stage.clientHeight
+    const w = el.offsetWidth, h = el.offsetHeight
+    const cw = w * z, ch = h * z
+    // x：水平居中基准，内容窄于视口则锁 0
+    const x = cw <= vw ? 0 : Math.min((cw - vw) / 2, Math.max((vw - cw) / 2, p.x))
+    // y：长条 PDF 顶端对齐（顶端基准：上界 (ch-h)/2、下界 vh-(ch+h)/2），其余居中基准对称夹
+    const y = contentTaller
+      ? Math.min((ch - h) / 2, Math.max(vh - (ch + h) / 2, p.y))
+      : ch <= vh ? 0 : Math.min((ch - vh) / 2, Math.max((vh - ch) / 2, p.y))
+    return { x, y }
+  }
+  // 缩放/翻页/对齐方式变化后，把已有平移重新夹回界内
+  useEffect(() => { setPan(p => clampPan(p, zoom)) }, [zoom, contentTaller, page])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div className="absolute inset-0 flex flex-col" style={{ background: "#0A0A0A" }}>
+      {/* 头部：谱名 + 页码 + 收回 */}
+      <div className="flex shrink-0 items-center justify-between gap-2 px-3 py-1.5">
+        <span className="truncate text-xs font-semibold text-white">📄 {score.name}</span>
+        <div className="flex shrink-0 items-center gap-2.5">
+          {!isPdf && total > 1 && <span className="font-mono text-[11px] text-white/50">{page + 1} / {total}</span>}
+          {canClear && onClear && (
+            <button
+              onClick={onClear}
+              className="rounded-[6px] px-2 py-0.5 text-[11px] text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+            >
+              收回
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* 谱面主体：图片与 PDF 共用同一舞台（pdf.js 画布渲染——Electron iframe PDF 插件不可靠，10-07 实测灰屏） */}
+      <div
+        ref={stageRef}
+        className={`relative flex min-h-0 flex-1 justify-center overflow-hidden px-2 pb-3 ${isPdf && contentTaller ? "items-start" : "items-center"}`}
+        style={{ cursor: zoom > 1 || (isPdf && contentTaller) ? (dragRef.current ? "grabbing" : "grab") : "default" }}
+        onPointerDown={(e) => {
+          if ((e.target as HTMLElement).closest("button")) return  // 按钮点击放行——不吞 click（10-07 欢哥实测 -/+ 失灵根因：指针捕获抢走了 click）
+          if (zoom === 1 && !(isPdf && contentTaller)) return
+          dragRef.current = { sx: e.clientX, sy: e.clientY, ox: pan.x, oy: pan.y }
+          ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+        }}
+        onPointerMove={(e) => {
+          const d = dragRef.current
+          if (!d) return
+          setPan(clampPan({ x: d.ox + (e.clientX - d.sx), y: d.oy + (e.clientY - d.sy) }, zoom))
+        }}
+        onPointerUp={() => { dragRef.current = null }}
+        onPointerCancel={() => { dragRef.current = null }}
+        onDoubleClick={(e) => {
+          if ((e.target as HTMLElement).closest("button")) return  // 连点+/−会被判定为双击→误触发复位（10-07 欢哥实测缩放"到头"假象）
+          setZoom(1); setPan({ x: 0, y: 0 })
+        }}
+      >
+        {isPdf ? (
+          <PdfCanvas url={score.files[0]} pageNo={page + 1} onPages={setPdfPages} onTaller={setContentTaller} style={transformStyle} />
+        ) : (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            src={score.files[page]}
+            alt={`${score.name} 第 ${page + 1} 页`}
+            className="max-h-full max-w-full select-none rounded-[4px] object-contain shadow-lg"
+            style={transformStyle}
+            draggable={false}
+          />
+        )}
+        {total > 1 && (
+          <>
+            <button
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              disabled={page === 0}
+              aria-label="上一页"
+              className="absolute left-1 top-1/2 z-10 grid size-8 -translate-y-1/2 place-items-center rounded-full bg-black/60 text-white transition-opacity hover:bg-black/80 disabled:opacity-0"
+            >
+              <ChevronLeft className="size-5" />
+            </button>
+            <button
+              onClick={() => setPage((p) => Math.min(total - 1, p + 1))}
+              disabled={page === total - 1}
+              aria-label="下一页"
+              className="absolute right-1 top-1/2 z-10 grid size-8 -translate-y-1/2 place-items-center rounded-full bg-black/60 text-white transition-opacity hover:bg-black/80 disabled:opacity-0"
+            >
+              <ChevronRight className="size-5" />
+            </button>
+          </>
+        )}
+        {/* 缩放控制（右下角悬浮） */}
+        <div className="absolute bottom-2 right-2 z-10 flex items-center gap-0.5 rounded-full bg-black/70 px-1 py-0.5">
+          <button
+            onClick={() => setZoom(z => Math.max(1, +(z / 1.25).toFixed(3)))}
+            disabled={zoom <= 1}
+            aria-label="缩小"
+            className="grid size-6 place-items-center rounded-full text-white/80 transition-colors hover:bg-white/15 hover:text-white disabled:opacity-30"
+          >
+            −
+          </button>
+          <button
+            onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }) }}
+            title="双击谱面也可复位"
+            className="min-w-[38px] px-1 text-center font-mono text-[11px] text-white/80 transition-colors hover:text-white"
+          >
+            {zoomPct}%
+          </button>
+          <button
+            onClick={() => setZoom(z => Math.min(5, +(z * 1.25).toFixed(3)))}
+            disabled={zoom >= 5}
+            aria-label="放大"
+            className="grid size-6 place-items-center rounded-full text-white/80 transition-colors hover:bg-white/15 hover:text-white disabled:opacity-30"
+          >
+            +
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// PDF 画布渲染器：pdf.js 动态加载（懒加载不进主包），同 URL 文档缓存，按页渲染 2 倍采样（放大仍清晰）
+function PdfCanvas({ url, pageNo, onPages, onTaller, style }: {
+  url: string
+  pageNo: number
+  onPages: (n: number) => void
+  onTaller?: (taller: boolean) => void
+  style?: React.CSSProperties
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const docRef = useRef<{ url: string; doc: import("pdfjs-dist").PDFDocumentProxy | null } | null>(null)
+  const [rendering, setRendering] = useState(true)
+  const [err, setErr] = useState(false)
+  const [errMsg, setErrMsg] = useState("")
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      setRendering(true)
+      setErr(false)
+      try {
+        const pdfjs = await import("pdfjs-dist")
+        pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs"
+        let entry = docRef.current
+        if (!entry || entry.url !== url || !entry.doc) {
+          // standardFontDataUrl/cMapUrl：谱子 PDF 常不内嵌字体，不配标准字体数据包升号/降号画豆腐块（10-07 欢哥实测）
+          // disableFontFace：字形走矢量路径直绘，绕开 Chromium OTS 对子集字体（GPBravura 等）的拒收（10-07 欢哥实测升记号豆腐块）
+          const doc = await pdfjs.getDocument({
+            url,
+            standardFontDataUrl: "/pdf-standard-fonts/",
+            cMapUrl: "/pdf-cmaps/",
+            cMapPacked: true,
+            disableFontFace: true,
+          }).promise
+          if (cancelled) return
+          docRef.current = { url, doc }
+          entry = docRef.current
+          onPages(doc.numPages)
+        }
+        const page = await entry.doc!.getPage(pageNo)
+        if (cancelled) return
+        const canvas = canvasRef.current
+        const parent = canvas?.parentElement
+        // 显示尺寸自己算（显式 CSS 宽高 + max-h 类在 CSS 约束表里会打架，长页被纵向压扁——10-07 实测变形根因）
+        const availW = Math.max(100, (parent?.clientWidth || 800) - 16)   // 减 px-2 左右内边距
+        const availH = Math.max(100, (parent?.clientHeight || 600) - 12)  // 减 pb-3 下内边距
+        const base = page.getViewport({ scale: 1 })
+        const displayW = availW                       // 适宽：字保持可读大小
+        const displayH = displayW * base.height / base.width
+        onTaller?.(displayH > availH + 4)             // 长条页：舞台切顶端对齐，从页首看起
+        // 采样 2 倍保证放大清晰；像素帽防超 Chromium 画布上限（16384/边，595x5814 十倍长页裸奔必爆）
+        const MAX_SIDE = 16000, MAX_PIXELS = 16e6
+        let scale = (displayW / base.width) * 2
+        scale = Math.min(scale, MAX_SIDE / base.width, MAX_SIDE / base.height, Math.sqrt(MAX_PIXELS / (base.width * base.height)))
+        const viewport = page.getViewport({ scale })
+        canvas!.width = Math.round(viewport.width)
+        canvas!.height = Math.round(viewport.height)
+        canvas!.style.width = `${displayW}px`
+        canvas!.style.height = `${displayH}px`
+        await page.render({ canvasContext: canvas!.getContext("2d")!, viewport }).promise
+      } catch (e) {
+        if (!cancelled) { setErr(true); setErrMsg((e as Error)?.message || String(e)) }
+        console.error("PDF render error:", e)
+      } finally {
+        if (!cancelled) setRendering(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [url, pageNo])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (err) return (
+    <div className="max-w-[80%] text-center">
+      <p className="text-xs" style={{ color: "#FF5C5C" }}>PDF 渲染失败</p>
+      <p className="mt-1 break-all text-[10px]" style={{ color: "#8A8A8A" }}>{errMsg || "未知错误"}</p>
+    </div>
+  )
+
+  return (
+    <>
+      {rendering && (
+        <span className="absolute bottom-12 right-3 z-20 text-[10px]" style={{ color: "#8A8A8A" }}>渲染中…</span>
+      )}
+      <canvas ref={canvasRef} className="rounded-[4px] shadow-lg" style={{ ...style, background: "#fff" }} />
+    </>
   )
 }
 
@@ -266,6 +531,8 @@ function RecordingPanel({
   realtimeRecordingBy,
   realtimeRecordingStartedAt,
   realtimeRecordingMax,
+  drawerOpen,
+  onToggleDrawer,
 }: {
   roomId?: string
   currentUserId?: number
@@ -276,6 +543,8 @@ function RecordingPanel({
   realtimeRecordingBy?: number | null
   realtimeRecordingStartedAt?: string | null
   realtimeRecordingMax?: number | null
+  drawerOpen?: boolean
+  onToggleDrawer?: () => void
 }) {
   const [sessions, setSessions] = useState<RecordingSession[]>([])
   const [expanded, setExpanded] = useState<number | null>(null)
@@ -408,19 +677,19 @@ function RecordingPanel({
   }
 
   return (<>
-    <section className="flex min-h-0 flex-1 flex-col rounded-[10px] border border-border bg-card">
-      {/* 录音控制栏（极简版 ~28px，欢哥 0923：再收一半） */}
+    <section className={`flex min-h-0 flex-col rounded-[10px] border border-border bg-card ${drawerOpen ? "flex-1" : "shrink-0"}`}>
+      {/* 录音控制栏 = 抽屉标题栏（极简版 ~28px，欢哥 0923 再收一半；10-07 抽屉化：谱子投屏时只留标题栏，录音/计时不中断） */}
       <div className="flex shrink-0 items-center justify-between gap-4 border-b border-border px-4 py-1.5">
-        <div className="flex flex-col gap-0.5">
+        <div className="flex min-w-0 flex-col gap-0.5">
           <div className="flex items-center gap-2 text-xs font-semibold">
-            <Disc3 className="size-3.5 text-brand-pink" />
-            本房间录音
-            <span className="text-[11px] font-normal text-muted-foreground">每段最长 5 分钟</span>
+            <Disc3 className="size-3.5 shrink-0 text-brand-pink" />
+            <span className="truncate">本房间录音</span>
+            <span className="hidden shrink-0 text-[11px] font-normal text-muted-foreground sm:inline">每段最长 5 分钟</span>
             {sessions.length > 0 && (
-              <span className="text-[11px] font-normal text-muted-foreground">已录 {sessions.length} 段</span>
+              <span className="shrink-0 text-[11px] font-normal text-muted-foreground">已录 {sessions.length} 段</span>
             )}
           </div>
-          <p className="pl-[22px] text-[11px] font-normal leading-tight text-muted-foreground">录音将在房间解散后清除，请及时发表或下载</p>
+          {drawerOpen && <p className="pl-[22px] text-[11px] font-normal leading-tight text-muted-foreground">录音将在房间解散后清除，请及时发表或下载</p>}
         </div>
 
         <div className="flex items-center gap-2.5">
@@ -442,32 +711,50 @@ function RecordingPanel({
             {recording ? <Square className="size-3 fill-current" /> : <Circle className="size-3 fill-current" />}
             {stopping ? "停止中…" : recording ? (recordingMine ? "停止" : "录音中") : "录音"}
           </button>
+          {onToggleDrawer && (
+            <button
+              onClick={onToggleDrawer}
+              aria-label={drawerOpen ? "收起录音列表" : "展开录音列表"}
+              title={drawerOpen ? "收起录音列表" : "展开录音列表"}
+              className="grid size-6 place-items-center rounded-[6px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <ChevronDown className={`size-4 transition-transform duration-300 ${drawerOpen ? "" : "rotate-180"}`} />
+            </button>
+          )}
         </div>
       </div>
 
-      {/* 录音记录 —— 可滚动 */}
-      <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin p-4">
-        {sessions.length === 0 ? (
-          <div className="grid h-full place-items-center text-sm text-muted-foreground">大家还没有录音</div>
-        ) : (
-          <div className="flex flex-col gap-1.5">
-            {sessions.map((s) => (
-              <SessionCard
-                key={s.id}
-                session={s}
-                open={expanded === s.id}
-                now={now}
-                roomId={roomId}
-                roomName={roomName}
-                roomStyle={roomStyle}
-                currentUserId={currentUserId}
-                onToggle={() => setExpanded((e) => (e === s.id ? null : s.id))}
-                onPatch={patchTrack}
-                onPreview={() => { setMixerSessionId(s.id); setMixerMinimized(false) }}
-              />
-            ))}
+      {/* 抽屉体：grid-template-rows 1fr↔0fr 动画收放（Chromium 原生支持过渡，向下收回只留标题栏） */}
+      <div
+        className="grid min-h-0 flex-1 transition-[grid-template-rows] duration-300 ease-in-out"
+        style={{ gridTemplateRows: drawerOpen ? "1fr" : "0fr" }}
+      >
+        <div className="min-h-0 overflow-hidden">
+          {/* 录音记录 —— 可滚动 */}
+          <div className="h-full overflow-y-auto scrollbar-thin p-4">
+            {sessions.length === 0 ? (
+              <div className="grid h-full place-items-center text-sm text-muted-foreground">大家还没有录音</div>
+            ) : (
+              <div className="flex flex-col gap-1.5">
+                {sessions.map((s) => (
+                  <SessionCard
+                    key={s.id}
+                    session={s}
+                    open={expanded === s.id}
+                    now={now}
+                    roomId={roomId}
+                    roomName={roomName}
+                    roomStyle={roomStyle}
+                    currentUserId={currentUserId}
+                    onToggle={() => setExpanded((e) => (e === s.id ? null : s.id))}
+                    onPatch={patchTrack}
+                    onPreview={() => { setMixerSessionId(s.id); setMixerMinimized(false) }}
+                  />
+                ))}
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
     </section>
 

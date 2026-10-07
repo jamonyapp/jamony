@@ -1,19 +1,22 @@
 "use client"
 
-import { Fragment, useEffect, useState } from "react"
+import { Fragment, useEffect, useRef, useState } from "react"
 import { LevelMeter } from "@/components/playing/level-meter"
 import { FilterSelect } from "@/components/jamony/filter-select"
 import { useParams } from "next/navigation"
-import { Sparkles, PowerOff, Plug, Headphones, Play, Square } from "lucide-react"
+import { Sparkles, PowerOff, Plug, Headphones, Play, Square, Upload } from "lucide-react"
 import {
   DAILY_THEME,
   CHORD_STYLES,
   PHRASE_COUNTS,
   CHORD_POOLS,
   generateProgression,
+  type RoomScore,
 } from "@/lib/jam-data"
 
-type Tool = "chords" | "drums"
+type Tool = "chords" | "drums" | "score"
+// 乐谱共享两个模块：投屏图片（静态各自看）/ 共享GP乐谱（全房同步走带，P2）
+type ScoreModule = "images" | "gp"
 
 export function LeftColumn({
   onPushChord,
@@ -30,6 +33,9 @@ export function LeftColumn({
   onDisconnect,
   onReconnect,
   onLeaveRoom,
+  currentScore,
+  onPushScore,
+  onClearScore,
 }: {
   onPushChord: (chords: string[], style: string) => void
   onPushTheme: (theme: string) => void
@@ -45,8 +51,12 @@ export function LeftColumn({
   onDisconnect: () => void
   onReconnect: () => void
   onLeaveRoom: () => void
+  currentScore?: RoomScore | null
+  onPushScore: (score: RoomScore) => void
+  onClearScore: () => void
 }) {
   const [tool, setTool] = useState<Tool>("drums")  // 默认鼓机（使用概率高于灵感进程，欢哥 2026-09-23 定）
+  const [scoreModule, setScoreModule] = useState<ScoreModule>("images")
   const [style, setStyle] = useState<string>(CHORD_STYLES[0])
   const [phrases, setPhrases] = useState<number>(2)
   const [chordText, setChordText] = useState("")
@@ -138,7 +148,7 @@ export function LeftColumn({
           <label className="mt-3 flex flex-col gap-1">
             <span className="text-xs" style={{ color: "#8A8A8A" }}>选择工具</span>
             <FilterSelect variant="field" label="选择工具" value={tool} onChange={(v) => setTool(v as Tool)}
-              options={[{ value: "drums", label: "🥁 鼓机" }, { value: "chords", label: "💡 灵感进程" }]} />
+              options={[{ value: "drums", label: "🥁 鼓机" }, { value: "score", label: "📄 乐谱共享" }, { value: "chords", label: "💡 灵感进程" }]} />
           </label>
 
           <div className="mt-4 flex-1">
@@ -175,6 +185,26 @@ export function LeftColumn({
                     style={{ background: "#9933FF" }}>
                     推至大屏
                   </button>
+                </div>
+              </div>
+            ) : tool === "score" ? (
+              <div className="flex h-full flex-col">
+                {/* 乐谱共享=一个工具两个模块（欢哥 10-07 架构定稿）：投屏图片=静态各自看；共享GP=全房同步走带 */}
+                <div className="grid shrink-0 grid-cols-2 gap-1 rounded-[8px] p-1" style={{ background: "#141414" }}>
+                  {([["images", "投屏图片"], ["gp", "共享GP乐谱"]] as const).map(([k, label]) => (
+                    <button key={k} onClick={() => setScoreModule(k)}
+                      className={`rounded-[6px] py-1.5 text-xs font-medium transition-colors ${scoreModule === k ? "text-white" : "hover:text-white/70"}`}
+                      style={scoreModule === k ? { background: "#2A2A2A" } : { color: "#8A8A8A" }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div className="min-h-0 flex-1">
+                  {scoreModule === "images" ? (
+                    <ScoreTool roomId={params?.code as string} currentScore={currentScore ?? null} onPushScore={onPushScore} onClearScore={onClearScore} />
+                  ) : (
+                    <GpScorePlaceholder />
+                  )}
                 </div>
               </div>
             ) : (
@@ -364,4 +394,131 @@ function DrumMachineTool({ roomId, realtimeBpm }: { roomId?: string; realtimeBpm
     </div>
   )
 
+}
+
+// 投谱工具（10-07 魔盒 P1）：选图片（可多张，按文件名排序成页）或单个 PDF → 上传 → 推至大屏
+// 翻页是各自客户端的本地行为，不做房间级同步——欢哥定稿：大家看一眼熟悉，就开 jam
+function ScoreTool({ roomId, currentScore, onPushScore, onClearScore }: {
+  roomId?: string
+  currentScore: RoomScore | null
+  onPushScore: (score: RoomScore) => void
+  onClearScore: () => void
+}) {
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [picked, setPicked] = useState<File[]>([])
+  const [uploading, setUploading] = useState(false)
+  const [error, setError] = useState("")
+
+  const isPdf = picked.length === 1 && picked[0].name.toLowerCase().endsWith(".pdf")
+
+  const handlePick = (e: import("react").ChangeEvent<HTMLInputElement>) => {
+    const list = Array.from(e.target.files || [])
+    e.target.value = ""  // 允许重新选同一批文件
+    setError("")
+    if (list.length === 0) return
+    if (list.length > 30) { setError("一次最多 30 个文件"); return }
+    const extOk = (f: File) => /\.(pdf|png|jpe?g|webp)$/i.test(f.name)
+    const oversize = list.find(f => f.size > 20 * 1024 * 1024)
+    if (oversize) { setError(`「${oversize.name}」超过 20MB 上限`); return }
+    if (list.some(f => !extOk(f))) { setError("仅支持 PDF / PNG / JPG / WEBP"); return }
+    const pdfs = list.filter(f => /\.pdf$/i.test(f.name))
+    if (pdfs.length > 0) {
+      if (list.length > 1) { setError("PDF 请单独投一份"); return }
+    } else {
+      // 图片按文件名自然排序定页序
+      list.sort((a, b) => a.name.localeCompare(b.name, "zh-Hans-CN", { numeric: true }))
+    }
+    setPicked(list)
+  }
+
+  const handlePush = async () => {
+    if (!roomId || picked.length === 0 || uploading) return
+    setUploading(true)
+    setError("")
+    try {
+      const fd = new FormData()
+      picked.forEach(f => fd.append("files", f))
+      const res = await fetch(`/api/rooms/${roomId}/score/upload`, { method: "POST", body: fd })
+      const data = await res.json()
+      if (!data.ok) { setError(data.msg || "上传失败"); return }
+      const urls: string[] = data.files.map((f: { url: string }) => f.url)
+      const baseName = picked[0].name.replace(/\.[^.]+$/, "")
+      onPushScore({
+        type: isPdf ? "pdf" : "images",
+        name: urls.length > 1 ? `${baseName} 等 ${urls.length} 页` : baseName,
+        files: urls,
+      })
+      setPicked([])
+    } catch {
+      setError("上传失败，请重试")
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  return (
+    <div className="flex h-full flex-col gap-3 py-2">
+      {/* 当前大屏 */}
+      {currentScore ? (
+        <div className="rounded-[8px] border px-3 py-2.5" style={{ borderColor: "#2A2A2A", background: "#141414" }}>
+          <p className="truncate text-xs font-medium text-white">📄 {currentScore.name}</p>
+          <p className="mt-0.5 text-[11px]" style={{ color: "#8A8A8A" }}>
+            {currentScore.type === "pdf" ? "PDF · 大屏显示中" : `${currentScore.files.length} 页 · 大屏显示中`}
+          </p>
+          <button onClick={onClearScore}
+            className="mt-2 w-full rounded-[6px] border py-1.5 text-xs transition-colors hover:bg-white/5"
+            style={{ borderColor: "#2A2A2A", color: "#B0B0B0" }}>
+            收回大屏
+          </button>
+        </div>
+      ) : (
+        <p className="text-[11px] leading-relaxed" style={{ color: "#8A8A8A" }}>
+          把谱子（图片 / PDF）投到大屏，大家各自翻看、熟悉了就开 jam。房间解散后谱子自动清除。
+        </p>
+      )}
+
+      <input ref={fileInputRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" multiple hidden onChange={handlePick} />
+
+      <button onClick={() => fileInputRef.current?.click()} disabled={uploading}
+        className="flex w-full items-center justify-center gap-1.5 rounded-[6px] py-2 text-xs font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
+        style={{ background: "#222", color: "#DDD" }}>
+        <Upload className="h-3.5 w-3.5" />
+        {picked.length > 0 ? "重新选择" : "选择图片或 PDF"}
+      </button>
+
+      {picked.length > 0 && (
+        <>
+          <ul className="min-h-0 flex-1 overflow-y-auto scrollbar-thin rounded-[8px] border px-2.5 py-2" style={{ borderColor: "#1A1A1A", background: "#141414" }}>
+            {picked.map((f, i) => (
+              <li key={`${f.name}-${i}`} className="flex items-center justify-between gap-2 py-0.5 text-[11px]">
+                <span className="truncate text-white/80">{isPdf ? "" : `${i + 1}. `}{f.name}</span>
+                <span className="shrink-0 font-mono" style={{ color: "#666" }}>{f.size > 1048576 ? `${(f.size / 1048576).toFixed(1)}M` : `${Math.max(1, Math.round(f.size / 1024))}K`}</span>
+              </li>
+            ))}
+          </ul>
+          <button onClick={handlePush} disabled={uploading}
+            className="w-full rounded-[6px] py-2 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+            style={{ background: "#9933FF" }}>
+            {uploading ? "上传中…" : `共享乐谱${isPdf ? "" : `（${picked.length} 页）`}`}
+          </button>
+        </>
+      )}
+
+      {error && <p className="text-[11px]" style={{ color: "#FF5C5C" }}>{error}</p>}
+    </div>
+  )
+}
+
+// 共享GP乐谱占位（P2：alphaTab 渲染 + 幽灵乐手音频链 + 服务器时钟走带同步，欢哥 10-07 定稿架构）
+function GpScorePlaceholder() {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-2.5 py-6 text-center">
+      <span className="text-3xl">🎸</span>
+      <p className="text-xs font-medium text-white">共享 GP 乐谱</p>
+      <p className="px-2 text-[11px] leading-relaxed" style={{ color: "#8A8A8A" }}>
+        上传 Guitar Pro 谱子投至大屏，<br />全房同步走带、自动翻页，<br />各自看自己乐器的分轨
+      </p>
+      <span className="mt-1 rounded-full px-2.5 py-0.5 text-[10px]" style={{ background: "#141414", color: "#8A8A8A" }}>即将上线</span>
+    </div>
+  )
 }

@@ -16,6 +16,7 @@ import { ShareRoomHintDialog } from "@/components/playing/share-room-hint-dialog
 import { useAuth } from "@/lib/auth-context"
 import { useChatSocket } from "@/lib/chat-socket"
 import { useRoomSession } from "@/lib/room-session"
+import type { RoomScore } from "@/lib/jam-data"
 
 declare global {
   interface Window {
@@ -57,7 +58,7 @@ export function PlayingPage() {
   const roomSession = useRoomSession()
   // 10-07 漫游续听：收听音频上移 Provider 全局常驻，listenerActive 为派生值（漫游不断流）
   const listenerActive = roomSession.listening != null
-  const { realtimeChords, pushChords, realtimeTheme, pushTheme, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, kickedEvent, dissolvedEvent } = useChatSocket(params?.code as string, user?.nickname)
+  const { realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, realtimeScore, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, kickedEvent, dissolvedEvent } = useChatSocket(params?.code as string, user?.nickname)
   const [room, setRoom] = useState<RoomData | null>(null)
   const [showShareHint, setShowShareHint] = useState(false)
   // 建房跳转带 ?new=1 → 弹分享引导窗（room 加载完才弹），并清掉 query 避免刷新重复弹
@@ -71,8 +72,17 @@ export function PlayingPage() {
   const [customTheme, setCustomTheme] = useState("")
   const [chordTextFromPush, setChordTextFromPush] = useState("")
   const [currentBpm, setCurrentBpm] = useState(0)
+  const [score, setScore] = useState<RoomScore | null>(null)
   useEffect(() => { if (realtimeChords.length > 0) { setChords(realtimeChords); setChordTextFromPush(realtimeChords.join(' ')) } }, [realtimeChords])
   useEffect(() => { if (realtimeTheme) setCustomTheme(realtimeTheme) }, [realtimeTheme])
+  // 投谱：socket 实时覆盖（null=收回，无条件应用；强刷水合走 room API）
+  useEffect(() => { setScore(realtimeScore) }, [realtimeScore])
+  // 收回须直清本地 score：强刷后 realtimeScore 本就是 null，乐观 setRealtimeScore(null) 同值跳过
+  // 不触发 effect（10-07 实测"收回没反应"根因），所以这里一步到位
+  const handleClearScore = useCallback(() => {
+    clearScore()
+    setScore(null)
+  }, [clearScore])
   const initBpmRef = useRef(false)
   useEffect(() => {
     if (realtimeBpm > 0) { setCurrentBpm(realtimeBpm); initBpmRef.current = true }
@@ -164,6 +174,10 @@ export function PlayingPage() {
           // 加载已保存的和弦进程
           if (data.room.current_chords) setChords(data.room.current_chords.split(' '))
           if (data.room.current_bpm) setCurrentBpm(data.room.current_bpm)
+          // 加载正在投屏的谱子（强刷/后进来的人能看到）
+          if (data.room.current_score) {
+            try { setScore(JSON.parse(data.room.current_score)) } catch (e) { /* 脏数据忽略 */ }
+          }
 
           // 仅合奏者自动调起 jamsoul
           if (role === "musician") {
@@ -413,6 +427,9 @@ export function PlayingPage() {
             onDisconnect={() => { setConfirmTarget("stay"); setConfirmOpen(true) }}
             onReconnect={handleReconnect}
             onLeaveRoom={() => { if (audioConnected) { setConfirmTarget("lobby"); setConfirmOpen(true) } else doDisconnect("lobby") }}
+            currentScore={score}
+            onPushScore={pushScore}
+            onClearScore={handleClearScore}
           />
         </div>
         <div className="min-h-0 border-b lg:border-b-0 lg:border-r" style={{ borderColor: "#1A1A1A" }}>
@@ -430,6 +447,8 @@ export function PlayingPage() {
             realtimeRecordingBy={realtimeRecordingBy}
             realtimeRecordingStartedAt={realtimeRecordingStartedAt}
             realtimeRecordingMax={realtimeRecordingMax}
+            score={score}
+            onClearScore={handleClearScore}
           />
         </div>
         <div className="min-h-0">

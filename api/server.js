@@ -42,6 +42,33 @@ const noticesDir = '/var/jamony/notices'
 try { if (!fs.existsSync(noticesDir)) fs.mkdirSync(noticesDir, { recursive: true }) } catch (e) { console.error('Notices dir error:', e) }
 const noticeImageUpload = multer({ dest: noticesDir, limits: { fileSize: 10 * 1024 * 1024 } })
 
+/* multer — 房间投谱上传（10-07 魔盒 P1：图片/PDF，排练物料，房间解散即清，不进作品库）
+   按房间码分目录存，随机文件名保留后缀（sendFile 靠后缀出 Content-Type） */
+const scoresDir = '/var/jamony/scores'
+try { if (!fs.existsSync(scoresDir)) fs.mkdirSync(scoresDir, { recursive: true }) } catch (e) { console.error('Scores dir error:', e) }
+const SCORE_EXTS = ['.pdf', '.png', '.jpg', '.jpeg', '.webp']
+const scoreUpload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => {
+      const code = String(req.params.code || '').replace(/[^a-zA-Z0-9_-]/g, '')
+      if (!code) return cb(new Error('房间码无效'))
+      const dir = path.join(scoresDir, code)
+      try { fs.mkdirSync(dir, { recursive: true }) } catch (e) { return cb(e) }
+      cb(null, dir)
+    },
+    filename: (req, file, cb) => {
+      const ext = path.extname(file.originalname || '').toLowerCase()
+      cb(null, `score_${Date.now()}_${Math.random().toString(36).slice(2, 8)}${SCORE_EXTS.includes(ext) ? ext : ''}`)
+    }
+  }),
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname || '').toLowerCase()
+    if (SCORE_EXTS.includes(ext)) cb(null, true)
+    else cb(new Error('仅支持 PDF/PNG/JPG/WEBP 格式'))
+  }
+})
+
 function verifyPassword(password, hashStr) {
   const parts = hashStr.split(':')
   if (parts.length !== 5 || parts[0] !== 'pbkdf2') return false
@@ -903,6 +930,32 @@ app.post('/api/notices/upload-image', requireAuth, noticeImageUpload.single('ima
   }
 })
 
+// 投谱上传（requireAuth；仅合奏者。返回文件 URL 列表，推送动作走 socket push-score）
+app.post('/api/rooms/:code/score/upload', requireAuth, scoreUpload.array('files', 30), async (req, res) => {
+  try {
+    if (!req.files || req.files.length === 0) return res.status(400).json({ ok: false, msg: '未收到文件' })
+    if (!(await isRoomMusician(req.userId, req.params.code))) {
+      req.files.forEach(f => { try { fs.unlinkSync(f.path) } catch (e) {} })
+      return res.status(403).json({ ok: false, msg: '仅合奏者可投谱' })
+    }
+    const files = (req.files).map(f => ({ url: `/api/rooms/${req.params.code}/score/files/${path.basename(f.path)}`, name: f.originalname }))
+    res.json({ ok: true, files })
+  } catch (err) {
+    console.error('Score upload error:', err)
+    res.status(500).json({ ok: false, msg: '投谱上传失败' })
+  }
+})
+
+// 投谱文件读取（随机文件名不可枚举即房间内可见性边界；房间解散即删）
+app.get('/api/rooms/:code/score/files/:fname', (req, res) => {
+  const code = String(req.params.code || '').replace(/[^a-zA-Z0-9_-]/g, '')
+  const fname = String(req.params.fname || '').replace(/[^a-zA-Z0-9_.-]/g, '')
+  if (!code || !fname.includes('.') || fname.startsWith('.')) return res.status(400).json({ ok: false, msg: '参数错误' })
+  const fpath = path.join(scoresDir, code, fname)
+  if (!fs.existsSync(fpath)) return res.status(404).json({ ok: false, msg: '文件不存在' })
+  res.sendFile(fpath)
+})
+
 // ========== 房间相关 API ==========
 
 // 获取可用端口（从 22124 开始，找第一个未被使用的）
@@ -1356,6 +1409,7 @@ async function removeMemberAndCheckDissolve(userId, roomId, roomCode) {
       // 兜底：杀 watchdog 竞态拉起的孤儿 ffmpeg（leave 杀的是 ghost.json 记录的 pid，watchdog 新拉的会漏杀）
       try { execSync(`pkill -f "jm-stream-${closePort}"`, { timeout: 3000, stdio: 'pipe' }) } catch (e) { /* 无进程时 pkill 返回非 0，正常，忽略 */ }
       try { execSync(`rm -rf /var/jamony/recordings/room-${closePort}-records/`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve rm recordings ' + closePort + ':', e.message) }
+      try { execSync(`rm -rf "/var/jamony/scores/${roomCode}"`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve rm scores ' + roomCode + ':', e.message) }  // 10-07 投谱=房间物料，随房清
       // 兜底：杀残留 ffmpeg + 清 ghost.json 条目（stop 已处理，此处防 state 漏记）
       try {
         const ghostState = JSON.parse(fs.readFileSync('/var/lib/jamony/ghost.json', 'utf8').toString() || '{}')
@@ -3307,6 +3361,31 @@ io.on("connection", (socket) => {
     io.to(roomId).emit("theme-update", { theme })
   })
 
+  // 投谱（10-07 魔盒 P1）：谱子 JSON 存 rooms.current_score（强刷/后进来的人水合），全房广播
+  socket.on("push-score", async (data) => {
+    const { roomId, score } = data
+    if (!roomId || !socket.userId) return
+    if (!(await isRoomMusician(socket.userId, roomId))) return  // 仅合奏者可投谱
+    // 文件 URL 只认本房间自己的谱子路径（防任意 src 注入）
+    const validFiles = (score && Array.isArray(score.files) ? score.files : [])
+      .filter(f => typeof f === 'string' && f.startsWith(`/api/rooms/${roomId}/score/files/`))
+    if (validFiles.length === 0) return
+    const safeScore = { type: score.type === 'pdf' ? 'pdf' : 'images', name: String(score.name || '').slice(0, 60), files: validFiles.slice(0, 30), pushedBy: socket.userId }
+    try { await pool.query('UPDATE rooms SET current_score = $1 WHERE room_code = $2', [JSON.stringify(safeScore), roomId]) }
+    catch (e) { console.error('Score persist error:', e) }
+    io.to(roomId).emit("score-update", { score: safeScore })
+  })
+
+  // 收回谱子（大屏恢复默认）
+  socket.on("clear-score", async (data) => {
+    const { roomId } = data
+    if (!roomId || !socket.userId) return
+    if (!(await isRoomMusician(socket.userId, roomId))) return
+    try { await pool.query('UPDATE rooms SET current_score = NULL WHERE room_code = $1', [roomId]) }
+    catch (e) { console.error('Score clear error:', e) }
+    io.to(roomId).emit("score-update", { score: null })
+  })
+
   socket.on("disconnect", async () => {
     console.log("Socket disconnected, userId:", socket.userId)
     if (!socket.userId) return
@@ -3386,6 +3465,7 @@ app.post('/api/users/:userId/leave-all-rooms', requireAuth, async (req, res) => 
           try { execSync(`node /var/www/jamony/api/manage-jamsoul.js stop-ghost ${closePort2}`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve stop-ghost ' + closePort2 + ':', e.message) }
           try { execSync(`pkill -f "jm-stream-${closePort2}"`, { timeout: 3000, stdio: 'pipe' }) } catch (e) { /* 无进程时 pkill 返回非 0，正常，忽略 */ }
           try { execSync(`rm -rf /var/jamony/recordings/room-${closePort2}-records/`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve rm recordings ' + closePort2 + ':', e.message) }
+          try { execSync(`rm -rf "/var/jamony/scores/${dissolveCode}"`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve rm scores ' + dissolveCode + ':', e.message) }  // 10-07 投谱=房间物料，随房清
           try {
             const gs = JSON.parse(fs.readFileSync('/var/lib/jamony/ghost.json', 'utf8').toString() || '{}')
             const ent = gs[String(closePort2)]

@@ -54,6 +54,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      plugins: true,  // jamony 10-07: 开启 Chromium 内置 PDF 查看器（乐谱共享投 PDF，不开则 iframe 灰屏）
     },
   })
 

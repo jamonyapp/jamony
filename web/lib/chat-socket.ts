@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { io, type Socket } from "socket.io-client"
+import type { RoomScore } from "@/lib/jam-data"
 
 export type ChatMessage = {
   id: string
@@ -18,6 +19,7 @@ export function useChatSocket(roomId?: string, nickname?: string) {
   const [connected, setConnected] = useState(false)
   const [realtimeChords, setRealtimeChords] = useState<string[]>([])
   const [realtimeTheme, setRealtimeTheme] = useState<string>("")
+  const [realtimeScore, setRealtimeScore] = useState<RoomScore | null>(null)
   const [realtimeBpm, setRealtimeBpm] = useState<number>(0)
   const [realtimeMembers, setRealtimeMembers] = useState<any[]>([])
   const [realtimeHostId, setRealtimeHostId] = useState<number | null>(null)
@@ -53,6 +55,10 @@ export function useChatSocket(roomId?: string, nickname?: string) {
 
     socket.on("theme-update", (data: { theme: string }) => {
       setRealtimeTheme(data.theme || "")
+    })
+
+    socket.on("score-update", (data: { score: RoomScore | null }) => {
+      setRealtimeScore(data.score ?? null)
     })
 
     socket.on("bpm-update", (data: { bpm: number }) => {
@@ -125,5 +131,17 @@ export function useChatSocket(roomId?: string, nickname?: string) {
     setRealtimeTheme(theme)
   }
 
-  return { messages, sendMessage, connected, realtimeChords, pushChords, realtimeTheme, pushTheme, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, kickedEvent, dissolvedEvent }
+  const pushScore = (score: RoomScore) => {
+    if (!socketRef.current || !roomId) return
+    socketRef.current.emit("push-score", { roomId, score })
+    setRealtimeScore(score)
+  }
+
+  const clearScore = () => {
+    if (!socketRef.current || !roomId) return
+    socketRef.current.emit("clear-score", { roomId })
+    setRealtimeScore(null)
+  }
+
+  return { messages, sendMessage, connected, realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, realtimeScore, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, kickedEvent, dissolvedEvent }
 }

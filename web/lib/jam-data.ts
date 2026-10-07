@@ -129,3 +129,11 @@ export const CHAT_MESSAGES: ChatMessage[] = [
   { id: "c4", author: "小鼓手", content: "数四拍我进", time: "20:33" },
   { id: "c5", author: "Echo", content: "键盘垫一点氛围 🎹", time: "20:34" },
 ]
+
+// 房间投谱（10-07 魔盒 P1：图片集或 PDF；翻页纯本地各自看，不做房间级同步——欢哥定稿）
+export type RoomScore = {
+  type: "images" | "pdf"
+  name: string
+  files: string[]
+  pushedBy?: number
+}
