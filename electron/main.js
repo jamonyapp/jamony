@@ -1,6 +1,26 @@
 const { app, BrowserWindow, ipcMain, session, dialog, net, Menu, shell } = require('electron')
 const path = require('path')
+const fs = require('fs')
+const os = require('os')
 const { spawn, execSync } = require('child_process')
+
+// jamony 10-07: jamsoul 音质档自动迁移（NORMAL→HIGH）
+// 旧版默认 NORMAL(1) 对密集素材出 Opus 编码伪影（欢哥单变量实验定罪）；INI 里写死的旧值会压过
+// 新二进制的默认值 → 调起 jamsoul 前若读到 1（旧默认、用户从未主动改过的特征值）就改写为 2。
+// 只在 spawn 前执行（此刻 jamsoul 必不在跑），天然避开 QSettings 退出回写的竞态；改完=2 后永不再碰。
+function migrateJamsoulAudioQuality() {
+  try {
+    const iniPath = process.platform === 'win32'
+      ? path.join(process.env.APPDATA || '', 'jamony', 'jamsoul.ini')
+      : path.join(os.homedir(), '.config', 'jamony', 'jamsoul.ini')
+    if (!fs.existsSync(iniPath)) return
+    const raw = fs.readFileSync(iniPath, 'utf8')
+    if (raw.includes('<audioquality>1</audioquality>')) {
+      fs.writeFileSync(iniPath, raw.replace('<audioquality>1</audioquality>', '<audioquality>2</audioquality>'))
+      console.log('[jamony] jamsoul 音质档已迁移 NORMAL→HIGH:', iniPath)
+    }
+  } catch (e) { console.log('[jamony] 音质迁移跳过:', e.message) }
+}
 
 // 云端页面地址
 const WEB_URL = process.env.JAMONY_WEB_URL || 'http://39.96.30.128'
@@ -185,6 +205,7 @@ function launchJamsoul(serverIp, port, nickname) {
       const b = mainWindow.getBounds()
       jamonyEnv.JAMONY_BOUNDS = `${b.x + b.width},${b.y},${b.height}`
     }
+    migrateJamsoulAudioQuality()  // 10-07: 旧默认 NORMAL 档自动升 HIGH（详见函数注释）
     const child = spawn(JAMSOUL_BIN, args, {
       stdio: ['pipe', 'ignore', 'ignore'], // jamony: 开 stdin pipe 给 jamsoul 发窗口跟随指令
       env: jamonyEnv,
