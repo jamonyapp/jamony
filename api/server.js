@@ -1448,6 +1448,7 @@ async function removeMemberAndCheckDissolve(userId, roomId, roomCode) {
       try { execSync(`pkill -f "jm-stream-${closePort}"`, { timeout: 3000, stdio: 'pipe' }) } catch (e) { /* 无进程时 pkill 返回非 0，正常，忽略 */ }
       try { execSync(`rm -rf /var/jamony/recordings/room-${closePort}-records/`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve rm recordings ' + closePort + ':', e.message) }
       try { execSync(`rm -rf "/var/jamony/scores/${roomCode}"`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve rm scores ' + roomCode + ':', e.message) }  // 10-07 投谱=房间物料，随房清
+      await stopGpByCode(roomCode)  // 10-07 GP走带随房停
       // 兜底：杀残留 ffmpeg + 清 ghost.json 条目（stop 已处理，此处防 state 漏记）
       try {
         const ghostState = JSON.parse(fs.readFileSync('/var/lib/jamony/ghost.json', 'utf8').toString() || '{}')
@@ -3280,6 +3281,72 @@ async function isRoomMusician(userId, roomCode) {
   return r.rows.length > 0 && r.rows[0].role === 'musician'
 }
 
+const gpInflight = new Map()  // 走带切换 in-flight 防抖（防连点振荡）
+
+/* ========== GP 走带（10-07 P2 步骤②重做版） ==========
+   点播放=现场起全新 fluidsynth 从头播,JACK 重试接线(~1s),延迟~1.5s(欢哥接受);
+   gain 1.0(触顶仅255采样,甜点);音质走 Opus HIGH 档(编码伪影已单变量实验定罪);
+   教训:不预热(自动播放压不住)/不 stdin 指令(状态机自噬)/child.killed≠存活(exitCode 才是) */
+const GP_SOUNDFONT = '/usr/share/sounds/sf2/FluidR3_GM.sf2'
+const gpEngines = new Map()  // roomCode → { child, port, wired }
+
+function killGpEngine(roomCode) {
+  const e = gpEngines.get(roomCode)
+  if (e) { try { e.child.kill('SIGTERM') } catch (err) {} gpEngines.delete(roomCode) }
+}
+
+function startGpPlayback(roomCode, port, midPath) {
+  killGpEngine(roomCode)
+  const gpName = `FluidSynth-GP-${port}`
+  const child = spawn('fluidsynth', [
+    '-a', 'jack', '-j', '-i', '-p', gpName,
+    '-o', `audio.jack.id=${gpName}`,
+    '-o', 'synth.sample-rate=48000',
+    '-o', 'synth.gain=1.0',
+    '-o', 'synth.polyphony=128',
+    GP_SOUNDFONT, midPath,
+  ], { stdio: 'ignore' })
+  child.on('exit', () => { const e = gpEngines.get(roomCode); if (e && e.child === child) gpEngines.delete(roomCode) })
+  gpEngines.set(roomCode, { child, port, wired: false })
+  const ghostL = `jamsoul-${port} jamony-looper:input left`
+  const ghostR = `jamsoul-${port} jamony-looper:input right`
+  let tries = 0
+  const wire = () => {
+    tries++
+    try { execSync(`jack_disconnect "${gpName}:left" system:playback_1`, { stdio: 'ignore' }); execSync(`jack_disconnect "${gpName}:right" system:playback_2`, { stdio: 'ignore' }) } catch (e) {}
+    let ok = false
+    try { execSync(`jack_connect "${gpName}:left" "${ghostL}"`, { stdio: 'ignore' }); ok = true } catch (e) {}
+    try { execSync(`jack_connect "${gpName}:right" "${ghostR}"`, { stdio: 'ignore' }) } catch (e) {}
+    const e2 = gpEngines.get(roomCode)
+    if (ok && e2 && e2.child === child) { e2.wired = true; console.log(`GP start ${roomCode} wired (${tries} 次)`) }
+    else if (tries < 15 && e2 && e2.child === child && !e2.wired) setTimeout(wire, 400)
+    else if (!ok) console.error(`GP start ${roomCode} JACK 接线失败`)
+  }
+  setTimeout(wire, 400)
+}
+
+async function waitGpWired(roomCode, maxMs) {
+  const t0 = Date.now()
+  while (Date.now() - t0 < maxMs) {
+    await new Promise(r => setTimeout(r, 250))
+    const e = gpEngines.get(roomCode)
+    if (e && e.wired) return true
+  }
+  const e = gpEngines.get(roomCode)
+  return !!(e && e.wired)
+}
+
+async function stopGpByCode(roomCode, broadcast) {
+  try {
+    const r = await pool.query('SELECT server_port FROM rooms WHERE room_code = $1', [roomCode])
+    const port = r.rows[0]?.server_port
+    killGpEngine(roomCode)
+    if (port) { try { execSync(`pkill -f "fluidsynth.*FluidSynth-GP-${port}"`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { /* 无进程正常 */ } }
+    await pool.query('UPDATE rooms SET gp_state = NULL WHERE room_code = $1', [roomCode])
+    if (broadcast) io.to(roomCode).emit("gp-state", { playing: false })
+  } catch (e) { console.error('stopGp error:', e.message) }
+}
+
 // 校验用户是否某房间房主（rooms.host_id === userId），按 room_code 查
 async function isRoomHost(userId, roomCode) {
   const r = await pool.query("SELECT host_id FROM rooms WHERE UPPER(room_code)=UPPER($1)", [roomCode])
@@ -3422,6 +3489,7 @@ io.on("connection", (socket) => {
     }
     try { await pool.query('UPDATE rooms SET current_score = $1 WHERE room_code = $2', [JSON.stringify(safeScore), roomId]) }
     catch (e) { console.error('Score persist error:', e) }
+    await stopGpByCode(roomId, true)  // 推新内容自动停走带（大屏独占定稿）
     io.to(roomId).emit("score-update", { score: safeScore })
   })
 
@@ -3430,9 +3498,44 @@ io.on("connection", (socket) => {
     const { roomId } = data
     if (!roomId || !socket.userId) return
     if (!(await isRoomMusician(socket.userId, roomId))) return
+    await stopGpByCode(roomId, true)  // 收回谱子走带随停
     try { await pool.query('UPDATE rooms SET current_score = NULL WHERE room_code = $1', [roomId]) }
     catch (e) { console.error('Score clear error:', e) }
     io.to(roomId).emit("score-update", { score: null })
+  })
+
+  // GP 走带：任何人可播/停（后动作胜出，鼓机同款语义）
+  socket.on("gp-play", async (data) => {
+    const { roomId } = data
+    if (!roomId || !socket.userId) return
+    if (!(await isRoomMusician(socket.userId, roomId))) return
+    const r = await pool.query('SELECT server_port, current_score FROM rooms WHERE room_code = $1', [roomId])
+    const row = r.rows[0]
+    let score = null
+    try { score = row && row.current_score ? JSON.parse(row.current_score) : null } catch (e) {}
+    if (!score || score.type !== 'gp' || !score.midUrl) return
+    if (gpInflight.has(roomId)) return
+    gpInflight.set(roomId, setTimeout(() => gpInflight.delete(roomId), 15000))
+    const midPath = path.join(scoresDir, roomId, path.basename(score.midUrl))
+    if (!fs.existsSync(midPath)) { socket.emit('gp-state', { playing: false }); clearTimeout(gpInflight.get(roomId)); gpInflight.delete(roomId); return }
+    startGpPlayback(roomId, row.server_port, midPath)
+    const wired = await waitGpWired(roomId, 8000)
+    clearTimeout(gpInflight.get(roomId)); gpInflight.delete(roomId)
+    if (!wired) { console.error('gp play: not wired', roomId); return }
+    const gpState = { playing: true, startedAt: new Date().toISOString() }
+    try { await pool.query('UPDATE rooms SET gp_state = $1 WHERE room_code = $2', [JSON.stringify(gpState), roomId]) } catch (e) {}
+    io.to(roomId).emit("gp-state", gpState)
+    console.log(`GP play ${roomId} port ${row.server_port}`)
+  })
+
+  socket.on("gp-pause", async (data) => {
+    const { roomId } = data
+    if (!roomId || !socket.userId) return
+    if (!(await isRoomMusician(socket.userId, roomId))) return
+    if (gpInflight.has(roomId)) return
+    gpInflight.set(roomId, setTimeout(() => gpInflight.delete(roomId), 10000))
+    await stopGpByCode(roomId, true)
+    clearTimeout(gpInflight.get(roomId)); gpInflight.delete(roomId)
   })
 
   socket.on("disconnect", async () => {
@@ -3515,6 +3618,7 @@ app.post('/api/users/:userId/leave-all-rooms', requireAuth, async (req, res) => 
           try { execSync(`pkill -f "jm-stream-${closePort2}"`, { timeout: 3000, stdio: 'pipe' }) } catch (e) { /* 无进程时 pkill 返回非 0，正常，忽略 */ }
           try { execSync(`rm -rf /var/jamony/recordings/room-${closePort2}-records/`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve rm recordings ' + closePort2 + ':', e.message) }
           try { execSync(`rm -rf "/var/jamony/scores/${dissolveCode}"`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve rm scores ' + dissolveCode + ':', e.message) }  // 10-07 投谱=房间物料，随房清
+          await stopGpByCode(dissolveCode)  // 10-07 GP走带随房停
           try {
             const gs = JSON.parse(fs.readFileSync('/var/lib/jamony/ghost.json', 'utf8').toString() || '{}')
             const ent = gs[String(closePort2)]

@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react"
 import { io, type Socket } from "socket.io-client"
 import type { RoomScore } from "@/lib/jam-data"
 
+export type GpState = { playing: boolean; startedAt?: string }
+
 export type ChatMessage = {
   id: string
   author: string
@@ -20,6 +22,7 @@ export function useChatSocket(roomId?: string, nickname?: string) {
   const [realtimeChords, setRealtimeChords] = useState<string[]>([])
   const [realtimeTheme, setRealtimeTheme] = useState<string>("")
   const [realtimeScore, setRealtimeScore] = useState<RoomScore | null>(null)
+  const [realtimeGpState, setRealtimeGpState] = useState<GpState | null>(null)
   const [realtimeBpm, setRealtimeBpm] = useState<number>(0)
   const [realtimeMembers, setRealtimeMembers] = useState<any[]>([])
   const [realtimeHostId, setRealtimeHostId] = useState<number | null>(null)
@@ -59,6 +62,10 @@ export function useChatSocket(roomId?: string, nickname?: string) {
 
     socket.on("score-update", (data: { score: RoomScore | null }) => {
       setRealtimeScore(data.score ?? null)
+    })
+
+    socket.on("gp-state", (data: GpState) => {
+      setRealtimeGpState(data)
     })
 
     socket.on("bpm-update", (data: { bpm: number }) => {
@@ -137,11 +144,14 @@ export function useChatSocket(roomId?: string, nickname?: string) {
     setRealtimeScore(score)
   }
 
+  const playGp = () => { if (!socketRef.current || !roomId) return; socketRef.current.emit("gp-play", { roomId }) }
+  const pauseGp = () => { if (!socketRef.current || !roomId) return; socketRef.current.emit("gp-pause", { roomId }) }
+
   const clearScore = () => {
     if (!socketRef.current || !roomId) return
     socketRef.current.emit("clear-score", { roomId })
     setRealtimeScore(null)
   }
 
-  return { messages, sendMessage, connected, realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, realtimeScore, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, kickedEvent, dissolvedEvent }
+  return { messages, sendMessage, connected, realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, realtimeScore, realtimeGpState, playGp, pauseGp, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, kickedEvent, dissolvedEvent }
 }

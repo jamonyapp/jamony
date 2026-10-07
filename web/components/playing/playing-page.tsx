@@ -58,7 +58,7 @@ export function PlayingPage() {
   const roomSession = useRoomSession()
   // 10-07 漫游续听：收听音频上移 Provider 全局常驻，listenerActive 为派生值（漫游不断流）
   const listenerActive = roomSession.listening != null
-  const { realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, realtimeScore, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, kickedEvent, dissolvedEvent } = useChatSocket(params?.code as string, user?.nickname)
+  const { realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, realtimeScore, realtimeGpState, playGp, pauseGp, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, kickedEvent, dissolvedEvent } = useChatSocket(params?.code as string, user?.nickname)
   const [room, setRoom] = useState<RoomData | null>(null)
   const [showShareHint, setShowShareHint] = useState(false)
   // 建房跳转带 ?new=1 → 弹分享引导窗（room 加载完才弹），并清掉 query 避免刷新重复弹
@@ -73,10 +73,12 @@ export function PlayingPage() {
   const [chordTextFromPush, setChordTextFromPush] = useState("")
   const [currentBpm, setCurrentBpm] = useState(0)
   const [score, setScore] = useState<RoomScore | null>(null)
+  const [gpState, setGpState] = useState<{ playing: boolean; startedAt?: string } | null>(null)
   useEffect(() => { if (realtimeChords.length > 0) { setChords(realtimeChords); setChordTextFromPush(realtimeChords.join(' ')) } }, [realtimeChords])
   useEffect(() => { if (realtimeTheme) setCustomTheme(realtimeTheme) }, [realtimeTheme])
   // 投谱：socket 实时覆盖（null=收回，无条件应用；强刷水合走 room API）
   useEffect(() => { setScore(realtimeScore) }, [realtimeScore])
+  useEffect(() => { if (realtimeGpState) setGpState(realtimeGpState) }, [realtimeGpState])
   // 收回须直清本地 score：强刷后 realtimeScore 本就是 null，乐观 setRealtimeScore(null) 同值跳过
   // 不触发 effect（10-07 实测"收回没反应"根因），所以这里一步到位
   const handleClearScore = useCallback(() => {
@@ -178,6 +180,7 @@ export function PlayingPage() {
           if (data.room.current_score) {
             try { setScore(JSON.parse(data.room.current_score)) } catch (e) { /* 脏数据忽略 */ }
           }
+          if (data.room.gp_state) { try { setGpState(JSON.parse(data.room.gp_state)) } catch (e) {} }
 
           // 仅合奏者自动调起 jamsoul
           if (role === "musician") {
@@ -449,6 +452,9 @@ export function PlayingPage() {
             realtimeRecordingMax={realtimeRecordingMax}
             score={score}
             onClearScore={handleClearScore}
+            gpState={gpState}
+            onGpPlay={playGp}
+            onGpPause={pauseGp}
           />
         </div>
         <div className="min-h-0">

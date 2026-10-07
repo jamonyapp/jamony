@@ -143,6 +143,9 @@ export function CenterColumn({
   realtimeRecordingMax,
   score,
   onClearScore,
+  gpState,
+  onGpPlay,
+  onGpPause,
 }: {
   chords: string[]
   customTheme?: string
@@ -159,6 +162,9 @@ export function CenterColumn({
   realtimeRecordingMax?: number | null
   score?: RoomScore | null
   onClearScore?: () => void
+  gpState?: { playing: boolean; startedAt?: string } | null
+  onGpPlay?: () => void
+  onGpPause?: () => void
 }) {
   const [todayTheme, setTodayTheme] = useState({ title: "加载中...", emoji: "🎵" })
   useEffect(() => {
@@ -183,7 +189,7 @@ export function CenterColumn({
         style={{ borderColor: "#1A1A1A" }}
       >
         {score ? (
-          <ScoreViewer score={score} canClear={myRole !== "listener"} onClear={onClearScore} />
+          <ScoreViewer score={score} canClear={myRole !== "listener"} onClear={onClearScore} gpState={gpState} onGpPlay={onGpPlay} onGpPause={onGpPause} />
         ) : (
           <>
             <img src="/images/stage-backdrop.png" alt="" aria-hidden className="absolute inset-0 size-full object-cover" />
@@ -233,7 +239,7 @@ export function CenterColumn({
 }
 
 // 谱面查看器：图片=各自本地翻页+缩放+拖拽（零同步，欢哥 10-07 定稿），PDF=Chromium 原生查看器自带全套
-function ScoreViewer({ score, canClear, onClear }: { score: RoomScore; canClear?: boolean; onClear?: () => void }) {
+function ScoreViewer({ score, canClear, onClear, gpState, onGpPlay, onGpPause }: { score: RoomScore; canClear?: boolean; onClear?: () => void; gpState?: { playing: boolean; startedAt?: string } | null; onGpPlay?: () => void; onGpPause?: () => void }) {
   const [page, setPage] = useState(0)
   const [zoom, setZoom] = useState(1)
   const [pdfPages, setPdfPages] = useState(0)  // PDF 加载后才知道总页数（pdf.js 画布渲染，不依赖 Electron PDF 插件）
@@ -267,7 +273,7 @@ function ScoreViewer({ score, canClear, onClear }: { score: RoomScore; canClear?
   const transformStyle = { transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }
 
   // GP 谱走独立视图（alphaTab 渲染，自有滚动；不走图片缩放/翻页那套舞台）——须在全部 hooks 之后
-  if (score.type === "gp") return <GpScoreView score={score} canClear={canClear} onClear={onClear} />
+  if (score.type === "gp") return <GpScoreView score={score} canClear={canClear} onClear={onClear} gpState={gpState} onPlay={onGpPlay} onPause={onGpPause} />
 
   // 平移边界夹紧（10-07 欢哥实测：自由画布容易把谱面整个拖出视野）——内容始终盖住视口，到边即停
   // 注意 transform 的 scale 以元素中心为原点：放大时内容向两端生长，边界必须按"中心基准+平移"推导，
@@ -1299,11 +1305,21 @@ function TrackRow({
 }
 
 // GP 谱视图（10-07 P2 步骤①）：alphaTab 渲染到滚动区；音频由幽灵乐手经 jamsoul 广播，客户端零音源不出声
-function GpScoreView({ score, canClear, onClear }: { score: RoomScore; canClear?: boolean; onClear?: () => void }) {
+function GpScoreView({ score, canClear, onClear, gpState, onPlay, onPause }: {
+  score: RoomScore; canClear?: boolean; onClear?: () => void
+  gpState?: { playing: boolean; startedAt?: string } | null
+  onPlay?: () => void; onPause?: () => void
+}) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [err, setErr] = useState("")
   const [loading, setLoading] = useState(true)
+  const [now, setNow] = useState(Date.now())
   const url = score.files[0]
+  const playing = !!gpState?.playing
+  const [pending, setPending] = useState(false)
+  useEffect(() => { const id = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(id) }, [])
+  useEffect(() => { setPending(false) }, [playing, gpState?.startedAt])  // 状态广播回来解锁过渡态
+  useEffect(() => { if (!pending) return; const t = setTimeout(() => setPending(false), 10000); return () => clearTimeout(t) }, [pending])
 
   useEffect(() => {
     let cancelled = false
@@ -1344,6 +1360,22 @@ function GpScoreView({ score, canClear, onClear }: { score: RoomScore; canClear?
         <span className="truncate text-xs font-semibold text-white">🎸 {score.name}</span>
         <div className="flex shrink-0 items-center gap-2.5">
           {!!score.tracks?.length && <span className="text-[11px] text-white/50">{score.tracks.length} 轨</span>}
+          {playing && gpState?.startedAt && (
+            <span className="flex items-center gap-1 font-mono text-[11px]" style={{ color: "#BBEE00" }}>
+              <span className="size-1.5 animate-rec-pulse rounded-full" style={{ background: "#BBEE00" }} />
+              {fmt(Math.max(0, Math.floor((now - new Date(gpState.startedAt).getTime()) / 1000)))}
+            </span>
+          )}
+          {(onPlay || onPause) && (
+            <button
+              onClick={() => { if (pending) return; setPending(true); (playing ? onPause?.() : onPlay?.()) }}
+              disabled={pending}
+              className="flex items-center gap-1 rounded-[6px] px-2 py-0.5 text-[11px] font-semibold text-white transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-60"
+              style={{ background: playing ? "#FF5C5C" : "linear-gradient(90deg, #9933FF, #FF33AA)" }}
+            >
+              {pending ? "启动中…" : playing ? "⏸ 暂停" : "▶ 播放"}
+            </button>
+          )}
           {canClear && onClear && (
             <button onClick={onClear} className="rounded-[6px] px-2 py-0.5 text-[11px] text-white/70 transition-colors hover:bg-white/10 hover:text-white">收回</button>
           )}
