@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { Circle, Square, ChevronDown, ChevronLeft, ChevronRight, Disc3, Headphones, ArrowRight, Download, Ban, Check, X, ChevronUp } from "lucide-react"
+import { Circle, Square, ChevronDown, ChevronLeft, ChevronRight, Disc3, Headphones, ArrowRight, Download, Ban, Check, X, ChevronUp, SlidersHorizontal, Play, Pause } from "lucide-react"
 import { instrumentEmoji, type RecordingSession, type Track, type RoomScore } from "@/lib/jam-data"
 import { MixerFullscreen } from "@/components/mixer/mixer-fullscreen"
 import { MixerMini } from "@/components/mixer/mixer-mini"
@@ -272,8 +272,8 @@ function ScoreViewer({ score, canClear, onClear, gpState, onGpPlay, onGpPause }:
   const zoomPct = Math.round(zoom * 100)
   const transformStyle = { transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }
 
-  // GP 谱走独立视图（alphaTab 渲染，自有滚动；不走图片缩放/翻页那套舞台）——须在全部 hooks 之后
-  if (score.type === "gp") return <GpScoreView score={score} canClear={canClear} onClear={onClear} gpState={gpState} onPlay={onGpPlay} onPause={onGpPause} />
+  // GP 谱走工作站（alphaTab 渲染，自有滚动；不走图片缩放/翻页那套舞台）——须在全部 hooks 之后
+  if (score.type === "gp") return <GpWorkstation score={score} canClear={canClear} onClear={onClear} gpState={gpState} onPlay={onGpPlay} onPause={onGpPause} />
 
   // 平移边界夹紧（10-07 欢哥实测：自由画布容易把谱面整个拖出视野）——内容始终盖住视口，到边即停
   // 注意 transform 的 scale 以元素中心为原点：放大时内容向两端生长，边界必须按"中心基准+平移"推导，
@@ -1304,8 +1304,21 @@ function TrackRow({
   )
 }
 
-// GP 谱视图（10-07 P2 步骤①）：alphaTab 渲染到滚动区；音频由幽灵乐手经 jamsoul 广播，客户端零音源不出声
-function GpScoreView({ score, canClear, onClear, gpState, onPlay, onPause }: {
+// GP 读谱工作站（10-09 P2 工作站化，行为分层照搬 alphaTab 官网 demo）：
+// 点轨切谱/缩放/五线六线/横竖排/节拍器=本地各看各的；S/M/单轨音量/倍速/走带=房级（全员可调，后动作胜出，播放瞬间定版——欢哥 10-09 定稿）
+// 音频仍走幽灵乐手单流（jamsoul 广播）；本地 player 步骤③再开（静音只做指针）
+type GpTrackInfo = { index: number; name: string }
+type GpApi = {
+  destroy?: () => void
+  load: (d: unknown, s?: () => void, e?: (x: Error) => void) => boolean
+  renderTracks: (tracks: GpTrackInfo[]) => void
+  tracks?: GpTrackInfo[]
+  scoreLoaded?: { on: (cb: (s: { tracks?: GpTrackInfo[] }) => void) => void }
+  renderFinished?: { on: (cb: () => void) => void }
+  renderStarted?: { on: (cb: (isResize: boolean) => void) => void }
+}
+
+function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause }: {
   score: RoomScore; canClear?: boolean; onClear?: () => void
   gpState?: { playing: boolean; startedAt?: string } | null
   onPlay?: () => void; onPause?: () => void
@@ -1317,75 +1330,181 @@ function GpScoreView({ score, canClear, onClear, gpState, onPlay, onPause }: {
   const url = score.files[0]
   const playing = !!gpState?.playing
   const [pending, setPending] = useState(false)
+  // 分轨面板（步骤①）：tracks=展示用副本；realTracksRef=alphaTab 原轨对象（renderTracks 必须喂原对象）；renderedIdx=当前上屏轨
+  const apiRef = useRef<GpApi | null>(null)
+  const realTracksRef = useRef<GpTrackInfo[]>([])
+  const [tracks, setTracks] = useState<GpTrackInfo[]>([])
+  const [renderedIdx, setRenderedIdx] = useState<number[]>([])
+  const [panelOpen, setPanelOpen] = useState(false)  // 分轨弹层（10-09 欢哥定稿：工具栏只放入口，点开向上弹列表——吉他社样式）
+  const [totalMs, setTotalMs] = useState(0)  // 谱面总时长（alphaTab 式 00:00/04:46 的分母；0=未知不显示）
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(id) }, [])
   useEffect(() => { setPending(false) }, [playing, gpState?.startedAt])  // 状态广播回来解锁过渡态
   useEffect(() => { if (!pending) return; const t = setTimeout(() => setPending(false), 10000); return () => clearTimeout(t) }, [pending])
 
+  const showTracks = (sel: number | "all") => {
+    const api = apiRef.current
+    if (!api) return
+    const list = sel === "all" ? realTracksRef.current : [realTracksRef.current[sel]]
+    if (!list || list.length === 0 || list[0] === undefined) return
+    api.renderTracks(list)
+  }
+
   useEffect(() => {
     let cancelled = false
-    let api: { destroy?: () => void } | null = null
+    let api: GpApi | null = null
     ;(async () => {
       try {
         const at = await import("@coderline/alphatab")
         const settings = new at.Settings()
         settings.core.useWorkers = false          // V1 主线程渲染，免 webpack worker 配线（一次性渲染可接受）
         settings.core.fontDirectory = "/alphatab-font/"
-        settings.player.enablePlayer = false      // 音频单源走幽灵乐手（欢哥架构定稿），不加载 soundfont
+        settings.player.enablePlayer = false      // 音频单源走幽灵乐手（欢哥架构定稿）；步骤③开 player 做指针
         const res = await fetch(url)
         if (!res.ok) throw new Error(`谱子文件加载失败(${res.status})`)
         const buf = new Uint8Array(await res.arrayBuffer())
         if (cancelled) return
-        const real = new at.AlphaTabApi(containerRef.current!, settings) as unknown as {
-          destroy?: () => void
-          load: (d: unknown, s?: () => void, e?: (x: Error) => void) => boolean
-          scoreLoaded?: { on: (cb: () => void) => void }
-          renderFinished?: { on: (cb: () => void) => void }
-        }
+        const real = new at.AlphaTabApi(containerRef.current!, settings) as unknown as GpApi
         api = real
+        apiRef.current = real
         // 关加载指示器用事件（load 回调在 1.8.4 上不可靠，谱面已渲染但 success 未触发——10-07 欢哥实测）
-        real.scoreLoaded?.on?.(() => { if (!cancelled) setLoading(false) })
+        real.scoreLoaded?.on?.((s: { tracks?: GpTrackInfo[] }) => {
+          if (cancelled) return
+          setLoading(false)
+          const src = s.tracks ?? []
+          realTracksRef.current = src  // 原对象留给 renderTracks
+          setTracks(src.map((t) => ({ index: t.index, name: String(t.name || `轨 ${t.index + 1}`).slice(0, 40) })))
+          // 总时长：本地 MidiFileGenerator 生成事件流（与播放器/服务器同一条生成路径，反复记号展开一致），tempo 积分出毫秒
+          // ⚠️ 不用 midiFile.events getter——1.8.4 多轨下 this.events.push 自调用会无限递归，自己走 tracks[].events
+          try {
+            const m = (at as unknown as {
+              midi: {
+                MidiFile: new () => { division: number; tracks: { events: unknown[] }[] }
+                AlphaSynthMidiFileHandler: new (f: unknown, smf1: boolean) => unknown
+                MidiFileGenerator: new (score: unknown, meta: unknown, handler: unknown) => { generate: () => void }
+              }
+            }).midi
+            const mf = new m.MidiFile()
+            new m.MidiFileGenerator(s, null, new m.AlphaSynthMidiFileHandler(mf, true)).generate()
+            let maxTick = 0
+            const tempos: { tick: number; bpm: number }[] = []
+            for (const tr of mf.tracks) for (const ev of tr.events as { tick: number; beatsPerMinute?: number }[]) {
+              if (ev.tick > maxTick) maxTick = ev.tick
+              if (typeof ev.beatsPerMinute === "number" && ev.beatsPerMinute > 0) tempos.push({ tick: ev.tick, bpm: ev.beatsPerMinute })
+            }
+            tempos.sort((a, b) => a.tick - b.tick)
+            let ms = 0, tick = 0, bpm = 120
+            for (const next of [...tempos, { tick: maxTick, bpm: 0 }]) {
+              ms += ((next.tick - tick) / mf.division) * (60000 / bpm)
+              tick = next.tick
+              bpm = next.bpm || bpm
+            }
+            if (ms > 0 && Number.isFinite(ms)) setTotalMs(ms)
+          } catch (e) { /* 总时长拿不到只显示走过时间，不影响主流程 */ }
+        })
+        // renderStarted 在窗口 resize 时也触发（jamsoul 窗口跟随会resize风暴），值没变就跳过 setState
+        real.renderStarted?.on?.(() => {
+          if (cancelled) return
+          const idxs = (apiRef.current?.tracks ?? []).map((t) => t.index)
+          setRenderedIdx((prev) => (prev.join() === idxs.join() ? prev : idxs))
+        })
         real.renderFinished?.on?.(() => { if (!cancelled) setLoading(false) })
         real.load(buf, () => { if (!cancelled) setLoading(false) }, (e: Error) => { if (!cancelled) { setErr("谱子解析失败：" + e.message); setLoading(false) } })
       } catch (e) {
         if (!cancelled) { setErr((e as Error)?.message || "渲染失败"); setLoading(false) }
       }
     })()
-    return () => { cancelled = true; try { api?.destroy?.() } catch (e) { /* 卸载兜底 */ } }
+    return () => { cancelled = true; apiRef.current = null; realTracksRef.current = []; try { api?.destroy?.() } catch (e) { /* 卸载兜底 */ } }
   }, [url])
+
+  const allOn = tracks.length > 0 && renderedIdx.length === tracks.length
+  const currentTrackName = allOn ? "全部" : (tracks.find((t) => renderedIdx.includes(t.index))?.name ?? "全部")
+
+  useEffect(() => {
+    if (!panelOpen) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setPanelOpen(false) }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [panelOpen])
 
   return (
     <div className="absolute inset-0 flex flex-col" style={{ background: "#0A0A0A" }}>
-      {/* 头部：谱名 + 轨数 + 收回 */}
+      {/* 头部：谱名 + 轨数 + 收回（走带已下移底部工具栏） */}
       <div className="flex shrink-0 items-center justify-between gap-2 px-3 py-1.5">
-        <span className="truncate text-xs font-semibold text-white">🎸 {score.name}</span>
+        <span className="truncate text-xs font-semibold text-white">📄 {score.name}</span>
         <div className="flex shrink-0 items-center gap-2.5">
           {!!score.tracks?.length && <span className="text-[11px] text-white/50">{score.tracks.length} 轨</span>}
-          {playing && gpState?.startedAt && (
-            <span className="flex items-center gap-1 font-mono text-[11px]" style={{ color: "#BBEE00" }}>
-              <span className="size-1.5 animate-rec-pulse rounded-full" style={{ background: "#BBEE00" }} />
-              {fmt(Math.max(0, Math.floor((now - new Date(gpState.startedAt).getTime()) / 1000)))}
-            </span>
-          )}
-          {(onPlay || onPause) && (
-            <button
-              onClick={() => { if (pending) return; setPending(true); (playing ? onPause?.() : onPlay?.()) }}
-              disabled={pending}
-              className="flex items-center gap-1 rounded-[6px] px-2 py-0.5 text-[11px] font-semibold text-white transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-60"
-              style={{ background: playing ? "#FF5C5C" : "linear-gradient(90deg, #9933FF, #FF33AA)" }}
-            >
-              {pending ? "启动中…" : playing ? "⏸ 暂停" : "▶ 播放"}
-            </button>
-          )}
           {canClear && onClear && (
             <button onClick={onClear} className="rounded-[6px] px-2 py-0.5 text-[11px] text-white/70 transition-colors hover:bg-white/10 hover:text-white">收回</button>
           )}
         </div>
       </div>
-      {/* 谱面：白底滚动区（谱面可读性优先，纸上读谱） */}
+      {/* 谱面：白底滚动区，全宽渲染（10-09 欢哥实测：侧栏挤压谱面每行小节数，分轨下移底部工具栏） */}
       <div className="relative min-h-0 flex-1">
         {loading && !err && <p className="absolute inset-x-0 top-2 z-10 text-center text-[11px]" style={{ color: "#8A8A8A" }}>谱面渲染中…</p>}
         {err && <p className="absolute inset-0 z-10 grid place-items-center bg-[#0A0A0A] px-6 text-center text-xs" style={{ color: "#FF5C5C" }}>{err}</p>}
         <div ref={containerRef} className="h-full overflow-y-auto scrollbar-thin" style={{ background: "#fff" }} />
+      </div>
+      {/* 底部工具栏（10-09 欢哥定稿布局）：走带+分轨+工作站功能全收这里，不占谱面水平空间；
+          右侧空位留给步骤④功能组（缩放/五线六线/横竖排/打印/节拍器…） */}
+      <div className="flex h-9 shrink-0 items-center gap-2 border-t border-white/10 px-3">
+        {(onPlay || onPause) && (
+          <button
+            onClick={() => { if (pending) return; setPending(true); (playing ? onPause?.() : onPlay?.()) }}
+            disabled={pending}
+            title={playing ? "暂停" : "播放"}
+            className="flex h-6 w-6 shrink-0 items-center justify-center text-white transition-opacity hover:opacity-70 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {pending ? <span className="text-[10px]">…</span> : playing ? <Pause className="size-3.5" fill="currentColor" /> : <Play className="size-4" fill="currentColor" />}
+          </button>
+        )}
+        {/* 走带时间（常驻，alphaTab 控制栏样式）：走过时间 / 谱面总时长；播放时点亮，停止归零 */}
+        {(() => {
+          const elapsed = playing && gpState?.startedAt ? Math.max(0, Math.floor((now - new Date(gpState.startedAt).getTime()) / 1000)) : 0
+          return (
+            <span className="flex shrink-0 items-center gap-1.5 font-mono text-[11px]">
+              {playing && <span className="size-1.5 animate-rec-pulse rounded-full" style={{ background: "#BBEE00" }} />}
+              <span style={playing ? { color: "#BBEE00" } : { color: "rgba(255,255,255,0.6)" }}>{fmt(elapsed)}</span>
+              {totalMs > 0 && <span className="text-white/35">/ {fmt(Math.floor(totalMs / 1000))}</span>}
+            </span>
+          )
+        })()}
+        {/* 分轨入口（10-09 欢哥定稿：吉他社样式）——工具栏只放一个按钮，点开向上弹列表；
+            步骤②每行将长成调音台（加 S/M + 单轨音量），谱面始终全宽 */}
+        {tracks.length > 1 && (
+          <div className="relative flex">
+            <button
+              onClick={() => setPanelOpen((v) => !v)}
+              title={`分轨（当前：${currentTrackName}）`}
+              className={`flex h-6 w-7 items-center justify-center rounded-[6px] transition-colors ${panelOpen ? "bg-white/12 text-white" : "text-white/70 hover:bg-white/10 hover:text-white"}`}
+            >
+              <SlidersHorizontal className="size-3.5" />
+            </button>
+            {panelOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setPanelOpen(false)} />
+                <div className="absolute bottom-full left-0 z-20 mb-1.5 max-h-[50vh] w-64 overflow-y-auto rounded-lg border border-white/10 bg-[#141414] p-1 shadow-2xl scrollbar-thin">
+                  <button
+                    onClick={() => showTracks("all")}
+                    className={`flex w-full items-center gap-2 rounded-[6px] px-2 py-1.5 text-left text-[11px] transition-colors ${allOn ? "bg-white/12 font-semibold text-white" : "text-white/60 hover:bg-white/8 hover:text-white/85"}`}
+                  >
+                    全部轨
+                  </button>
+                  {tracks.map((t, i) => (
+                    <button
+                      key={t.index}
+                      onClick={() => showTracks(i)}
+                      title={t.name}
+                      className={`flex w-full items-center gap-2 rounded-[6px] px-2 py-1.5 text-left text-[11px] transition-colors ${!allOn && renderedIdx.includes(t.index) ? "bg-white/12 font-semibold text-white" : "text-white/55 hover:bg-white/8 hover:text-white/80"}`}
+                    >
+                      <span className="w-4 shrink-0 text-right font-mono text-[10px] opacity-50">{i + 1}</span>
+                      <span className="truncate">{t.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )
