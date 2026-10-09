@@ -1,13 +1,53 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { Circle, Square, ChevronDown, ChevronLeft, ChevronRight, Disc3, Headphones, ArrowRight, Download, Ban, Check, X, ChevronUp, SlidersHorizontal, Play, Pause } from "lucide-react"
+import { Circle, Square, ChevronDown, ChevronLeft, ChevronRight, Disc3, Headphones, ArrowRight, Download, Ban, Check, X, ChevronUp, SlidersHorizontal, Play, Pause, Printer, Search } from "lucide-react"
 import { instrumentEmoji, type RecordingSession, type Track, type RoomScore, type GpMix } from "@/lib/jam-data"
 import { MixerFullscreen } from "@/components/mixer/mixer-fullscreen"
 import { MixerMini } from "@/components/mixer/mixer-mini"
 import { useMixerEngine } from "@/hooks/useMixerEngine"
 import { TRACK_COLORS, type MixerTrack } from "@/components/mixer/types"
 import PublishWorkModal from "@/components/publishing/publish-work-modal"
+
+// 工具栏上拉菜单（10-10 步骤④）：缩放/五线六线/横竖排三件套，样式与分轨弹层同族（欢哥：全照搬alphaTab下拉，底部工具栏=上拉）
+function ToolbarMenu({ value, options, onPick, title, icon }: { value: string; options: { v: string; t: string }[]; onPick: (v: string) => void; title?: string; icon?: React.ReactNode }) {
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false) }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [open])
+  return (
+    <div className="relative flex">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        title={title}
+        className={`flex h-6 items-center gap-0.5 rounded-[6px] px-1.5 text-[11px] transition-colors ${open ? "bg-white/12 text-white" : "text-white/70 hover:bg-white/10 hover:text-white"}`}
+      >
+        {icon}
+        <span>{options.find((o) => o.v === value)?.t ?? value}</span>
+        <ChevronUp className={`size-3 shrink-0 opacity-60 transition-transform ${open ? "" : "rotate-180"}`} />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute bottom-full right-0 z-20 mb-1.5 w-32 rounded-lg border border-white/10 bg-[#141414] p-1 shadow-2xl">
+            {options.map((o) => (
+              <button
+                key={o.v}
+                onClick={() => { onPick(o.v); setOpen(false) }}
+                className={`flex w-full items-center rounded-[6px] px-2 py-1.5 text-left text-[11px] transition-colors ${o.v === value ? "bg-white/12 font-semibold text-white" : "text-white/55 hover:bg-white/8 hover:text-white/85"}`}
+              >
+                {o.t}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
 
 // 节拍器icon（10-10 欢哥要求）：lucide 1985 个图标里没有节拍器，照 lucide 描边风格自绘——梯形身+斜摆针+配重锤
 function MetronomeIcon({ className }: { className?: string }) {
@@ -1320,7 +1360,7 @@ function TrackRow({
 // GP 读谱工作站（10-09 P2 工作站化，行为分层照搬 alphaTab 官网 demo）：
 // 点轨切谱/缩放/五线六线/横竖排/节拍器=本地各看各的；S/M/单轨音量/倍速/走带=房级（全员可调，后动作胜出，播放瞬间定版——欢哥 10-09 定稿）
 // 音频仍走幽灵乐手单流（jamsoul 广播）；本地 player 步骤③再开（静音只做指针）
-type GpTrackInfo = { index: number; name: string }
+type GpTrackInfo = { index: number; name: string; playbackInfo?: { volume: number } }
 type GpApi = {
   destroy?: () => void
   load: (d: unknown, s?: () => void, e?: (x: Error) => void) => boolean
@@ -1342,6 +1382,11 @@ type GpApi = {
   error?: { on: (cb: (e: unknown) => void) => void }
   beatMouseUp?: { on: (cb: (beat: { playbackStart?: number; voice?: { bar?: { masterBar?: unknown } } } | null) => void) => void }
   tickCache?: { masterBars?: { start: number; masterBar?: unknown }[] } | null
+  settings?: { display: { scale: number; staveProfile: number; layoutMode: number }; player: { scrollMode: number } }
+  updateSettings?: () => void
+  render?: () => void
+  print?: () => void
+  settingsUpdated?: { on: (cb: () => void) => void }
 }
 
 function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onMix, canMix }: {
@@ -1374,7 +1419,51 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
   const [metronome, setMetronome] = useState(false)  // 本地节拍器（各自开关不进房混；播放器链路通了已正常出声——10-09晚复测）
   const [sfPct, setSfPct] = useState(-1)  // 音源加载进度（首访可见；-1=不在加载）
   const [fileMeta, setFileMeta] = useState({ title: "", artist: "" })  // 谱内标题/作者（审计#9：demo从文件读，别只显示上传文件名）
+  // 步骤④视图三件套（全本地）：缩放/五线六线/横竖排——枚举模块留存+当前值镜像（供菜单高亮）
+  const atModuleRef = useRef<{ LayoutMode: Record<string, number>; ScrollMode: Record<string, number>; StaveProfile: Record<string, number> } | null>(null)
+  const [zoomPct, setZoomPct] = useState(100)
+  const [staveKey, setStaveKey] = useState("ScoreTab")
+  const [layoutKey, setLayoutKey] = useState("page")
+  const applyView = (patch: { zoom?: number; stave?: string; layout?: string }) => {
+    const api = apiRef.current
+    const at = atModuleRef.current
+    if (!api?.settings || !at) return
+    if (patch.zoom) { api.settings.display.scale = patch.zoom / 100; setZoomPct(patch.zoom) }
+    if (patch.stave) { api.settings.display.staveProfile = at.StaveProfile[patch.stave] ?? at.StaveProfile.ScoreTab; setStaveKey(patch.stave) }
+    if (patch.layout) {
+      // Layout↔ScrollMode 联动照抄 demo：竖排=Page+Continuous；横排连续=Horizontal+Continuous；横排翻页=Horizontal+OffScreen
+      // （滚动处理器由 alphaTab 按 layout 的 vertical 性自动选横/竖系，指针跟随逻辑全部原生）
+      if (patch.layout === "page") { api.settings.display.layoutMode = at.LayoutMode.Page; api.settings.player.scrollMode = at.ScrollMode.Continuous }
+      else if (patch.layout === "hbar") { api.settings.display.layoutMode = at.LayoutMode.Horizontal; api.settings.player.scrollMode = at.ScrollMode.Continuous }
+      else { api.settings.display.layoutMode = at.LayoutMode.Horizontal; api.settings.player.scrollMode = at.ScrollMode.OffScreen }
+      setLayoutKey(patch.layout)
+    }
+    api.updateSettings?.()
+    api.render?.()
+  }
   const [scrubMs, setScrubMs] = useState(0)  // 起始位置（10-09 欢哥定稿：未播放时点进度线/谱面设定，播放从指针处开播——谁点播放用谁的位置）
+  // 音频时延补偿（10-10 欢哥"指针从头恒快1拍"）：指针=墙钟理论线，耳朵=网络流到达线，差=端到端音频时延（常数无漂移）。
+  // 测法：ping端点取最小RTT/2（网络单程）+ 固定播放缓冲常数（编码+抖动缓冲+解码）；残差靠耳朵报数调常数
+  const AUDIO_PLAYOUT_MS = 200
+  const audioLagRef = useRef(0)
+  useEffect(() => {
+    let stop = false
+    ;(async () => {
+      try {
+        let best = Infinity
+        for (let i = 0; i < 5; i++) {
+          const t0 = performance.now()
+          const r = await fetch("/api/ping", { cache: "no-store" })
+          if (r.ok) best = Math.min(best, performance.now() - t0)
+        }
+        if (!stop && Number.isFinite(best)) {
+          audioLagRef.current = Math.min(1000, best / 2 + AUDIO_PLAYOUT_MS)
+          console.log(`[gp指针] 音频时延补偿 ${Math.round(audioLagRef.current)}ms (RTT=${Math.round(best)}ms)`)
+        }
+      } catch (e) { /* 拿不到就0=纯墙钟指针 */ }
+    })()
+    return () => { stop = true }
+  }, [])
   // tick→毫秒映射（谱面点击换算用）：scoreLoaded 时从本地生成的 MIDI 事件里捕获（与总时长同一套积分）
   const tickMapRef = useRef<{ tempos: { tick: number; bpm: number }[]; division: number } | null>(null)
   const tickToMs = (tick: number): number => {
@@ -1430,6 +1519,7 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
     ;(async () => {
       try {
         const at = await import("@coderline/alphatab")
+        atModuleRef.current = at as unknown as { LayoutMode: Record<string, number>; ScrollMode: Record<string, number>; StaveProfile: Record<string, number> }
         // 自托管资产清单（immutable缓存锚点）：音源(synth必需) + worker(打包环境起 synth worker 的唯一途径)
         const mf = await fetch("/soundfont/manifest.json", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null)
         const settings = new at.Settings()
@@ -1461,8 +1551,10 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
           const src = s.tracks ?? []
           realTracksRef.current = src  // 原对象留给 renderTracks
           setTracks(src.map((t) => ({ index: t.index, name: String(t.name || `轨 ${t.index + 1}`).slice(0, 40) })))
-          // 本地播放全轨静音（音频单源=幽灵乐手，架构定稿）；节拍器走 metronomeVolume 独立通道不受影响
-          try { real.changeTrackVolume?.(src, 0) } catch (e) { /* 静音失败最多漏声，不阻塞 */ }
+          // 本地静音·根治版（10-10 欢哥jamsoul静音looper仍闻声=本地漏音定罪）：混音器级静音架不住
+          // 本地MIDI里烤着的CC7音量事件在播放开始时重新充压——把模型 playbackInfo.volume 直接清0，
+          // 内部生成(含任何重生成)烤出的CC7全为0，永久静音；节拍器独立通道不受影响；服务器生成用自己那份文件不受影响
+          for (const t of src) { try { if (t.playbackInfo) t.playbackInfo.volume = 0 } catch (e) { /* 单轨失败不阻塞 */ } }
           setScrubMs(0)  // 换谱重置起始位置
           lastPosSecRef.current = -1
           // 总时长：本地 MidiFileGenerator 生成事件流（与播放器/服务器同一条生成路径，反复记号展开一致），tempo 积分出毫秒
@@ -1538,13 +1630,15 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
     if (!api || !playerReady) return
     try {
       if (gpState?.playing && gpState.startedAt) {
-        api.timePosition = Math.max(0, (gpState.startMs ?? 0) + Date.now() - new Date(gpState.startedAt).getTime())
+        api.timePosition = Math.max(0, (gpState.startMs ?? 0) + Date.now() - new Date(gpState.startedAt).getTime() - audioLagRef.current)
         console.log("[gp指针] 跟走带 play @", api.timePosition)
         api.play?.()
       } else {
+        // 断点续播（10-10 欢哥定稿）：暂停保留当前位置=下次播放起点（点播放即续播；点谱面其他处=改起点）；
+        // 自然播完（已到尾部）则归零。不再回零。
         api.pause?.()
-        api.timePosition = 0
-        setScrubMs(0)
+        const atPos = api.timePosition ?? 0
+        setScrubMs(totalMs > 0 && atPos >= totalMs - 500 ? 0 : Math.max(0, Math.round(atPos)))
         setPosMs(0)
       }
     } catch (e) { console.error("[gp指针] 跟走带失败:", e) }
@@ -1558,7 +1652,7 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
     const id = setInterval(() => {
       const api = apiRef.current
       if (!api) return
-      const target = base + Date.now() - startedAtMs
+      const target = base + Date.now() - startedAtMs - audioLagRef.current
       const diff = (api.timePosition ?? 0) - target
       console.log("[gp指针] 对表 tick 本地=", Math.round(api.timePosition ?? 0), "目标=", Math.round(target), "差=", Math.round(diff))
       if (Math.abs(diff) > 150) {
@@ -1595,7 +1689,7 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
       <div className="relative min-h-0 flex-1">
         {loading && !err && <p className="absolute inset-x-0 top-2 z-10 text-center text-[11px]" style={{ color: "#8A8A8A" }}>谱面渲染中…</p>}
         {err && <p className="absolute inset-0 z-10 grid place-items-center bg-[#0A0A0A] px-6 text-center text-xs" style={{ color: "#FF5C5C" }}>{err}</p>}
-        <div ref={viewportRef} className="h-full overflow-y-auto scrollbar-thin" style={{ background: "#fff" }}>
+        <div ref={viewportRef} className="h-full overflow-auto scrollbar-thin" style={{ background: "#fff" }}>
           <div ref={containerRef} />
         </div>
       </div>
@@ -1715,19 +1809,56 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
             )}
           </div>
         )}
-        {/* 节拍器（步骤③顺手）：本地各自开关不进房混，走带对表保证跟拍 */}
-        <button
-          onClick={() => {
-            const next = !metronome
-            setMetronome(next)
-            const api = apiRef.current
-            if (api) { try { api.metronomeVolume = next ? 1 : 0 } catch (e) { /* 静默 */ } }
-          }}
-          title={metronome ? "节拍器开着（本地）· 点击关闭" : "节拍器（本地各自开关，不影响他人）"}
-          className={`flex h-6 w-7 shrink-0 items-center justify-center rounded-[6px] transition-colors ${metronome ? "bg-white/12 text-[#BBEE00]" : "text-white/70 hover:bg-white/10 hover:text-white"}`}
-        >
-          <MetronomeIcon className="size-3.5" />
-        </button>
+        {/* 右侧功能区（步骤④）：视图三件套下拉+打印+节拍器，全部本地行为 */}
+        <div className="ml-auto flex shrink-0 items-center gap-1">
+          <ToolbarMenu
+            title="缩放"
+            icon={<Search className="mr-0.5 size-3 opacity-60" />}
+            value={String(zoomPct)}
+            options={[25, 50, 75, 90, 100, 110, 125, 150, 200].map((n) => ({ v: String(n), t: `${n}%` }))}
+            onPick={(v) => applyView({ zoom: Number(v) })}
+          />
+          <ToolbarMenu
+            title="五线谱 / 六线谱"
+            value={staveKey}
+            options={[
+              { v: "ScoreTab", t: "五线+六线" },
+              { v: "Score", t: "五线谱" },
+              { v: "Tab", t: "六线谱" },
+            ]}
+            onPick={(v) => applyView({ stave: v })}
+          />
+          <ToolbarMenu
+            title="谱面排版"
+            value={layoutKey}
+            options={[
+              { v: "page", t: "竖排" },
+              { v: "hbar", t: "横排·连续" },
+              { v: "hscreen", t: "横排·翻页" },
+            ]}
+            onPick={(v) => applyView({ layout: v })}
+          />
+          <button
+            onClick={() => { try { apiRef.current?.print?.() } catch (e) { /* 打印窗口被拦等 */ } }}
+            title="打印谱面（本地打印机）"
+            className="flex h-6 w-7 shrink-0 items-center justify-center rounded-[6px] text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+          >
+            <Printer className="size-3.5" />
+          </button>
+          {/* 节拍器（步骤③顺手）：本地各自开关不进房混，走带对表保证跟拍 */}
+          <button
+            onClick={() => {
+              const next = !metronome
+              setMetronome(next)
+              const api = apiRef.current
+              if (api) { try { api.metronomeVolume = next ? 1 : 0 } catch (e) { /* 静默 */ } }
+            }}
+            title={metronome ? "节拍器开着（本地）· 点击关闭" : "节拍器（本地各自开关，不影响他人）"}
+            className={`flex h-6 w-7 shrink-0 items-center justify-center rounded-[6px] transition-colors ${metronome ? "bg-white/12 text-[#BBEE00]" : "text-white/70 hover:bg-white/10 hover:text-white"}`}
+          >
+            <MetronomeIcon className="size-3.5" />
+          </button>
+        </div>
       </div>
     </div>
   )

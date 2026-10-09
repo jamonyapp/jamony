@@ -101,22 +101,51 @@ function gpMsToTick(midiFile, ms) {
   return tick + ((ms - accMs) / (60000 / bpm)) * midiFile.division
 }
 
-// 从指定 tick 开始播放：裁掉更早的事件并整体平移；起始点前最后一个 tempo 事件保留到 tick0（否则后续速度失义）
+// 从指定 tick 开始播放：裁掉更早的事件并整体平移。
+// ⚠️携带修复（10-10 欢哥实测"过载吉他变钢琴"）：起点前的 ProgramChange(乐器)/BankSelect(音色库)/
+// Volume/Expression 指令必须补到新文件 tick0——fluidsynth 没收到乐器指令就退默认钢琴；tempo 同理
 function gpShiftMidiStart(midiFile, startTick) {
   if (!(startTick > 0)) return
   let lastTempoBefore = null
+  // 每通道：起点前最后一次 乐器/音色库粗细/音量/表情 指令（携带集合）。
+  // ⚠️按事件实际所在的 MidiTrack 对象归组（format 0 时所有事件并在 tracks[0]，ev.track 是原始轨号会对不上宿主）
+  const carryByTrackObj = new Map()  // MidiTrack → Map(`${ev.track}|${ev.channel}` → { program, bankCoarse, bankFine, volume, expression })
   for (const tr of midiFile.tracks) for (const ev of tr.events) {
     if (ev.tick >= startTick) continue
     if (typeof ev.beatsPerMinute === 'number') lastTempoBefore = ev
+    const key = `${ev.track}|${ev.channel}`
+    let slot = null
+    if (typeof ev.program === 'number') {
+      const m = carryByTrackObj.get(tr) || new Map(); carryByTrackObj.set(tr, m)
+      slot = m.get(key) || {}; slot.program = ev; m.set(key, slot)
+    } else if (typeof ev.controller === 'number') {
+      if (ev.controller !== 0 && ev.controller !== 32 && ev.controller !== 7 && ev.controller !== 11) continue
+      const m = carryByTrackObj.get(tr) || new Map(); carryByTrackObj.set(tr, m)
+      slot = m.get(key) || {}
+      if (ev.controller === 0) slot.bankCoarse = ev
+      else if (ev.controller === 32) slot.bankFine = ev
+      else if (ev.controller === 7) slot.volume = ev
+      else slot.expression = ev
+      m.set(key, slot)
+    }
   }
   for (const tr of midiFile.tracks) {
+    const carried = []
+    const carryMap = carryByTrackObj.get(tr)
+    if (carryMap) for (const c of carryMap.values()) {
+      for (const key of ['bankCoarse', 'bankFine', 'program', 'volume', 'expression']) {
+        const e = c[key]
+        if (e) { e.tick = 0; carried.push(e) }
+      }
+    }
     const kept = []
     for (const ev of tr.events) {
       if (ev.tick < startTick) { if (ev === lastTempoBefore) { ev.tick = 0; kept.push(ev) } continue }
       ev.tick -= startTick
       kept.push(ev)
     }
-    tr.events = kept
+    // 携带指令排最前（同 tick0 时乐器指令先于音符），tempo 事件紧随
+    tr.events = [...carried, ...kept]
   }
 }
 
