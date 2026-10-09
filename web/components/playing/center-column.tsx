@@ -1441,6 +1441,9 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
         // ⚠️打包环境（BrowserModule）下 worklet 加载走 new URL("./alphaTab.worklet.ts", undefined) 必炸且无 scriptFile 兜底
         // → 播放器整体起不来（10-09 指针无显示的真凶）。强制 ScriptProcessor 输出绕开 worklet，worker 走自托管 scriptFile
         settings.player.outputMode = at.PlayerOutputMode.WebAudioScriptProcessor
+        // 关原生谱面交互（10-10 欢哥裁决）：alphaTab点击跳转/拖框选=本地播放器语义，与服务器推流冲突
+        // （播放中点击会本地跳变1-2s再被对表拉回=信号干扰）；静止态点击定起点由 beatMouseUp 自接，播放中锁死
+        settings.player.enableUserInteraction = false
         if (mf?.file) settings.player.soundFont = `/soundfont/${mf.file}`
         ;(settings.player as { scrollElement?: unknown }).scrollElement = viewportRef.current
         const res = await fetch(url)
