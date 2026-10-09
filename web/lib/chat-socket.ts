@@ -2,9 +2,9 @@
 
 import { useEffect, useRef, useState } from "react"
 import { io, type Socket } from "socket.io-client"
-import type { RoomScore } from "@/lib/jam-data"
+import type { GpMix, RoomScore } from "@/lib/jam-data"
 
-export type GpState = { playing: boolean; startedAt?: string }
+export type GpState = { playing: boolean; startedAt?: string; startMs?: number }
 
 export type ChatMessage = {
   id: string
@@ -66,6 +66,11 @@ export function useChatSocket(roomId?: string, nickname?: string) {
 
     socket.on("gp-state", (data: GpState) => {
       setRealtimeGpState(data)
+    })
+
+    // GP 调音台（10-09 步骤②）：房级混音广播，后动作胜出；合并进当前谱（必新对象，同值跳过坑）
+    socket.on("gp-mix", (data: { mix: GpMix }) => {
+      setRealtimeScore((prev) => (prev && prev.type === "gp" ? { ...prev, mix: data.mix } : prev))
     })
 
     socket.on("bpm-update", (data: { bpm: number }) => {
@@ -144,8 +149,14 @@ export function useChatSocket(roomId?: string, nickname?: string) {
     setRealtimeScore(score)
   }
 
-  const playGp = () => { if (!socketRef.current || !roomId) return; socketRef.current.emit("gp-play", { roomId }) }
+  const playGp = (startMs?: number) => { if (!socketRef.current || !roomId) return; socketRef.current.emit("gp-play", { roomId, startMs: Math.max(0, Math.round(startMs ?? 0)) }) }
   const pauseGp = () => { if (!socketRef.current || !roomId) return; socketRef.current.emit("gp-pause", { roomId }) }
+  // GP 调音台：乐观本地+广播（滑条由组件侧节流后调用，这里即时发）
+  const updateGpMix = (mix: GpMix) => {
+    if (!socketRef.current || !roomId) return
+    socketRef.current.emit("gp-mix", { roomId, mix })
+    setRealtimeScore((prev) => (prev && prev.type === "gp" ? { ...prev, mix } : prev))
+  }
 
   const clearScore = () => {
     if (!socketRef.current || !roomId) return
@@ -153,5 +164,5 @@ export function useChatSocket(roomId?: string, nickname?: string) {
     setRealtimeScore(null)
   }
 
-  return { messages, sendMessage, connected, realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, realtimeScore, realtimeGpState, playGp, pauseGp, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, kickedEvent, dissolvedEvent }
+  return { messages, sendMessage, connected, realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, realtimeScore, realtimeGpState, playGp, pauseGp, updateGpMix, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, kickedEvent, dissolvedEvent }
 }

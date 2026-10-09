@@ -18,6 +18,11 @@ const srcSf2 = path.join(pkgRoot, 'dist/soundfont/sonivox.sf2')
 const srcLicense = path.join(pkgRoot, 'dist/soundfont/LICENSE')
 const destDir = path.join(webRoot, 'public/soundfont')
 const destSf2 = path.join(destDir, `sonivox-${version}.sf2`)
+// worker 文件（10-09 步骤③指针·二修）：blob worker 里 importScripts 解析不了相对URL、也咽不下ESM语法
+// （欢哥实测卷宗：importScripts '/alphatab/alphaTab.worker.mjs' is invalid）
+// → 自托管【经典构建】alphaTab.js（自包含、自带worker环境自检测），scriptFile 必须配完整绝对URL（组件侧拼）
+const srcWorkerClassic = path.join(pkgRoot, 'dist/alphaTab.js')
+const destWorkerDir = path.join(webRoot, 'public/alphatab')
 
 if (!existsSync(srcSf2)) {
   console.error(`[copy-soundfont] 找不到 ${srcSf2}（@coderline/alphatab 装全了吗？）`)
@@ -26,5 +31,18 @@ if (!existsSync(srcSf2)) {
 mkdirSync(destDir, { recursive: true })
 copyFileSync(srcSf2, destSf2)
 try { copyFileSync(srcLicense, path.join(destDir, 'LICENSE')) } catch (e) { /* 许可文件缺失不阻塞 */ }
-writeFileSync(path.join(destDir, 'manifest.json'), JSON.stringify({ file: `sonivox-${version}.sf2`, version }))
-console.log(`[copy-soundfont] sonivox ${version} → public/soundfont/ ✓`)
+if (existsSync(srcWorkerClassic)) {
+  mkdirSync(destWorkerDir, { recursive: true })
+  copyFileSync(srcWorkerClassic, path.join(destWorkerDir, 'alphaTab.js'))
+  // 目录治权：只留经典构建，清掉一切历史残留（.mjs对/旧版本命名）
+  const canonical = new Set(['alphaTab.js'])
+  const { readdirSync, unlinkSync } = await import('node:fs')
+  for (const f of readdirSync(destWorkerDir)) if (!canonical.has(f)) { try { unlinkSync(path.join(destWorkerDir, f)) } catch (e) { /* 忽略 */ } }
+} else {
+  console.warn('[copy-soundfont] dist/alphaTab.js 缺失，worker 未分发（指针将不可用）')
+}
+writeFileSync(
+  path.join(destDir, 'manifest.json'),
+  JSON.stringify({ file: `sonivox-${version}.sf2`, version, worker: 'alphaTab.js' })
+)
+console.log(`[copy-soundfont] sonivox ${version} + classic worker → public/{soundfont,alphatab}/ ✓`)

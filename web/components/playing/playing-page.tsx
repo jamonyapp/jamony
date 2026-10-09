@@ -58,7 +58,7 @@ export function PlayingPage() {
   const roomSession = useRoomSession()
   // 10-07 漫游续听：收听音频上移 Provider 全局常驻，listenerActive 为派生值（漫游不断流）
   const listenerActive = roomSession.listening != null
-  const { realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, realtimeScore, realtimeGpState, playGp, pauseGp, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, kickedEvent, dissolvedEvent } = useChatSocket(params?.code as string, user?.nickname)
+  const { realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, realtimeScore, realtimeGpState, playGp, pauseGp, updateGpMix, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, kickedEvent, dissolvedEvent } = useChatSocket(params?.code as string, user?.nickname)
   const [room, setRoom] = useState<RoomData | null>(null)
   const [showShareHint, setShowShareHint] = useState(false)
   // 建房跳转带 ?new=1 → 弹分享引导窗（room 加载完才弹），并清掉 query 避免刷新重复弹
@@ -455,6 +455,7 @@ export function PlayingPage() {
             gpState={gpState}
             onGpPlay={playGp}
             onGpPause={pauseGp}
+            onGpMix={updateGpMix}
           />
         </div>
         <div className="min-h-0">

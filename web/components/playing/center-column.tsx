@@ -2,12 +2,23 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { Circle, Square, ChevronDown, ChevronLeft, ChevronRight, Disc3, Headphones, ArrowRight, Download, Ban, Check, X, ChevronUp, SlidersHorizontal, Play, Pause } from "lucide-react"
-import { instrumentEmoji, type RecordingSession, type Track, type RoomScore } from "@/lib/jam-data"
+import { instrumentEmoji, type RecordingSession, type Track, type RoomScore, type GpMix } from "@/lib/jam-data"
 import { MixerFullscreen } from "@/components/mixer/mixer-fullscreen"
 import { MixerMini } from "@/components/mixer/mixer-mini"
 import { useMixerEngine } from "@/hooks/useMixerEngine"
 import { TRACK_COLORS, type MixerTrack } from "@/components/mixer/types"
 import PublishWorkModal from "@/components/publishing/publish-work-modal"
+
+// 节拍器icon（10-10 欢哥要求）：lucide 1985 个图标里没有节拍器，照 lucide 描边风格自绘——梯形身+斜摆针+配重锤
+function MetronomeIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden>
+      <path d="M9.5 3h5L18.5 21h-13L9.5 3z" />
+      <path d="M12 15.5 17 6" />
+      <circle cx="17" cy="6" r="1.4" fill="currentColor" stroke="none" />
+    </svg>
+  )
+}
 
 function fmt(total: number) {
   const m = Math.floor(total / 60)
@@ -146,6 +157,7 @@ export function CenterColumn({
   gpState,
   onGpPlay,
   onGpPause,
+  onGpMix,
 }: {
   chords: string[]
   customTheme?: string
@@ -163,8 +175,9 @@ export function CenterColumn({
   score?: RoomScore | null
   onClearScore?: () => void
   gpState?: { playing: boolean; startedAt?: string } | null
-  onGpPlay?: () => void
+  onGpPlay?: (startMs?: number) => void
   onGpPause?: () => void
+  onGpMix?: (mix: GpMix) => void
 }) {
   const [todayTheme, setTodayTheme] = useState({ title: "加载中...", emoji: "🎵" })
   useEffect(() => {
@@ -189,7 +202,7 @@ export function CenterColumn({
         style={{ borderColor: "#1A1A1A" }}
       >
         {score ? (
-          <ScoreViewer score={score} canClear={myRole !== "listener"} onClear={onClearScore} gpState={gpState} onGpPlay={onGpPlay} onGpPause={onGpPause} />
+          <ScoreViewer score={score} canClear={myRole !== "listener"} onClear={onClearScore} gpState={gpState} onGpPlay={onGpPlay} onGpPause={onGpPause} onGpMix={onGpMix} />
         ) : (
           <>
             <img src="/images/stage-backdrop.png" alt="" aria-hidden className="absolute inset-0 size-full object-cover" />
@@ -239,7 +252,7 @@ export function CenterColumn({
 }
 
 // 谱面查看器：图片=各自本地翻页+缩放+拖拽（零同步，欢哥 10-07 定稿），PDF=Chromium 原生查看器自带全套
-function ScoreViewer({ score, canClear, onClear, gpState, onGpPlay, onGpPause }: { score: RoomScore; canClear?: boolean; onClear?: () => void; gpState?: { playing: boolean; startedAt?: string } | null; onGpPlay?: () => void; onGpPause?: () => void }) {
+function ScoreViewer({ score, canClear, onClear, gpState, onGpPlay, onGpPause, onGpMix }: { score: RoomScore; canClear?: boolean; onClear?: () => void; gpState?: { playing: boolean; startedAt?: string; startMs?: number } | null; onGpPlay?: (startMs?: number) => void; onGpPause?: () => void; onGpMix?: (mix: GpMix) => void }) {
   const [page, setPage] = useState(0)
   const [zoom, setZoom] = useState(1)
   const [pdfPages, setPdfPages] = useState(0)  // PDF 加载后才知道总页数（pdf.js 画布渲染，不依赖 Electron PDF 插件）
@@ -273,7 +286,7 @@ function ScoreViewer({ score, canClear, onClear, gpState, onGpPlay, onGpPause }:
   const transformStyle = { transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }
 
   // GP 谱走工作站（alphaTab 渲染，自有滚动；不走图片缩放/翻页那套舞台）——须在全部 hooks 之后
-  if (score.type === "gp") return <GpWorkstation score={score} canClear={canClear} onClear={onClear} gpState={gpState} onPlay={onGpPlay} onPause={onGpPause} />
+  if (score.type === "gp") return <GpWorkstation score={score} canClear={canClear} onClear={onClear} gpState={gpState} onPlay={onGpPlay} onPause={onGpPause} onMix={onGpMix} canMix={canClear} />
 
   // 平移边界夹紧（10-07 欢哥实测：自由画布容易把谱面整个拖出视野）——内容始终盖住视口，到边即停
   // 注意 transform 的 scale 以元素中心为原点：放大时内容向两端生长，边界必须按"中心基准+平移"推导，
@@ -1312,18 +1325,35 @@ type GpApi = {
   destroy?: () => void
   load: (d: unknown, s?: () => void, e?: (x: Error) => void) => boolean
   renderTracks: (tracks: GpTrackInfo[]) => void
+  changeTrackVolume?: (tracks: GpTrackInfo[], ratio: number) => void
   tracks?: GpTrackInfo[]
+  play?: () => void
+  pause?: () => void
+  timePosition?: number
+  metronomeVolume?: number
   scoreLoaded?: { on: (cb: (s: { tracks?: GpTrackInfo[] }) => void) => void }
   renderFinished?: { on: (cb: () => void) => void }
   renderStarted?: { on: (cb: (isResize: boolean) => void) => void }
+  playerReady?: { on: (cb: () => void) => void }
+  playerPositionChanged?: { on: (cb: (args: { currentTime: number; endTime: number }) => void) => void }
+  soundFontLoaded?: { on: (cb: () => void) => void }
+  soundFontLoad?: { on: (cb: (args: { loaded: number; total: number }) => void) => void }
+  soundFontLoadFailed?: { on: (cb: (e: unknown) => void) => void }
+  error?: { on: (cb: (e: unknown) => void) => void }
+  beatMouseUp?: { on: (cb: (beat: { playbackStart?: number; voice?: { bar?: { masterBar?: unknown } } } | null) => void) => void }
+  tickCache?: { masterBars?: { start: number; masterBar?: unknown }[] } | null
 }
 
-function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause }: {
+function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onMix, canMix }: {
   score: RoomScore; canClear?: boolean; onClear?: () => void
-  gpState?: { playing: boolean; startedAt?: string } | null
-  onPlay?: () => void; onPause?: () => void
+  gpState?: { playing: boolean; startedAt?: string; startMs?: number } | null
+  onPlay?: (startMs?: number) => void; onPause?: () => void
+  onMix?: (mix: GpMix) => void; canMix?: boolean
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
+  // 两层结构（10-09 滚动雪球根治）：外层viewport管滚动，内层host挂alphaTab——
+  // 官网同款父子结构；若同div兼任两层，滚动公式 offset+barY 退化成 scrollTop+barY 滚雪球（每次多滚几行）
+  const viewportRef = useRef<HTMLDivElement>(null)
   const [err, setErr] = useState("")
   const [loading, setLoading] = useState(true)
   const [now, setNow] = useState(Date.now())
@@ -1337,6 +1367,51 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause }: {
   const [renderedIdx, setRenderedIdx] = useState<number[]>([])
   const [panelOpen, setPanelOpen] = useState(false)  // 分轨弹层（10-09 欢哥定稿：工具栏只放入口，点开向上弹列表——吉他社样式）
   const [totalMs, setTotalMs] = useState(0)  // 谱面总时长（alphaTab 式 00:00/04:46 的分母；0=未知不显示）
+  // 指针（步骤③）：本地静音 player 跟服务器走带；playerReady=音源就绪（就绪前不跟）；posMs=真实位置（秒变才setState防刷屏）
+  const [playerReady, setPlayerReady] = useState(false)
+  const [posMs, setPosMs] = useState(0)
+  const lastPosSecRef = useRef(-1)
+  const [metronome, setMetronome] = useState(false)  // 本地节拍器（各自开关不进房混；播放器链路通了已正常出声——10-09晚复测）
+  const [sfPct, setSfPct] = useState(-1)  // 音源加载进度（首访可见；-1=不在加载）
+  const [fileMeta, setFileMeta] = useState({ title: "", artist: "" })  // 谱内标题/作者（审计#9：demo从文件读，别只显示上传文件名）
+  const [scrubMs, setScrubMs] = useState(0)  // 起始位置（10-09 欢哥定稿：未播放时点进度线/谱面设定，播放从指针处开播——谁点播放用谁的位置）
+  // tick→毫秒映射（谱面点击换算用）：scoreLoaded 时从本地生成的 MIDI 事件里捕获（与总时长同一套积分）
+  const tickMapRef = useRef<{ tempos: { tick: number; bpm: number }[]; division: number } | null>(null)
+  const tickToMs = (tick: number): number => {
+    const t = tickMapRef.current
+    if (!t || t.division <= 0) return 0
+    let ms = 0, prevTick = 0, bpm = 120
+    for (const p of t.tempos) {
+      if (p.tick >= tick) break
+      ms += ((p.tick - prevTick) / t.division) * (60000 / bpm)
+      prevTick = p.tick; bpm = p.bpm
+    }
+    return ms + ((tick - prevTick) / t.division) * (60000 / bpm)
+  }
+  const playingRef = useRef(false)
+  playingRef.current = playing  // 事件回调防陈旧闭包
+  // 调音台（步骤②）：S/M/单轨音量=房级，后动作胜出、播放定版（欢哥 A 方案）；score.mix=服务器真相源，本地乐观+广播回填
+  const [mix, setMix] = useState<GpMix>(score.mix ?? {})
+  const mixRef = useRef(mix)
+  useEffect(() => { const m = score.mix ?? {}; mixRef.current = m; setMix(m) }, [score.mix])
+  const volEmitRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (volEmitRef.current) clearTimeout(volEmitRef.current) }, [])
+  const toggleArr = (arr: number[] | undefined, i: number) => (arr?.includes(i) ? arr.filter((x) => x !== i) : [...(arr ?? []), i])
+  // 播放中锁混音（欢哥 10-09 定稿：音频既成流不可变，UI 如实呈现——除暂停外全锁，
+  // 禁用样式+悬停说明；点轨切谱=本地视觉行为不锁）
+  const mixLocked = playing
+  const pushMix = (next: GpMix) => { mixRef.current = next; setMix(next); onMix?.(next) }
+  const toggleMute = (i: number) => { if (mixLocked || !canMix) return; pushMix({ ...mixRef.current, mutes: toggleArr(mixRef.current.mutes, i) }) }
+  const toggleSolo = (i: number) => { if (mixLocked || !canMix) return; pushMix({ ...mixRef.current, solos: toggleArr(mixRef.current.solos, i) }) }
+  // 滑条拖动节流：本地即时，上报尾随 120ms（拖动中不逐像素广播）；播放中锁（守卫兜底，样式层已禁）
+  const setVol = (i: number, pct: number) => {
+    if (mixLocked || !canMix) return
+    const next = { ...mixRef.current, vols: { ...(mixRef.current.vols ?? {}), [String(i)]: pct } }
+    mixRef.current = next
+    setMix(next)
+    if (volEmitRef.current) clearTimeout(volEmitRef.current)
+    volEmitRef.current = setTimeout(() => onMix?.(next), 120)
+  }
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(id) }, [])
   useEffect(() => { setPending(false) }, [playing, gpState?.startedAt])  // 状态广播回来解锁过渡态
   useEffect(() => { if (!pending) return; const t = setTimeout(() => setPending(false), 10000); return () => clearTimeout(t) }, [pending])
@@ -1355,10 +1430,19 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause }: {
     ;(async () => {
       try {
         const at = await import("@coderline/alphatab")
+        // 自托管资产清单（immutable缓存锚点）：音源(synth必需) + worker(打包环境起 synth worker 的唯一途径)
+        const mf = await fetch("/soundfont/manifest.json", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null)
         const settings = new at.Settings()
-        settings.core.useWorkers = false          // V1 主线程渲染，免 webpack worker 配线（一次性渲染可接受）
+        settings.core.useWorkers = true           // 渲染worker（审计#1修复）：自托管scriptFile已验证worker通路，回归demo默认——渲染不再卡UI线程
         settings.core.fontDirectory = "/alphatab-font/"
-        settings.player.enablePlayer = false      // 音频单源走幽灵乐手（欢哥架构定稿）；步骤③开 player 做指针
+        // ⚠️ blob worker 的 importScripts 解析不了相对URL——scriptFile 必须拼完整绝对URL（10-09 二修，欢哥实测卷宗定罪）
+        if (mf?.worker) settings.core.scriptFile = new URL(`/alphatab/${mf.worker}`, window.location.origin).href
+        settings.player.enablePlayer = true       // 步骤③指针：本地 player 只做走带指针+可选节拍器（全轨静音），音频仍走幽灵乐手
+        // ⚠️打包环境（BrowserModule）下 worklet 加载走 new URL("./alphaTab.worklet.ts", undefined) 必炸且无 scriptFile 兜底
+        // → 播放器整体起不来（10-09 指针无显示的真凶）。强制 ScriptProcessor 输出绕开 worklet，worker 走自托管 scriptFile
+        settings.player.outputMode = at.PlayerOutputMode.WebAudioScriptProcessor
+        if (mf?.file) settings.player.soundFont = `/soundfont/${mf.file}`
+        ;(settings.player as { scrollElement?: unknown }).scrollElement = viewportRef.current
         const res = await fetch(url)
         if (!res.ok) throw new Error(`谱子文件加载失败(${res.status})`)
         const buf = new Uint8Array(await res.arrayBuffer())
@@ -1367,12 +1451,17 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause }: {
         api = real
         apiRef.current = real
         // 关加载指示器用事件（load 回调在 1.8.4 上不可靠，谱面已渲染但 success 未触发——10-07 欢哥实测）
-        real.scoreLoaded?.on?.((s: { tracks?: GpTrackInfo[] }) => {
+        real.scoreLoaded?.on?.((s: { tracks?: GpTrackInfo[]; title?: string; artist?: string }) => {
           if (cancelled) return
           setLoading(false)
+          setFileMeta({ title: String(s.title || "").slice(0, 60), artist: String(s.artist || "").slice(0, 40) })
           const src = s.tracks ?? []
           realTracksRef.current = src  // 原对象留给 renderTracks
           setTracks(src.map((t) => ({ index: t.index, name: String(t.name || `轨 ${t.index + 1}`).slice(0, 40) })))
+          // 本地播放全轨静音（音频单源=幽灵乐手，架构定稿）；节拍器走 metronomeVolume 独立通道不受影响
+          try { real.changeTrackVolume?.(src, 0) } catch (e) { /* 静音失败最多漏声，不阻塞 */ }
+          setScrubMs(0)  // 换谱重置起始位置
+          lastPosSecRef.current = -1
           // 总时长：本地 MidiFileGenerator 生成事件流（与播放器/服务器同一条生成路径，反复记号展开一致），tempo 积分出毫秒
           // ⚠️ 不用 midiFile.events getter——1.8.4 多轨下 this.events.push 自调用会无限递归，自己走 tracks[].events
           try {
@@ -1392,12 +1481,8 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause }: {
               if (typeof ev.beatsPerMinute === "number" && ev.beatsPerMinute > 0) tempos.push({ tick: ev.tick, bpm: ev.beatsPerMinute })
             }
             tempos.sort((a, b) => a.tick - b.tick)
-            let ms = 0, tick = 0, bpm = 120
-            for (const next of [...tempos, { tick: maxTick, bpm: 0 }]) {
-              ms += ((next.tick - tick) / mf.division) * (60000 / bpm)
-              tick = next.tick
-              bpm = next.bpm || bpm
-            }
+            tickMapRef.current = { tempos, division: mf.division }  // 谱面点击 tick→ms 换算表
+            const ms = tickToMs(maxTick)
             if (ms > 0 && Number.isFinite(ms)) setTotalMs(ms)
           } catch (e) { /* 总时长拿不到只显示走过时间，不影响主流程 */ }
         })
@@ -1408,6 +1493,34 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause }: {
           setRenderedIdx((prev) => (prev.join() === idxs.join() ? prev : idxs))
         })
         real.renderFinished?.on?.(() => { if (!cancelled) setLoading(false) })
+        // 谱面点击=定起始位置（10-09 重做版）：绝对tick=所点小节的 MasterBarTickLookup.start + 小节内偏移
+        // ⚠️1.8.4 的 beat.playbackStart 是小节内相对量（首版踩坑），绝对起点从 api.tickCache.masterBars 反查
+        // （反复记号会生成多个lookup指向同一小节——取第一次出现，语义="从视觉上这个小节开始"）
+        real.beatMouseUp?.on?.((beat) => {
+          if (cancelled || playingRef.current || !beat) return
+          const cache = apiRef.current?.tickCache
+          const mb = beat.voice?.bar?.masterBar
+          const barStart = cache?.masterBars?.find((m) => m.masterBar === mb)?.start
+          if (barStart === undefined) return  // tickCache 未就绪（播放器还在加载）——不误跳
+          const ms = Math.max(0, Math.round(tickToMs(barStart + (beat.playbackStart ?? 0))))
+          console.log("[gp指针] 谱面点击 小节起点tick=", barStart, "偏移=", beat.playbackStart, "→ms=", ms)
+          setScrubMs(ms)
+          const api = apiRef.current
+          if (api) { try { api.timePosition = ms } catch (e) { /* 预览失败无碍 */ } }
+        })
+        // 指针就绪（音源加载完才能跟走带）；位置事件秒变才更新（demo 同款节流），endTime 兜底总时长
+        // 诊断日志（devtools 抓真相用，欢哥实测时看 console）
+        real.error?.on?.((e: unknown) => console.error("[gp指针] alphaTab error:", e))
+        real.soundFontLoaded?.on?.(() => { console.log("[gp指针] 音源加载完成"); setSfPct(-1) })
+        real.soundFontLoad?.on?.((args: { loaded: number; total: number }) => { if (!cancelled && args.total > 0) setSfPct(Math.floor((args.loaded / args.total) * 100)) })
+        real.soundFontLoadFailed?.on?.((e: unknown) => console.error("[gp指针] 音源加载失败:", e))
+        real.playerReady?.on?.(() => { if (!cancelled) { console.log("[gp指针] 播放器就绪"); setPlayerReady(true) } })
+        real.playerPositionChanged?.on?.((args: { currentTime: number; endTime: number }) => {
+          if (cancelled) return
+          setTotalMs((t) => (t > 0 ? t : args.endTime))
+          const sec = Math.floor(args.currentTime / 1000)
+          if (sec !== lastPosSecRef.current) { lastPosSecRef.current = sec; setPosMs(args.currentTime) }
+        })
         real.load(buf, () => { if (!cancelled) setLoading(false) }, (e: Error) => { if (!cancelled) { setErr("谱子解析失败：" + e.message); setLoading(false) } })
       } catch (e) {
         if (!cancelled) { setErr((e as Error)?.message || "渲染失败"); setLoading(false) }
@@ -1415,6 +1528,43 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause }: {
     })()
     return () => { cancelled = true; apiRef.current = null; realTracksRef.current = []; try { api?.destroy?.() } catch (e) { /* 卸载兜底 */ } }
   }, [url])
+
+  // 跟走带（步骤③）：gp-state=唯一真相——播放=seek到 startMs+墙钟elapsed 再play；暂停=归零（服务器暂停即杀进程，重播位置由下次点播者定）
+  useEffect(() => {
+    const api = apiRef.current
+    if (!api || !playerReady) return
+    try {
+      if (gpState?.playing && gpState.startedAt) {
+        api.timePosition = Math.max(0, (gpState.startMs ?? 0) + Date.now() - new Date(gpState.startedAt).getTime())
+        console.log("[gp指针] 跟走带 play @", api.timePosition)
+        api.play?.()
+      } else {
+        api.pause?.()
+        api.timePosition = 0
+        setScrubMs(0)
+        setPosMs(0)
+      }
+    } catch (e) { console.error("[gp指针] 跟走带失败:", e) }
+  }, [gpState?.playing, gpState?.startedAt, gpState?.startMs, playerReady])
+
+  // 墙钟对表（每2s）：|本地位置-墙钟目标|>150ms 才 seek（seek 稀疏=平滑滚动交给 alphaTab 原生）
+  useEffect(() => {
+    if (!gpState?.playing || !gpState.startedAt || !playerReady) return
+    const base = gpState.startMs ?? 0
+    const startedAtMs = new Date(gpState.startedAt).getTime()
+    const id = setInterval(() => {
+      const api = apiRef.current
+      if (!api) return
+      const target = base + Date.now() - startedAtMs
+      const diff = (api.timePosition ?? 0) - target
+      console.log("[gp指针] 对表 tick 本地=", Math.round(api.timePosition ?? 0), "目标=", Math.round(target), "差=", Math.round(diff))
+      if (Math.abs(diff) > 150) {
+        console.log("[gp指针] 对表 seek 差=", Math.round(diff), "ms")
+        try { api.timePosition = Math.max(0, target) } catch (e) { /* 忽略本轮 */ }
+      }
+    }, 2000)
+    return () => clearInterval(id)
+  }, [gpState?.playing, gpState?.startedAt, gpState?.startMs, playerReady])
 
   const allOn = tracks.length > 0 && renderedIdx.length === tracks.length
   const currentTrackName = allOn ? "全部" : (tracks.find((t) => renderedIdx.includes(t.index))?.name ?? "全部")
@@ -1428,9 +1578,9 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause }: {
 
   return (
     <div className="absolute inset-0 flex flex-col" style={{ background: "#0A0A0A" }}>
-      {/* 头部：谱名 + 轨数 + 收回（走带已下移底部工具栏） */}
+      {/* 头部：谱名 + 轨数 + 收回（走带已下移底部工具栏）；谱内title/artist优先（审计#9），无则退上传文件名 */}
       <div className="flex shrink-0 items-center justify-between gap-2 px-3 py-1.5">
-        <span className="truncate text-xs font-semibold text-white">📄 {score.name}</span>
+        <span className="truncate text-xs font-semibold text-white">📄 {fileMeta.title || score.name}{fileMeta.artist ? ` · ${fileMeta.artist}` : ""}</span>
         <div className="flex shrink-0 items-center gap-2.5">
           {!!score.tracks?.length && <span className="text-[11px] text-white/50">{score.tracks.length} 轨</span>}
           {canClear && onClear && (
@@ -1442,14 +1592,34 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause }: {
       <div className="relative min-h-0 flex-1">
         {loading && !err && <p className="absolute inset-x-0 top-2 z-10 text-center text-[11px]" style={{ color: "#8A8A8A" }}>谱面渲染中…</p>}
         {err && <p className="absolute inset-0 z-10 grid place-items-center bg-[#0A0A0A] px-6 text-center text-xs" style={{ color: "#FF5C5C" }}>{err}</p>}
-        <div ref={containerRef} className="h-full overflow-y-auto scrollbar-thin" style={{ background: "#fff" }} />
+        <div ref={viewportRef} className="h-full overflow-y-auto scrollbar-thin" style={{ background: "#fff" }}>
+          <div ref={containerRef} />
+        </div>
       </div>
-      {/* 底部工具栏（10-09 欢哥定稿布局）：走带+分轨+工作站功能全收这里，不占谱面水平空间；
-          右侧空位留给步骤④功能组（缩放/五线六线/横竖排/打印/节拍器…） */}
-      <div className="flex h-9 shrink-0 items-center gap-2 border-t border-white/10 px-3">
+      {/* 底部工具栏（10-09 欢哥定稿布局）：走带+分轨+工作站功能全收这里，不占谱面水平空间 */}
+      <div className="relative flex h-9 shrink-0 items-center gap-2 border-t border-white/10 px-3">
+        {/* 走带进度线：播放中=真实位置（秒步进+1s线性过渡抹平）；未播放=可点设起始位置（本地指针预览，谁点播放用谁的位置） */}
+        {totalMs > 0 && (
+          <div
+            className={`absolute inset-x-0 top-0 z-10 h-1.5 ${playing ? "" : "cursor-pointer"}`}
+            title={playing ? undefined : "点击设定起始位置（播放从这里开始）"}
+            onPointerDown={(e) => {
+              if (playing) return
+              const rect = e.currentTarget.getBoundingClientRect()
+              const ms = Math.max(0, Math.min(totalMs, ((e.clientX - rect.left) / rect.width) * totalMs))
+              setScrubMs(ms)
+              const api = apiRef.current
+              if (api) { try { api.timePosition = ms } catch (err) { /* 预览失败无碍 */ } }
+            }}
+          >
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/10">
+              <div className="h-full transition-[width] duration-1000 ease-linear" style={{ width: `${Math.min(100, ((playing && posMs > 0 ? posMs : scrubMs) / totalMs) * 100)}%`, background: "#BBEE00" }} />
+            </div>
+          </div>
+        )}
         {(onPlay || onPause) && (
           <button
-            onClick={() => { if (pending) return; setPending(true); (playing ? onPause?.() : onPlay?.()) }}
+            onClick={() => { if (pending) return; setPending(true); (playing ? onPause?.() : onPlay?.(scrubMs)) }}
             disabled={pending}
             title={playing ? "暂停" : "播放"}
             className="flex h-6 w-6 shrink-0 items-center justify-center text-white transition-opacity hover:opacity-70 disabled:cursor-not-allowed disabled:opacity-50"
@@ -1459,18 +1629,22 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause }: {
         )}
         {/* 走带时间（常驻，alphaTab 控制栏样式）：走过时间 / 谱面总时长；播放时点亮，停止归零 */}
         {(() => {
-          const elapsed = playing && gpState?.startedAt ? Math.max(0, Math.floor((now - new Date(gpState.startedAt).getTime()) / 1000)) : 0
+          // 真实播放位置优先（步骤③指针事件）；事件未到时退墙钟估算；未播放=起始位置预览（随进度线点击）
+          const elapsed = playing && gpState?.startedAt
+            ? Math.max(0, Math.floor((posMs > 0 ? posMs : now - new Date(gpState.startedAt).getTime()) / 1000))
+            : Math.floor(scrubMs / 1000)
           return (
             <span className="flex shrink-0 items-center gap-1.5 font-mono text-[11px]">
               {playing && <span className="size-1.5 animate-rec-pulse rounded-full" style={{ background: "#BBEE00" }} />}
               <span style={playing ? { color: "#BBEE00" } : { color: "rgba(255,255,255,0.6)" }}>{fmt(elapsed)}</span>
               {totalMs > 0 && <span className="text-white/35">/ {fmt(Math.floor(totalMs / 1000))}</span>}
+              {sfPct >= 0 && <span className="text-white/40">· 音源 {sfPct}%</span>}
             </span>
           )
         })()}
         {/* 分轨入口（10-09 欢哥定稿：吉他社样式）——工具栏只放一个按钮，点开向上弹列表；
-            步骤②每行将长成调音台（加 S/M + 单轨音量），谱面始终全宽 */}
-        {tracks.length > 1 && (
+            常驻（含单轨谱，点开就一条轨——避免用户猜"按钮没了是bug还是谱子问题"）；谱面始终全宽 */}
+        {tracks.length >= 1 && (
           <div className="relative flex">
             <button
               onClick={() => setPanelOpen((v) => !v)}
@@ -1490,21 +1664,67 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause }: {
                     全部轨
                   </button>
                   {tracks.map((t, i) => (
-                    <button
+                    <div
                       key={t.index}
                       onClick={() => showTracks(i)}
                       title={t.name}
-                      className={`flex w-full items-center gap-2 rounded-[6px] px-2 py-1.5 text-left text-[11px] transition-colors ${!allOn && renderedIdx.includes(t.index) ? "bg-white/12 font-semibold text-white" : "text-white/55 hover:bg-white/8 hover:text-white/80"}`}
+                      className={`cursor-pointer rounded-[6px] px-2 py-1.5 transition-colors ${!allOn && renderedIdx.includes(t.index) ? "bg-white/12" : "hover:bg-white/8"}`}
                     >
-                      <span className="w-4 shrink-0 text-right font-mono text-[10px] opacity-50">{i + 1}</span>
-                      <span className="truncate">{t.name}</span>
-                    </button>
+                      <div className="flex items-center gap-2">
+                        <span className="w-4 shrink-0 text-right font-mono text-[10px] opacity-50">{i + 1}</span>
+                        <span className={`min-w-0 flex-1 truncate text-[11px] ${!allOn && renderedIdx.includes(t.index) ? "font-semibold text-white" : "text-white/55"}`}>{t.name}</span>
+                        {/* S/M=房级混音（点行=本地切谱，控件须拦冒泡） */}
+                        <span className="flex shrink-0 items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); toggleSolo(t.index) }}
+                            title={!canMix ? "由合奏者控制" : mixLocked ? "播放中不能调整，请先暂停（混音于播放时生效）" : "独奏（房级，全员同步）"}
+                            className={`grid h-4 w-[18px] place-items-center rounded text-[9px] font-bold transition-colors ${!canMix || mixLocked ? "cursor-not-allowed opacity-40" : ""} ${mix.solos?.includes(t.index) ? "text-black" : "bg-white/10 text-white/45 hover:text-white/85"}`}
+                            style={mix.solos?.includes(t.index) ? { background: "#BBEE00" } : undefined}
+                          >S</button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); toggleMute(t.index) }}
+                            title={!canMix ? "由合奏者控制" : mixLocked ? "播放中不能调整，请先暂停（混音于播放时生效）" : "静音（房级，全员同步）"}
+                            className={`grid h-4 w-[18px] place-items-center rounded text-[9px] font-bold transition-colors ${!canMix || mixLocked ? "cursor-not-allowed opacity-40" : ""} ${mix.mutes?.includes(t.index) ? "text-black" : "bg-white/10 text-white/45 hover:text-white/85"}`}
+                            style={mix.mutes?.includes(t.index) ? { background: "#FF5C5C" } : undefined}
+                          >M</button>
+                        </span>
+                      </div>
+                      {/* 单轨音量（房级）：本地即时+尾随120ms上报；听众只读；播放中锁定（pointer-events 断交互，title 放外层才能悬停显示） */}
+                      <div
+                        className={`mt-1 flex items-center gap-1.5 pl-6 ${!canMix || mixLocked ? "cursor-not-allowed" : ""}`}
+                        onClick={(e) => e.stopPropagation()}
+                        title={!canMix ? "由合奏者控制" : mixLocked ? "播放中不能调整，请先暂停（混音于播放时生效）" : undefined}
+                      >
+                        <input
+                          type="range"
+                          min={0}
+                          max={100}
+                          value={mix.vols?.[String(t.index)] ?? 100}
+                          onChange={(e) => setVol(t.index, Number(e.target.value))}
+                          className={`min-w-0 flex-1 accent-[#BBEE00] ${!canMix || mixLocked ? "pointer-events-none opacity-40" : "cursor-pointer"}`}
+                        />
+                        <span className="w-7 shrink-0 text-right font-mono text-[9px] text-white/40">{mix.vols?.[String(t.index)] ?? 100}</span>
+                      </div>
+                    </div>
                   ))}
                 </div>
               </>
             )}
           </div>
         )}
+        {/* 节拍器（步骤③顺手）：本地各自开关不进房混，走带对表保证跟拍 */}
+        <button
+          onClick={() => {
+            const next = !metronome
+            setMetronome(next)
+            const api = apiRef.current
+            if (api) { try { api.metronomeVolume = next ? 1 : 0 } catch (e) { /* 静默 */ } }
+          }}
+          title={metronome ? "节拍器开着（本地）· 点击关闭" : "节拍器（本地各自开关，不影响他人）"}
+          className={`flex h-6 w-7 shrink-0 items-center justify-center rounded-[6px] transition-colors ${metronome ? "bg-white/12 text-[#BBEE00]" : "text-white/70 hover:bg-white/10 hover:text-white"}`}
+        >
+          <MetronomeIcon className="size-3.5" />
+        </button>
       </div>
     </div>
   )

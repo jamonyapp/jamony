@@ -105,15 +105,18 @@ function createWindow() {
   }
 
   // jamony 10-02: 菜单没了，devtools/刷新快捷键自注册（原靠默认菜单 role，删菜单必补）
-  // F12 / Ctrl+Shift+I (Win) / Cmd+Opt+I (Mac) = devtools
+  // F12 / Ctrl+Shift+I (Win) / Cmd+Opt+I (Mac) = devtools；Cmd+Opt+J/Ctrl+Shift+J 也开
   // F5 / Ctrl+R / Cmd+R = 普通刷新；Ctrl+Shift+R / Ctrl+F5 / Cmd+Shift+R = 强刷绕缓存
   // （Electron 缓存顽固症对症药；强刷保房已工程化，刷新不断房）
+  // ⚠️ Mac 的 Opt+I 是死键(ˆ)，input.key 不是 'i' —— I/J 判断必须用物理键码 input.code（10-09 欢哥实测 Cmd+Opt+I 失效根因）
   mainWindow.webContents.on('before-input-event', (e, input) => {
     const k = (input.key || '').toLowerCase()
     if (input.type !== 'keyDown') return
+    const isI = k === 'i' || input.code === 'KeyI'
+    const isJ = k === 'j' || input.code === 'KeyJ'
     if (k === 'f12' ||
-        (input.control && input.shift && k === 'i') ||
-        (input.meta && input.alt && k === 'i')) {
+        (input.control && input.shift && isI) ||
+        (input.meta && input.alt && (isI || isJ))) {
       mainWindow.webContents.toggleDevTools()
       e.preventDefault()
     } else if (k === 'f5' ||

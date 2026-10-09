@@ -247,3 +247,19 @@
   from { opacity: 0; }
   to   { opacity: 1; }
 }
+
+/* alphaTab 指针着装（10-09 步骤③收尾）：1.8.4 npm 包不带 CSS，官网 demo 靠这几行给指针上色——照抄官网配色 */
+.at-cursor-bar {
+  /* 播放中小节背景 */
+  background: rgba(255, 242, 0, 0.25);
+}
+.at-cursor-beat {
+  /* 蓝色竖线指针（宽度 JS 已设 3px，此处兜底） */
+  background: rgba(64, 64, 255, 0.75);
+  width: 3px;
+}
+.at-highlight * {
+  /* 播放中的音符变色 */
+  fill: #0078ff;
+  stroke: #0078ff;
+}

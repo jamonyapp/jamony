@@ -57,18 +57,84 @@ const CONVERT_EXTS = [...GP_EXTS, '.musicxml', '.mxl', '.capx']
 const alphatab = require('@coderline/alphatab')
 
 // GP→MIDI：返回 { midPath, tracks } 或抛错（格式不支持/文件损坏）
-function gpToMidi(gpPath, midPath) {
+// mix（10-09 步骤② 调音台，欢哥 A 方案：全员后动作胜出、播放瞬间定稿）：生效点=播放前改各轨
+// playbackInfo.volume（0..16 域，有效静音=0；任一 S 亮=只放 S 且未 M 的轨），生成器自动烤成 CC7
+// ——零事件手术，语义与 alphaTab 播放器一致；缺省无混音=原音量不变
+function gpToMidi(gpPath, midPath, mix, startMs) {
   const data = new Uint8Array(fs.readFileSync(gpPath))
   const score = alphatab.importer.ScoreLoader.loadScoreFromBytes(data, null)
+  const mutes = Array.isArray(mix && mix.mutes) ? mix.mutes.map(Number) : []
+  const solos = Array.isArray(mix && mix.solos) ? mix.solos.map(Number) : []
+  const vols = (mix && typeof mix.vols === 'object' && mix.vols) || {}
+  const anySolo = solos.length > 0
+  for (const t of score.tracks) {
+    const audible = anySolo ? (solos.includes(t.index) && !mutes.includes(t.index)) : !mutes.includes(t.index)
+    const pct = Math.min(100, Math.max(0, Number(vols[t.index] ?? 100)))
+    t.playbackInfo.volume = audible ? t.playbackInfo.volume * pct / 100 : 0
+  }
   const midiFile = new alphatab.midi.MidiFile()
   const handler = new alphatab.midi.AlphaSynthMidiFileHandler(midiFile, true)
   const generator = new alphatab.midi.MidiFileGenerator(score, null, handler)
   generator.generate()
+  // 从指针处开播（10-09 欢哥补充定稿）：startMs>0 → tick 平移裁剪，fluidsynth 拿到即"从该处开始"
+  if (Number.isFinite(startMs) && startMs > 0) {
+    gpShiftMidiStart(midiFile, Math.round(gpMsToTick(midiFile, startMs)))
+  }
   fs.writeFileSync(midPath, Buffer.from(midiFile.toBinary()))
   return {
     midPath,
     tracks: score.tracks.map(t => ({ name: String(t.name || '').slice(0, 40) })),
   }
+}
+
+// ms→tick：沿 tempo 事件积分反查（与前端总时长积分同一套事件流，正反互逆）
+function gpMsToTick(midiFile, ms) {
+  const tempos = []
+  for (const tr of midiFile.tracks) for (const ev of tr.events) if (typeof ev.beatsPerMinute === 'number' && ev.beatsPerMinute > 0) tempos.push({ tick: ev.tick, bpm: ev.beatsPerMinute })
+  tempos.sort((a, b) => a.tick - b.tick)
+  let tick = 0, accMs = 0, bpm = 120
+  for (const next of tempos) {
+    const segMs = ((next.tick - tick) / midiFile.division) * (60000 / bpm)
+    if (accMs + segMs >= ms) return tick + ((ms - accMs) / (60000 / bpm)) * midiFile.division
+    accMs += segMs; tick = next.tick; bpm = next.bpm
+  }
+  return tick + ((ms - accMs) / (60000 / bpm)) * midiFile.division
+}
+
+// 从指定 tick 开始播放：裁掉更早的事件并整体平移；起始点前最后一个 tempo 事件保留到 tick0（否则后续速度失义）
+function gpShiftMidiStart(midiFile, startTick) {
+  if (!(startTick > 0)) return
+  let lastTempoBefore = null
+  for (const tr of midiFile.tracks) for (const ev of tr.events) {
+    if (ev.tick >= startTick) continue
+    if (typeof ev.beatsPerMinute === 'number') lastTempoBefore = ev
+  }
+  for (const tr of midiFile.tracks) {
+    const kept = []
+    for (const ev of tr.events) {
+      if (ev.tick < startTick) { if (ev === lastTempoBefore) { ev.tick = 0; kept.push(ev) } continue }
+      ev.tick -= startTick
+      kept.push(ev)
+    }
+    tr.events = kept
+  }
+}
+
+// GP 混音状态清洗：mutes/solos=去重轨索引数组(<64)，vols=轨索引→0-100；后动作胜出故只做形状约束
+function sanitizeGpMix(mix) {
+  const clean = { mutes: [], solos: [], vols: {} }
+  if (!mix || typeof mix !== 'object') return clean
+  const ints = (a) => Array.isArray(a) ? [...new Set(a.map(Number).filter(n => Number.isInteger(n) && n >= 0 && n < 64))] : []
+  clean.mutes = ints(mix.mutes)
+  clean.solos = ints(mix.solos)
+  if (mix.vols && typeof mix.vols === 'object') {
+    for (const [k, v] of Object.entries(mix.vols)) {
+      const i = Number(k)
+      const p = Math.round(Number(v))
+      if (Number.isInteger(i) && i >= 0 && i < 64 && Number.isFinite(p)) clean.vols[i] = Math.min(100, Math.max(0, p))
+    }
+  }
+  return clean
 }
 const scoreUpload = multer({
   storage: multer.diskStorage({
@@ -3306,8 +3372,17 @@ function startGpPlayback(roomCode, port, midPath) {
     '-o', 'synth.polyphony=128',
     GP_SOUNDFONT, midPath,
   ], { stdio: 'ignore' })
-  child.on('exit', () => { const e = gpEngines.get(roomCode); if (e && e.child === child) gpEngines.delete(roomCode) })
-  gpEngines.set(roomCode, { child, port, wired: false })
+  child.on('exit', () => {
+    const e = gpEngines.get(roomCode)
+    if (e && e.child === child) {
+      gpEngines.delete(roomCode)
+      // 自然播完→广播停+清状态（kill路径先删map不会走到这里）；本地指针随 gp-state 归零
+      pool.query('UPDATE rooms SET gp_state = NULL WHERE room_code = $1', [roomCode]).catch(() => {})
+      io.to(roomCode).emit('gp-state', { playing: false })
+      console.log(`GP natural end ${roomCode}`)
+    }
+  })
+  gpEngines.set(roomCode, { child, port, wired: false, spawnedAt: Date.now() })  // spawnedAt=音频真正零点（fluidsynth spawn 即开播，接线前音乐白丢）
   const ghostL = `jamsoul-${port} jamony-looper:input left`
   const ghostR = `jamsoul-${port} jamony-looper:input right`
   let tries = 0
@@ -3504,9 +3579,10 @@ io.on("connection", (socket) => {
     io.to(roomId).emit("score-update", { score: null })
   })
 
-  // GP 走带：任何人可播/停（后动作胜出，鼓机同款语义）
+  // GP 走带：任何人可播/停（后动作胜出，鼓机同款语义）；startMs=点播者的指针位置（从该处开播，10-09 欢哥定稿）
   socket.on("gp-play", async (data) => {
-    const { roomId } = data
+    const { roomId } = data || {}
+    const startMs = Math.max(0, Math.min(Number(data?.startMs) || 0, 3600 * 1000))
     if (!roomId || !socket.userId) return
     if (!(await isRoomMusician(socket.userId, roomId))) return
     const r = await pool.query('SELECT server_port, current_score FROM rooms WHERE room_code = $1', [roomId])
@@ -3516,16 +3592,32 @@ io.on("connection", (socket) => {
     if (!score || score.type !== 'gp' || !score.midUrl) return
     if (gpInflight.has(roomId)) return
     gpInflight.set(roomId, setTimeout(() => gpInflight.delete(roomId), 15000))
-    const midPath = path.join(scoresDir, roomId, path.basename(score.midUrl))
-    if (!fs.existsSync(midPath)) { socket.emit('gp-state', { playing: false }); clearTimeout(gpInflight.get(roomId)); gpInflight.delete(roomId); return }
+    // 播放定版（10-09 步骤②）：按当前混音+起始位置从原文件现场重生成 MIDI（解析+生成=亚秒级）；live_*.mid 每次先清旧
+    const gpPath = path.join(scoresDir, roomId, path.basename(score.files[0]))
+    if (!fs.existsSync(gpPath)) { socket.emit('gp-state', { playing: false }); clearTimeout(gpInflight.get(roomId)); gpInflight.delete(roomId); return }
+    const dir = path.join(scoresDir, roomId)
+    try { for (const f of fs.readdirSync(dir)) if (f.startsWith('live_') && f.endsWith('.mid')) { try { fs.unlinkSync(path.join(dir, f)) } catch (e) {} } } catch (e) { /* 目录异常由 gpPath 检查兜底 */ }
+    const midPath = path.join(dir, `live_${Date.now()}.mid`)
+    try {
+      gpToMidi(gpPath, midPath, score.mix, startMs)
+    } catch (err) {
+      console.error('gp play remix error:', err.message)
+      clearTimeout(gpInflight.get(roomId)); gpInflight.delete(roomId)
+      socket.emit('gp-state', { playing: false })
+      return
+    }
     startGpPlayback(roomId, row.server_port, midPath)
     const wired = await waitGpWired(roomId, 8000)
     clearTimeout(gpInflight.get(roomId)); gpInflight.delete(roomId)
     if (!wired) { console.error('gp play: not wired', roomId); return }
-    const gpState = { playing: true, startedAt: new Date().toISOString() }
+    // startedAt=spawn 时刻（10-09 滚动超前根治）：fluidsynth 从 spawn 就在播，接线耗时那段音乐已白丢。
+    // 若记接线时刻，客户端时间线恒慢~0.5s → 2s对表反复前跳（seek风暴）→ 谱面滚动被拽超前、当前小节顶出视野
+    const engine = gpEngines.get(roomId)
+    const startedAt = engine && engine.spawnedAt ? new Date(engine.spawnedAt).toISOString() : new Date().toISOString()
+    const gpState = { playing: true, startedAt, startMs: Math.round(startMs) }
     try { await pool.query('UPDATE rooms SET gp_state = $1 WHERE room_code = $2', [JSON.stringify(gpState), roomId]) } catch (e) {}
     io.to(roomId).emit("gp-state", gpState)
-    console.log(`GP play ${roomId} port ${row.server_port}`)
+    console.log(`GP play ${roomId} port ${row.server_port} from ${Math.round(startMs)}ms`)
   })
 
   socket.on("gp-pause", async (data) => {
@@ -3536,6 +3628,20 @@ io.on("connection", (socket) => {
     gpInflight.set(roomId, setTimeout(() => gpInflight.delete(roomId), 10000))
     await stopGpByCode(roomId, true)
     clearTimeout(gpInflight.get(roomId)); gpInflight.delete(roomId)
+  })
+
+  // GP 调音台（10-09 步骤②）：合奏者可调（听众只读），后动作胜出；存 current_score 随水合；播放时在 gp-play 里定版
+  socket.on("gp-mix", async (data) => {
+    const { roomId, mix } = data || {}
+    if (!roomId || !socket.userId) return
+    if (!(await isRoomMusician(socket.userId, roomId))) return
+    const r = await pool.query('SELECT current_score FROM rooms WHERE room_code = $1', [roomId])
+    let score = null
+    try { score = r.rows[0] && r.rows[0].current_score ? JSON.parse(r.rows[0].current_score) : null } catch (e) {}
+    if (!score || score.type !== 'gp') return
+    score.mix = sanitizeGpMix(mix)
+    await pool.query('UPDATE rooms SET current_score = $1 WHERE room_code = $2', [JSON.stringify(score), roomId])
+    io.to(roomId).emit("gp-mix", { mix: score.mix })
   })
 
   socket.on("disconnect", async () => {

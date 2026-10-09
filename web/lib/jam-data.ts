@@ -132,6 +132,8 @@ export const CHAT_MESSAGES: ChatMessage[] = [
 
 // 房间投谱（10-07 魔盒 P1：图片集或 PDF；翻页纯本地各自看，不做房间级同步——欢哥定稿）
 // P2 加 gp：GP 谱广播渲染 + midUrl 给幽灵乐手（音频单源走 jamsoul，欢哥架构定稿）
+// 步骤②加 mix：GP 调音台（S/M/单轨音量）房级混音——全员后动作胜出、播放瞬间定版（欢哥 10-09 定稿A方案）
+export type GpMix = { mutes?: number[]; solos?: number[]; vols?: Record<string, number> }
 export type RoomScore = {
   type: "images" | "pdf" | "gp"
   name: string
@@ -139,4 +141,5 @@ export type RoomScore = {
   pushedBy?: number
   midUrl?: string
   tracks?: { name: string }[]
+  mix?: GpMix
 }
