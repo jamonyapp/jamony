@@ -1372,8 +1372,6 @@ type GpApi = {
   play?: () => void
   pause?: () => void
   timePosition?: number
-  tickPosition?: number  // 探针用（1010双症排查）：谱面tick（⚠️api层有_shiftTickToApi偏移，读数仅供参考）
-  playbackSpeed?: number  // 倍速（10-10 步骤⑤）：本地时间线整体缩放——指针/滚动/节拍器同船变速（click 变密疏不变调）
   metronomeVolume?: number
   scoreLoaded?: { on: (cb: (s: { tracks?: GpTrackInfo[] }) => void) => void }
   renderFinished?: { on: (cb: () => void) => void }
@@ -1460,14 +1458,10 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
   // 测法：ping端点取最小RTT/2（网络单程）+ 固定播放缓冲常数（编码+抖动缓冲+解码）；残差靠耳朵报数调常数
   const AUDIO_PLAYOUT_MS = 200
   const audioLagRef = useRef(0)
-  // 时延精修（10-10 欢哥"快半拍"→"刻舟求剑"之问）：三源优先级=手动校准(localStorage) > jamsoul 实测(IPC)
-  // > ping+常数兜底。jamsoul 上报 overall(全缓冲+RTT)≈每秒一次，lag=overall-ping/2（去网络返程重复计）
-  // ——测量代替常数：每用户/每网络自适应，换谱子无感（管道时延与谱面内容无关）
-  const manualLagRef = useRef<boolean>(!!localStorage.getItem("gp_audio_lag_ms"))
+  // 时延补偿终态（1011 欢哥耳朵全绿验收）：jamsoul IPC 实测优先（每秒自适应），非 Electron/断链退 ping+常数兜底。
+  // 不做用户自校（欢哥拍板：负担>收益）；测量代替常数——可观测即可计算，边界外（蓝牙/DAC）诚实告知
   useEffect(() => {
     let stop = false
-    const stored = Number(localStorage.getItem("gp_audio_lag_ms"))
-    const playout = Number.isFinite(stored) && stored > 0 ? stored : AUDIO_PLAYOUT_MS
     ;(async () => {
       try {
         let best = Infinity
@@ -1477,50 +1471,27 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
           if (r.ok) best = Math.min(best, performance.now() - t0)
         }
         if (!stop && Number.isFinite(best)) {
-          audioLagRef.current = Math.min(1000, best / 2 + playout)
-          console.log(`[gp时延] 兜底补偿=${Math.round(audioLagRef.current)}ms (RTT=${Math.round(best)}ms 常数=${Math.round(playout)}ms${stored > 0 ? " 来自localStorage" : ""})`)
+          audioLagRef.current = Math.min(1000, best / 2 + AUDIO_PLAYOUT_MS)
+          console.log(`[gp时延] 兜底补偿=${Math.round(audioLagRef.current)}ms (RTT=${Math.round(best)}ms)`)
         }
       } catch (e) { /* 拿不到就0=纯墙钟指针 */ }
     })()
-    // jamsoul IPC 源（Electron 合奏者）：有实测就接管（调试覆盖除外）。
-    // gp=jamsoul 算好的单向输出估计（ping取单程/声卡只算输出方向/双端缓冲保留——物理推导零经验数字）。
-    // 降级链（1010晚混搭事故教训：新旧二进制组合窗口必须都能活）：
-    // gp > overall−ping/2（旧版jamsoul两值上报） > ping/2+常数兜底；每秒自适应，换谱子无感
+    // jamsoul IPC：gp=单向输出估计（物理推导零经验数字）；降级链防新旧二进制混搭崩坏（1010晚事故教训）
     const api = (window as unknown as { jamonyAPI?: { onJamsoulDelay?: (cb: (d: { gp?: number; overall?: number; ping?: number }) => void) => () => void } }).jamonyAPI
     let ipcCount = 0
     const off = api?.onJamsoulDelay?.((d) => {
-      if (manualLagRef.current) return  // 调试覆盖最高优先（纯开发用，非用户功能——欢哥10-10拍板不做用户自校）
       let lag = NaN
-      let src = ""
-      if (Number.isFinite(d?.gp) && d.gp! > 0 && d.gp! <= 2000) { lag = d.gp!; src = `gp=${d.gp}` }
+      if (Number.isFinite(d?.gp) && d.gp! > 0 && d.gp! <= 2000) lag = d.gp!
       else if (Number.isFinite(d?.overall) && d.overall! > 0 && d.overall! <= 3000) {
         lag = d.overall! - (Number.isFinite(d?.ping) ? d.ping! : 0) / 2
         if (!(lag > 0)) return
-        src = `overall-ping/2=${Math.round(lag)}`
       }
       if (!Number.isFinite(lag)) return
-      const prev = audioLagRef.current
       audioLagRef.current = Math.min(1000, lag)
       ipcCount++
-      // 诊断：前3条必打+每30条+值变化>10ms（播放初期抖动缓冲自适应爬升全程可见——1010晚定罪待机20ms/播放真值分离用）
-      if (ipcCount <= 3 || ipcCount % 30 === 0 || Math.abs(lag - prev) > 10) {
-        console.log(`[gp时延] jamsoul实测 lag=${Math.round(lag)}ms (${src} overall=${d?.overall} ping=${d?.ping})`)
-      }
+      if (ipcCount <= 3) console.log(`[gp时延] jamsoul实测 lag=${Math.round(lag)}ms (gp=${d?.gp} overall=${d?.overall} ping=${d?.ping})`)
     })
     return () => { stop = true; off?.() }
-  }, [])
-  // 手动校准标记同步（__gpAudioLag 设过值后 IPC 让位）
-  useEffect(() => {
-    ;(window as unknown as { __gpAudioLag?: (ms: number) => void }).__gpAudioLag = (ms: number) => {
-      if (!Number.isFinite(ms) || ms < 0) return
-      if (ms === 0) { localStorage.removeItem("gp_audio_lag_ms"); manualLagRef.current = false; console.log("[gp时延] 已清除自定义值（jamsoul实测/默认常数接管）"); return }
-      const cur = Number(localStorage.getItem("gp_audio_lag_ms"))
-      const curP = Number.isFinite(cur) && cur > 0 ? cur : AUDIO_PLAYOUT_MS
-      localStorage.setItem("gp_audio_lag_ms", String(ms))
-      manualLagRef.current = true
-      audioLagRef.current = Math.min(1000, audioLagRef.current - curP + ms)  // RTT分量保留，换常数
-      console.log(`[gp时延] 补偿调整为 ${Math.round(audioLagRef.current)}ms（播放常数=${ms}ms）——已存，强刷也保持`)
-    }
   }, [])
   // tick→毫秒映射（谱面点击换算用）：scoreLoaded 时从本地生成的 MIDI 事件里捕获（与总时长同一套积分）
   const tickMapRef = useRef<{ tempos: { tick: number; bpm: number }[]; division: number } | null>(null)
@@ -1703,12 +1674,8 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
         real.playerPositionChanged?.on?.((args: { currentTime: number; endTime: number }) => {
           if (cancelled) return
           setTotalMs((t) => (t > 0 ? t : args.endTime))
-          // 探针（1010双症排查）：每秒一打印——endTime≈totalMs 则事件 currentTime=谱面域；若偏大≈实际域
           const sec = Math.floor(args.currentTime / 1000)
-          if (sec !== lastPosSecRef.current) {
-            console.log("[gp倍速] 位置事件 cur=", Math.round(args.currentTime), "end=", Math.round(args.endTime), "tick=", apiRef.current?.tickPosition)
-            lastPosSecRef.current = sec; setPosMs(args.currentTime)
-          }
+          if (sec !== lastPosSecRef.current) { lastPosSecRef.current = sec; setPosMs(args.currentTime) }
         })
         bufRef.current = buf  // 换档重载用（原文，tempo 未烤）
         real.load(buf, () => { if (!cancelled) setLoading(false) }, (e: Error) => { if (!cancelled) { setErr("谱子解析失败：" + e.message); setLoading(false) } })
