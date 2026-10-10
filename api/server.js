@@ -60,7 +60,7 @@ const alphatab = require('@coderline/alphatab')
 // mix（10-09 步骤② 调音台，欢哥 A 方案：全员后动作胜出、播放瞬间定稿）：生效点=播放前改各轨
 // playbackInfo.volume（0..16 域，有效静音=0；任一 S 亮=只放 S 且未 M 的轨），生成器自动烤成 CC7
 // ——零事件手术，语义与 alphaTab 播放器一致；缺省无混音=原音量不变
-function gpToMidi(gpPath, midPath, mix, startMs) {
+function gpToMidi(gpPath, midPath, mix, startMs, speedArg) {
   const data = new Uint8Array(fs.readFileSync(gpPath))
   const score = alphatab.importer.ScoreLoader.loadScoreFromBytes(data, null)
   const mutes = Array.isArray(mix && mix.mutes) ? mix.mutes.map(Number) : []
@@ -77,8 +77,17 @@ function gpToMidi(gpPath, midPath, mix, startMs) {
   const generator = new alphatab.midi.MidiFileGenerator(score, null, handler)
   generator.generate()
   // 从指针处开播（10-09 欢哥补充定稿）：startMs>0 → tick 平移裁剪，fluidsynth 拿到即"从该处开始"
+  // ⚠️裁剪必须用原 tempo 积分（startMs 是原速域谱面位置）——倍速改写只能排在其后
   if (Number.isFinite(startMs) && startMs > 0) {
     gpShiftMidiStart(midiFile, Math.round(gpMsToTick(midiFile, startMs)))
+  }
+  // 倍速（10-10 步骤⑤）：tempo ×speed 烤进 live MIDI，fluidsynth 按文件 tempo 走 → 全员音频同倍速；
+  // tick 域不动=谱面位置语义不变，客户端对表只需墙钟 elapsed ×speed
+  const speed = Number(speedArg) || 1
+  if (speed !== 1) {
+    for (const tr of midiFile.tracks) for (const ev of tr.events) {
+      if (typeof ev.beatsPerMinute === 'number' && ev.beatsPerMinute > 0) ev.beatsPerMinute = ev.beatsPerMinute * speed
+    }
   }
   fs.writeFileSync(midPath, Buffer.from(midiFile.toBinary()))
   return {
@@ -164,6 +173,14 @@ function sanitizeGpMix(mix) {
     }
   }
   return clean
+}
+
+// GP 倍速档白名单（10-10 步骤⑤）：逐档照搬 alphaTab 官网 demo 控制栏（index.html .at-speed-options 九档）；
+// 首版我自拟五档+百分比格式被欢哥问倒，查证后照抄；非白名单一律退 1
+const GP_SPEEDS = [0.25, 0.5, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 2]
+function sanitizeGpSpeed(v) {
+  const n = Number(v)
+  return GP_SPEEDS.includes(n) ? n : 1
 }
 const scoreUpload = multer({
   storage: multer.diskStorage({
@@ -3628,7 +3645,7 @@ io.on("connection", (socket) => {
     try { for (const f of fs.readdirSync(dir)) if (f.startsWith('live_') && f.endsWith('.mid')) { try { fs.unlinkSync(path.join(dir, f)) } catch (e) {} } } catch (e) { /* 目录异常由 gpPath 检查兜底 */ }
     const midPath = path.join(dir, `live_${Date.now()}.mid`)
     try {
-      gpToMidi(gpPath, midPath, score.mix, startMs)
+      gpToMidi(gpPath, midPath, score.mix, startMs, sanitizeGpSpeed(score.speed))
     } catch (err) {
       console.error('gp play remix error:', err.message)
       clearTimeout(gpInflight.get(roomId)); gpInflight.delete(roomId)
@@ -3643,7 +3660,8 @@ io.on("connection", (socket) => {
     // 若记接线时刻，客户端时间线恒慢~0.5s → 2s对表反复前跳（seek风暴）→ 谱面滚动被拽超前、当前小节顶出视野
     const engine = gpEngines.get(roomId)
     const startedAt = engine && engine.spawnedAt ? new Date(engine.spawnedAt).toISOString() : new Date().toISOString()
-    const gpState = { playing: true, startedAt, startMs: Math.round(startMs) }
+    // speed 随广播下发：客户端对表 target=base+墙钟elapsed×speed（谱面域换算）+本地playbackSpeed同设
+    const gpState = { playing: true, startedAt, startMs: Math.round(startMs), speed: sanitizeGpSpeed(score.speed) }
     try { await pool.query('UPDATE rooms SET gp_state = $1 WHERE room_code = $2', [JSON.stringify(gpState), roomId]) } catch (e) {}
     io.to(roomId).emit("gp-state", gpState)
     console.log(`GP play ${roomId} port ${row.server_port} from ${Math.round(startMs)}ms`)
@@ -3671,6 +3689,21 @@ io.on("connection", (socket) => {
     score.mix = sanitizeGpMix(mix)
     await pool.query('UPDATE rooms SET current_score = $1 WHERE room_code = $2', [JSON.stringify(score), roomId])
     io.to(roomId).emit("gp-mix", { mix: score.mix })
+  })
+
+  // GP 倍速（10-10 步骤⑤）：房级、合奏者可调、后动作胜出、播放瞬间定版（与混音同语义）；
+  // 非播放中调=本地指针/节拍器即随（playbackSpeed 即时设），播放中前端锁 UI（音频既成流不可变）
+  socket.on("gp-speed", async (data) => {
+    const { roomId, speed } = data || {}
+    if (!roomId || !socket.userId) return
+    if (!(await isRoomMusician(socket.userId, roomId))) return
+    const r = await pool.query('SELECT current_score FROM rooms WHERE room_code = $1', [roomId])
+    let score = null
+    try { score = r.rows[0] && r.rows[0].current_score ? JSON.parse(r.rows[0].current_score) : null } catch (e) {}
+    if (!score || score.type !== 'gp') return
+    score.speed = sanitizeGpSpeed(speed)
+    await pool.query('UPDATE rooms SET current_score = $1 WHERE room_code = $2', [JSON.stringify(score), roomId])
+    io.to(roomId).emit("gp-speed", { speed: score.speed })
   })
 
   socket.on("disconnect", async () => {

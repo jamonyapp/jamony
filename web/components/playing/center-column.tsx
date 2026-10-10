@@ -10,7 +10,7 @@ import { TRACK_COLORS, type MixerTrack } from "@/components/mixer/types"
 import PublishWorkModal from "@/components/publishing/publish-work-modal"
 
 // 工具栏上拉菜单（10-10 步骤④）：缩放/五线六线/横竖排三件套，样式与分轨弹层同族（欢哥：全照搬alphaTab下拉，底部工具栏=上拉）
-function ToolbarMenu({ value, options, onPick, title, icon }: { value: string; options: { v: string; t: string }[]; onPick: (v: string) => void; title?: string; icon?: React.ReactNode }) {
+function ToolbarMenu({ value, options, onPick, title, icon, disabled }: { value: string; options: { v: string; t: string }[]; onPick: (v: string) => void; title?: string; icon?: React.ReactNode; disabled?: boolean }) {
   const [open, setOpen] = useState(false)
   useEffect(() => {
     if (!open) return
@@ -21,9 +21,9 @@ function ToolbarMenu({ value, options, onPick, title, icon }: { value: string; o
   return (
     <div className="relative flex">
       <button
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => { if (!disabled) setOpen((v) => !v) }}
         title={title}
-        className={`flex h-6 items-center gap-0.5 rounded-[6px] px-1.5 text-[11px] transition-colors ${open ? "bg-white/12 text-white" : "text-white/70 hover:bg-white/10 hover:text-white"}`}
+        className={`flex h-6 items-center gap-0.5 rounded-[6px] px-1.5 text-[11px] transition-colors ${disabled ? "cursor-not-allowed opacity-40" : open ? "bg-white/12 text-white" : "text-white/70 hover:bg-white/10 hover:text-white"}`}
       >
         {icon}
         <span>{options.find((o) => o.v === value)?.t ?? value}</span>
@@ -198,6 +198,7 @@ export function CenterColumn({
   onGpPlay,
   onGpPause,
   onGpMix,
+  onGpSpeed,
 }: {
   chords: string[]
   customTheme?: string
@@ -214,10 +215,11 @@ export function CenterColumn({
   realtimeRecordingMax?: number | null
   score?: RoomScore | null
   onClearScore?: () => void
-  gpState?: { playing: boolean; startedAt?: string } | null
+  gpState?: { playing: boolean; startedAt?: string; speed?: number } | null
   onGpPlay?: (startMs?: number) => void
   onGpPause?: () => void
   onGpMix?: (mix: GpMix) => void
+  onGpSpeed?: (speed: number) => void
 }) {
   const [todayTheme, setTodayTheme] = useState({ title: "加载中...", emoji: "🎵" })
   useEffect(() => {
@@ -242,7 +244,7 @@ export function CenterColumn({
         style={{ borderColor: "#1A1A1A" }}
       >
         {score ? (
-          <ScoreViewer score={score} canClear={myRole !== "listener"} onClear={onClearScore} gpState={gpState} onGpPlay={onGpPlay} onGpPause={onGpPause} onGpMix={onGpMix} />
+          <ScoreViewer score={score} canClear={myRole !== "listener"} onClear={onClearScore} gpState={gpState} onGpPlay={onGpPlay} onGpPause={onGpPause} onGpMix={onGpMix} onGpSpeed={onGpSpeed} />
         ) : (
           <>
             <img src="/images/stage-backdrop.png" alt="" aria-hidden className="absolute inset-0 size-full object-cover" />
@@ -292,7 +294,7 @@ export function CenterColumn({
 }
 
 // 谱面查看器：图片=各自本地翻页+缩放+拖拽（零同步，欢哥 10-07 定稿），PDF=Chromium 原生查看器自带全套
-function ScoreViewer({ score, canClear, onClear, gpState, onGpPlay, onGpPause, onGpMix }: { score: RoomScore; canClear?: boolean; onClear?: () => void; gpState?: { playing: boolean; startedAt?: string; startMs?: number } | null; onGpPlay?: (startMs?: number) => void; onGpPause?: () => void; onGpMix?: (mix: GpMix) => void }) {
+function ScoreViewer({ score, canClear, onClear, gpState, onGpPlay, onGpPause, onGpMix, onGpSpeed }: { score: RoomScore; canClear?: boolean; onClear?: () => void; gpState?: { playing: boolean; startedAt?: string; startMs?: number; speed?: number } | null; onGpPlay?: (startMs?: number) => void; onGpPause?: () => void; onGpMix?: (mix: GpMix) => void; onGpSpeed?: (speed: number) => void }) {
   const [page, setPage] = useState(0)
   const [zoom, setZoom] = useState(1)
   const [pdfPages, setPdfPages] = useState(0)  // PDF 加载后才知道总页数（pdf.js 画布渲染，不依赖 Electron PDF 插件）
@@ -326,7 +328,7 @@ function ScoreViewer({ score, canClear, onClear, gpState, onGpPlay, onGpPause, o
   const transformStyle = { transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }
 
   // GP 谱走工作站（alphaTab 渲染，自有滚动；不走图片缩放/翻页那套舞台）——须在全部 hooks 之后
-  if (score.type === "gp") return <GpWorkstation score={score} canClear={canClear} onClear={onClear} gpState={gpState} onPlay={onGpPlay} onPause={onGpPause} onMix={onGpMix} canMix={canClear} />
+  if (score.type === "gp") return <GpWorkstation score={score} canClear={canClear} onClear={onClear} gpState={gpState} onPlay={onGpPlay} onPause={onGpPause} onMix={onGpMix} onSpeed={onGpSpeed} canMix={canClear} />
 
   // 平移边界夹紧（10-07 欢哥实测：自由画布容易把谱面整个拖出视野）——内容始终盖住视口，到边即停
   // 注意 transform 的 scale 以元素中心为原点：放大时内容向两端生长，边界必须按"中心基准+平移"推导，
@@ -1370,6 +1372,8 @@ type GpApi = {
   play?: () => void
   pause?: () => void
   timePosition?: number
+  tickPosition?: number  // 探针用（1010双症排查）：谱面tick（⚠️api层有_shiftTickToApi偏移，读数仅供参考）
+  playbackSpeed?: number  // 倍速（10-10 步骤⑤）：本地时间线整体缩放——指针/滚动/节拍器同船变速（click 变密疏不变调）
   metronomeVolume?: number
   scoreLoaded?: { on: (cb: (s: { tracks?: GpTrackInfo[] }) => void) => void }
   renderFinished?: { on: (cb: () => void) => void }
@@ -1389,11 +1393,11 @@ type GpApi = {
   settingsUpdated?: { on: (cb: () => void) => void }
 }
 
-function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onMix, canMix }: {
+function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onMix, onSpeed, canMix }: {
   score: RoomScore; canClear?: boolean; onClear?: () => void
-  gpState?: { playing: boolean; startedAt?: string; startMs?: number } | null
+  gpState?: { playing: boolean; startedAt?: string; startMs?: number; speed?: number } | null
   onPlay?: (startMs?: number) => void; onPause?: () => void
-  onMix?: (mix: GpMix) => void; canMix?: boolean
+  onMix?: (mix: GpMix) => void; onSpeed?: (speed: number) => void; canMix?: boolean
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   // 两层结构（10-09 滚动雪球根治）：外层viewport管滚动，内层host挂alphaTab——
@@ -1442,12 +1446,26 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
     api.render?.()
   }
   const [scrubMs, setScrubMs] = useState(0)  // 起始位置（10-09 欢哥定稿：未播放时点进度线/谱面设定，播放从指针处开播——谁点播放用谁的位置）
+  const scrubMsRef = useRef(0)
+  scrubMsRef.current = scrubMs  // 换档域换算读最新值
+  // 倍速·本地烤 tempo 基建（10-10 步骤⑤根治版）：playbackSpeed 在我们环境（自托管worker+ScriptProcessor）
+  // 实测无效——读回0.9但推进1.0x（欢哥日志铁证：事件每秒+1000ms谱面时间；源码定罪 _onSamplesPlayed
+  // 按输出采样推进不带speed，四层设置链全通但调度层死路）→ 弃用，与服务器同构：tempoAutomations ×spd
+  // 烤死谱模型，player 恒1.0x播放=天然变速。scoreLoaded 先于 player MIDI 生成触发，烤完即生效
+  const speedRef = useRef(score.speed ?? 1)      // 已烤进谱的档（换档effect独占更新）
+  const bufRef = useRef<Uint8Array | null>(null) // 换档重载用的谱子原文
+  const loadedRef = useRef(false)                // scoreLoaded 已过（换档才需要重载）
+  const reloadSeekRef = useRef<number | null>(null)  // 重载后恢复的谱面位置（烤速域）
   // 音频时延补偿（10-10 欢哥"指针从头恒快1拍"）：指针=墙钟理论线，耳朵=网络流到达线，差=端到端音频时延（常数无漂移）。
   // 测法：ping端点取最小RTT/2（网络单程）+ 固定播放缓冲常数（编码+抖动缓冲+解码）；残差靠耳朵报数调常数
   const AUDIO_PLAYOUT_MS = 200
   const audioLagRef = useRef(0)
+  // 时延精修（10-10 欢哥"快半拍"）：①localStorage 可覆盖常数（A/B 校准免部署）
+  // ②window.__gpAudioLag(ms) 即时调参 ③日志打出谱面半拍毫秒数（BPM 已知，把体感"半拍"量化）
   useEffect(() => {
     let stop = false
+    const stored = Number(localStorage.getItem("gp_audio_lag_ms"))
+    const playout = Number.isFinite(stored) && stored > 0 ? stored : AUDIO_PLAYOUT_MS
     ;(async () => {
       try {
         let best = Infinity
@@ -1457,12 +1475,24 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
           if (r.ok) best = Math.min(best, performance.now() - t0)
         }
         if (!stop && Number.isFinite(best)) {
-          audioLagRef.current = Math.min(1000, best / 2 + AUDIO_PLAYOUT_MS)
-          console.log(`[gp指针] 音频时延补偿 ${Math.round(audioLagRef.current)}ms (RTT=${Math.round(best)}ms)`)
+          audioLagRef.current = Math.min(1000, best / 2 + playout)
+          console.log(`[gp时延] 补偿=${Math.round(audioLagRef.current)}ms (RTT=${Math.round(best)}ms 播放常数=${Math.round(playout)}ms${stored > 0 ? " 来自localStorage" : ""})`)
+          console.log("[gp时延] A/B调参：devtools 跑 window.__gpAudioLag(420) 即时生效并存localStorage，0恢复默认")
         }
       } catch (e) { /* 拿不到就0=纯墙钟指针 */ }
     })()
     return () => { stop = true }
+  }, [])
+  useEffect(() => {
+    ;(window as unknown as { __gpAudioLag?: (ms: number) => void }).__gpAudioLag = (ms: number) => {
+      if (!Number.isFinite(ms) || ms < 0) return
+      if (ms === 0) { localStorage.removeItem("gp_audio_lag_ms"); console.log("[gp时延] 已清除自定义值（下次ping恢复默认常数）"); return }
+      const cur = Number(localStorage.getItem("gp_audio_lag_ms"))
+      const curP = Number.isFinite(cur) && cur > 0 ? cur : AUDIO_PLAYOUT_MS
+      localStorage.setItem("gp_audio_lag_ms", String(ms))
+      audioLagRef.current = Math.min(1000, audioLagRef.current - curP + ms)  // RTT分量保留，换常数
+      console.log(`[gp时延] 补偿调整为 ${Math.round(audioLagRef.current)}ms（播放常数=${ms}ms）——已存，强刷也保持`)
+    }
   }, [])
   // tick→毫秒映射（谱面点击换算用）：scoreLoaded 时从本地生成的 MIDI 事件里捕获（与总时长同一套积分）
   const tickMapRef = useRef<{ tempos: { tick: number; bpm: number }[]; division: number } | null>(null)
@@ -1479,6 +1509,11 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
   }
   const playingRef = useRef(false)
   playingRef.current = playing  // 事件回调防陈旧闭包
+  // 倍速（10-10 步骤⑤）：房级、播放瞬间定版（与混音同语义）；score.speed=服务器真相源
+  // （gp-speed 广播在 chat-socket 合并进 realtimeScore），emit 侧已乐观合并，这里无本地 state；
+  // 服务器 tempo ×speed 烤进 live MIDI → 音频同倍速，本地 playbackSpeed 同设 → 指针/滚动/节拍器同船变速
+  const speed = score.speed ?? 1
+  const speedLocked = playing
   // 调音台（步骤②）：S/M/单轨音量=房级，后动作胜出、播放定版（欢哥 A 方案）；score.mix=服务器真相源，本地乐观+广播回填
   const [mix, setMix] = useState<GpMix>(score.mix ?? {})
   const mixRef = useRef(mix)
@@ -1516,6 +1551,8 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
   useEffect(() => {
     let cancelled = false
     let api: GpApi | null = null
+    loadedRef.current = false  // 换谱重置（防换档effect拿旧buf重复重载的竞态护栏）
+    reloadSeekRef.current = null
     ;(async () => {
       try {
         const at = await import("@coderline/alphatab")
@@ -1555,9 +1592,29 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
           // 本地MIDI里烤着的CC7音量事件在播放开始时重新充压——把模型 playbackInfo.volume 直接清0，
           // 内部生成(含任何重生成)烤出的CC7全为0，永久静音；节拍器独立通道不受影响；服务器生成用自己那份文件不受影响
           for (const t of src) { try { if (t.playbackInfo) t.playbackInfo.volume = 0 } catch (e) { /* 单轨失败不阻塞 */ } }
-          setScrubMs(0)  // 换谱重置起始位置
+          // 烤 tempo（幂等：__origBpm 首次存原值）——必须在总时长积分之前（integral 读烤后 tempo=烤速域）
+          const spd = speedRef.current
+          try {
+            for (const mb of (s as { masterBars?: { tempoAutomations?: { value: number; __origBpm?: number }[] }[] }).masterBars ?? []) {
+              for (const a of mb.tempoAutomations ?? []) {
+                if (typeof a.value !== "number" || !(a.value > 0)) continue
+                if (a.__origBpm === undefined) a.__origBpm = a.value
+                a.value = a.__origBpm * spd
+              }
+            }
+          } catch (e) { /* 烤失败退原速，不阻塞 */ }
+          loadedRef.current = true
+          if (reloadSeekRef.current !== null) {
+            // 换档重载：恢复换算后的谱面位置（新烤速域），不归零
+            const seek = reloadSeekRef.current
+            reloadSeekRef.current = null
+            try { apiRef.current!.timePosition = seek } catch (e) { /* 恢复失败无碍 */ }
+          } else {
+            setScrubMs(0)  // 换谱重置起始位置
+          }
           lastPosSecRef.current = -1
-          // 总时长：本地 MidiFileGenerator 生成事件流（与播放器/服务器同一条生成路径，反复记号展开一致），tempo 积分出毫秒
+          // 总时长：本地 MidiFileGenerator 生成事件流（与播放器/服务器同一条生成路径，反复记号展开一致），
+          // tempo 积分出毫秒——烤后 tempo=烤速域时长（0.9x 显示5:38=这遍真实播放时长，GP改曲速心智）
           // ⚠️ 不用 midiFile.events getter——1.8.4 多轨下 this.events.push 自调用会无限递归，自己走 tracks[].events
           try {
             const m = (at as unknown as {
@@ -1577,6 +1634,11 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
             }
             tempos.sort((a, b) => a.tick - b.tick)
             tickMapRef.current = { tempos, division: mf.division }  // 谱面点击 tick→ms 换算表
+            // 时延探针（10-10 欢哥"快半拍"精修）：把体感拍数量化成毫秒（烤后 BPM——耳朵听到的是变速后的拍）
+            if (tempos.length > 0) {
+              const bpm = tempos[0].bpm
+              console.log(`[gp时延] 谱面 BPM=${Math.round(bpm)}（烤后） 一拍=${Math.round(60000 / bpm)}ms 半拍=${Math.round(30000 / bpm)}ms`)
+            }
             const ms = tickToMs(maxTick)
             if (ms > 0 && Number.isFinite(ms)) setTotalMs(ms)
           } catch (e) { /* 总时长拿不到只显示走过时间，不影响主流程 */ }
@@ -1613,9 +1675,14 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
         real.playerPositionChanged?.on?.((args: { currentTime: number; endTime: number }) => {
           if (cancelled) return
           setTotalMs((t) => (t > 0 ? t : args.endTime))
+          // 探针（1010双症排查）：每秒一打印——endTime≈totalMs 则事件 currentTime=谱面域；若偏大≈实际域
           const sec = Math.floor(args.currentTime / 1000)
-          if (sec !== lastPosSecRef.current) { lastPosSecRef.current = sec; setPosMs(args.currentTime) }
+          if (sec !== lastPosSecRef.current) {
+            console.log("[gp倍速] 位置事件 cur=", Math.round(args.currentTime), "end=", Math.round(args.endTime), "tick=", apiRef.current?.tickPosition)
+            lastPosSecRef.current = sec; setPosMs(args.currentTime)
+          }
         })
+        bufRef.current = buf  // 换档重载用（原文，tempo 未烤）
         real.load(buf, () => { if (!cancelled) setLoading(false) }, (e: Error) => { if (!cancelled) { setErr("谱子解析失败：" + e.message); setLoading(false) } })
       } catch (e) {
         if (!cancelled) { setErr((e as Error)?.message || "渲染失败"); setLoading(false) }
@@ -1624,14 +1691,17 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
     return () => { cancelled = true; apiRef.current = null; realTracksRef.current = []; try { api?.destroy?.() } catch (e) { /* 卸载兜底 */ } }
   }, [url])
 
-  // 跟走带（步骤③）：gp-state=唯一真相——播放=seek到 startMs+墙钟elapsed 再play；暂停=归零（服务器暂停即杀进程，重播位置由下次点播者定）
+  // 跟走带（步骤③）：gp-state=唯一真相——播放=seek到 起点位置 再play；暂停=归零（服务器暂停即杀进程，重播位置由下次点播者定）
+  // 倍速域（10-10 根治版）：本地已烤 tempo=烤速域，推进与墙钟1:1（不再×speed）；
+  // 服务器 startMs 是原速域 → ÷spd 进烤速域；lag 是现实域直接减
   useEffect(() => {
     const api = apiRef.current
     if (!api || !playerReady) return
     try {
       if (gpState?.playing && gpState.startedAt) {
-        api.timePosition = Math.max(0, (gpState.startMs ?? 0) + Date.now() - new Date(gpState.startedAt).getTime() - audioLagRef.current)
-        console.log("[gp指针] 跟走带 play @", api.timePosition)
+        const spd = gpState.speed ?? 1
+        api.timePosition = Math.max(0, (gpState.startMs ?? 0) / spd + Date.now() - new Date(gpState.startedAt).getTime() - audioLagRef.current)
+        console.log("[gp指针] 跟走带 play @", api.timePosition, "speed=", spd)
         api.play?.()
       } else {
         // 断点续播（10-10 欢哥定稿）：暂停保留当前位置=下次播放起点（点播放即续播；点谱面其他处=改起点）；
@@ -1647,14 +1717,16 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
   // 墙钟对表（每2s）：|本地位置-墙钟目标|>150ms 才 seek（seek 稀疏=平滑滚动交给 alphaTab 原生）
   useEffect(() => {
     if (!gpState?.playing || !gpState.startedAt || !playerReady) return
-    const base = gpState.startMs ?? 0
+    const spd = gpState.speed ?? 1
+    const base = (gpState.startMs ?? 0) / spd  // 原速域→烤速域
     const startedAtMs = new Date(gpState.startedAt).getTime()
     const id = setInterval(() => {
       const api = apiRef.current
       if (!api) return
+      // 倍速域（根治版）：本地烤速推进=墙钟1:1，target=base+墙钟elapsed-lag（无×speed）
       const target = base + Date.now() - startedAtMs - audioLagRef.current
       const diff = (api.timePosition ?? 0) - target
-      console.log("[gp指针] 对表 tick 本地=", Math.round(api.timePosition ?? 0), "目标=", Math.round(target), "差=", Math.round(diff))
+      console.log("[gp指针] 对表 tick 本地=", Math.round(api.timePosition ?? 0), "目标=", Math.round(target), "差=", Math.round(diff), "speed=", spd)
       if (Math.abs(diff) > 150) {
         console.log("[gp指针] 对表 seek 差=", Math.round(diff), "ms")
         try { api.timePosition = Math.max(0, target) } catch (e) { /* 忽略本轮 */ }
@@ -1662,6 +1734,24 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
     }, 2000)
     return () => clearInterval(id)
   }, [gpState?.playing, gpState?.startedAt, gpState?.startMs, playerReady])
+
+  // 换档重烤（10-10 根治版）：暂停态换档（播放中UI已锁）→ tempo 重烤需要 player 重建 MIDI →
+  // 重载原文（scoreLoaded 里按 speedRef 新值烤+积分）。位置域换算：同一谱面点 烤速ms_new = ms_old×old÷new
+  useEffect(() => {
+    const spd = score.speed ?? 1
+    const old = speedRef.current
+    if (spd === old) return
+    speedRef.current = spd
+    if (!loadedRef.current) return  // 谱未加载：首载 scoreLoaded 直接按新档烤，无需动作
+    const seek = Math.max(0, Math.round(scrubMsRef.current * old / spd))
+    setScrubMs(seek)
+    reloadSeekRef.current = seek
+    const api = apiRef.current
+    if (api && bufRef.current) {
+      try { api.load(bufRef.current, () => {}, () => {}) } catch (e) { console.error("[gp倍速] 换档重载失败:", e) }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [score.speed])
 
   const allOn = tracks.length > 0 && renderedIdx.length === tracks.length
   const currentTrackName = allOn ? "全部" : (tracks.find((t) => renderedIdx.includes(t.index))?.name ?? "全部")
@@ -1716,7 +1806,12 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
         )}
         {(onPlay || onPause) && (
           <button
-            onClick={() => { if (pending) return; setPending(true); (playing ? onPause?.() : onPlay?.(scrubMs)) }}
+            onClick={() => {
+              if (pending) return
+              setPending(true)
+              // 倍速边界换算：scrubMs 是本地烤速域 → ×spd 转原速域发服务器（服务器裁剪按原速 tempo 积分）
+              playing ? onPause?.() : onPlay?.(Math.round(scrubMs * speedRef.current))
+            }}
             disabled={pending}
             title={playing ? "暂停" : "播放"}
             className="flex h-6 w-6 shrink-0 items-center justify-center text-white transition-opacity hover:opacity-70 disabled:cursor-not-allowed disabled:opacity-50"
@@ -1726,7 +1821,7 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
         )}
         {/* 走带时间（常驻，alphaTab 控制栏样式）：走过时间 / 谱面总时长；播放时点亮，停止归零 */}
         {(() => {
-          // 真实播放位置优先（步骤③指针事件）；事件未到时退墙钟估算；未播放=起始位置预览（随进度线点击）
+          // 真实播放位置优先（步骤③指针事件，烤速域）；事件未到时退墙钟估算（烤速域=墙钟1:1）；未播放=起始位置预览
           const elapsed = playing && gpState?.startedAt
             ? Math.max(0, Math.floor((posMs > 0 ? posMs : now - new Date(gpState.startedAt).getTime()) / 1000))
             : Math.floor(scrubMs / 1000)
@@ -1739,6 +1834,19 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
             </span>
           )
         })()}
+        {/* 倍速（步骤⑤·房级）：与混音同语义——后动作胜出、播放瞬间定版（服务器 tempo ×speed 重生成 live MIDI）；
+            本地 playbackSpeed 即时设 → 指针/滚动/节拍器同船变速；播放中锁（音频既成流不可变） */}
+        <ToolbarMenu
+          title={!canMix ? "由合奏者控制" : speedLocked ? "播放中不能调速，请先暂停（倍速于播放时生效）" : "倍速（房级，全员同步）"}
+          value={String(speed)}
+          options={[
+            { v: "0.25", t: "0.25x" }, { v: "0.5", t: "0.5x" }, { v: "0.75", t: "0.75x" },
+            { v: "0.9", t: "0.9x" }, { v: "1", t: "1x" }, { v: "1.1", t: "1.1x" },
+            { v: "1.25", t: "1.25x" }, { v: "1.5", t: "1.50x" }, { v: "2", t: "2x" },
+          ]}
+          onPick={(v) => { if (!speedLocked && canMix) onSpeed?.(Number(v)) }}
+          disabled={!canMix || speedLocked}
+        />
         {/* 分轨入口（10-09 欢哥定稿：吉他社样式）——工具栏只放一个按钮，点开向上弹列表；
             常驻（含单轨谱，点开就一条轨——避免用户猜"按钮没了是bug还是谱子问题"）；谱面始终全宽 */}
         {tracks.length >= 1 && (

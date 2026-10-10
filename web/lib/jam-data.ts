@@ -142,4 +142,5 @@ export type RoomScore = {
   midUrl?: string
   tracks?: { name: string }[]
   mix?: GpMix
+  speed?: number  // 倍速档（10-10 步骤⑤）：房级 0.5/0.75/1/1.25/1.5，播放瞬间定版
 }

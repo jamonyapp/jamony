@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react"
 import { io, type Socket } from "socket.io-client"
 import type { GpMix, RoomScore } from "@/lib/jam-data"
 
-export type GpState = { playing: boolean; startedAt?: string; startMs?: number }
+export type GpState = { playing: boolean; startedAt?: string; startMs?: number; speed?: number }
 
 export type ChatMessage = {
   id: string
@@ -71,6 +71,11 @@ export function useChatSocket(roomId?: string, nickname?: string) {
     // GP 调音台（10-09 步骤②）：房级混音广播，后动作胜出；合并进当前谱（必新对象，同值跳过坑）
     socket.on("gp-mix", (data: { mix: GpMix }) => {
       setRealtimeScore((prev) => (prev && prev.type === "gp" ? { ...prev, mix: data.mix } : prev))
+    })
+
+    // GP 倍速（10-10 步骤⑤）：房级广播，后动作胜出；合并进当前谱（必新对象，同值跳过坑）
+    socket.on("gp-speed", (data: { speed: number }) => {
+      setRealtimeScore((prev) => (prev && prev.type === "gp" ? { ...prev, speed: data.speed } : prev))
     })
 
     socket.on("bpm-update", (data: { bpm: number }) => {
@@ -158,11 +163,23 @@ export function useChatSocket(roomId?: string, nickname?: string) {
     setRealtimeScore((prev) => (prev && prev.type === "gp" ? { ...prev, mix } : prev))
   }
 
+  // GP 倍速（10-10 步骤⑤）：乐观本地+广播（离散档无节流）
+  const setGpSpeed = (speed: number) => {
+    if (!socketRef.current || !roomId) return
+    socketRef.current.emit("gp-speed", { roomId, speed })
+    setRealtimeScore((prev) => (prev && prev.type === "gp" ? { ...prev, speed } : prev))
+  }
+
+  // 水合（强刷/后进）：喂 realtimeScore 单一真相源。此前 playing-page 另有独立 score state，
+  // 水合走独立 state 而 realtimeScore=null → gp-mix/gp-speed 的乐观与广播合并被 `prev &&` 静默丢弃
+  // （10-10 倍速双 bug 根因：UI 不切换+本地 playbackSpeed 恒 1 而服务器已变速=指针原速被对表拽回）
+  const hydrateScore = (score: RoomScore | null) => { setRealtimeScore(score) }
+
   const clearScore = () => {
     if (!socketRef.current || !roomId) return
     socketRef.current.emit("clear-score", { roomId })
     setRealtimeScore(null)
   }
 
-  return { messages, sendMessage, connected, realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, realtimeScore, realtimeGpState, playGp, pauseGp, updateGpMix, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, kickedEvent, dissolvedEvent }
+  return { messages, sendMessage, connected, realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, hydrateScore, realtimeScore, realtimeGpState, playGp, pauseGp, updateGpMix, setGpSpeed, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, kickedEvent, dissolvedEvent }
 }

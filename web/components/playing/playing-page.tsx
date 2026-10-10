@@ -58,7 +58,7 @@ export function PlayingPage() {
   const roomSession = useRoomSession()
   // 10-07 漫游续听：收听音频上移 Provider 全局常驻，listenerActive 为派生值（漫游不断流）
   const listenerActive = roomSession.listening != null
-  const { realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, realtimeScore, realtimeGpState, playGp, pauseGp, updateGpMix, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, kickedEvent, dissolvedEvent } = useChatSocket(params?.code as string, user?.nickname)
+  const { realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, hydrateScore, realtimeScore, realtimeGpState, playGp, pauseGp, updateGpMix, setGpSpeed, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, kickedEvent, dissolvedEvent } = useChatSocket(params?.code as string, user?.nickname)
   const [room, setRoom] = useState<RoomData | null>(null)
   const [showShareHint, setShowShareHint] = useState(false)
   // 建房跳转带 ?new=1 → 弹分享引导窗（room 加载完才弹），并清掉 query 避免刷新重复弹
@@ -72,19 +72,16 @@ export function PlayingPage() {
   const [customTheme, setCustomTheme] = useState("")
   const [chordTextFromPush, setChordTextFromPush] = useState("")
   const [currentBpm, setCurrentBpm] = useState(0)
-  const [score, setScore] = useState<RoomScore | null>(null)
+  // 投谱单一真相源（10-10 倍速双bug根治）：score 直读 realtimeScore，水合喂 hydrateScore——
+  // 此前独立 score state 与 realtimeScore 双轨，水合后 realtimeScore=null 把 gp-mix/gp-speed
+  // 的乐观/广播合并静默丢弃（UI 不切换 + playbackSpeed 恒1=指针原速被半速对表拽回）
+  const score = realtimeScore
   const [gpState, setGpState] = useState<{ playing: boolean; startedAt?: string } | null>(null)
   useEffect(() => { if (realtimeChords.length > 0) { setChords(realtimeChords); setChordTextFromPush(realtimeChords.join(' ')) } }, [realtimeChords])
   useEffect(() => { if (realtimeTheme) setCustomTheme(realtimeTheme) }, [realtimeTheme])
-  // 投谱：socket 实时覆盖（null=收回，无条件应用；强刷水合走 room API）
-  useEffect(() => { setScore(realtimeScore) }, [realtimeScore])
   useEffect(() => { if (realtimeGpState) setGpState(realtimeGpState) }, [realtimeGpState])
-  // 收回须直清本地 score：强刷后 realtimeScore 本就是 null，乐观 setRealtimeScore(null) 同值跳过
-  // 不触发 effect（10-07 实测"收回没反应"根因），所以这里一步到位
-  const handleClearScore = useCallback(() => {
-    clearScore()
-    setScore(null)
-  }, [clearScore])
+  // 收回：clearScore 内部 setRealtimeScore(null)（水合喂过即非 null，值变必触发；同值跳过坑随双轨拆除消失）
+  const handleClearScore = useCallback(() => { clearScore() }, [clearScore])
   const initBpmRef = useRef(false)
   useEffect(() => {
     if (realtimeBpm > 0) { setCurrentBpm(realtimeBpm); initBpmRef.current = true }
@@ -176,9 +173,9 @@ export function PlayingPage() {
           // 加载已保存的和弦进程
           if (data.room.current_chords) setChords(data.room.current_chords.split(' '))
           if (data.room.current_bpm) setCurrentBpm(data.room.current_bpm)
-          // 加载正在投屏的谱子（强刷/后进来的人能看到）
+          // 加载正在投屏的谱子（强刷/后进来的人能看到）——喂 realtimeScore 单一真相源
           if (data.room.current_score) {
-            try { setScore(JSON.parse(data.room.current_score)) } catch (e) { /* 脏数据忽略 */ }
+            try { hydrateScore(JSON.parse(data.room.current_score)) } catch (e) { /* 脏数据忽略 */ }
           }
           if (data.room.gp_state) { try { setGpState(JSON.parse(data.room.gp_state)) } catch (e) {} }
 
@@ -456,6 +453,7 @@ export function PlayingPage() {
             onGpPlay={playGp}
             onGpPause={pauseGp}
             onGpMix={updateGpMix}
+            onGpSpeed={setGpSpeed}
           />
         </div>
         <div className="min-h-0">
