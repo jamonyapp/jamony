@@ -42,6 +42,13 @@ contextBridge.exposeInMainWorld('jamonyAPI', {
     ipcRenderer.on('jamsoul-exited', handler)
     return () => ipcRenderer.removeListener('jamsoul-exited', handler)
   },
+  // jamony 10-10: 订阅 jamsoul 延迟上报（约每秒一次 ping 结果）——GP 走带指针时延补偿用
+  // （测量代替常数；overall=全缓冲+RTT，web 侧 lag=overall-ping/2 去网络返程重复计）
+  onJamsoulDelay: (callback) => {
+    const handler = (_event, data) => callback(data)
+    ipcRenderer.on('jamsoul-delay', handler)
+    return () => ipcRenderer.removeListener('jamsoul-delay', handler)
+  },
 })
 
 // 拦截网页的 window.postMessage，如果内容是 JOIN_ROOM 则转发到主进程

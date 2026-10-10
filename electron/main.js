@@ -210,12 +210,29 @@ function launchJamsoul(serverIp, port, nickname) {
     }
     migrateJamsoulAudioQuality()  // 10-07: 旧默认 NORMAL 档自动升 HIGH（详见函数注释）
     const child = spawn(JAMSOUL_BIN, args, {
-      stdio: ['pipe', 'ignore', 'ignore'], // jamony: 开 stdin pipe 给 jamsoul 发窗口跟随指令
+      // jamony 10-10: stdout 也开 pipe——JAMONY_DELAY 延迟上报 IPC（GP 走带指针时延补偿）；
+      // 其余 stdout 行照读照扔（防 pipe 积压阻塞 jamsoul）
+      stdio: ['pipe', 'pipe', 'ignore'],
       env: jamonyEnv,
     })
     // jamony 10-07: jamsoul 被杀后 stdin 管道写失败以异步 error 事件回来(EPIPE),
     // 不挂监听=uncaught 'error' event→Electron 报错弹窗(欢哥朋友 Win 机实测);静默吞掉
     child.stdin.on('error', (e) => { console.log('[jamony] jamsoul stdin 忽略写失败:', e.code) })
+    // jamony 10-10: JAMONY_DELAY IPC——jamsoul 每次 ping 结果(约1s)上报
+    // gp(单向输出估计,web直接用)+overall(双向合奏语义)+ping(RTT)。
+    // ⚠️向后兼容（1010晚"差变大"事故）：新旧二进制混搭窗口(朋友旧jamsoul/未重启的壳)两值/三值都要能收，
+    // 缺的字段不填，web 侧按 gp > overall-ping/2 > 兜底 降级——任何混搭不崩
+    child.stdout.on('data', (buf) => {
+      for (const line of buf.toString().split('\n')) {
+        const m = line.match(/^JAMONY_DELAY (\d+)(?: (\d+))?(?: (\d+))?/)
+        if (m && mainWindow && !mainWindow.isDestroyed()) {
+          const data = { ts: Date.now() }
+          if (m[3] !== undefined) { data.gp = Number(m[1]); data.overall = Number(m[2]); data.ping = Number(m[3]) }
+          else { data.overall = Number(m[1]); data.ping = m[2] !== undefined ? Number(m[2]) : 0 }
+          mainWindow.webContents.send('jamsoul-delay', data)
+        }
+      }
+    })
 
     // 启动存活确认（结果一次性，防 exit/timeout 双发）
     let launchSettled = false

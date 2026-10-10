@@ -3428,22 +3428,41 @@ function startGpPlayback(roomCode, port, midPath) {
       console.log(`GP natural end ${roomCode}`)
     }
   })
-  gpEngines.set(roomCode, { child, port, wired: false, spawnedAt: Date.now() })  // spawnedAt=音频真正零点（fluidsynth spawn 即开播，接线前音乐白丢）
+  gpEngines.set(roomCode, { child, port, wired: false, spawnedAt: Date.now() })
   const ghostL = `jamsoul-${port} jamony-looper:input left`
   const ghostR = `jamsoul-${port} jamony-looper:input right`
-  let tries = 0
-  const wire = () => {
-    tries++
-    try { execSync(`jack_disconnect "${gpName}:left" system:playback_1`, { stdio: 'ignore' }); execSync(`jack_disconnect "${gpName}:right" system:playback_2`, { stdio: 'ignore' }) } catch (e) {}
-    let ok = false
-    try { execSync(`jack_connect "${gpName}:left" "${ghostL}"`, { stdio: 'ignore' }); ok = true } catch (e) {}
-    try { execSync(`jack_connect "${gpName}:right" "${ghostR}"`, { stdio: 'ignore' }) } catch (e) {}
-    const e2 = gpEngines.get(roomCode)
-    if (ok && e2 && e2.child === child) { e2.wired = true; console.log(`GP start ${roomCode} wired (${tries} 次)`) }
-    else if (tries < 15 && e2 && e2.child === child && !e2.wired) setTimeout(wire, 400)
-    else if (!ok) console.error(`GP start ${roomCode} JACK 接线失败`)
+  // ⚠️时间线零点三段账（1010晚欢哥耳朵实测定案）：spawn → [init:端口出现=起播] → [wire:接线=进网络]。
+  // 音频内容从 init 起算（端口出声就开始播，wire 晚到只是头部白丢）——零点=init（portAt）。
+  // 旧记 spawn=指针快1拍(472ms)；中间版记 wire=慢半拍多(~300ms)；portAt=物理真零点。
+  // 顺带：端口出现立即连线（100ms 粒度轮询，白丢窗口从 400ms 粒度压到最小）
+  let polls = 0
+  const pollPort = () => {
+    polls++
+    const e = gpEngines.get(roomCode)
+    if (!e || e.child !== child) return
+    let visible = false
+    try { execSync(`jack_lsp | grep -q "^${gpName}:"`, { stdio: 'ignore' }); visible = true } catch (err) {}
+    if (!visible) {
+      if (polls < 50) setTimeout(pollPort, 100)  // 5s 内等 init（音源加载+JACK 注册）
+      else console.error(`GP start ${roomCode} JACK 端口未出现`)
+      return
+    }
+    e.portAt = Date.now()  // 起播时刻=时间线零点
+    let tries = 0
+    const wire = () => {
+      tries++
+      try { execSync(`jack_disconnect "${gpName}:left" system:playback_1`, { stdio: 'ignore' }); execSync(`jack_disconnect "${gpName}:right" system:playback_2`, { stdio: 'ignore' }) } catch (err) {}
+      let ok = false
+      try { execSync(`jack_connect "${gpName}:left" "${ghostL}"`, { stdio: 'ignore' }); ok = true } catch (err) {}
+      try { execSync(`jack_connect "${gpName}:right" "${ghostR}"`, { stdio: 'ignore' }) } catch (err) {}
+      const e2 = gpEngines.get(roomCode)
+      if (ok && e2 && e2.child === child) { e2.wired = true; e2.wiredAt = Date.now(); console.log(`GP start ${roomCode} wired (${tries} 次)`) }
+      else if (tries < 15 && e2 && e2.child === child && !e2.wired) setTimeout(wire, 400)
+      else if (!ok) console.error(`GP start ${roomCode} JACK 接线失败`)
+    }
+    wire()
   }
-  setTimeout(wire, 400)
+  setTimeout(pollPort, 100)
 }
 
 async function waitGpWired(roomCode, maxMs) {
@@ -3659,7 +3678,13 @@ io.on("connection", (socket) => {
     // startedAt=spawn 时刻（10-09 滚动超前根治）：fluidsynth 从 spawn 就在播，接线耗时那段音乐已白丢。
     // 若记接线时刻，客户端时间线恒慢~0.5s → 2s对表反复前跳（seek风暴）→ 谱面滚动被拽超前、当前小节顶出视野
     const engine = gpEngines.get(roomId)
-    const startedAt = engine && engine.spawnedAt ? new Date(engine.spawnedAt).toISOString() : new Date().toISOString()
+    // ⚠️1010晚定案：零点=portAt（fluidsynth JACK 端口出现=起播时刻）。spawn→port=init(快1拍的账)，
+    // port→wire=白丢窗口(慢半拍的账)，三段账日志全打，实测可查
+    const t0 = engine && engine.portAt ? engine.portAt : (engine && engine.wiredAt ? engine.wiredAt : (engine && engine.spawnedAt ? engine.spawnedAt : Date.now()))
+    if (engine && engine.spawnedAt) {
+      console.log(`GP play ${roomId} 时间线账目: spawn→port=${(engine.portAt || 0) - engine.spawnedAt}ms port→wire=${engine.wiredAt && engine.portAt ? engine.wiredAt - engine.portAt : "?"}ms`)
+    }
+    const startedAt = new Date(t0).toISOString()
     // speed 随广播下发：客户端对表 target=base+墙钟elapsed×speed（谱面域换算）+本地playbackSpeed同设
     const gpState = { playing: true, startedAt, startMs: Math.round(startMs), speed: sanitizeGpSpeed(score.speed) }
     try { await pool.query('UPDATE rooms SET gp_state = $1 WHERE room_code = $2', [JSON.stringify(gpState), roomId]) } catch (e) {}
