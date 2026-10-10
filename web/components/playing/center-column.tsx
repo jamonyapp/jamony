@@ -1564,6 +1564,8 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
         // ⚠️ blob worker 的 importScripts 解析不了相对URL——scriptFile 必须拼完整绝对URL（10-09 二修，欢哥实测卷宗定罪）
         if (mf?.worker) settings.core.scriptFile = new URL(`/alphatab/${mf.worker}`, window.location.origin).href
         settings.player.enablePlayer = true       // 步骤③指针：本地 player 只做走带指针+可选节拍器（全轨静音），音频仍走幽灵乐手
+        // ⚠️合成缓冲保持默认500ms（1011夜教训）：砍到100ms求click低延迟→ScriptProcessor欠载(worker消息往返抖动>
+        // 浅缓冲)→click饿死无声+位置推进断续=滚动卡顿。500是稳定性资产不是浪费；click延迟另修(自研WebAudio调度)
         // ⚠️打包环境（BrowserModule）下 worklet 加载走 new URL("./alphaTab.worklet.ts", undefined) 必炸且无 scriptFile 兜底
         // → 播放器整体起不来（10-09 指针无显示的真凶）。强制 ScriptProcessor 输出绕开 worklet，worker 走自托管 scriptFile
         settings.player.outputMode = at.PlayerOutputMode.WebAudioScriptProcessor
