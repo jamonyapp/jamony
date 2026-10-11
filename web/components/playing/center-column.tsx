@@ -2015,7 +2015,8 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
       <div className="relative min-h-0 flex-1">
         {loading && !err && <p className="absolute inset-x-0 top-2 z-10 text-center text-[11px]" style={{ color: "#8A8A8A" }}>谱面渲染中…</p>}
         {err && <p className="absolute inset-0 z-10 grid place-items-center bg-[#0A0A0A] px-6 text-center text-xs" style={{ color: "#FF5C5C" }}>{err}</p>}
-        <div ref={viewportRef} className="h-full overflow-auto scrollbar-thin" style={{ background: "#fff" }}>
+        {/* select-none：拖选谱面时禁浏览器"复制式"文本选中（1012 欢哥实测干扰视觉）——选区视觉只归 .at-selection */}
+        <div ref={viewportRef} className="h-full select-none overflow-auto scrollbar-thin" style={{ background: "#fff" }}>
           <div ref={containerRef} />
         </div>
       </div>
