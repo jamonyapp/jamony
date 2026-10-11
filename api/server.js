@@ -3511,8 +3511,10 @@ function startGpPlayback(roomCode, port, midPath, totalMs) {
       const e2 = gpEngines.get(roomCode)
       if (ok && e2 && e2.child === child) {
         // B' 起播：先写命令链+记 playAt（零点=第一声真实起点），再置 wired（waitGpWired 返回时 playAt 必就绪）
+        // ⚠️不能带 player_stop——stdin(user command file)上下文里 stop 后 start 进坏状态=静音(-91dB，ABCD四组
+        // 对照+端口服刑定罪)；player_start 单发即"从头"（回显 pos:0 + 端口有声实测）
         try {
-          e2.child.stdin.write('player_stop\nplayer_start\ngain 1.0\n')
+          e2.child.stdin.write('player_start\ngain 1.0\n')
           e2.playAt = Date.now()
         } catch (err) { console.error(`GP start ${roomCode} 起播命令失败:`, err.message) }
         e2.wired = true
