@@ -258,6 +258,10 @@
   background: rgba(64, 64, 255, 0.75);
   width: 3px;
 }
+.at-selection div {
+    background: rgba(64, 64, 255, 0.2);
+}
+
 .at-highlight * {
   /* 播放中的音符变色 */
   fill: #0078ff;

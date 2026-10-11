@@ -1387,8 +1387,8 @@ type GpApi = {
   soundFontLoad?: { on: (cb: (args: { loaded: number; total: number }) => void) => void }
   soundFontLoadFailed?: { on: (cb: (e: unknown) => void) => void }
   error?: { on: (cb: (e: unknown) => void) => void }
-  beatMouseUp?: { on: (cb: (beat: { playbackStart?: number; voice?: { bar?: { masterBar?: unknown } } } | null) => void) => void }
-  beatMouseDown?: { on: (cb: (beat: { voice?: { bar?: { masterBar?: unknown } } } | null) => void) => void }
+  beatMouseUp?: { on: (cb: (beat: { playbackStart?: number; absolutePlaybackStart?: number; playbackDuration?: number; voice?: { bar?: { masterBar?: unknown } } } | null) => void) => void }
+  beatMouseDown?: { on: (cb: (beat: { absolutePlaybackStart?: number; playbackDuration?: number; voice?: { bar?: { masterBar?: unknown } } } | null) => void) => void }
   highlightPlaybackRange?: (startBeat: unknown, endBeat: unknown) => void  // ⑥-2b 选段高亮（官方自建选区API，只放标记不动播放）
   clearPlaybackRangeHighlight?: () => void
   tickCache?: { masterBars?: { start: number; masterBar?: unknown }[] } | null
@@ -1478,7 +1478,7 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
   const selDownTickRef = useRef<number | null>(null)  // mousedown 记 A 小节起点（null=单击语义）
   const scoreRangeRef = useRef<{ a: number; b: number } | undefined>(undefined)
   scoreRangeRef.current = score.range
-  const mbBeatRef = useRef<Map<unknown, unknown>>(new Map())  // masterBar→该轨第一个beat（选区高亮回填用）
+  const mbBeatsRef = useRef<Map<unknown, unknown[]>>(new Map())  // masterBar→该轨beats（选区高亮回填用，beat级）
   // 音频时延补偿（10-10 欢哥"指针从头恒快1拍"）：指针=墙钟理论线，耳朵=网络流到达线，差=端到端音频时延（常数无漂移）。
   // 测法：ping端点取最小RTT/2（网络单程）+ 固定播放缓冲常数（编码+抖动缓冲+解码）；残差靠耳朵报数调常数
   const AUDIO_PLAYOUT_MS = 200
@@ -1627,15 +1627,15 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
           setFileMeta({ title: String(s.title || "").slice(0, 60), artist: String(s.artist || "").slice(0, 40) })
           const src = s.tracks ?? []
           realTracksRef.current = src  // 原对象留给 renderTracks
-          // 选段高亮表（⑥-2b）：masterBar→首轨第一个beat（highlightPlaybackRange 需要 beat 对象）
+          // 选段高亮表（⑥-2b beat级）：masterBar→该轨全部beats（highlightPlaybackRange 需要 beat 对象）
           try {
-            const m = new Map<unknown, unknown>()
+            const m = new Map<unknown, unknown[]>()
             const track0 = (src[0] ?? {}) as { staves?: { bars?: { masterBar?: unknown; voices?: { beats?: unknown[] }[] }[] }[] }
             for (const st of track0.staves ?? []) for (const bar of st.bars ?? []) {
-              const beat = bar.voices?.[0]?.beats?.[0]
-              if (bar.masterBar !== undefined && beat !== undefined) m.set(bar.masterBar, beat)
+              const beats = bar.voices?.[0]?.beats ?? []
+              if (bar.masterBar !== undefined && beats.length > 0) m.set(bar.masterBar, beats)
             }
-            mbBeatRef.current = m
+            mbBeatsRef.current = m
           } catch (e) { /* 高亮表失败不阻塞 */ }
           setTracks(src.map((t) => ({ index: t.index, name: String(t.name || `轨 ${t.index + 1}`).slice(0, 40) })))
           // 本地静音·根治版（10-10 欢哥jamsoul静音looper仍闻声=本地漏音定罪）：混音器级静音架不住
@@ -1738,52 +1738,45 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
           setRenderedIdx((prev) => (prev.join() === idxs.join() ? prev : idxs))
         })
         real.renderFinished?.on?.(() => { if (!cancelled) setLoading(false) })
-        // 选段（1011 ⑥-2b）：暂停态按下记 A，松开记 B——不同小节=拖选 A-B（小节级，GP 桌面同款心智，
-        // 自动 min/max）；同小节单击=定起点（10-09 原语义）或清选区（已有选区时）。播放中锁（三门规矩）
+        // 选段（1012 ⑥-2b beat级）：暂停态按下记 A，松开记 B——beat 级精确（absolutePlaybackStart 官方语义，
+        // 同 alphaTab demo 可精确到音符）；同 beat 单击=定起点（10-09 原语义）或清选区（已有选区时）。播放中锁
         real.beatMouseDown?.on?.((beat) => {
           if (cancelled || playingRef.current || !beat) return
-          const cache = apiRef.current?.tickCache
-          const mb = beat.voice?.bar?.masterBar
-          const barStart = cache?.masterBars?.find((m) => m.masterBar === mb)?.start
-          if (barStart !== undefined) selDownTickRef.current = barStart
+          selDownTickRef.current = typeof beat.absolutePlaybackStart === "number" ? beat.absolutePlaybackStart : null
         })
         real.beatMouseUp?.on?.((beat) => {
           if (cancelled || playingRef.current || !beat) return
-          const cache = apiRef.current?.tickCache
-          const mb = beat.voice?.bar?.masterBar
-          const lookup = cache?.masterBars?.find((m) => m.masterBar === mb)
-          const barStart = lookup?.start
-          if (barStart === undefined) return  // tickCache 未就绪（播放器还在加载）——不误跳
           const downTick = selDownTickRef.current
           selDownTickRef.current = null
-          // 同小节（未拖）：已有选区→清选区回全曲；无选区→定起点（10-09 原语义）
-          if (downTick === null || downTick === barStart) {
+          const upStart = typeof beat.absolutePlaybackStart === "number" ? beat.absolutePlaybackStart : null
+          if (upStart === null) return
+          // 同 beat（未拖）：已有选区→清选区回全曲；无选区→定起点（10-09 原语义）
+          if (downTick === null || downTick === upStart) {
             if (scoreRangeRef.current) {
               onRange?.(null)
               try { apiRef.current?.clearPlaybackRangeHighlight?.() } catch (e) { /* 静默 */ }
               return
             }
-            const ms = Math.max(0, Math.round(tickToMs(barStart + (beat.playbackStart ?? 0))))
+            const ms = Math.max(0, Math.round(tickToMs(upStart)))
             setScrubMs(ms)
             const api = apiRef.current
             if (api) { try { api.timePosition = ms } catch (e) { /* 预览失败无碍 */ } }
             return
           }
-          // 拖选 A-B（小节级，无论拖动方向）：选区=从靠前的小节起到靠后小节的末（GP 桌面 A-B 心智）
-          const bars = cache?.masterBars ?? []
-          const endOfBar = (tick: number): number => {
-            const i = bars.findIndex((x) => x.start === tick)
-            if (i >= 0 && i + 1 < bars.length) return bars[i + 1].start
-            return tick + 1920  // 兜底一小节(4/4)
-          }
-          const startBar = Math.min(downTick, barStart)
-          const endBar = Math.max(downTick, barStart)
-          const msA = tickToMs(startBar)
-          const msB = tickToMs(endOfBar(endBar))
+          // 拖选 A-B（beat 级，方向自动归位）：B 端=松开 beat 的末（含该音符时值）
+          const upEnd = upStart + (typeof beat.playbackDuration === "number" && beat.playbackDuration > 0 ? beat.playbackDuration : 240)
+          const tickA = Math.min(downTick, upStart)
+          const tickB = downTick < upStart ? upEnd : downTick + 240  // 反向拖时 B 端=按下 beat 末（近似一个四分音符兜底）
+          const msA = tickToMs(tickA)
+          const msB = tickToMs(tickB)
           if (msB > msA) {
             const orig = 1 / (speedRef.current || 1)  // 烤速域→原速域（房级 range 与倍速无关）
-            onRange?.({ a: Math.round(msA * orig), b: Math.round(msB * orig) })
-            console.log("[gp选段] 小节范围", Math.round(msA), "-", Math.round(msB), "ms(烤速) → 原速", Math.round(msA * orig), "-", Math.round(msB * orig))
+            const range = { a: Math.round(msA * orig), b: Math.round(msB * orig) }
+            onRange?.(range)
+            // demo 同款：选完指针跳到选区开头（黄色当前小节背景跟随）
+            try { apiRef.current!.timePosition = Math.round(msA) } catch (e) { /* 预览失败无碍 */ }
+            setScrubMs(Math.round(msA))
+            console.log("[gp选段] beat级", range.a, "-", range.b, "ms(原速)")
           }
         })
         // 指针就绪（音源加载完才能跟走带）；位置事件秒变才更新（demo 同款节流），endTime 兜底总时长
@@ -1845,7 +1838,11 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
         // 自然播完（已到尾部）则归零。不再回零。
         api.pause?.()
         const atPos = api.timePosition ?? 0
-        setScrubMs(totalMs > 0 && atPos >= totalMs - 500 ? 0 : Math.max(0, Math.round(atPos)))
+        // 自然播完归位（1012 range版）：有选区→回选区开头（demo 同款）；无选区→回全曲头
+        const rangeHome = scoreRangeRef.current ? Math.round(scoreRangeRef.current.a * (speedRef.current || 1)) : 0
+        const home = totalMs > 0 && atPos >= totalMs - 500 ? rangeHome : Math.max(0, Math.round(atPos))
+        setScrubMs(home)
+        try { if (totalMs > 0 && atPos >= totalMs - 500) api.timePosition = home } catch (e) { /* 静默 */ }
         setPosMs(0)
       }
     } catch (e) { console.error("[gp指针] 跟走带失败:", e) }
@@ -1972,12 +1969,23 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
     const cache = api.tickCache
     if (!cache?.masterBars?.length) return
     const tA = msToTick(score.range.a * spd), tB = msToTick(score.range.b * spd)
-    let barA: unknown = null, barB: unknown = null
+    let beatsA: unknown[] | undefined, beatsB: unknown[] | undefined
     for (const x of cache.masterBars) {
-      if (x.start <= tA) barA = x.masterBar
-      if (x.start <= tB) barB = x.masterBar
+      if (x.start <= tA) beatsA = mbBeatsRef.current.get(x.masterBar)
+      if (x.start <= tB) beatsB = mbBeatsRef.current.get(x.masterBar)
     }
-    const beatA = mbBeatRef.current.get(barA), beatB = mbBeatRef.current.get(barB)
+    // bar 内再定位到 ≤tick 的最后一个 beat（beat 级精确）
+    const pickBeat = (beats: unknown[] | undefined, tick: number) => {
+      if (!beats || beats.length === 0) return undefined
+      let found = beats[0]
+      for (const b of beats) {
+        const st = (b as { absolutePlaybackStart?: number }).absolutePlaybackStart
+        if (typeof st === "number" && st <= tick) found = b
+        else break
+      }
+      return found
+    }
+    const beatA = pickBeat(beatsA, tA), beatB = pickBeat(beatsB, tB)
     if (beatA && beatB) { try { api.highlightPlaybackRange(beatA, beatB) } catch (e) { /* 高亮失败无碍 */ } }
   }, [score.range])
 
