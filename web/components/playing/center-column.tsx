@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { Circle, Square, ChevronDown, ChevronLeft, ChevronRight, Disc3, Headphones, ArrowRight, Download, Ban, Check, X, ChevronUp, SlidersHorizontal, Play, Pause, Printer, Search } from "lucide-react"
+import { Circle, Square, ChevronDown, ChevronLeft, ChevronRight, Disc3, Headphones, ArrowRight, Download, Ban, Check, X, ChevronUp, SlidersHorizontal, Play, Pause, Printer, Search, Hourglass } from "lucide-react"
 import { instrumentEmoji, type RecordingSession, type Track, type RoomScore, type GpMix } from "@/lib/jam-data"
 import { MixerFullscreen } from "@/components/mixer/mixer-fullscreen"
 import { MixerMini } from "@/components/mixer/mixer-mini"
@@ -199,6 +199,7 @@ export function CenterColumn({
   onGpPause,
   onGpMix,
   onGpSpeed,
+  onGpCountin,
 }: {
   chords: string[]
   customTheme?: string
@@ -215,11 +216,12 @@ export function CenterColumn({
   realtimeRecordingMax?: number | null
   score?: RoomScore | null
   onClearScore?: () => void
-  gpState?: { playing: boolean; startedAt?: string; speed?: number } | null
+  gpState?: { playing: boolean; startedAt?: string; speed?: number; countInMs?: number } | null
   onGpPlay?: (startMs?: number) => void
   onGpPause?: () => void
   onGpMix?: (mix: GpMix) => void
   onGpSpeed?: (speed: number) => void
+  onGpCountin?: (countin: boolean) => void
 }) {
   const [todayTheme, setTodayTheme] = useState({ title: "加载中...", emoji: "🎵" })
   useEffect(() => {
@@ -244,7 +246,7 @@ export function CenterColumn({
         style={{ borderColor: "#1A1A1A" }}
       >
         {score ? (
-          <ScoreViewer score={score} canClear={myRole !== "listener"} onClear={onClearScore} gpState={gpState} onGpPlay={onGpPlay} onGpPause={onGpPause} onGpMix={onGpMix} onGpSpeed={onGpSpeed} />
+          <ScoreViewer score={score} canClear={myRole !== "listener"} onClear={onClearScore} gpState={gpState} onGpPlay={onGpPlay} onGpPause={onGpPause} onGpMix={onGpMix} onGpSpeed={onGpSpeed} onGpCountin={onGpCountin} />
         ) : (
           <>
             <img src="/images/stage-backdrop.png" alt="" aria-hidden className="absolute inset-0 size-full object-cover" />
@@ -294,7 +296,7 @@ export function CenterColumn({
 }
 
 // 谱面查看器：图片=各自本地翻页+缩放+拖拽（零同步，欢哥 10-07 定稿），PDF=Chromium 原生查看器自带全套
-function ScoreViewer({ score, canClear, onClear, gpState, onGpPlay, onGpPause, onGpMix, onGpSpeed }: { score: RoomScore; canClear?: boolean; onClear?: () => void; gpState?: { playing: boolean; startedAt?: string; startMs?: number; speed?: number } | null; onGpPlay?: (startMs?: number) => void; onGpPause?: () => void; onGpMix?: (mix: GpMix) => void; onGpSpeed?: (speed: number) => void }) {
+function ScoreViewer({ score, canClear, onClear, gpState, onGpPlay, onGpPause, onGpMix, onGpSpeed, onGpCountin }: { score: RoomScore; canClear?: boolean; onClear?: () => void; gpState?: { playing: boolean; startedAt?: string; startMs?: number; speed?: number; countInMs?: number } | null; onGpPlay?: (startMs?: number) => void; onGpPause?: () => void; onGpMix?: (mix: GpMix) => void; onGpSpeed?: (speed: number) => void; onGpCountin?: (countin: boolean) => void }) {
   const [page, setPage] = useState(0)
   const [zoom, setZoom] = useState(1)
   const [pdfPages, setPdfPages] = useState(0)  // PDF 加载后才知道总页数（pdf.js 画布渲染，不依赖 Electron PDF 插件）
@@ -328,7 +330,7 @@ function ScoreViewer({ score, canClear, onClear, gpState, onGpPlay, onGpPause, o
   const transformStyle = { transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }
 
   // GP 谱走工作站（alphaTab 渲染，自有滚动；不走图片缩放/翻页那套舞台）——须在全部 hooks 之后
-  if (score.type === "gp") return <GpWorkstation score={score} canClear={canClear} onClear={onClear} gpState={gpState} onPlay={onGpPlay} onPause={onGpPause} onMix={onGpMix} onSpeed={onGpSpeed} canMix={canClear} />
+  if (score.type === "gp") return <GpWorkstation score={score} canClear={canClear} onClear={onClear} gpState={gpState} onPlay={onGpPlay} onPause={onGpPause} onMix={onGpMix} onSpeed={onGpSpeed} onCountin={onGpCountin} canMix={canClear} />
 
   // 平移边界夹紧（10-07 欢哥实测：自由画布容易把谱面整个拖出视野）——内容始终盖住视口，到边即停
   // 注意 transform 的 scale 以元素中心为原点：放大时内容向两端生长，边界必须按"中心基准+平移"推导，
@@ -1390,11 +1392,11 @@ type GpApi = {
   settingsUpdated?: { on: (cb: () => void) => void }
 }
 
-function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onMix, onSpeed, canMix }: {
+function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onMix, onSpeed, onCountin, canMix }: {
   score: RoomScore; canClear?: boolean; onClear?: () => void
-  gpState?: { playing: boolean; startedAt?: string; startMs?: number; speed?: number } | null
+  gpState?: { playing: boolean; startedAt?: string; startMs?: number; speed?: number; countInMs?: number } | null
   onPlay?: (startMs?: number) => void; onPause?: () => void
-  onMix?: (mix: GpMix) => void; onSpeed?: (speed: number) => void; canMix?: boolean
+  onMix?: (mix: GpMix) => void; onSpeed?: (speed: number) => void; onCountin?: (countin: boolean) => void; canMix?: boolean
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   // 两层结构（10-09 滚动雪球根治）：外层viewport管滚动，内层host挂alphaTab——
@@ -1524,6 +1526,7 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
   // 服务器 tempo ×speed 烤进 live MIDI → 音频同倍速，本地 playbackSpeed 同设 → 指针/滚动/节拍器同船变速
   const speed = score.speed ?? 1
   const speedLocked = playing
+  const countin = !!score.countin  // 预备拍（⑥-1）：服务器真相源（gp-countin 广播合并 realtimeScore），emit 侧乐观
   // 调音台（步骤②）：S/M/单轨音量=房级，后动作胜出、播放定版（欢哥 A 方案）；score.mix=服务器真相源，本地乐观+广播回填
   const [mix, setMix] = useState<GpMix>(score.mix ?? {})
   const mixRef = useRef(mix)
@@ -1746,8 +1749,10 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
     try {
       if (gpState?.playing && gpState.startedAt) {
         const spd = gpState.speed ?? 1
-        api.timePosition = Math.max(0, (gpState.startMs ?? 0) / spd + Date.now() - new Date(gpState.startedAt).getTime() - audioLagRef.current)
-        console.log("[gp指针] 跟走带 play @", api.timePosition, "speed=", spd)
+        const base = (gpState.startMs ?? 0) / spd
+        // 预备拍（⑥-1）：countInMs 期间指针钳在起点（click 在流里数拍，音乐进才走）
+        api.timePosition = Math.max(base, base + Date.now() - new Date(gpState.startedAt).getTime() - audioLagRef.current - (gpState.countInMs ?? 0))
+        console.log("[gp指针] 跟走带 play @", api.timePosition, "speed=", spd, "countIn=", gpState.countInMs ?? 0)
         api.play?.()
       } else {
         // 断点续播（10-10 欢哥定稿）：暂停保留当前位置=下次播放起点（点播放即续播；点谱面其他处=改起点）；
@@ -1766,11 +1771,13 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
     const spd = gpState.speed ?? 1
     const base = (gpState.startMs ?? 0) / spd  // 原速域→烤速域
     const startedAtMs = new Date(gpState.startedAt).getTime()
+    const countInMs = gpState.countInMs ?? 0
     const id = setInterval(() => {
       const api = apiRef.current
       if (!api) return
       // 倍速域（根治版）：本地烤速推进=墙钟1:1，target=base+墙钟elapsed-lag（无×speed）
-      const target = base + Date.now() - startedAtMs - audioLagRef.current
+      // 预备拍：countInMs 期间钳在 base
+      const target = Math.max(base, base + Date.now() - startedAtMs - audioLagRef.current - countInMs)
       const diff = (api.timePosition ?? 0) - target
       console.log("[gp指针] 对表 tick 本地=", Math.round(api.timePosition ?? 0), "目标=", Math.round(target), "差=", Math.round(diff), "speed=", spd)
       if (Math.abs(diff) > 150) {
@@ -1826,7 +1833,8 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
     const startedAtWall = new Date(gpState.startedAt).getTime()
     const spd = gpState.speed ?? 1
     const base = (gpState.startMs ?? 0) / spd
-    const wallOf = (ms: number) => startedAtWall + (ms - base) + audioLagRef.current
+    const countInMs = gpState.countInMs ?? 0  // 预备拍：内容拍点全部后移 countInMs（本地节拍器在 click 之后才进）
+    const wallOf = (ms: number) => startedAtWall + countInMs + (ms - base) + audioLagRef.current
     m.nextIdx = 0
     const tickFn = () => {
       const ac = m.ac
@@ -2031,6 +2039,15 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
         )}
         {/* 右侧功能区（步骤④）：视图三件套下拉+打印+节拍器，全部本地行为 */}
         <div className="ml-auto flex shrink-0 items-center gap-1">
+          {/* 预备拍（1011 ⑥-1·房级）：服务器烤 N 拍 click 进流（N=第一拍号分子），全员一起听哒哒哒→音乐进；
+              播放瞬间定版（三门规矩同款锁）；demo 位次=右区第一位（沙漏 icon 照搬） */}
+          <button
+            onClick={() => { if (!speedLocked && canMix) onCountin?.(!countin) }}
+            title={!canMix ? "由合奏者控制" : speedLocked ? "播放中不能切换，请先暂停（预备拍于播放时生效）" : countin ? "预备拍开着 · 播放前数一小节再进" : "预备拍（播放前数一小节再进，全员同步）"}
+            className={`flex h-6 w-7 shrink-0 items-center justify-center rounded-[6px] transition-colors ${!canMix || speedLocked ? "cursor-not-allowed opacity-40" : ""} ${countin ? "bg-white/12 text-[#BBEE00]" : "text-white/70 hover:bg-white/10 hover:text-white"}`}
+          >
+            <Hourglass className="size-3.5" />
+          </button>
           <ToolbarMenu
             title="缩放"
             icon={<Search className="mr-0.5 size-3 opacity-60" />}

@@ -60,7 +60,7 @@ const alphatab = require('@coderline/alphatab')
 // mix（10-09 步骤② 调音台，欢哥 A 方案：全员后动作胜出、播放瞬间定稿）：生效点=播放前改各轨
 // playbackInfo.volume（0..16 域，有效静音=0；任一 S 亮=只放 S 且未 M 的轨），生成器自动烤成 CC7
 // ——零事件手术，语义与 alphaTab 播放器一致；缺省无混音=原音量不变
-function gpToMidi(gpPath, midPath, mix, startMs, speedArg) {
+function gpToMidi(gpPath, midPath, mix, startMs, speedArg, countIn) {
   const data = new Uint8Array(fs.readFileSync(gpPath))
   const score = alphatab.importer.ScoreLoader.loadScoreFromBytes(data, null)
   const mutes = Array.isArray(mix && mix.mutes) ? mix.mutes.map(Number) : []
@@ -89,10 +89,38 @@ function gpToMidi(gpPath, midPath, mix, startMs, speedArg) {
       if (typeof ev.beatsPerMinute === 'number' && ev.beatsPerMinute > 0) ev.beatsPerMinute = ev.beatsPerMinute * speed
     }
   }
+  // 预备拍（1011 ⑥-1 欢哥定稿：服务器烤 click 进流，全员一起听哒哒哒→音乐进，零本地协调）：
+  // 全事件右移 N 拍 + channel9 side stick 每拍一击置头；tick0 补烤后 tempo（平移后首个 tempo 在 N 拍处，
+  // click 时长依赖它否则 fluidsynth 按默认120走）。N=第一拍号分子（默认4）；countInMs=烤速域时长随 gp-state 下发
+  let countInMs = 0
+  if (countIn) {
+    const division = midiFile.division
+    let numerator = 4, denIdx = 2
+    outer: for (const tr of midiFile.tracks) for (const ev of tr.events) {
+      if (typeof ev.numerator === 'number') { numerator = ev.numerator; denIdx = ev.denominatorIndex ?? 2; break outer }
+    }
+    const beatTicks = Math.round(division * 4 / Math.pow(2, denIdx))
+    const shift = numerator * beatTicks
+    for (const tr of midiFile.tracks) for (const ev of tr.events) ev.tick += shift
+    let bpm = 120, bestTick = Infinity
+    for (const tr of midiFile.tracks) for (const ev of tr.events) {
+      if (typeof ev.beatsPerMinute === 'number' && ev.beatsPerMinute > 0 && ev.tick < bestTick) { bestTick = ev.tick; bpm = ev.beatsPerMinute }
+    }
+    const t0 = new alphatab.model.TempoChangeEvent(0, 0)
+    t0.beatsPerMinute = bpm
+    midiFile.tracks[0].events.push(t0)
+    for (let i = 0; i < numerator; i++) {
+      midiFile.tracks[0].events.push(new alphatab.model.NoteOnEvent(0, i * beatTicks, 9, 37, i === 0 ? 110 : 88))
+      midiFile.tracks[0].events.push(new alphatab.model.NoteOffEvent(0, i * beatTicks + Math.round(beatTicks / 2), 9, 37, 0))
+    }
+    midiFile.tracks[0].events.sort((a, b) => a.tick - b.tick)  // 稳定排序保同 tick 携带序，跨 tick 归位（fluidsynth 按 tick 域走）
+    countInMs = numerator * (60000 / bpm)
+  }
   fs.writeFileSync(midPath, Buffer.from(midiFile.toBinary()))
   return {
     midPath,
     tracks: score.tracks.map(t => ({ name: String(t.name || '').slice(0, 40) })),
+    countInMs,
   }
 }
 
@@ -3663,8 +3691,9 @@ io.on("connection", (socket) => {
     const dir = path.join(scoresDir, roomId)
     try { for (const f of fs.readdirSync(dir)) if (f.startsWith('live_') && f.endsWith('.mid')) { try { fs.unlinkSync(path.join(dir, f)) } catch (e) {} } } catch (e) { /* 目录异常由 gpPath 检查兜底 */ }
     const midPath = path.join(dir, `live_${Date.now()}.mid`)
+    let gpGen = null
     try {
-      gpToMidi(gpPath, midPath, score.mix, startMs, sanitizeGpSpeed(score.speed))
+      gpGen = gpToMidi(gpPath, midPath, score.mix, startMs, sanitizeGpSpeed(score.speed), !!score.countin)
     } catch (err) {
       console.error('gp play remix error:', err.message)
       clearTimeout(gpInflight.get(roomId)); gpInflight.delete(roomId)
@@ -3686,7 +3715,8 @@ io.on("connection", (socket) => {
     }
     const startedAt = new Date(t0).toISOString()
     // speed 随广播下发：客户端对表 target=base+墙钟elapsed×speed（谱面域换算）+本地playbackSpeed同设
-    const gpState = { playing: true, startedAt, startMs: Math.round(startMs), speed: sanitizeGpSpeed(score.speed) }
+    // countInMs（⑥-1 预备拍）：本地公式=内容x到耳墙钟 startedAt+countInMs+(x−base)+lag；count-in 期间指针钳在起点
+    const gpState = { playing: true, startedAt, startMs: Math.round(startMs), speed: sanitizeGpSpeed(score.speed), countInMs: Math.round(gpGen.countInMs || 0) }
     try { await pool.query('UPDATE rooms SET gp_state = $1 WHERE room_code = $2', [JSON.stringify(gpState), roomId]) } catch (e) {}
     io.to(roomId).emit("gp-state", gpState)
     console.log(`GP play ${roomId} port ${row.server_port} from ${Math.round(startMs)}ms`)
@@ -3729,6 +3759,20 @@ io.on("connection", (socket) => {
     score.speed = sanitizeGpSpeed(speed)
     await pool.query('UPDATE rooms SET current_score = $1 WHERE room_code = $2', [JSON.stringify(score), roomId])
     io.to(roomId).emit("gp-speed", { speed: score.speed })
+  })
+
+  // GP 预备拍（1011 ⑥-1）：房级开关（合奏者可调，后动作胜出，播放瞬间定版——click 烤进流全员一起听）
+  socket.on("gp-countin", async (data) => {
+    const { roomId, countin } = data || {}
+    if (!roomId || !socket.userId) return
+    if (!(await isRoomMusician(socket.userId, roomId))) return
+    const r = await pool.query('SELECT current_score FROM rooms WHERE room_code = $1', [roomId])
+    let score = null
+    try { score = r.rows[0] && r.rows[0].current_score ? JSON.parse(r.rows[0].current_score) : null } catch (e) {}
+    if (!score || score.type !== 'gp') return
+    score.countin = !!countin
+    await pool.query('UPDATE rooms SET current_score = $1 WHERE room_code = $2', [JSON.stringify(score), roomId])
+    io.to(roomId).emit("gp-countin", { countin: score.countin })
   })
 
   socket.on("disconnect", async () => {
