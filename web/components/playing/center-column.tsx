@@ -1750,8 +1750,25 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
       if (gpState?.playing && gpState.startedAt) {
         const spd = gpState.speed ?? 1
         const base = (gpState.startMs ?? 0) / spd
-        // 预备拍（⑥-1）：countInMs 期间指针钳在起点（click 在流里数拍，音乐进才走）
-        api.timePosition = Math.max(base, base + Date.now() - new Date(gpState.startedAt).getTime() - audioLagRef.current - (gpState.countInMs ?? 0))
+        // 预备拍（⑥-1 修正版）：count-in 期间 player 不许起跑（旧版钳 target 但 player 自由跑，2s 对表
+        // 才拽回=指针走4拍又弹回的观感）——指针死停在起点，定时到音乐进来的那一刻才 play
+        const playLead = Date.now() - new Date(gpState.startedAt).getTime() - audioLagRef.current - (gpState.countInMs ?? 0)
+        if (playLead < 0) {
+          api.timePosition = base
+          try { api.pause?.() } catch (e) { /* 静默 */ }
+          console.log("[gp指针] count-in 中，", Math.round(-playLead), "ms 后起跑")
+          const t = setTimeout(() => {
+            const api2 = apiRef.current
+            if (!api2) return
+            try {
+              api2.timePosition = Math.max(base, base + Date.now() - new Date(gpState.startedAt!).getTime() - audioLagRef.current - (gpState!.countInMs ?? 0))
+              api2.play?.()
+            } catch (e) { /* 静默 */ }
+          }, -playLead)
+          // cleanup 必挂：暂停/新 gp-state/卸载时 timer 必须死（否则暂停后到点强行 play）
+          return () => clearTimeout(t)
+        }
+        api.timePosition = Math.max(base, base + playLead)
         console.log("[gp指针] 跟走带 play @", api.timePosition, "speed=", spd, "countIn=", gpState.countInMs ?? 0)
         api.play?.()
       } else {
