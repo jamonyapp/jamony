@@ -116,12 +116,31 @@ function gpToMidi(gpPath, midPath, mix, startMs, speedArg, countIn) {
     midiFile.tracks[0].events.sort((a, b) => a.tick - b.tick)  // 稳定排序保同 tick 携带序，跨 tick 归位（fluidsynth 按 tick 域走）
     countInMs = numerator * (60000 / bpm)
   }
+  // 全时长（烤速域，含 count-in）——B'方案自然结束定时器用
+  let maxTick = 0
+  for (const tr of midiFile.tracks) for (const ev of tr.events) if (ev.tick > maxTick) maxTick = ev.tick
+  const totalMs = Math.ceil(gpTickToMs(midiFile, maxTick))
   fs.writeFileSync(midPath, Buffer.from(midiFile.toBinary()))
   return {
     midPath,
     tracks: score.tracks.map(t => ({ name: String(t.name || '').slice(0, 40) })),
     countInMs,
+    totalMs,
   }
+}
+
+// tick→ms 正向积分（烤后 tempo 域，与前端 tickToMs 同构）——⑥-1 自然结束定时器用
+function gpTickToMs(midiFile, tick) {
+  const tempos = []
+  for (const tr of midiFile.tracks) for (const ev of tr.events) if (typeof ev.beatsPerMinute === 'number' && ev.beatsPerMinute > 0) tempos.push({ tick: ev.tick, bpm: ev.beatsPerMinute })
+  tempos.sort((a, b) => a.tick - b.tick)
+  let ms = 0, t = 0, bpm = 120
+  for (const p of tempos) {
+    if (p.tick >= tick) break
+    ms += ((p.tick - t) / midiFile.division) * (60000 / bpm)
+    t = p.tick; bpm = p.bpm
+  }
+  return ms + ((tick - t) / midiFile.division) * (60000 / bpm)
 }
 
 // ms→tick：沿 tempo 事件积分反查（与前端总时长积分同一套事件流，正反互逆）
@@ -3435,20 +3454,26 @@ function killGpEngine(roomCode) {
   if (e) { try { e.child.kill('SIGTERM') } catch (err) {} gpEngines.delete(roomCode) }
 }
 
-function startGpPlayback(roomCode, port, midPath) {
+function startGpPlayback(roomCode, port, midPath, totalMs) {
   killGpEngine(roomCode)
   const gpName = `FluidSynth-GP-${port}`
+  // B' 方案（1011 ⑥-1"第一声嘀被吃"根治）：MIDI 随 spawn 载入自动播但初始增益 0（白丢窗口吃静音，无感）
+  // → 端口出现即接线 → 接线完成后 stdin 命令链 player_stop+player_start（从头!）+gain 1.0 →
+  // 第一声从接线完成后才真实出声，零白丢零常数；零点=命令下发时刻（比 portAt 更准）。
+  // fluidsynth 2.3.4 shell 无加载 MIDI 命令（load=SoundFont），player_start 语义=from the beginning（干跑验证 pos:0）
   const child = spawn('fluidsynth', [
-    '-a', 'jack', '-j', '-i', '-p', gpName,
+    '-a', 'jack', '-j', '-n', '-p', gpName,
     '-o', `audio.jack.id=${gpName}`,
     '-o', 'synth.sample-rate=48000',
-    '-o', 'synth.gain=1.0',
+    '-g', '0.0',
     '-o', 'synth.polyphony=128',
     GP_SOUNDFONT, midPath,
-  ], { stdio: 'ignore' })
+  ], { stdio: ['pipe', 'ignore', 'ignore'] })
+  child.stdin.on('error', () => {})  // EPIPE 静默（进程退出后写，main.js 同款教训）
   child.on('exit', () => {
     const e = gpEngines.get(roomCode)
     if (e && e.child === child) {
+      if (e.naturalEndTimer) { clearTimeout(e.naturalEndTimer); e.naturalEndTimer = null }
       gpEngines.delete(roomCode)
       // 自然播完→广播停+清状态（kill路径先删map不会走到这里）；本地指针随 gp-state 归零
       pool.query('UPDATE rooms SET gp_state = NULL WHERE room_code = $1', [roomCode]).catch(() => {})
@@ -3484,7 +3509,22 @@ function startGpPlayback(roomCode, port, midPath) {
       try { execSync(`jack_connect "${gpName}:left" "${ghostL}"`, { stdio: 'ignore' }); ok = true } catch (err) {}
       try { execSync(`jack_connect "${gpName}:right" "${ghostR}"`, { stdio: 'ignore' }) } catch (err) {}
       const e2 = gpEngines.get(roomCode)
-      if (ok && e2 && e2.child === child) { e2.wired = true; e2.wiredAt = Date.now(); console.log(`GP start ${roomCode} wired (${tries} 次)`) }
+      if (ok && e2 && e2.child === child) {
+        // B' 起播：先写命令链+记 playAt（零点=第一声真实起点），再置 wired（waitGpWired 返回时 playAt 必就绪）
+        try {
+          e2.child.stdin.write('player_stop\nplayer_start\ngain 1.0\n')
+          e2.playAt = Date.now()
+        } catch (err) { console.error(`GP start ${roomCode} 起播命令失败:`, err.message) }
+        e2.wired = true
+        e2.wiredAt = Date.now()
+        // shell 模式播完进程常驻（旧 -i 模式靠 exit 检测自然结束已失效）→ 全时长定时器收摊：
+        // 到点 kill 且 map 还在 → exit 回调走"自然播完"（手动停=先删map+kill，不误触）
+        e2.naturalEndTimer = setTimeout(() => {
+          const e3 = gpEngines.get(roomCode)
+          if (e3 && e3.child === child) { try { child.kill('SIGTERM') } catch (err) {} }
+        }, (Number(totalMs) || 0) + 3000)
+        console.log(`GP start ${roomCode} wired+play (${tries} 次)`)
+      }
       else if (tries < 15 && e2 && e2.child === child && !e2.wired) setTimeout(wire, 400)
       else if (!ok) console.error(`GP start ${roomCode} JACK 接线失败`)
     }
@@ -3700,18 +3740,18 @@ io.on("connection", (socket) => {
       socket.emit('gp-state', { playing: false })
       return
     }
-    startGpPlayback(roomId, row.server_port, midPath)
+    startGpPlayback(roomId, row.server_port, midPath, gpGen.totalMs)
     const wired = await waitGpWired(roomId, 8000)
     clearTimeout(gpInflight.get(roomId)); gpInflight.delete(roomId)
     if (!wired) { console.error('gp play: not wired', roomId); return }
     // startedAt=spawn 时刻（10-09 滚动超前根治）：fluidsynth 从 spawn 就在播，接线耗时那段音乐已白丢。
     // 若记接线时刻，客户端时间线恒慢~0.5s → 2s对表反复前跳（seek风暴）→ 谱面滚动被拽超前、当前小节顶出视野
     const engine = gpEngines.get(roomId)
-    // ⚠️1010晚定案：零点=portAt（fluidsynth JACK 端口出现=起播时刻）。spawn→port=init(快1拍的账)，
-    // port→wire=白丢窗口(慢半拍的账)，三段账日志全打，实测可查
-    const t0 = engine && engine.portAt ? engine.portAt : (engine && engine.wiredAt ? engine.wiredAt : (engine && engine.spawnedAt ? engine.spawnedAt : Date.now()))
+    // B' 终版零点=playAt（接线完成后 player_start 命令下发时刻=第一声真实起点，零白丢）；
+    // 兜底链 wiredAt→portAt→now（play 命令失败时不至于没零点）
+    const t0 = engine && engine.playAt ? engine.playAt : (engine && engine.wiredAt ? engine.wiredAt : (engine && engine.spawnedAt ? engine.spawnedAt : Date.now()))
     if (engine && engine.spawnedAt) {
-      console.log(`GP play ${roomId} 时间线账目: spawn→port=${(engine.portAt || 0) - engine.spawnedAt}ms port→wire=${engine.wiredAt && engine.portAt ? engine.wiredAt - engine.portAt : "?"}ms`)
+      console.log(`GP play ${roomId} 时间线账目: spawn→port=${(engine.portAt || 0) - engine.spawnedAt}ms port→wire=${engine.wiredAt && engine.portAt ? engine.wiredAt - engine.portAt : "?"}ms wire→play=${engine.playAt && engine.wiredAt ? engine.playAt - engine.wiredAt : "?"}ms`)
     }
     const startedAt = new Date(t0).toISOString()
     // speed 随广播下发：客户端对表 target=base+墙钟elapsed×speed（谱面域换算）+本地playbackSpeed同设
