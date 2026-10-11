@@ -83,6 +83,11 @@ export function useChatSocket(roomId?: string, nickname?: string) {
       setRealtimeScore((prev) => (prev && prev.type === "gp" ? { ...prev, countin: data.countin } : prev))
     })
 
+    // GP 循环（1011 ⑥-2a）：房级开关广播
+    socket.on("gp-loop", (data: { loop: boolean }) => {
+      setRealtimeScore((prev) => (prev && prev.type === "gp" ? { ...prev, loop: data.loop } : prev))
+    })
+
     socket.on("bpm-update", (data: { bpm: number }) => {
       setRealtimeBpm(data.bpm || 0)
     })
@@ -182,6 +187,13 @@ export function useChatSocket(roomId?: string, nickname?: string) {
     setRealtimeScore((prev) => (prev && prev.type === "gp" ? { ...prev, countin } : prev))
   }
 
+  // GP 循环（1011 ⑥-2a）：乐观本地+广播
+  const setGpLoop = (loop: boolean) => {
+    if (!socketRef.current || !roomId) return
+    socketRef.current.emit("gp-loop", { roomId, loop })
+    setRealtimeScore((prev) => (prev && prev.type === "gp" ? { ...prev, loop } : prev))
+  }
+
   // 水合（强刷/后进）：喂 realtimeScore 单一真相源。此前 playing-page 另有独立 score state，
   // 水合走独立 state 而 realtimeScore=null → gp-mix/gp-speed 的乐观与广播合并被 `prev &&` 静默丢弃
   // （10-10 倍速双 bug 根因：UI 不切换+本地 playbackSpeed 恒 1 而服务器已变速=指针原速被对表拽回）
@@ -193,5 +205,5 @@ export function useChatSocket(roomId?: string, nickname?: string) {
     setRealtimeScore(null)
   }
 
-  return { messages, sendMessage, connected, realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, hydrateScore, realtimeScore, realtimeGpState, playGp, pauseGp, updateGpMix, setGpSpeed, setGpCountin, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, kickedEvent, dissolvedEvent }
+  return { messages, sendMessage, connected, realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, hydrateScore, realtimeScore, realtimeGpState, playGp, pauseGp, updateGpMix, setGpSpeed, setGpCountin, setGpLoop, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, kickedEvent, dissolvedEvent }
 }

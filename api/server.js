@@ -3475,10 +3475,9 @@ function startGpPlayback(roomCode, port, midPath, totalMs) {
     if (e && e.child === child) {
       if (e.naturalEndTimer) { clearTimeout(e.naturalEndTimer); e.naturalEndTimer = null }
       gpEngines.delete(roomCode)
-      // 自然播完→广播停+清状态（kill路径先删map不会走到这里）；本地指针随 gp-state 归零
-      pool.query('UPDATE rooms SET gp_state = NULL WHERE room_code = $1', [roomCode]).catch(() => {})
-      io.to(roomCode).emit('gp-state', { playing: false })
-      console.log(`GP natural end ${roomCode}`)
+      // ⑥-2a（1011）：自然结束→查循环（读DB最新值,播放中可关loop）→开着就重播同一份 MIDI
+      // （mix/speed/countin 全烤在文件里,循环=完整继承当前谱面状态——欢哥"按现有状态循环"天然成立）
+      gpLoopRestart(roomCode, e).catch(() => {})
     }
   })
   gpEngines.set(roomCode, { child, port, wired: false, spawnedAt: Date.now() })
@@ -3533,6 +3532,33 @@ function startGpPlayback(roomCode, port, midPath, totalMs) {
     wire()
   }
   setTimeout(pollPort, 100)
+}
+
+// ⑥-2a 循环重启（1011）：自然结束后查 loop（DB 最新值）→重播同一份 live MIDI（状态天然继承）；
+// startMs 归 0（全曲循环=回曲目头）；countInMs 沿用烤进文件的值（循环也数拍——排练场景数拍当间隔）
+async function gpLoopRestart(roomCode, prev) {
+  const r = await pool.query('SELECT server_port, current_score FROM rooms WHERE room_code = $1', [roomCode])
+  const row = r.rows[0]
+  let score = null
+  try { score = row && row.current_score ? JSON.parse(row.current_score) : null } catch (e) {}
+  if (!score || !score.loop || !prev || !prev.liveMidPath || !fs.existsSync(prev.liveMidPath)) {
+    // 循环已关/文件没了：走原自然结束（清状态+广播停）
+    await pool.query('UPDATE rooms SET gp_state = NULL WHERE room_code = $1', [roomCode]).catch(() => {})
+    io.to(roomCode).emit('gp-state', { playing: false })
+    console.log(`GP natural end ${roomCode}`)
+    return
+  }
+  startGpPlayback(roomCode, row.server_port, prev.liveMidPath, prev.totalMs)
+  const engine = gpEngines.get(roomCode)
+  if (engine) { engine.liveMidPath = prev.liveMidPath; engine.totalMs = prev.totalMs; engine.countInMs = prev.countInMs }
+  const wired = await waitGpWired(roomCode, 8000)
+  if (!wired) { console.error(`GP loop restart ${roomCode}: not wired`); return }
+  const e2 = gpEngines.get(roomCode)
+  const t0 = e2 && e2.playAt ? e2.playAt : Date.now()
+  const gpState = { playing: true, startedAt: new Date(t0).toISOString(), startMs: 0, speed: sanitizeGpSpeed(score.speed), countInMs: Math.round(prev.countInMs || 0) }
+  try { await pool.query('UPDATE rooms SET gp_state = $1 WHERE room_code = $2', [JSON.stringify(gpState), roomCode]) } catch (e) {}
+  io.to(roomCode).emit('gp-state', gpState)
+  console.log(`GP loop restart ${roomCode} (countIn=${Math.round(prev.countInMs || 0)}ms speed=${sanitizeGpSpeed(score.speed)})`)
 }
 
 async function waitGpWired(roomCode, maxMs) {
@@ -3749,6 +3775,7 @@ io.on("connection", (socket) => {
     // startedAt=spawn 时刻（10-09 滚动超前根治）：fluidsynth 从 spawn 就在播，接线耗时那段音乐已白丢。
     // 若记接线时刻，客户端时间线恒慢~0.5s → 2s对表反复前跳（seek风暴）→ 谱面滚动被拽超前、当前小节顶出视野
     const engine = gpEngines.get(roomId)
+    if (engine) { engine.liveMidPath = midPath; engine.totalMs = gpGen.totalMs; engine.countInMs = gpGen.countInMs }  // ⑥-2a 循环重启档
     // B' 终版零点=playAt（接线完成后 player_start 命令下发时刻=第一声真实起点，零白丢）；
     // 兜底链 wiredAt→portAt→now（play 命令失败时不至于没零点）
     const t0 = engine && engine.playAt ? engine.playAt : (engine && engine.wiredAt ? engine.wiredAt : (engine && engine.spawnedAt ? engine.spawnedAt : Date.now()))
@@ -3815,6 +3842,21 @@ io.on("connection", (socket) => {
     score.countin = !!countin
     await pool.query('UPDATE rooms SET current_score = $1 WHERE room_code = $2', [JSON.stringify(score), roomId])
     io.to(roomId).emit("gp-countin", { countin: score.countin })
+  })
+
+  // GP 循环（1011 ⑥-2a 全曲版）：房级开关——⚠️与M/S/倍速/countin不同类：它管"播完后要不要再来"
+  // （未来行为），故播放中不锁UI（第N遍中途关=本遍播完即止）；自然结束读DB最新值决定respawn
+  socket.on("gp-loop", async (data) => {
+    const { roomId, loop } = data || {}
+    if (!roomId || !socket.userId) return
+    if (!(await isRoomMusician(socket.userId, roomId))) return
+    const r = await pool.query('SELECT current_score FROM rooms WHERE room_code = $1', [roomId])
+    let score = null
+    try { score = r.rows[0] && r.rows[0].current_score ? JSON.parse(r.rows[0].current_score) : null } catch (e) {}
+    if (!score || score.type !== 'gp') return
+    score.loop = !!loop
+    await pool.query('UPDATE rooms SET current_score = $1 WHERE room_code = $2', [JSON.stringify(score), roomId])
+    io.to(roomId).emit("gp-loop", { loop: score.loop })
   })
 
   socket.on("disconnect", async () => {

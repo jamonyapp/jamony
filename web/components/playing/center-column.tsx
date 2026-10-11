@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { Circle, Square, ChevronDown, ChevronLeft, ChevronRight, Disc3, Headphones, ArrowRight, Download, Ban, Check, X, ChevronUp, SlidersHorizontal, Play, Pause, Printer, Search, Hourglass } from "lucide-react"
+import { Circle, Square, ChevronDown, ChevronLeft, ChevronRight, Disc3, Headphones, ArrowRight, Download, Ban, Check, X, ChevronUp, SlidersHorizontal, Play, Pause, Printer, Search, Hourglass, Repeat } from "lucide-react"
 import { instrumentEmoji, type RecordingSession, type Track, type RoomScore, type GpMix } from "@/lib/jam-data"
 import { MixerFullscreen } from "@/components/mixer/mixer-fullscreen"
 import { MixerMini } from "@/components/mixer/mixer-mini"
@@ -200,6 +200,7 @@ export function CenterColumn({
   onGpMix,
   onGpSpeed,
   onGpCountin,
+  onGpLoop,
 }: {
   chords: string[]
   customTheme?: string
@@ -222,6 +223,7 @@ export function CenterColumn({
   onGpMix?: (mix: GpMix) => void
   onGpSpeed?: (speed: number) => void
   onGpCountin?: (countin: boolean) => void
+  onGpLoop?: (loop: boolean) => void
 }) {
   const [todayTheme, setTodayTheme] = useState({ title: "加载中...", emoji: "🎵" })
   useEffect(() => {
@@ -246,7 +248,7 @@ export function CenterColumn({
         style={{ borderColor: "#1A1A1A" }}
       >
         {score ? (
-          <ScoreViewer score={score} canClear={myRole !== "listener"} onClear={onClearScore} gpState={gpState} onGpPlay={onGpPlay} onGpPause={onGpPause} onGpMix={onGpMix} onGpSpeed={onGpSpeed} onGpCountin={onGpCountin} />
+          <ScoreViewer score={score} canClear={myRole !== "listener"} onClear={onClearScore} gpState={gpState} onGpPlay={onGpPlay} onGpPause={onGpPause} onGpMix={onGpMix} onGpSpeed={onGpSpeed} onGpCountin={onGpCountin} onGpLoop={onGpLoop} />
         ) : (
           <>
             <img src="/images/stage-backdrop.png" alt="" aria-hidden className="absolute inset-0 size-full object-cover" />
@@ -296,7 +298,7 @@ export function CenterColumn({
 }
 
 // 谱面查看器：图片=各自本地翻页+缩放+拖拽（零同步，欢哥 10-07 定稿），PDF=Chromium 原生查看器自带全套
-function ScoreViewer({ score, canClear, onClear, gpState, onGpPlay, onGpPause, onGpMix, onGpSpeed, onGpCountin }: { score: RoomScore; canClear?: boolean; onClear?: () => void; gpState?: { playing: boolean; startedAt?: string; startMs?: number; speed?: number; countInMs?: number } | null; onGpPlay?: (startMs?: number) => void; onGpPause?: () => void; onGpMix?: (mix: GpMix) => void; onGpSpeed?: (speed: number) => void; onGpCountin?: (countin: boolean) => void }) {
+function ScoreViewer({ score, canClear, onClear, gpState, onGpPlay, onGpPause, onGpMix, onGpSpeed, onGpCountin, onGpLoop }: { score: RoomScore; canClear?: boolean; onClear?: () => void; gpState?: { playing: boolean; startedAt?: string; startMs?: number; speed?: number; countInMs?: number } | null; onGpPlay?: (startMs?: number) => void; onGpPause?: () => void; onGpMix?: (mix: GpMix) => void; onGpSpeed?: (speed: number) => void; onGpCountin?: (countin: boolean) => void; onGpLoop?: (loop: boolean) => void }) {
   const [page, setPage] = useState(0)
   const [zoom, setZoom] = useState(1)
   const [pdfPages, setPdfPages] = useState(0)  // PDF 加载后才知道总页数（pdf.js 画布渲染，不依赖 Electron PDF 插件）
@@ -330,7 +332,7 @@ function ScoreViewer({ score, canClear, onClear, gpState, onGpPlay, onGpPause, o
   const transformStyle = { transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }
 
   // GP 谱走工作站（alphaTab 渲染，自有滚动；不走图片缩放/翻页那套舞台）——须在全部 hooks 之后
-  if (score.type === "gp") return <GpWorkstation score={score} canClear={canClear} onClear={onClear} gpState={gpState} onPlay={onGpPlay} onPause={onGpPause} onMix={onGpMix} onSpeed={onGpSpeed} onCountin={onGpCountin} canMix={canClear} />
+  if (score.type === "gp") return <GpWorkstation score={score} canClear={canClear} onClear={onClear} gpState={gpState} onPlay={onGpPlay} onPause={onGpPause} onMix={onGpMix} onSpeed={onGpSpeed} onCountin={onGpCountin} onLoop={onGpLoop} canMix={canClear} />
 
   // 平移边界夹紧（10-07 欢哥实测：自由画布容易把谱面整个拖出视野）——内容始终盖住视口，到边即停
   // 注意 transform 的 scale 以元素中心为原点：放大时内容向两端生长，边界必须按"中心基准+平移"推导，
@@ -1392,11 +1394,11 @@ type GpApi = {
   settingsUpdated?: { on: (cb: () => void) => void }
 }
 
-function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onMix, onSpeed, onCountin, canMix }: {
+function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onMix, onSpeed, onCountin, onLoop, canMix }: {
   score: RoomScore; canClear?: boolean; onClear?: () => void
   gpState?: { playing: boolean; startedAt?: string; startMs?: number; speed?: number; countInMs?: number } | null
   onPlay?: (startMs?: number) => void; onPause?: () => void
-  onMix?: (mix: GpMix) => void; onSpeed?: (speed: number) => void; onCountin?: (countin: boolean) => void; canMix?: boolean
+  onMix?: (mix: GpMix) => void; onSpeed?: (speed: number) => void; onCountin?: (countin: boolean) => void; onLoop?: (loop: boolean) => void; canMix?: boolean
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   // 两层结构（10-09 滚动雪球根治）：外层viewport管滚动，内层host挂alphaTab——
@@ -1527,6 +1529,7 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
   const speed = score.speed ?? 1
   const speedLocked = playing
   const countin = !!score.countin  // 预备拍（⑥-1）：服务器真相源（gp-countin 广播合并 realtimeScore），emit 侧乐观
+  const loop = !!score.loop  // 循环（⑥-2a）：播完自动重头——⚠️播放中不锁（管"要不要再来"的未来行为，非已烤流）
   // 调音台（步骤②）：S/M/单轨音量=房级，后动作胜出、播放定版（欢哥 A 方案）；score.mix=服务器真相源，本地乐观+广播回填
   const [mix, setMix] = useState<GpMix>(score.mix ?? {})
   const mixRef = useRef(mix)
@@ -2064,6 +2067,15 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
             className={`flex h-6 w-7 shrink-0 items-center justify-center rounded-[6px] transition-colors ${!canMix || speedLocked ? "cursor-not-allowed opacity-40" : ""} ${countin ? "bg-white/12 text-[#BBEE00]" : "text-white/70 hover:bg-white/10 hover:text-white"}`}
           >
             <Hourglass className="size-3.5" />
+          </button>
+          {/* 循环（1011 ⑥-2a·全曲版·房级）：播完自动回曲目头重播（倍速/预备拍/混音全继承——状态烤在MIDI里）；
+              ⚠️播放中不锁（第N遍中途关=本遍播完即止）——与M/S/倍速/countin"烤进流"不同类 */}
+          <button
+            onClick={() => { if (canMix) onLoop?.(!loop) }}
+            title={!canMix ? "由合奏者控制" : loop ? "循环开着 · 播完自动从头再来，点击关闭" : "循环播放（播完自动从头再来）"}
+            className={`flex h-6 w-7 shrink-0 items-center justify-center rounded-[6px] transition-colors ${!canMix ? "cursor-not-allowed opacity-40" : "text-white/70 hover:bg-white/10 hover:text-white"} ${loop ? "bg-white/12 text-[#BBEE00]" : ""}`}
+          >
+            <Repeat className="size-3.5" />
           </button>
           <ToolbarMenu
             title="缩放"
