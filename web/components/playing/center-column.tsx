@@ -1410,7 +1410,9 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
   const apiRef = useRef<GpApi | null>(null)
   const realTracksRef = useRef<GpTrackInfo[]>([])
   const [tracks, setTracks] = useState<GpTrackInfo[]>([])
+  const renderedIdxRef = useRef<number[]>([])    // renderedIdx 镜像（换档effect读最新分轨选择，防闭包陈旧）
   const [renderedIdx, setRenderedIdx] = useState<number[]>([])
+  renderedIdxRef.current = renderedIdx  // 每渲染同步
   const [panelOpen, setPanelOpen] = useState(false)  // 分轨弹层（10-09 欢哥定稿：工具栏只放入口，点开向上弹列表——吉他社样式）
   const [totalMs, setTotalMs] = useState(0)  // 谱面总时长（alphaTab 式 00:00/04:46 的分母；0=未知不显示）
   // 指针（步骤③）：本地静音 player 跟服务器走带；playerReady=音源就绪（就绪前不跟）；posMs=真实位置（秒变才setState防刷屏）
@@ -1462,6 +1464,7 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
   const bufRef = useRef<Uint8Array | null>(null) // 换档重载用的谱子原文
   const loadedRef = useRef(false)                // scoreLoaded 已过（换档才需要重载）
   const reloadSeekRef = useRef<number | null>(null)  // 重载后恢复的谱面位置（烤速域）
+  const reloadRenderSelRef = useRef<number[] | "all" | null>(null)  // 重载后恢复的分轨选择（1011换档现场恢复）
   // 音频时延补偿（10-10 欢哥"指针从头恒快1拍"）：指针=墙钟理论线，耳朵=网络流到达线，差=端到端音频时延（常数无漂移）。
   // 测法：ping端点取最小RTT/2（网络单程）+ 固定播放缓冲常数（编码+抖动缓冲+解码）；残差靠耳朵报数调常数
   const AUDIO_PLAYOUT_MS = 200
@@ -1614,10 +1617,23 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
           } catch (e) { /* 烤失败退原速，不阻塞 */ }
           loadedRef.current = true
           if (reloadSeekRef.current !== null) {
-            // 换档重载：恢复换算后的谱面位置（新烤速域），不归零
+            // 换档重载·现场恢复（1011）：位置+分轨选择都回到换档前的现场——刷新是必须的（tempo重烤），
+            // 但用户的"看哪一轨、停在哪一小节"不该丢。恢复须等渲染+tickCache 就绪（scoreLoaded 里太早
+            // 会被冲掉），延迟窗口后一并恢复；换谱竞态由 cancelled 拦截
             const seek = reloadSeekRef.current
             reloadSeekRef.current = null
-            try { apiRef.current!.timePosition = seek } catch (e) { /* 恢复失败无碍 */ }
+            const sel = reloadRenderSelRef.current
+            reloadRenderSelRef.current = null
+            setTimeout(() => {
+              if (cancelled) return
+              const api = apiRef.current
+              if (!api) return
+              if (sel && sel !== "all") {
+                const list = sel.map((i) => realTracksRef.current[i]).filter(Boolean)
+                if (list.length > 0) { try { api.renderTracks(list) } catch (e) { /* 恢复失败退全轨 */ } }
+              }
+              try { api.timePosition = seek } catch (e) { /* 恢复失败无碍 */ }
+            }, 400)
           } else {
             setScrubMs(0)  // 换谱重置起始位置
           }
@@ -1767,6 +1783,7 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
 
   // 换档重烤（10-10 根治版）：暂停态换档（播放中UI已锁）→ tempo 重烤需要 player 重建 MIDI →
   // 重载原文（scoreLoaded 里按 speedRef 新值烤+积分）。位置域换算：同一谱面点 烤速ms_new = ms_old×old÷new
+  // 现场记录（1011）：分轨选择一并存档，重载后恢复——刷新是必须的，状态丢失不是
   useEffect(() => {
     const spd = score.speed ?? 1
     const old = speedRef.current
@@ -1776,6 +1793,8 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
     const seek = Math.max(0, Math.round(scrubMsRef.current * old / spd))
     setScrubMs(seek)
     reloadSeekRef.current = seek
+    const sel = renderedIdxRef.current
+    reloadRenderSelRef.current = (sel.length > 0 && sel.length < realTracksRef.current.length) ? sel : "all"
     const api = apiRef.current
     if (api && bufRef.current) {
       try { api.load(bufRef.current, () => {}, () => {}) } catch (e) { console.error("[gp倍速] 换档重载失败:", e) }
