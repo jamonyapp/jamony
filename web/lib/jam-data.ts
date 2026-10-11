@@ -145,4 +145,5 @@ export type RoomScore = {
   speed?: number  // 倍速档（10-10 步骤⑤）：房级 0.5/0.75/1/1.25/1.5，播放瞬间定版
   countin?: boolean  // 预备拍开关（1011 ⑥-1）：房级，播放瞬间烤 click 进流（N=第一拍号分子）
   loop?: boolean     // 循环开关（1011 ⑥-2a 全曲版）：房级，播完自动重头——⚠️播放中不锁（管未来行为非已烤流）
+  range?: { a: number; b: number }  // 选段（1011 ⑥-2b）：A-B 原速域 ms（与 startMs 同构，倍速无关），房级；无=全曲
 }

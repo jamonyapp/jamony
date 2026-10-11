@@ -201,6 +201,7 @@ export function CenterColumn({
   onGpSpeed,
   onGpCountin,
   onGpLoop,
+  onGpRange,
 }: {
   chords: string[]
   customTheme?: string
@@ -217,13 +218,14 @@ export function CenterColumn({
   realtimeRecordingMax?: number | null
   score?: RoomScore | null
   onClearScore?: () => void
-  gpState?: { playing: boolean; startedAt?: string; speed?: number; countInMs?: number } | null
+  gpState?: { playing: boolean; startedAt?: string; speed?: number; countInMs?: number; endMs?: number } | null
   onGpPlay?: (startMs?: number) => void
   onGpPause?: () => void
   onGpMix?: (mix: GpMix) => void
   onGpSpeed?: (speed: number) => void
   onGpCountin?: (countin: boolean) => void
   onGpLoop?: (loop: boolean) => void
+  onGpRange?: (range: { a: number; b: number } | null) => void
 }) {
   const [todayTheme, setTodayTheme] = useState({ title: "加载中...", emoji: "🎵" })
   useEffect(() => {
@@ -248,7 +250,7 @@ export function CenterColumn({
         style={{ borderColor: "#1A1A1A" }}
       >
         {score ? (
-          <ScoreViewer score={score} canClear={myRole !== "listener"} onClear={onClearScore} gpState={gpState} onGpPlay={onGpPlay} onGpPause={onGpPause} onGpMix={onGpMix} onGpSpeed={onGpSpeed} onGpCountin={onGpCountin} onGpLoop={onGpLoop} />
+          <ScoreViewer score={score} canClear={myRole !== "listener"} onClear={onClearScore} gpState={gpState} onGpPlay={onGpPlay} onGpPause={onGpPause} onGpMix={onGpMix} onGpSpeed={onGpSpeed} onGpCountin={onGpCountin} onGpLoop={onGpLoop} onGpRange={onGpRange} />
         ) : (
           <>
             <img src="/images/stage-backdrop.png" alt="" aria-hidden className="absolute inset-0 size-full object-cover" />
@@ -298,7 +300,7 @@ export function CenterColumn({
 }
 
 // 谱面查看器：图片=各自本地翻页+缩放+拖拽（零同步，欢哥 10-07 定稿），PDF=Chromium 原生查看器自带全套
-function ScoreViewer({ score, canClear, onClear, gpState, onGpPlay, onGpPause, onGpMix, onGpSpeed, onGpCountin, onGpLoop }: { score: RoomScore; canClear?: boolean; onClear?: () => void; gpState?: { playing: boolean; startedAt?: string; startMs?: number; speed?: number; countInMs?: number } | null; onGpPlay?: (startMs?: number) => void; onGpPause?: () => void; onGpMix?: (mix: GpMix) => void; onGpSpeed?: (speed: number) => void; onGpCountin?: (countin: boolean) => void; onGpLoop?: (loop: boolean) => void }) {
+function ScoreViewer({ score, canClear, onClear, gpState, onGpPlay, onGpPause, onGpMix, onGpSpeed, onGpCountin, onGpLoop, onGpRange }: { score: RoomScore; canClear?: boolean; onClear?: () => void; gpState?: { playing: boolean; startedAt?: string; startMs?: number; speed?: number; countInMs?: number; endMs?: number } | null; onGpPlay?: (startMs?: number) => void; onGpPause?: () => void; onGpMix?: (mix: GpMix) => void; onGpSpeed?: (speed: number) => void; onGpCountin?: (countin: boolean) => void; onGpLoop?: (loop: boolean) => void; onGpRange?: (range: { a: number; b: number } | null) => void }) {
   const [page, setPage] = useState(0)
   const [zoom, setZoom] = useState(1)
   const [pdfPages, setPdfPages] = useState(0)  // PDF 加载后才知道总页数（pdf.js 画布渲染，不依赖 Electron PDF 插件）
@@ -332,7 +334,7 @@ function ScoreViewer({ score, canClear, onClear, gpState, onGpPlay, onGpPause, o
   const transformStyle = { transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }
 
   // GP 谱走工作站（alphaTab 渲染，自有滚动；不走图片缩放/翻页那套舞台）——须在全部 hooks 之后
-  if (score.type === "gp") return <GpWorkstation score={score} canClear={canClear} onClear={onClear} gpState={gpState} onPlay={onGpPlay} onPause={onGpPause} onMix={onGpMix} onSpeed={onGpSpeed} onCountin={onGpCountin} onLoop={onGpLoop} canMix={canClear} />
+  if (score.type === "gp") return <GpWorkstation score={score} canClear={canClear} onClear={onClear} gpState={gpState} onPlay={onGpPlay} onPause={onGpPause} onMix={onGpMix} onSpeed={onGpSpeed} onCountin={onGpCountin} onLoop={onGpLoop} onRange={onGpRange} canMix={canClear} />
 
   // 平移边界夹紧（10-07 欢哥实测：自由画布容易把谱面整个拖出视野）——内容始终盖住视口，到边即停
   // 注意 transform 的 scale 以元素中心为原点：放大时内容向两端生长，边界必须按"中心基准+平移"推导，
@@ -1386,6 +1388,9 @@ type GpApi = {
   soundFontLoadFailed?: { on: (cb: (e: unknown) => void) => void }
   error?: { on: (cb: (e: unknown) => void) => void }
   beatMouseUp?: { on: (cb: (beat: { playbackStart?: number; voice?: { bar?: { masterBar?: unknown } } } | null) => void) => void }
+  beatMouseDown?: { on: (cb: (beat: { voice?: { bar?: { masterBar?: unknown } } } | null) => void) => void }
+  highlightPlaybackRange?: (startBeat: unknown, endBeat: unknown) => void  // ⑥-2b 选段高亮（官方自建选区API，只放标记不动播放）
+  clearPlaybackRangeHighlight?: () => void
   tickCache?: { masterBars?: { start: number; masterBar?: unknown }[] } | null
   settings?: { display: { scale: number; staveProfile: number; layoutMode: number }; player: { scrollMode: number } }
   updateSettings?: () => void
@@ -1394,11 +1399,11 @@ type GpApi = {
   settingsUpdated?: { on: (cb: () => void) => void }
 }
 
-function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onMix, onSpeed, onCountin, onLoop, canMix }: {
+function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onMix, onSpeed, onCountin, onLoop, onRange, canMix }: {
   score: RoomScore; canClear?: boolean; onClear?: () => void
-  gpState?: { playing: boolean; startedAt?: string; startMs?: number; speed?: number; countInMs?: number } | null
+  gpState?: { playing: boolean; startedAt?: string; startMs?: number; speed?: number; countInMs?: number; endMs?: number } | null
   onPlay?: (startMs?: number) => void; onPause?: () => void
-  onMix?: (mix: GpMix) => void; onSpeed?: (speed: number) => void; onCountin?: (countin: boolean) => void; onLoop?: (loop: boolean) => void; canMix?: boolean
+  onMix?: (mix: GpMix) => void; onSpeed?: (speed: number) => void; onCountin?: (countin: boolean) => void; onLoop?: (loop: boolean) => void; onRange?: (range: { a: number; b: number } | null) => void; canMix?: boolean
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   // 两层结构（10-09 滚动雪球根治）：外层viewport管滚动，内层host挂alphaTab——
@@ -1469,6 +1474,11 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
   const loadedRef = useRef(false)                // scoreLoaded 已过（换档才需要重载）
   const reloadSeekRef = useRef<number | null>(null)  // 重载后恢复的谱面位置（烤速域）
   const reloadRenderSelRef = useRef<number[] | "all" | null>(null)  // 重载后恢复的分轨选择（1011换档现场恢复）
+  // 选段（1011 ⑥-2b）基建
+  const selDownTickRef = useRef<number | null>(null)  // mousedown 记 A 小节起点（null=单击语义）
+  const scoreRangeRef = useRef<{ a: number; b: number } | undefined>(undefined)
+  scoreRangeRef.current = score.range
+  const mbBeatRef = useRef<Map<unknown, unknown>>(new Map())  // masterBar→该轨第一个beat（选区高亮回填用）
   // 音频时延补偿（10-10 欢哥"指针从头恒快1拍"）：指针=墙钟理论线，耳朵=网络流到达线，差=端到端音频时延（常数无漂移）。
   // 测法：ping端点取最小RTT/2（网络单程）+ 固定播放缓冲常数（编码+抖动缓冲+解码）；残差靠耳朵报数调常数
   const AUDIO_PLAYOUT_MS = 200
@@ -1520,6 +1530,18 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
       prevTick = p.tick; bpm = p.bpm
     }
     return ms + ((tick - prevTick) / t.division) * (60000 / bpm)
+  }
+  // ms→tick（⑥-2b 选段回填）：tickToMs 逆运算（烤速域；与服务器 gpMsToTick 同构）
+  const msToTick = (ms: number): number => {
+    const t = tickMapRef.current
+    if (!t || t.division <= 0) return 0
+    let tick = 0, prevTick = 0, accMs = 0, bpm = 120
+    for (const p of t.tempos) {
+      const segMs = ((p.tick - prevTick) / t.division) * (60000 / bpm)
+      if (accMs + segMs >= ms) return Math.round(tick + ((ms - accMs) / (60000 / bpm)) * t.division)
+      accMs += segMs; tick = p.tick; prevTick = p.tick; bpm = p.bpm
+    }
+    return Math.round(tick + ((ms - accMs) / (60000 / bpm)) * t.division)
   }
   const playingRef = useRef(false)
   playingRef.current = playing  // 事件回调防陈旧闭包
@@ -1605,6 +1627,16 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
           setFileMeta({ title: String(s.title || "").slice(0, 60), artist: String(s.artist || "").slice(0, 40) })
           const src = s.tracks ?? []
           realTracksRef.current = src  // 原对象留给 renderTracks
+          // 选段高亮表（⑥-2b）：masterBar→首轨第一个beat（highlightPlaybackRange 需要 beat 对象）
+          try {
+            const m = new Map<unknown, unknown>()
+            const track0 = (src[0] ?? {}) as { staves?: { bars?: { masterBar?: unknown; voices?: { beats?: unknown[] }[] }[] }[] }
+            for (const st of track0.staves ?? []) for (const bar of st.bars ?? []) {
+              const beat = bar.voices?.[0]?.beats?.[0]
+              if (bar.masterBar !== undefined && beat !== undefined) m.set(bar.masterBar, beat)
+            }
+            mbBeatRef.current = m
+          } catch (e) { /* 高亮表失败不阻塞 */ }
           setTracks(src.map((t) => ({ index: t.index, name: String(t.name || `轨 ${t.index + 1}`).slice(0, 40) })))
           // 本地静音·根治版（10-10 欢哥jamsoul静音looper仍闻声=本地漏音定罪）：混音器级静音架不住
           // 本地MIDI里烤着的CC7音量事件在播放开始时重新充压——把模型 playbackInfo.volume 直接清0，
@@ -1706,20 +1738,53 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
           setRenderedIdx((prev) => (prev.join() === idxs.join() ? prev : idxs))
         })
         real.renderFinished?.on?.(() => { if (!cancelled) setLoading(false) })
-        // 谱面点击=定起始位置（10-09 重做版）：绝对tick=所点小节的 MasterBarTickLookup.start + 小节内偏移
-        // ⚠️1.8.4 的 beat.playbackStart 是小节内相对量（首版踩坑），绝对起点从 api.tickCache.masterBars 反查
-        // （反复记号会生成多个lookup指向同一小节——取第一次出现，语义="从视觉上这个小节开始"）
-        real.beatMouseUp?.on?.((beat) => {
+        // 选段（1011 ⑥-2b）：暂停态按下记 A，松开记 B——不同小节=拖选 A-B（小节级，GP 桌面同款心智，
+        // 自动 min/max）；同小节单击=定起点（10-09 原语义）或清选区（已有选区时）。播放中锁（三门规矩）
+        real.beatMouseDown?.on?.((beat) => {
           if (cancelled || playingRef.current || !beat) return
           const cache = apiRef.current?.tickCache
           const mb = beat.voice?.bar?.masterBar
           const barStart = cache?.masterBars?.find((m) => m.masterBar === mb)?.start
+          if (barStart !== undefined) selDownTickRef.current = barStart
+        })
+        real.beatMouseUp?.on?.((beat) => {
+          if (cancelled || playingRef.current || !beat) return
+          const cache = apiRef.current?.tickCache
+          const mb = beat.voice?.bar?.masterBar
+          const lookup = cache?.masterBars?.find((m) => m.masterBar === mb)
+          const barStart = lookup?.start
           if (barStart === undefined) return  // tickCache 未就绪（播放器还在加载）——不误跳
-          const ms = Math.max(0, Math.round(tickToMs(barStart + (beat.playbackStart ?? 0))))
-          console.log("[gp指针] 谱面点击 小节起点tick=", barStart, "偏移=", beat.playbackStart, "→ms=", ms)
-          setScrubMs(ms)
-          const api = apiRef.current
-          if (api) { try { api.timePosition = ms } catch (e) { /* 预览失败无碍 */ } }
+          const downTick = selDownTickRef.current
+          selDownTickRef.current = null
+          // 同小节（未拖）：已有选区→清选区回全曲；无选区→定起点（10-09 原语义）
+          if (downTick === null || downTick === barStart) {
+            if (scoreRangeRef.current) {
+              onRange?.(null)
+              try { apiRef.current?.clearPlaybackRangeHighlight?.() } catch (e) { /* 静默 */ }
+              return
+            }
+            const ms = Math.max(0, Math.round(tickToMs(barStart + (beat.playbackStart ?? 0))))
+            setScrubMs(ms)
+            const api = apiRef.current
+            if (api) { try { api.timePosition = ms } catch (e) { /* 预览失败无碍 */ } }
+            return
+          }
+          // 拖选 A-B（小节级，无论拖动方向）：选区=从靠前的小节起到靠后小节的末（GP 桌面 A-B 心智）
+          const bars = cache?.masterBars ?? []
+          const endOfBar = (tick: number): number => {
+            const i = bars.findIndex((x) => x.start === tick)
+            if (i >= 0 && i + 1 < bars.length) return bars[i + 1].start
+            return tick + 1920  // 兜底一小节(4/4)
+          }
+          const startBar = Math.min(downTick, barStart)
+          const endBar = Math.max(downTick, barStart)
+          const msA = tickToMs(startBar)
+          const msB = tickToMs(endOfBar(endBar))
+          if (msB > msA) {
+            const orig = 1 / (speedRef.current || 1)  // 烤速域→原速域（房级 range 与倍速无关）
+            onRange?.({ a: Math.round(msA * orig), b: Math.round(msB * orig) })
+            console.log("[gp选段] 小节范围", Math.round(msA), "-", Math.round(msB), "ms(烤速) → 原速", Math.round(msA * orig), "-", Math.round(msB * orig))
+          }
         })
         // 指针就绪（音源加载完才能跟走带）；位置事件秒变才更新（demo 同款节流），endTime 兜底总时长
         // 诊断日志（devtools 抓真相用，欢哥实测时看 console）
@@ -1771,7 +1836,8 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
           // cleanup 必挂：暂停/新 gp-state/卸载时 timer 必须死（否则暂停后到点强行 play）
           return () => clearTimeout(t)
         }
-        api.timePosition = Math.max(base, base + playLead)
+        const cap = gpState.endMs !== undefined ? gpState.endMs / spd : Infinity
+        api.timePosition = Math.min(cap, Math.max(base, base + playLead))
         console.log("[gp指针] 跟走带 play @", api.timePosition, "speed=", spd, "countIn=", gpState.countInMs ?? 0)
         api.play?.()
       } else {
@@ -1796,8 +1862,9 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
       const api = apiRef.current
       if (!api) return
       // 倍速域（根治版）：本地烤速推进=墙钟1:1，target=base+墙钟elapsed-lag（无×speed）
-      // 预备拍：countInMs 期间钳在 base
-      const target = Math.max(base, base + Date.now() - startedAtMs - audioLagRef.current - countInMs)
+      // 预备拍：countInMs 期间钳在 base；选段：上限钳 endMs（服务器掐尾重启间隙指针不越界）
+      const cap = gpState.endMs !== undefined ? gpState.endMs / spd : Infinity
+      const target = Math.min(cap, Math.max(base, base + Date.now() - startedAtMs - audioLagRef.current - countInMs))
       const diff = (api.timePosition ?? 0) - target
       console.log("[gp指针] 对表 tick 本地=", Math.round(api.timePosition ?? 0), "目标=", Math.round(target), "差=", Math.round(diff), "speed=", spd)
       if (Math.abs(diff) > 150) {
@@ -1854,6 +1921,7 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
     const spd = gpState.speed ?? 1
     const base = (gpState.startMs ?? 0) / spd
     const countInMs = gpState.countInMs ?? 0  // 预备拍：内容拍点全部后移 countInMs（本地节拍器在 click 之后才进）
+    const capMs = gpState.endMs !== undefined ? gpState.endMs / spd : Infinity  // 选段：上限外拍点不排
     const wallOf = (ms: number) => startedAtWall + countInMs + (ms - base) + audioLagRef.current
     m.nextIdx = 0
     const tickFn = () => {
@@ -1862,6 +1930,7 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
       const now = Date.now()
       while (m.nextIdx < m.beats.length) {
         const b = m.beats[m.nextIdx]
+        if (b.ms > capMs) break  // 选段终点外不再排
         const w = wallOf(b.ms)
         if (w > now + 2000) break
         if (w > now - 100) {  // 过期超100ms的拍跳过（重排时追齐）
@@ -1892,6 +1961,25 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
     if (m.timer) clearInterval(m.timer)
     try { void m.ac?.close() } catch (e) { /* 静默 */ }
   }, [])
+
+  // 选区高亮回填（⑥-2b）：score.range（房级真相，广播/水合）→谱面 A-B 高亮；
+  // 原速域×spd=烤速域→msToTick→找小节→beat→官方 highlight（只放标记不动播放）
+  useEffect(() => {
+    const api = apiRef.current
+    if (!api?.highlightPlaybackRange) return
+    if (!score.range) { try { api.clearPlaybackRangeHighlight?.() } catch (e) { /* 静默 */ } return }
+    const spd = speedRef.current || 1
+    const cache = api.tickCache
+    if (!cache?.masterBars?.length) return
+    const tA = msToTick(score.range.a * spd), tB = msToTick(score.range.b * spd)
+    let barA: unknown = null, barB: unknown = null
+    for (const x of cache.masterBars) {
+      if (x.start <= tA) barA = x.masterBar
+      if (x.start <= tB) barB = x.masterBar
+    }
+    const beatA = mbBeatRef.current.get(barA), beatB = mbBeatRef.current.get(barB)
+    if (beatA && beatB) { try { api.highlightPlaybackRange(beatA, beatB) } catch (e) { /* 高亮失败无碍 */ } }
+  }, [score.range])
 
   const allOn = tracks.length > 0 && renderedIdx.length === tracks.length
   const currentTrackName = allOn ? "全部" : (tracks.find((t) => renderedIdx.includes(t.index))?.name ?? "全部")
