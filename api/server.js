@@ -106,12 +106,12 @@ function gpToMidi(gpPath, midPath, mix, startMs, speedArg, countIn) {
     for (const tr of midiFile.tracks) for (const ev of tr.events) {
       if (typeof ev.beatsPerMinute === 'number' && ev.beatsPerMinute > 0 && ev.tick < bestTick) { bestTick = ev.tick; bpm = ev.beatsPerMinute }
     }
-    const t0 = new alphatab.model.TempoChangeEvent(0, 0)
+    const t0 = new alphatab.midi.TempoChangeEvent(0, 0)  // ⚠️事件类在 midi 命名空间（model 下没有——1011实测翻车点）
     t0.beatsPerMinute = bpm
     midiFile.tracks[0].events.push(t0)
     for (let i = 0; i < numerator; i++) {
-      midiFile.tracks[0].events.push(new alphatab.model.NoteOnEvent(0, i * beatTicks, 9, 37, i === 0 ? 110 : 88))
-      midiFile.tracks[0].events.push(new alphatab.model.NoteOffEvent(0, i * beatTicks + Math.round(beatTicks / 2), 9, 37, 0))
+      midiFile.tracks[0].events.push(new alphatab.midi.NoteOnEvent(0, i * beatTicks, 9, 37, i === 0 ? 110 : 88))
+      midiFile.tracks[0].events.push(new alphatab.midi.NoteOffEvent(0, i * beatTicks + Math.round(beatTicks / 2), 9, 37, 0))
     }
     midiFile.tracks[0].events.sort((a, b) => a.tick - b.tick)  // 稳定排序保同 tick 携带序，跨 tick 归位（fluidsynth 按 tick 域走）
     countInMs = numerator * (60000 / bpm)
