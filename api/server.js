@@ -3520,10 +3520,11 @@ function startGpPlayback(roomCode, port, midPath, totalMs) {
         e2.wiredAt = Date.now()
         // shell 模式播完进程常驻（旧 -i 模式靠 exit 检测自然结束已失效）→ 全时长定时器收摊：
         // 到点 kill 且 map 还在 → exit 回调走"自然播完"（手动停=先删map+kill，不误触）
+        // 宽限500ms（1011欢哥"循环延迟3-4小节"：totalMs精确积分+playAt已对齐起播,3s过保守）
         e2.naturalEndTimer = setTimeout(() => {
           const e3 = gpEngines.get(roomCode)
           if (e3 && e3.child === child) { try { child.kill('SIGTERM') } catch (err) {} }
-        }, (Number(totalMs) || 0) + 3000)
+        }, (Number(totalMs) || 0) + 500)
         console.log(`GP start ${roomCode} wired+play (${tries} 次)`)
       }
       else if (tries < 15 && e2 && e2.child === child && !e2.wired) setTimeout(wire, 400)
@@ -3541,24 +3542,45 @@ async function gpLoopRestart(roomCode, prev) {
   const row = r.rows[0]
   let score = null
   try { score = row && row.current_score ? JSON.parse(row.current_score) : null } catch (e) {}
-  if (!score || !score.loop || !prev || !prev.liveMidPath || !fs.existsSync(prev.liveMidPath)) {
-    // 循环已关/文件没了：走原自然结束（清状态+广播停）
+  if (!score || !score.loop || score.type !== 'gp' || !score.midUrl) {
+    // 循环已关：走原自然结束（清状态+广播停）
     await pool.query('UPDATE rooms SET gp_state = NULL WHERE room_code = $1', [roomCode]).catch(() => {})
     io.to(roomCode).emit('gp-state', { playing: false })
     console.log(`GP natural end ${roomCode}`)
     return
   }
-  startGpPlayback(roomCode, row.server_port, prev.liveMidPath, prev.totalMs)
+  // ⚠️1011欢哥实测定罪：不能重播 prev.liveMidPath——它是从起播点裁剪过的（从最后小节播→文件只剩
+  // 一小节,循环每遍都只有尾段）。循环=按当前谱面状态**完整重播**：从原 GP 重新生成（startMs=0，
+  // mix/speed/countin 按 score 现值重烤）
+  const gpPath = path.join(scoresDir, roomCode, path.basename(score.files[0]))
+  if (!fs.existsSync(gpPath)) {
+    await pool.query('UPDATE rooms SET gp_state = NULL WHERE room_code = $1', [roomCode]).catch(() => {})
+    io.to(roomCode).emit('gp-state', { playing: false })
+    console.log(`GP natural end ${roomCode} (源文件没了)`)
+    return
+  }
+  const dir = path.join(scoresDir, roomCode)
+  try { for (const f of fs.readdirSync(dir)) if (f.startsWith('live_') && f.endsWith('.mid')) { try { fs.unlinkSync(path.join(dir, f)) } catch (e) {} } } catch (e) {}
+  const midPath = path.join(dir, `live_${Date.now()}.mid`)
+  let gpGen
+  try { gpGen = gpToMidi(gpPath, midPath, score.mix, 0, sanitizeGpSpeed(score.speed), !!score.countin) }
+  catch (err) {
+    console.error('gp loop remix error:', err.message)
+    await pool.query('UPDATE rooms SET gp_state = NULL WHERE room_code = $1', [roomCode]).catch(() => {})
+    io.to(roomCode).emit('gp-state', { playing: false })
+    return
+  }
+  startGpPlayback(roomCode, row.server_port, midPath, gpGen.totalMs)
   const engine = gpEngines.get(roomCode)
-  if (engine) { engine.liveMidPath = prev.liveMidPath; engine.totalMs = prev.totalMs; engine.countInMs = prev.countInMs }
+  if (engine) { engine.liveMidPath = midPath; engine.totalMs = gpGen.totalMs; engine.countInMs = gpGen.countInMs }
   const wired = await waitGpWired(roomCode, 8000)
   if (!wired) { console.error(`GP loop restart ${roomCode}: not wired`); return }
   const e2 = gpEngines.get(roomCode)
   const t0 = e2 && e2.playAt ? e2.playAt : Date.now()
-  const gpState = { playing: true, startedAt: new Date(t0).toISOString(), startMs: 0, speed: sanitizeGpSpeed(score.speed), countInMs: Math.round(prev.countInMs || 0) }
+  const gpState = { playing: true, startedAt: new Date(t0).toISOString(), startMs: 0, speed: sanitizeGpSpeed(score.speed), countInMs: Math.round(gpGen.countInMs || 0) }
   try { await pool.query('UPDATE rooms SET gp_state = $1 WHERE room_code = $2', [JSON.stringify(gpState), roomCode]) } catch (e) {}
   io.to(roomCode).emit('gp-state', gpState)
-  console.log(`GP loop restart ${roomCode} (countIn=${Math.round(prev.countInMs || 0)}ms speed=${sanitizeGpSpeed(score.speed)})`)
+  console.log(`GP loop restart ${roomCode} 完整重播 (countIn=${Math.round(gpGen.countInMs || 0)}ms speed=${sanitizeGpSpeed(score.speed)})`)
 }
 
 async function waitGpWired(roomCode, maxMs) {

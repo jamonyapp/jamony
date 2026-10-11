@@ -2073,7 +2073,7 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
           <button
             onClick={() => { if (canMix) onLoop?.(!loop) }}
             title={!canMix ? "由合奏者控制" : loop ? "循环开着 · 播完自动从头再来，点击关闭" : "循环播放（播完自动从头再来）"}
-            className={`flex h-6 w-7 shrink-0 items-center justify-center rounded-[6px] transition-colors ${!canMix ? "cursor-not-allowed opacity-40" : "text-white/70 hover:bg-white/10 hover:text-white"} ${loop ? "bg-white/12 text-[#BBEE00]" : ""}`}
+            className={`flex h-6 w-7 shrink-0 items-center justify-center rounded-[6px] transition-colors ${!canMix ? "cursor-not-allowed opacity-40" : loop ? "bg-white/12 text-[#BBEE00]" : "text-white/70 hover:bg-white/10 hover:text-white"}`}
           >
             <Repeat className="size-3.5" />
           </button>
