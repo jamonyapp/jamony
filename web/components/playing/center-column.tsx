@@ -1372,7 +1372,6 @@ type GpApi = {
   play?: () => void
   pause?: () => void
   timePosition?: number
-  metronomeVolume?: number
   scoreLoaded?: { on: (cb: (s: { tracks?: GpTrackInfo[] }) => void) => void }
   renderFinished?: { on: (cb: () => void) => void }
   renderStarted?: { on: (cb: (isResize: boolean) => void) => void }
@@ -1418,7 +1417,16 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
   const [playerReady, setPlayerReady] = useState(false)
   const [posMs, setPosMs] = useState(0)
   const lastPosSecRef = useRef(-1)
-  const [metronome, setMetronome] = useState(false)  // 本地节拍器（各自开关不进房混；播放器链路通了已正常出声——10-09晚复测）
+  const [metronome, setMetronome] = useState(false)  // 本地节拍器（各自开关不进房混）
+  // 自研节拍器引擎（1011）：click 弃 alphaSynth——它挂合成时间轴=出声恒慢缓冲水位(默认500ms≈250ms,
+  // 欢哥85bpm实测慢不到半拍)；砍缓冲100ms又欠载翻车(已回滚)。正解=WebAudio 硬件时钟直调(baseLatency实测5ms)：
+  // 追拍式调度(500ms轮询排未来2s拍点)，拍点出声墙钟=startedAt+(拍点-base)+lag(与谱子音频到达模型同式)——
+  // 不受 player 卡顿/对表 seek 影响(player 卡了 click 照准)
+  const metroRef = useRef<{
+    ac: AudioContext | null; master: GainNode | null
+    beats: { ms: number; accent: boolean }[]; nextIdx: number
+    timer: ReturnType<typeof setInterval> | null
+  }>({ ac: null, master: null, beats: [], nextIdx: 0, timer: null })
   const [sfPct, setSfPct] = useState(-1)  // 音源加载进度（首访可见；-1=不在加载）
   const [fileMeta, setFileMeta] = useState({ title: "", artist: "" })  // 谱内标题/作者（审计#9：demo从文件读，别只显示上传文件名）
   // 步骤④视图三件套（全本地）：缩放/五线六线/横竖排——枚举模块留存+当前值镜像（供菜单高亮）
@@ -1635,6 +1643,31 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
             }
             tempos.sort((a, b) => a.tick - b.tick)
             tickMapRef.current = { tempos, division: mf.division }  // 谱面点击 tick→ms 换算表
+            // 拍点表（照搬 alphaSynth sequencer 拍点算法 alphaTab.js L35095+）：事件流 TimeSignature 驱动拍长，
+            // 全曲 tick 轴每拍一点，accent=小节内第0拍——供自研 WebAudio 节拍器调度
+            try {
+              const sigs: { tick: number; numerator: number; denominatorIndex: number }[] = []
+              for (const tr of mf.tracks) for (const ev of tr.events as { tick: number; numerator?: number; denominatorIndex?: number }[]) {
+                if (typeof ev.numerator === "number") sigs.push({ tick: ev.tick, numerator: ev.numerator, denominatorIndex: ev.denominatorIndex ?? 2 })
+              }
+              sigs.sort((a, b) => a.tick - b.tick)
+              const beats: { ms: number; accent: boolean }[] = []
+              let mTick = 0, numerator = 4, beatTicks = mf.division  // 默认 4/4：一拍=division ticks（四分音符）
+              const pushBeats = (untilTick: number) => {
+                while (beatTicks > 0 && mTick < untilTick && mTick <= maxTick) {
+                  beats.push({ ms: tickToMs(mTick), accent: Math.floor(mTick / beatTicks) % numerator === 0 })
+                  mTick += beatTicks
+                }
+              }
+              for (const sig of sigs) {
+                pushBeats(sig.tick)
+                numerator = sig.numerator
+                beatTicks = Math.round(mf.division * 4 / Math.pow(2, sig.denominatorIndex))
+              }
+              pushBeats(maxTick + 1)
+              metroRef.current.beats = beats
+              metroRef.current.nextIdx = 0
+            } catch (e) { /* 拍点失败节拍器静默不响，不阻塞主流程 */ }
             // 时延探针（10-10 欢哥"快半拍"精修）：把体感拍数量化成毫秒（烤后 BPM——耳朵听到的是变速后的拍）
             if (tempos.length > 0) {
               const bpm = tempos[0].bpm
@@ -1749,6 +1782,69 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [score.speed])
+
+  // 自研节拍器调度（1011）：追拍式——每500ms把未来2s窗口内的拍点用 WebAudio 硬件时钟排掉；
+  // 拍点出声墙钟 = startedAt + (拍点ms − base) + lag（与谱子音频到达耳朵同式）。
+  // 重播/换起点必经暂停态（播放中锁UI）→ startedAt 变化即 effect 重跑从头重排，无回跳场景
+  useEffect(() => {
+    const m = metroRef.current
+    const stop = () => {
+      if (m.timer) { clearInterval(m.timer); m.timer = null }
+      if (m.master) { try { m.master.gain.cancelScheduledValues(0); m.master.gain.value = 0 } catch (e) { /* 静默 */ } }
+    }
+    if (!metronome || !playing || !gpState?.startedAt || m.beats.length === 0) { stop(); return }
+    // 懒建 AudioContext（节拍器按钮点击=用户手势，autoplay 策略放行）
+    if (!m.ac || !m.master) {
+      try {
+        m.ac = new AudioContext()
+        m.master = m.ac.createGain()
+        m.master.gain.value = 1
+        m.master.connect(m.ac.destination)
+      } catch (e) { console.error("[节拍器] AudioContext 创建失败:", e); return }
+    }
+    if (m.ac.state === "suspended") { void m.ac.resume().catch(() => {}) }
+    try { m.master.gain.value = 1 } catch (e) { /* 静默 */ }
+    const startedAtWall = new Date(gpState.startedAt).getTime()
+    const spd = gpState.speed ?? 1
+    const base = (gpState.startMs ?? 0) / spd
+    const wallOf = (ms: number) => startedAtWall + (ms - base) + audioLagRef.current
+    m.nextIdx = 0
+    const tickFn = () => {
+      const ac = m.ac
+      if (!ac || !m.master) return
+      const now = Date.now()
+      while (m.nextIdx < m.beats.length) {
+        const b = m.beats[m.nextIdx]
+        const w = wallOf(b.ms)
+        if (w > now + 2000) break
+        if (w > now - 100) {  // 过期超100ms的拍跳过（重排时追齐）
+          const t0 = ac.currentTime + Math.max(0.015, (w - now) / 1000)
+          const osc = ac.createOscillator()
+          const g = ac.createGain()
+          osc.type = "sine"
+          osc.frequency.value = b.accent ? 1318 : 880  // 重拍E6/弱拍A5
+          g.gain.setValueAtTime(b.accent ? 0.5 : 0.28, t0)
+          g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.07)
+          osc.connect(g)
+          g.connect(m.master)
+          osc.start(t0)
+          osc.stop(t0 + 0.09)
+        }
+        m.nextIdx++
+      }
+    }
+    tickFn()
+    m.timer = setInterval(tickFn, 500)
+    return stop
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [metronome, playing, gpState?.startedAt, gpState?.startMs, gpState?.speed])
+
+  // 引擎卸载清理
+  useEffect(() => () => {
+    const m = metroRef.current
+    if (m.timer) clearInterval(m.timer)
+    try { void m.ac?.close() } catch (e) { /* 静默 */ }
+  }, [])
 
   const allOn = tracks.length > 0 && renderedIdx.length === tracks.length
   const currentTrackName = allOn ? "全部" : (tracks.find((t) => renderedIdx.includes(t.index))?.name ?? "全部")
@@ -1950,14 +2046,9 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
           >
             <Printer className="size-3.5" />
           </button>
-          {/* 节拍器（步骤③顺手）：本地各自开关不进房混，走带对表保证跟拍 */}
+          {/* 节拍器（1011自研版）：本地各自开关不进房混——WebAudio 硬时钟直调，与谱子音频同式对齐 */}
           <button
-            onClick={() => {
-              const next = !metronome
-              setMetronome(next)
-              const api = apiRef.current
-              if (api) { try { api.metronomeVolume = next ? 1 : 0 } catch (e) { /* 静默 */ } }
-            }}
+            onClick={() => setMetronome((v) => !v)}
             title={metronome ? "节拍器开着（本地）· 点击关闭" : "节拍器（本地各自开关，不影响他人）"}
             className={`flex h-6 w-7 shrink-0 items-center justify-center rounded-[6px] transition-colors ${metronome ? "bg-white/12 text-[#BBEE00]" : "text-white/70 hover:bg-white/10 hover:text-white"}`}
           >
