@@ -23,7 +23,7 @@ function ToolbarMenu({ value, options, onPick, title, icon, disabled }: { value:
       <button
         onClick={() => { if (!disabled) setOpen((v) => !v) }}
         title={title}
-        className={`flex h-6 items-center gap-0.5 rounded-[6px] px-1.5 text-[11px] transition-colors ${disabled ? "cursor-not-allowed opacity-40" : open ? "bg-white/12 text-white" : "text-white/70 hover:bg-white/10 hover:text-white"}`}
+        className={`flex h-6 items-center gap-0.5 rounded-[6px] px-1 text-[11px] transition-colors ${disabled ? "cursor-not-allowed opacity-40" : open ? "bg-white/12 text-white" : "text-white/70 hover:bg-white/10 hover:text-white"}`}
       >
         {icon}
         <span>{options.find((o) => o.v === value)?.t ?? value}</span>
@@ -2012,7 +2012,7 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
         </div>
       </div>
       {/* 底部工具栏（10-09 欢哥定稿布局）：走带+分轨+工作站功能全收这里，不占谱面水平空间 */}
-      <div className="relative flex h-9 shrink-0 items-center gap-2 border-t border-white/10 px-3">
+      <div className="relative flex h-9 shrink-0 items-center gap-1.5 border-t border-white/10 px-3">
         {/* 走带进度线：播放中=真实位置（秒步进+1s线性过渡抹平）；未播放=可点设起始位置（本地指针预览，谁点播放用谁的位置） */}
         {totalMs > 0 && (
           <div
@@ -2054,7 +2054,7 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
             ? Math.max(0, Math.floor((posMs > 0 ? posMs : now - new Date(gpState.startedAt).getTime()) / 1000))
             : Math.floor(scrubMs / 1000)
           return (
-            <span className="flex shrink-0 items-center gap-1.5 font-mono text-[11px]">
+            <span className="flex shrink-0 items-center gap-1 font-mono text-[11px]">
               {playing && <span className="size-1.5 animate-rec-pulse rounded-full" style={{ background: "#BBEE00" }} />}
               <span style={playing ? { color: "#BBEE00" } : { color: "rgba(255,255,255,0.6)" }}>{fmt(elapsed)}</span>
               {totalMs > 0 && <span className="text-white/35">/ {fmt(Math.floor(totalMs / 1000))}</span>}
