@@ -1389,6 +1389,7 @@ type GpApi = {
   error?: { on: (cb: (e: unknown) => void) => void }
   beatMouseUp?: { on: (cb: (beat: { playbackStart?: number; absolutePlaybackStart?: number; playbackDuration?: number; voice?: { bar?: { masterBar?: unknown } } } | null) => void) => void }
   beatMouseDown?: { on: (cb: (beat: { absolutePlaybackStart?: number; playbackDuration?: number; voice?: { bar?: { masterBar?: unknown } } } | null) => void) => void }
+  beatMouseMove?: { on: (cb: (beat: unknown) => void) => void }  // 拖选实时预览（⑥-2b）
   highlightPlaybackRange?: (startBeat: unknown, endBeat: unknown) => void  // ⑥-2b 选段高亮（官方自建选区API，只放标记不动播放）
   clearPlaybackRangeHighlight?: () => void
   tickCache?: { masterBars?: { start: number; masterBar?: unknown }[] } | null
@@ -1475,7 +1476,8 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
   const reloadSeekRef = useRef<number | null>(null)  // 重载后恢复的谱面位置（烤速域）
   const reloadRenderSelRef = useRef<number[] | "all" | null>(null)  // 重载后恢复的分轨选择（1011换档现场恢复）
   // 选段（1011 ⑥-2b）基建
-  const selDownTickRef = useRef<number | null>(null)  // mousedown 记 A 小节起点（null=单击语义）
+  const selDownTickRef = useRef<number | null>(null)  // mousedown 记 A 的绝对tick（null=单击语义）
+  const selDownBeatRef = useRef<unknown>(null)  // mousedown 的 beat 对象（拖动实时高亮用）
   const scoreRangeRef = useRef<{ a: number; b: number } | undefined>(undefined)
   scoreRangeRef.current = score.range
   const mbBeatsRef = useRef<Map<unknown, unknown[]>>(new Map())  // masterBar→该轨beats（选区高亮回填用，beat级）
@@ -1743,11 +1745,20 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
         real.beatMouseDown?.on?.((beat) => {
           if (cancelled || playingRef.current || !beat) return
           selDownTickRef.current = typeof beat.absolutePlaybackStart === "number" ? beat.absolutePlaybackStart : null
+          selDownBeatRef.current = beat
+        })
+        // 拖选实时预览（1012）：拖动经过的 beat 即时染色（demo 同款——用户需要"已经开始选了"的反馈）
+        real.beatMouseMove?.on?.((beat) => {
+          if (cancelled || playingRef.current || !beat) return
+          const downBeat = selDownBeatRef.current
+          if (downBeat === null || downBeat === undefined) return
+          try { apiRef.current?.highlightPlaybackRange?.(downBeat, beat) } catch (e) { /* 预览失败无碍 */ }
         })
         real.beatMouseUp?.on?.((beat) => {
           if (cancelled || playingRef.current || !beat) return
           const downTick = selDownTickRef.current
           selDownTickRef.current = null
+          selDownBeatRef.current = null
           const upStart = typeof beat.absolutePlaybackStart === "number" ? beat.absolutePlaybackStart : null
           if (upStart === null) return
           // 同 beat（未拖）：已有选区→清选区回全曲；无选区→定起点（10-09 原语义）
