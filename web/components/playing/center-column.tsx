@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { Circle, Square, ChevronDown, ChevronLeft, ChevronRight, Disc3, Headphones, ArrowRight, Download, Ban, Check, X, ChevronUp, SlidersHorizontal, Play, Pause, Printer, Search, Hourglass, Repeat } from "lucide-react"
+import { Circle, Square, ChevronDown, ChevronLeft, ChevronRight, Disc3, Headphones, ArrowRight, Download, Ban, Check, X, ChevronUp, SlidersHorizontal, Play, Pause, Printer, Search, Hourglass, Repeat, SkipBack } from "lucide-react"
 import { instrumentEmoji, type RecordingSession, type Track, type RoomScore, type GpMix } from "@/lib/jam-data"
 import { MixerFullscreen } from "@/components/mixer/mixer-fullscreen"
 import { MixerMini } from "@/components/mixer/mixer-mini"
@@ -19,14 +19,14 @@ function ToolbarMenu({ value, options, onPick, title, icon, disabled }: { value:
     return () => window.removeEventListener("keydown", onKey)
   }, [open])
   return (
-    <div className="relative flex">
+    <div className="relative flex shrink-0">
       <button
         onClick={() => { if (!disabled) setOpen((v) => !v) }}
         title={title}
-        className={`flex h-6 items-center gap-0.5 rounded-[6px] px-1 text-[11px] transition-colors ${disabled ? "cursor-not-allowed opacity-40" : open ? "bg-white/12 text-white" : "text-white/70 hover:bg-white/10 hover:text-white"}`}
+        className={`flex h-6 shrink-0 items-center gap-0.5 whitespace-nowrap rounded-[6px] px-1 text-[11px] transition-colors ${disabled ? "cursor-not-allowed opacity-40" : open ? "bg-white/12 text-white" : "text-white/70 hover:bg-white/10 hover:text-white"}`}
       >
         {icon}
-        <span>{options.find((o) => o.v === value)?.t ?? value}</span>
+        <span className="truncate">{options.find((o) => o.v === value)?.t ?? value}</span>
         <ChevronUp className={`size-3 shrink-0 opacity-60 transition-transform ${open ? "" : "rotate-180"}`} />
       </button>
       {open && (
@@ -301,7 +301,16 @@ export function CenterColumn({
 }
 
 // 谱面查看器：图片=各自本地翻页+缩放+拖拽（零同步，欢哥 10-07 定稿），PDF=Chromium 原生查看器自带全套
-function ScoreViewer({ score, canClear, onClear, gpState, onGpPlay, onGpPause, onGpMix, onGpSpeed, onGpCountin, onGpLoop, onGpRange }: { score: RoomScore; canClear?: boolean; onClear?: () => void; gpState?: { playing: boolean; startedAt?: string; startMs?: number; speed?: number; countInMs?: number; endMs?: number } | null; onGpPlay?: (startMs?: number) => void; onGpPause?: () => void; onGpMix?: (mix: GpMix) => void; onGpSpeed?: (speed: number) => void; onGpCountin?: (countin: boolean) => void; onGpLoop?: (loop: boolean) => void; onGpRange?: (range: { a: number; b: number } | null) => void }) {
+// 谱面调度器（1013 拆）：自身零 hooks——GP 工作站与图片/PDF 舞台是两个组件，类型热切换=换挂，
+// 谁也不会继承对方的 hooks（旧版在 ScoreViewer hooks 中间提前 return <GpWorkstation/>，
+// 图片谱切 GP 谱时同实例 hooks 数变化 = React #300 整页白屏，欢哥热切换投屏实测定罪）
+function ScoreViewer(props: { score: RoomScore; canClear?: boolean; onClear?: () => void; gpState?: { playing: boolean; startedAt?: string; startMs?: number; speed?: number; countInMs?: number; endMs?: number } | null; onGpPlay?: (startMs?: number) => void; onGpPause?: () => void; onGpMix?: (mix: GpMix) => void; onGpSpeed?: (speed: number) => void; onGpCountin?: (countin: boolean) => void; onGpLoop?: (loop: boolean) => void; onGpRange?: (range: { a: number; b: number } | null) => void }) {
+  const { score } = props
+  if (score.type === "gp") return <GpWorkstation score={score} canClear={props.canClear} onClear={props.onClear} gpState={props.gpState} onPlay={props.onGpPlay} onPause={props.onGpPause} onMix={props.onGpMix} onSpeed={props.onGpSpeed} onCountin={props.onGpCountin} onLoop={props.onGpLoop} onRange={props.onGpRange} canMix={props.canClear} />
+  return <ImagesStage {...props} />
+}
+
+function ImagesStage({ score, canClear, onClear, gpState, onGpPlay, onGpPause, onGpMix, onGpSpeed, onGpCountin, onGpLoop, onGpRange }: { score: RoomScore; canClear?: boolean; onClear?: () => void; gpState?: { playing: boolean; startedAt?: string; startMs?: number; speed?: number; countInMs?: number; endMs?: number } | null; onGpPlay?: (startMs?: number) => void; onGpPause?: () => void; onGpMix?: (mix: GpMix) => void; onGpSpeed?: (speed: number) => void; onGpCountin?: (countin: boolean) => void; onGpLoop?: (loop: boolean) => void; onGpRange?: (range: { a: number; b: number } | null) => void }) {
   const [page, setPage] = useState(0)
   const [zoom, setZoom] = useState(1)
   const [pdfPages, setPdfPages] = useState(0)  // PDF 加载后才知道总页数（pdf.js 画布渲染，不依赖 Electron PDF 插件）
@@ -333,9 +342,6 @@ function ScoreViewer({ score, canClear, onClear, gpState, onGpPlay, onGpPause, o
   const total = isPdf ? pdfPages : score.files.length
   const zoomPct = Math.round(zoom * 100)
   const transformStyle = { transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }
-
-  // GP 谱走工作站（alphaTab 渲染，自有滚动；不走图片缩放/翻页那套舞台）——须在全部 hooks 之后
-  if (score.type === "gp") return <GpWorkstation score={score} canClear={canClear} onClear={onClear} gpState={gpState} onPlay={onGpPlay} onPause={onGpPause} onMix={onGpMix} onSpeed={onGpSpeed} onCountin={onGpCountin} onLoop={onGpLoop} onRange={onGpRange} canMix={canClear} />
 
   // 平移边界夹紧（10-07 欢哥实测：自由画布容易把谱面整个拖出视野）——内容始终盖住视口，到边即停
   // 注意 transform 的 scale 以元素中心为原点：放大时内容向两端生长，边界必须按"中心基准+平移"推导，
@@ -2062,7 +2068,7 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
         </div>
       </div>
       {/* 底部工具栏（10-09 欢哥定稿布局）：走带+分轨+工作站功能全收这里，不占谱面水平空间 */}
-      <div className="relative flex h-9 shrink-0 items-center gap-1.5 border-t border-white/10 px-3">
+      <div className="relative flex h-9 shrink-0 items-center gap-1 border-t border-white/10 px-2.5">
         {/* 走带进度线：播放中=真实位置（秒步进+1s线性过渡抹平）；未播放=可点设起始位置（本地指针预览，谁点播放用谁的位置） */}
         {totalMs > 0 && (
           <div
@@ -2082,6 +2088,29 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
             </div>
           </div>
         )}
+        {/* 回到开头（1013 欢哥定稿，alphaTab 同款、播放键左边）：暂停=指针/起始位归零；播放=从头重播（走带后动作胜出）。
+            alphaTab 原始逻辑（欢哥 1013 补充）：有选区时回**选区起点A**（range.a 原速域）而非曲头 */}
+        {(onPlay || onPause) && (() => {
+          const rewMs = score.range && Number.isFinite(score.range.a) && score.range.a > 0 ? score.range.a : 0
+          return (
+          <button
+            onClick={() => {
+              if (pending) return
+              if (playing) { setPending(true); onPlay?.(Math.round(rewMs)) }  // 播放中=房级走带重开（range 时服务器本就从A起播）
+              else {
+                const baked = rewMs * speedRef.current  // 原速域→本地烤速域（指针/起始位同域）
+                setScrubMs(baked)
+                try { if (apiRef.current) apiRef.current.timePosition = Math.round(baked) } catch (e) { /* 预览失败无碍 */ }
+              }
+            }}
+            disabled={pending}
+            title={(playing ? "回到开头重播" : "回到开头") + (rewMs > 0 ? "（选区起点）" : "")}
+            className="flex h-6 w-6 shrink-0 items-center justify-center text-white transition-opacity hover:opacity-70 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <SkipBack className="size-3.5" fill="currentColor" />
+          </button>
+          )
+        })()}
         {(onPlay || onPause) && (
           <button
             onClick={() => {
@@ -2195,8 +2224,7 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
             )}
           </div>
         )}
-        {/* 右侧功能区（步骤④）：视图三件套下拉+打印+节拍器，全部本地行为 */}
-        <div className="ml-auto flex shrink-0 items-center gap-1">
+        {/* 右侧功能区（步骤④）：视图三件套下拉+打印——1013 欢哥新座次并入一条流（左起：回到开头/播放/绿点+时间/倍速/分轨/预备拍/节拍器/循环/缩放/五线六线/排版/打印） */}
           {/* 预备拍（1011 ⑥-1·房级）：服务器烤 N 拍 click 进流（N=第一拍号分子），全员一起听哒哒哒→音乐进；
               播放瞬间定版（三门规矩同款锁）；demo 位次=右区第一位（沙漏 icon 照搬） */}
           <button
@@ -2205,6 +2233,14 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
             className={`flex h-6 w-7 shrink-0 items-center justify-center rounded-[6px] transition-colors ${!canMix || speedLocked ? "cursor-not-allowed opacity-40" : ""} ${countin ? "bg-white/12 text-[#BBEE00]" : "text-white/70 hover:bg-white/10 hover:text-white"}`}
           >
             <Hourglass className="size-3.5" />
+          </button>
+          {/* 节拍器（1011自研版）：本地各自开关不进房混——WebAudio 硬时钟直调，与谱子音频同式对齐 */}
+          <button
+            onClick={() => setMetronome((v) => !v)}
+            title={metronome ? "节拍器开着（本地）· 点击关闭" : "节拍器（本地各自开关，不影响他人）"}
+            className={`flex h-6 w-7 shrink-0 items-center justify-center rounded-[6px] transition-colors ${metronome ? "bg-white/12 text-[#BBEE00]" : "text-white/70 hover:bg-white/10 hover:text-white"}`}
+          >
+            <MetronomeIcon className="size-3.5" />
           </button>
           {/* 循环（1011 ⑥-2a·全曲版·房级）：播完自动回曲目头重播（倍速/预备拍/混音全继承——状态烤在MIDI里）；
               ⚠️播放中不锁（第N遍中途关=本遍播完即止）——与M/S/倍速/countin"烤进流"不同类 */}
@@ -2249,15 +2285,7 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
           >
             <Printer className="size-3.5" />
           </button>
-          {/* 节拍器（1011自研版）：本地各自开关不进房混——WebAudio 硬时钟直调，与谱子音频同式对齐 */}
-          <button
-            onClick={() => setMetronome((v) => !v)}
-            title={metronome ? "节拍器开着（本地）· 点击关闭" : "节拍器（本地各自开关，不影响他人）"}
-            className={`flex h-6 w-7 shrink-0 items-center justify-center rounded-[6px] transition-colors ${metronome ? "bg-white/12 text-[#BBEE00]" : "text-white/70 hover:bg-white/10 hover:text-white"}`}
-          >
-            <MetronomeIcon className="size-3.5" />
-          </button>
-        </div>
+
       </div>
     </div>
   )

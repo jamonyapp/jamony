@@ -4,7 +4,7 @@ import { Fragment, useEffect, useRef, useState } from "react"
 import { LevelMeter } from "@/components/playing/level-meter"
 import { FilterSelect } from "@/components/jamony/filter-select"
 import { useParams } from "next/navigation"
-import { Sparkles, PowerOff, Plug, Headphones, Play, Square, Upload } from "lucide-react"
+import { Sparkles, PowerOff, Plug, Headphones, Play, Square, Upload, Download, Trash2, Music4 } from "lucide-react"
 import {
   DAILY_THEME,
   CHORD_STYLES,
@@ -15,8 +15,6 @@ import {
 } from "@/lib/jam-data"
 
 type Tool = "chords" | "drums" | "score"
-// 乐谱共享两个模块：投屏图片（静态各自看）/ 共享GP乐谱（全房同步走带，P2）
-type ScoreModule = "images" | "gp"
 
 export function LeftColumn({
   onPushChord,
@@ -56,7 +54,6 @@ export function LeftColumn({
   onClearScore: () => void
 }) {
   const [tool, setTool] = useState<Tool>("drums")  // 默认鼓机（使用概率高于灵感进程，欢哥 2026-09-23 定）
-  const [scoreModule, setScoreModule] = useState<ScoreModule>("images")
   const [style, setStyle] = useState<string>(CHORD_STYLES[0])
   const [phrases, setPhrases] = useState<number>(2)
   const [chordText, setChordText] = useState("")
@@ -92,8 +89,8 @@ export function LeftColumn({
 
   return (
     <aside className="flex h-full flex-col gap-4 overflow-y-auto scrollbar-thin p-4" style={{ background: "#000" }}>
-      {/* 今日主题 + 自定义主题（合并） */}
-      <section className="rounded-[10px] border p-4" style={{ borderColor: "#1A1A1A", background: "#0D0D0D" }}>
+      {/* 今日主题 + 自定义主题（合并；1013 纵向压缩 p-4→p-3） */}
+      <section className="shrink-0 rounded-[10px] border p-3" style={{ borderColor: "#1A1A1A", background: "#0D0D0D" }}>
         <div className="flex items-center gap-2 text-sm font-semibold text-white">
           <Sparkles className="h-4 w-4" style={{ color: "#BBEE00" }} />
           <span>今日 jamony 主题</span>
@@ -102,7 +99,7 @@ export function LeftColumn({
         <p className="mt-1 text-xs" style={{ color: "#8A8A8A" }}>{dailyTheme.emoji} {dailyTheme.title}</p>
 
         {isMusician && !roomGone && (
-          <div className="mt-3 flex items-center gap-2 border-t pt-3" style={{ borderColor: "#1A1A1A" }}>
+          <div className="mt-2 flex items-center gap-2 border-t pt-2" style={{ borderColor: "#1A1A1A" }}>
             <input type="text" value={customThemeInput}
               onChange={(e) => setCustomThemeInput(e.target.value)}
               placeholder="输入你的主题..."
@@ -139,30 +136,30 @@ export function LeftColumn({
           </p>
         </section>
       ) : roomGone ? null : (
-        <section className="flex flex-1 flex-col rounded-[10px] border p-4" style={{ borderColor: "#1A1A1A", background: "#0D0D0D" }}>
+        <section className="flex min-h-0 flex-1 flex-col rounded-[10px] border p-3" style={{ borderColor: "#1A1A1A", background: "#0D0D0D" }}>
           <div className="flex items-center gap-2 text-sm font-semibold text-white">
 
             <span>🧰 Jam 魔盒</span>
           </div>
 
-          <label className="mt-3 flex flex-col gap-1">
+          <label className="mt-2 flex flex-col gap-1">
             <span className="text-xs" style={{ color: "#8A8A8A" }}>选择工具</span>
-            <FilterSelect variant="field" label="选择工具" value={tool} onChange={(v) => setTool(v as Tool)}
+            <FilterSelect variant="compact" label="选择工具" value={tool} onChange={(v) => setTool(v as Tool)}
               options={[{ value: "drums", label: "🥁 鼓机" }, { value: "score", label: "📄 乐谱共享" }, { value: "chords", label: "💡 灵感进程" }]} />
           </label>
 
-          <div className="mt-4 flex-1">
+          <div className="mt-2 min-h-0 flex-1 overflow-y-auto scrollbar-thin">
             {tool === "chords" ? (
               <div className="flex h-full flex-col">
                 <div className="grid grid-cols-2 gap-2 mt-1">
                   <label className="flex flex-col gap-1">
                     <span className="text-xs" style={{ color: "#8A8A8A" }}>风格</span>
-                    <FilterSelect variant="field" label="风格" value={style} onChange={setStyle}
+                    <FilterSelect variant="compact" label="风格" value={style} onChange={setStyle}
                       options={CHORD_STYLES.map((s) => ({ value: s, label: s }))} />
                   </label>
                   <label className="flex flex-col gap-1">
                     <span className="text-xs" style={{ color: "#8A8A8A" }}>乐句数量</span>
-                    <FilterSelect variant="field" label="乐句数量" value={String(phrases)}
+                    <FilterSelect variant="compact" label="乐句数量" value={String(phrases)}
                       onChange={(v) => setPhrases(Number(v))}
                       options={PHRASE_COUNTS.map((n) => ({ value: String(n), label: `${n} 句` }))} />
                   </label>
@@ -189,30 +186,16 @@ export function LeftColumn({
               </div>
             ) : tool === "score" ? (
               <div className="flex h-full flex-col">
-                {/* 乐谱共享=一个工具两个模块（欢哥 10-07 架构定稿）：投屏图片=静态各自看；共享GP=全房同步走带 */}
-                <div className="grid shrink-0 grid-cols-2 gap-1 rounded-[8px] p-1" style={{ background: "#141414" }}>
-                  {([["images", "投屏图片"], ["gp", "共享GP乐谱"]] as const).map(([k, label]) => (
-                    <button key={k} onClick={() => setScoreModule(k)}
-                      className={`rounded-[6px] py-1.5 text-xs font-medium transition-colors ${scoreModule === k ? "text-white" : "hover:text-white/70"}`}
-                      style={scoreModule === k ? { background: "#2A2A2A" } : { color: "#8A8A8A" }}>
-                      {label}
-                    </button>
-                  ))}
-                </div>
+                {/* ⑥-3 魔盒合一（1013 欢哥拍板）：双模块合一上传——一个文件口按扩展名自动分诊
+                    （GP族=单份走 GP 链；PDF=单份；图片组=按文件名排序成页）；累积列表在大屏顶部"谱架" */}
                 <div className="min-h-0 flex-1">
-                  {scoreModule === "images" ? (
-                    <ScoreTool roomId={params?.code as string} currentScore={currentScore ?? null} onPushScore={onPushScore} onClearScore={onClearScore} />
-                  ) : (
-                    <GpScoreTool roomId={params?.code as string} currentScore={currentScore ?? null} onPushScore={onPushScore} onClearScore={onClearScore} />
-                  )}
+                  <ScorePanel roomId={params?.code as string} currentScore={currentScore ?? null} onPushScore={onPushScore} />
                 </div>
               </div>
             ) : (
               <DrumMachineTool roomId={params?.code as string} realtimeBpm={realtimeBpm || 0} />
             )}
           </div>
-
-          <p className="mt-4 text-center text-xs" style={{ color: "#666" }}>更多工具即将上线…</p>
         </section>
       )}
 
@@ -225,8 +208,8 @@ export function LeftColumn({
           房间已关闭
         </button>
       ) : (
-        /* 10-07 漫游化收口：并排双按钮——身份切换（实心主按钮）+ 离开房间（深色配角） */
-        <div className="grid grid-cols-2 gap-2">
+        /* 10-07 漫游化收口：并排双按钮——身份切换（实心主按钮）+ 离开房间（深色配角）；shrink-0 保底常驻（1013 左栏不滚） */
+        <div className="grid shrink-0 grid-cols-2 gap-2">
           {audioConnected ? (
             <button onClick={onDisconnect}
               className="rounded-[10px] py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 active:scale-[0.97]"
@@ -395,162 +378,75 @@ function DrumMachineTool({ roomId, realtimeBpm }: { roomId?: string; realtimeBpm
   )
 
 }
+// 乐谱管理面板（⑥-3 1013 欢哥 11 条设计定稿）：魔盒=房间乐谱管理面板
+// 两按钮=上传乐谱+投屏乐谱（选中后投）；列表框内部滚动；行=类型图标+文件名+上传者；
+// 排序按格式分组（GP/制谱类→PDF→图片），同类新→旧；每行 下载+删除（垃圾桶）icon。
+// 投屏分诊：图片/PDF 直接投；GP族/musicxml/capx 加载 alphatab；.sib/.mscz 专有格式只存取（下载后本地打开）。
+// 删除=直接删服务器文件（仅合奏者，与上传对齐；若删的是大屏正显内容，服务器连带收回大屏）。
+type ShelfItem = {
+  id: number
+  name: string
+  type: "gp" | "notation" | "pdf" | "images"
+  files: string[]
+  midUrl?: string
+  tracks?: { name: string }[]
+  by: string
+  at: string
+}
 
-// 投谱工具（10-07 魔盒 P1）：选图片（可多张，按文件名排序成页）或单个 PDF → 上传 → 推至大屏
-// 翻页是各自客户端的本地行为，不做房间级同步——欢哥定稿：大家看一眼熟悉，就开 jam
-function ScoreTool({ roomId, currentScore, onPushScore, onClearScore }: {
+// 从 files[0] URL 取后缀（含点，小写；随机存储名保留了原扩展名）
+function extOf(files: string[] | undefined): string {
+  const u = Array.isArray(files) && files.length > 0 ? String(files[0]) : ""
+  const i = u.lastIndexOf(".")
+  return i >= 0 ? u.slice(i).toLowerCase() : ""
+}
+
+function ScorePanel({ roomId, currentScore, onPushScore }: {
   roomId?: string
   currentScore: RoomScore | null
   onPushScore: (score: RoomScore) => void
-  onClearScore: () => void
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [picked, setPicked] = useState<File[]>([])
+  const [items, setItems] = useState<ShelfItem[]>([])
+  const [selected, setSelected] = useState<number | null>(null)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState("")
+  const [hint, setHint] = useState("")
+  const [confirmDelete, setConfirmDelete] = useState<ShelfItem | null>(null)  // 1013 欢哥定稿：删正投屏的谱先弹闸
+  const [confirmSwitch, setConfirmSwitch] = useState<ShelfItem | null>(null)  // 1013 欢哥定稿：热切换常驻确认（不可忽略）
 
-  const isPdf = picked.length === 1 && picked[0].name.toLowerCase().endsWith(".pdf")
+  const GP_EXT = /\.(gp|gpx|gp[345]|musicxml|mxl|capx)$/i
+  const NOTATION_EXT = /\.(sib|mscz|mscx)$/i
+  const IMG_EXT = /\.(png|jpe?g|webp)$/i
+  const ACCEPT = ".pdf,.png,.jpg,.jpeg,.webp,.gp,.gpx,.gp3,.gp4,.gp5,.musicxml,.mxl,.capx,.sib,.mscz,.mscx"
 
-  const handlePick = (e: import("react").ChangeEvent<HTMLInputElement>) => {
+  const load = () => {
+    if (!roomId) return
+    fetch(`/api/rooms/${roomId}/scores`)
+      .then(r => r.json())
+      .then(d => { if (d.ok) setItems(d.scores || []) })
+      .catch(() => {})
+  }
+  useEffect(() => { load() }, [roomId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handlePick = async (e: import("react").ChangeEvent<HTMLInputElement>) => {
     const list = Array.from(e.target.files || [])
-    e.target.value = ""  // 允许重新选同一批文件
-    setError("")
-    if (list.length === 0) return
-    if (list.length > 30) { setError("一次最多 30 个文件"); return }
-    const extOk = (f: File) => /\.(pdf|png|jpe?g|webp)$/i.test(f.name)
-    const oversize = list.find(f => f.size > 20 * 1024 * 1024)
-    if (oversize) { setError(`「${oversize.name}」超过 20MB 上限`); return }
-    if (list.some(f => !extOk(f))) { setError("仅支持 PDF / PNG / JPG / WEBP"); return }
-    const pdfs = list.filter(f => /\.pdf$/i.test(f.name))
-    if (pdfs.length > 0) {
-      if (list.length > 1) { setError("PDF 请单独投一份"); return }
-    } else {
-      // 图片按文件名自然排序定页序
-      list.sort((a, b) => a.name.localeCompare(b.name, "zh-Hans-CN", { numeric: true }))
-    }
-    setPicked(list)
-  }
-
-  const handlePush = async () => {
-    if (!roomId || picked.length === 0 || uploading) return
-    setUploading(true)
-    setError("")
-    try {
-      const fd = new FormData()
-      picked.forEach(f => fd.append("files", f))
-      const res = await fetch(`/api/rooms/${roomId}/score/upload`, { method: "POST", body: fd })
-      const data = await res.json()
-      if (!data.ok) { setError(data.msg || "上传失败"); return }
-      const urls: string[] = data.files.map((f: { url: string }) => f.url)
-      const baseName = picked[0].name.replace(/\.[^.]+$/, "")
-      onPushScore({
-        type: isPdf ? "pdf" : "images",
-        name: urls.length > 1 ? `${baseName} 等 ${urls.length} 页` : baseName,
-        files: urls,
-      })
-      setPicked([])
-    } catch {
-      setError("上传失败，请重试")
-    } finally {
-      setUploading(false)
-    }
-  }
-
-  return (
-    <div className="flex h-full flex-col gap-3 py-2">
-      {/* 当前大屏 */}
-      {currentScore ? (
-        <div className="rounded-[8px] border px-3 py-2.5" style={{ borderColor: "#2A2A2A", background: "#141414" }}>
-          <p className="truncate text-xs font-medium text-white">📄 {currentScore.name}</p>
-          <p className="mt-0.5 text-[11px]" style={{ color: "#8A8A8A" }}>
-            {currentScore.type === "pdf" ? "PDF · 大屏显示中" : `${currentScore.files.length} 页 · 大屏显示中`}
-          </p>
-          <button onClick={onClearScore}
-            className="mt-2 w-full rounded-[6px] border py-1.5 text-xs transition-colors hover:bg-white/5"
-            style={{ borderColor: "#2A2A2A", color: "#B0B0B0" }}>
-            收回大屏
-          </button>
-        </div>
-      ) : (
-        <p className="text-[11px] leading-relaxed" style={{ color: "#8A8A8A" }}>
-          把谱子（图片 / PDF）投到大屏，大家各自翻看、熟悉了就开 jam。房间解散后谱子自动清除。
-        </p>
-      )}
-
-      <input ref={fileInputRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" multiple hidden onChange={handlePick} />
-
-      <button onClick={() => fileInputRef.current?.click()} disabled={uploading}
-        className="flex w-full items-center justify-center gap-1.5 rounded-[6px] py-2 text-xs font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
-        style={{ background: "#222", color: "#DDD" }}>
-        <Upload className="h-3.5 w-3.5" />
-        {picked.length > 0 ? "重新选择" : "选择图片或 PDF"}
-      </button>
-
-      {picked.length > 0 && (
-        <>
-          <ul className="min-h-0 flex-1 overflow-y-auto scrollbar-thin rounded-[8px] border px-2.5 py-2" style={{ borderColor: "#1A1A1A", background: "#141414" }}>
-            {picked.map((f, i) => (
-              <li key={`${f.name}-${i}`} className="flex items-center justify-between gap-2 py-0.5 text-[11px]">
-                <span className="truncate text-white/80">{isPdf ? "" : `${i + 1}. `}{f.name}</span>
-                <span className="shrink-0 font-mono" style={{ color: "#666" }}>{f.size > 1048576 ? `${(f.size / 1048576).toFixed(1)}M` : `${Math.max(1, Math.round(f.size / 1024))}K`}</span>
-              </li>
-            ))}
-          </ul>
-          <button onClick={handlePush} disabled={uploading}
-            className="w-full rounded-[6px] py-2 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-            style={{ background: "#9933FF" }}>
-            {uploading ? "上传中…" : `共享乐谱${isPdf ? "" : `（${picked.length} 页）`}`}
-          </button>
-        </>
-      )}
-
-      {error && <p className="text-[11px]" style={{ color: "#FF5C5C" }}>{error}</p>}
-    </div>
-  )
-}
-
-// 共享GP乐谱（10-07 P2 步骤①：上传→服务端转MIDI→广播→大屏 alphaTab 渲染；走带/放音是后续步骤）
-function GpScoreTool({ roomId, currentScore, onPushScore, onClearScore }: {
-  roomId?: string
-  currentScore: RoomScore | null
-  onPushScore: (score: RoomScore) => void
-  onClearScore: () => void
-}) {
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const [picked, setPicked] = useState<File | null>(null)
-  const [uploading, setUploading] = useState(false)
-  const [error, setError] = useState("")
-  const isGpActive = currentScore?.type === "gp"
-
-  const handlePick = (e: import("react").ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0] || null
     e.target.value = ""
-    setError("")
-    if (!f) return
-    if (!/\.(gp|gpx|gp[345]|musicxml|mxl|capx)$/i.test(f.name)) { setError("仅支持 GP(.gp/.gpx/.gp3~5)、MusicXML(.musicxml/.mxl)、Capella(.capx)"); return }
-    if (f.size > 20 * 1024 * 1024) { setError("文件超过 20MB 上限"); return }
-    setPicked(f)
-  }
-
-  const handlePush = async () => {
-    if (!roomId || !picked || uploading) return
+    setError(""); setHint("")
+    if (list.length === 0 || !roomId) return
+    const bad = list.find(f => !GP_EXT.test(f.name) && !NOTATION_EXT.test(f.name) && !IMG_EXT.test(f.name) && !/\.pdf$/i.test(f.name))
+    if (bad) { setError(`「${bad.name}」类型不支持（图片/PDF/GP/制谱文件）`); return }
+    const oversize = list.find(f => f.size > 10 * 1024 * 1024)
+    if (oversize) { setError(`「${oversize.name}」超过 10MB 上限`); return }
     setUploading(true)
-    setError("")
     try {
       const fd = new FormData()
-      fd.append("files", picked)
+      list.forEach(f => fd.append("files", f))
       const res = await fetch(`/api/rooms/${roomId}/score/upload`, { method: "POST", body: fd })
       const data = await res.json()
       if (!data.ok) { setError(data.msg || "上传失败"); return }
-      if (!data.gp) { setError("上传的不是 GP 谱"); return }
-      onPushScore({
-        type: "gp",
-        name: picked.name.replace(/\.[^.]+$/, ""),
-        files: [data.files[0].url],
-        midUrl: data.gp.midUrl,
-        tracks: data.gp.tracks,
-      })
-      setPicked(null)
+      setHint(`已上传 ${list.length} 份`)
+      load()
     } catch {
       setError("上传失败，请重试")
     } finally {
@@ -558,50 +454,164 @@ function GpScoreTool({ roomId, currentScore, onPushScore, onClearScore }: {
     }
   }
 
+  const sel = items.find(it => it.id === selected) || null
+
+  const handleStage = () => {
+    if (!sel) { setError("先在列表里点选一份乐谱"); return }
+    if (sel.type === "notation") { setError("西贝柳斯/MuseScore 文件请下载后在本地打开"); return }
+    // 1013 欢哥定稿：大屏已有谱时热切换常驻弹窗（不可忽略）——要么先收回大屏再投，要么过确认闸；
+    // 确认后服务器 push-score 原位替换（停走带+收回+上新一体，与删除正投屏谱同套收口）
+    if (currentScore) { setConfirmSwitch(sel); return }
+    doStage(sel)
+  }
+
+  const doStage = (item: ShelfItem) => {
+    if (item.type === "gp") {
+      onPushScore({ type: "gp", name: item.name, files: item.files, midUrl: item.midUrl, tracks: item.tracks })
+    } else {
+      onPushScore({ type: item.type as "pdf" | "images", name: item.name, files: item.files })  // notation 已在上游闸掉
+    }
+    setConfirmSwitch(null)
+    setError(""); setHint(`已投屏：${item.name}`)
+  }
+
+    // 垃圾桶=删它所在的那一行（1013 修复：旧版删"当前选中行"，直接点行内垃圾桶时无选中态=静默不动）
+  const handleDeleteFor = (item: ShelfItem) => {
+    // 正投屏中的谱删除前先过闸（1013 欢哥定稿：弹窗"删除将终止投屏"，返回/删除二选一）
+    const projecting = !!currentScore && Array.isArray(currentScore.files) && item.files.some(u => currentScore.files!.includes(u))
+    if (projecting) { setConfirmDelete(item); return }
+    void doDelete(item)
+  }
+
+  const doDelete = async (victim: ShelfItem) => {
+    if (!roomId) return
+    try {
+      const res = await fetch(`/api/rooms/${roomId}/score/shelf/${victim.id}`, { method: "DELETE" })
+      const data = await res.json()
+      if (!data.ok) { setError(data.msg || "删除失败"); return }
+      setSelected(null)
+      setHint(`已删除：${victim.name}`)
+      load()
+    } catch {
+      setError("删除失败，请重试")
+    } finally {
+      setConfirmDelete(null)
+    }
+  }
+
+  // 1013 欢哥：🎼=手机通用图标、FileMusic=抖音感，双双否决——制谱类换 lucide Music4（纯音符线条）上 jamony 紫
+  const typeIcon = (t: ShelfItem["type"]) =>
+    t === "gp" || t === "notation"
+      ? <Music4 className="size-3.5 shrink-0" style={{ color: "#9933FF" }} />
+      : <span className="text-sm">{t === "pdf" ? "📕" : "📄"}</span>
+
   return (
-    <div className="flex h-full flex-col gap-3 py-2">
-      {isGpActive ? (
-        <div className="rounded-[8px] border px-3 py-2.5" style={{ borderColor: "#2A2A2A", background: "#141414" }}>
-          <p className="truncate text-xs font-medium text-white">🎸 {currentScore!.name}</p>
-          <p className="mt-0.5 text-[11px]" style={{ color: "#8A8A8A" }}>
-            {(currentScore!.tracks?.length || 0)} 轨 · 大屏显示中{currentScore!.midUrl ? " · 走带就绪" : ""}
+    <div className="flex h-full flex-col gap-2 py-1">
+      {/* 双按钮：上传 + 投屏（对选中项生效） */}
+      <input ref={fileInputRef} type="file" multiple hidden accept={ACCEPT} onChange={handlePick} />
+      <div className="grid shrink-0 grid-cols-2 gap-2">
+        <button onClick={() => fileInputRef.current?.click()} disabled={uploading}
+          className="rounded-[6px] border py-1.5 text-xs font-medium transition-colors hover:bg-white/5 disabled:opacity-50"
+          style={{ borderColor: "#3A3A3A", color: "#E0E0E0" }}>
+          {uploading ? "上传中…" : "⬆ 上传乐谱"}
+        </button>
+        <button onClick={handleStage}
+          className="rounded-[6px] py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+          style={{ background: "#9933FF" }} disabled={!sel || sel.type === "notation"}>
+          投屏乐谱
+        </button>
+      </div>
+      {/* 1013 欢哥定稿：一行不折（MusicXML 等长词由文件对话框过滤+报错承担，这里只留代表性枚举） */}
+      <p className="shrink-0 whitespace-nowrap text-center text-[10px]" style={{ color: "#666" }}>
+        支持图片/PDF/gp等格式 · 单个≤10MB
+      </p>
+
+      {/* 乐谱列表（内部纵向滚动；格式分组排序：GP/制谱→PDF→图片，同类新→旧） */}
+      <div className="min-h-0 flex-1 overflow-y-auto rounded-[8px] border scrollbar-thin" style={{ borderColor: "#2A2A2A", background: "#141414" }}>
+        {items.length === 0 ? (
+          <p className="px-3 py-4 text-center text-[11px] leading-relaxed" style={{ color: "#8A8A8A" }}>
+            谱架空着<br />上传的乐谱都在这里，选中即可投屏
           </p>
-          <button onClick={onClearScore}
-            className="mt-2 w-full rounded-[6px] border py-1.5 text-xs transition-colors hover:bg-white/5"
-            style={{ borderColor: "#2A2A2A", color: "#B0B0B0" }}>
-            收回大屏
-          </button>
-        </div>
-      ) : (
-        <p className="text-[11px] leading-relaxed" style={{ color: "#8A8A8A" }}>
-          上传 Guitar Pro / MusicXML 谱子投至大屏，全房同看一份谱。走带播放即将上线。
-        </p>
-      )}
-
-      <input ref={fileInputRef} type="file" accept=".gp,.gpx,.gp3,.gp4,.gp5,.musicxml,.mxl,.capx" hidden onChange={handlePick} />
-
-      <button onClick={() => fileInputRef.current?.click()} disabled={uploading}
-        className="flex w-full items-center justify-center gap-1.5 rounded-[6px] py-2 text-xs font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
-        style={{ background: "#222", color: "#DDD" }}>
-        <Upload className="h-3.5 w-3.5" />
-        {picked ? "重新选择" : "选择谱子文件"}
-      </button>
-
-      {picked && (
-        <>
-          <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin rounded-[8px] border px-2.5 py-2" style={{ borderColor: "#1A1A1A", background: "#141414" }}>
-            <p className="truncate text-[11px] text-white/80">{picked.name}</p>
-            <p className="mt-0.5 font-mono text-[11px]" style={{ color: "#666" }}>{(picked.size / 1024).toFixed(0)}K</p>
+        ) : items.map(it => (
+          <div key={it.id}
+            onClick={() => { setSelected(it.id === selected ? null : it.id); setError(""); setHint("") }}
+            title={it.type === "notation" ? "西贝柳斯/MuseScore 文件：可下载，投屏请在本地打开" : "点击选中，再按「投屏乐谱」上大屏"}
+            className={`flex cursor-pointer items-center gap-1.5 border-b px-2 py-1.5 transition-colors last:border-b-0 ${it.id === selected ? "bg-white/10" : "hover:bg-white/5"}`}
+            style={{ borderColor: "#222" }}>
+            <span className="shrink-0 text-sm">{typeIcon(it.type)}</span>
+            <div className="min-w-0 flex-1">
+              {/* 1013 欢哥定稿：名字带后缀显示（确切格式一眼识别）；超长名=名字段截断省略、后缀钉死行尾 */}
+              <p className={`flex items-baseline ${it.id === selected ? "font-medium text-white" : "text-white/80"}`}>
+                <span className="min-w-0 truncate text-[11px]">{it.name}</span>
+                <span className="shrink-0 text-[10px]">{extOf(it.files)}</span>
+              </p>
+              <p className="truncate text-[10px]" style={{ color: "#6A6A6A" }}>
+                {it.by}{it.by ? " · " : ""}{new Date(it.at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
+              </p>
+            </div>
+            <a href={`/api/rooms/${roomId}/score/download/${it.id}`} title="下载" onClick={e => e.stopPropagation()}
+              className="grid size-6 shrink-0 place-items-center rounded-[6px] text-white/45 transition-colors hover:bg-white/10 hover:text-white">
+              <Download className="size-3" />
+            </a>
+            <button onClick={e => { e.stopPropagation(); handleDeleteFor(it) }} title="删除（直接删服务器文件）"
+              className="grid size-6 shrink-0 place-items-center rounded-[6px] text-white/45 transition-colors hover:bg-white/10 hover:text-white">
+              <Trash2 className="size-3" />
+            </button>
           </div>
-          <button onClick={handlePush} disabled={uploading}
-            className="w-full rounded-[6px] py-2 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-            style={{ background: "#9933FF" }}>
-            {uploading ? "上传中…" : "共享乐谱"}
-          </button>
-        </>
+        ))}
+      </div>
+
+      {hint && <p className="shrink-0 truncate text-[11px]" style={{ color: "#8A8A8A" }}>{hint}</p>}
+      {error && <p className="shrink-0 text-[11px]" style={{ color: "#FF5C5C" }}>{error}</p>}
+
+      {/* 热切换确认闸（1013 欢哥定稿：常驻不可忽略）：返回=不动；确认=服务器原位替换（收回当前+上新） */}
+      {confirmSwitch && (
+        <div className="fixed inset-0 z-[1050] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={() => setConfirmSwitch(null)}>
+          <div className="w-full max-w-xs rounded-[10px] border p-5 text-center" style={{ borderColor: "#1A1A1A", background: "#0D0D0D" }} onClick={e => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold text-white">当前正有乐谱投屏，确认切换吗？</h3>
+            <p className="mt-2 text-xs leading-relaxed" style={{ color: "#8A8A8A" }}>
+              确认后将收回「{currentScore?.name}」<br />并投屏「{confirmSwitch.name}」
+            </p>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button onClick={() => setConfirmSwitch(null)}
+                className="rounded-[8px] border py-2 text-xs transition-colors hover:bg-white/5"
+                style={{ borderColor: "#2A2A2A", color: "#B0B0B0" }}>
+                返回
+              </button>
+              <button onClick={() => doStage(confirmSwitch)}
+                className="rounded-[8px] py-2 text-xs font-medium text-white transition-opacity hover:opacity-90"
+                style={{ background: "#9933FF" }}>
+                确认切换
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
-      {error && <p className="text-[11px]" style={{ color: "#FF5C5C" }}>{error}</p>}
+      {/* 删除正投屏谱确认闸（1013 欢哥定稿）：返回=不动；删除=服务器先停播清状态收回大屏再删文件 */}
+      {confirmDelete && (
+        <div className="fixed inset-0 z-[1050] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={() => setConfirmDelete(null)}>
+          <div className="w-full max-w-xs rounded-[10px] border p-5 text-center" style={{ borderColor: "#1A1A1A", background: "#0D0D0D" }} onClick={e => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold text-white">该曲谱正在投屏，删除将终止投屏</h3>
+            <p className="mt-2 text-xs leading-relaxed" style={{ color: "#8A8A8A" }}>
+              确定删除「{confirmDelete.name}」？
+            </p>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button onClick={() => setConfirmDelete(null)}
+                className="rounded-[8px] border py-2 text-xs transition-colors hover:bg-white/5"
+                style={{ borderColor: "#2A2A2A", color: "#B0B0B0" }}>
+                返回
+              </button>
+              <button onClick={() => void doDelete(confirmDelete)}
+                className="rounded-[8px] py-2 text-xs font-medium text-white transition-opacity hover:opacity-90"
+                style={{ background: "#FF5C5C" }}>
+                删除
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
+

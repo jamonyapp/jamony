@@ -316,7 +316,7 @@ const scoreUpload = multer({
       cb(null, `score_${Date.now()}_${Math.random().toString(36).slice(2, 8)}${SCORE_EXTS.includes(ext) ? ext : ''}`)
     }
   }),
-  limits: { fileSize: 20 * 1024 * 1024 },
+  limits: { fileSize: 10 * 1024 * 1024 },  // 1013 欢哥定稿：单个 ≤10MB（前端同口径）
   fileFilter: (req, file, cb) => {
     const ext = path.extname(file.originalname || '').toLowerCase()
     if (SCORE_EXTS.includes(ext)) cb(null, true)
@@ -1193,7 +1193,9 @@ app.post('/api/rooms/:code/score/upload', requireAuth, scoreUpload.array('files'
       req.files.forEach(f => { try { fs.unlinkSync(f.path) } catch (e) {} })
       return res.status(403).json({ ok: false, msg: '仅合奏者可投谱' })
     }
-    const files = (req.files).map(f => ({ url: `/api/rooms/${req.params.code}/score/files/${path.basename(f.path)}`, name: f.originalname }))
+    // 1013 修：multer/busboy 把 originalname 按 latin1 解码 UTF-8 字节=中文名全乱码（æˆéƒ½=成都实测定罪）
+    // ——标准修法 Buffer latin1→utf8（纯英文名原样不变，业界 multer #775 同款）
+    const files = (req.files).map(f => ({ url: `/api/rooms/${req.params.code}/score/files/${path.basename(f.path)}`, name: Buffer.from(f.originalname, 'latin1').toString('utf8') }))
     // 谱子（GP/MusicXML/Capella）：当场转 MIDI（给幽灵乐手/fluidsynth 用）+ 提取分轨表（给前端分轨条）
     let gp = null
     const gpFile = req.files.find(f => CONVERT_EXTS.includes(path.extname(f.originalname || '').toLowerCase()))
@@ -1209,10 +1211,116 @@ app.post('/api/rooms/:code/score/upload', requireAuth, scoreUpload.array('files'
         return res.status(400).json({ ok: false, msg: '谱子解析失败（格式不支持或文件损坏）' })
       }
     }
+    // ⑥-3 谱架（1013 欢哥11条）：一文件一行（显示名=文件名+上传者昵称，前端拼）；类型四档——
+    // gp=可渲染制谱(GP族/musicxml/capx)、notation=专有制谱(.sib/.mscz/.mscx 只存取不投屏)、pdf、images；
+    // GP 的伴生 .mid/tracks 记在源文件行（投屏 alphatab 用）
+    try {
+      const nick = (await pool.query('SELECT nickname FROM users WHERE id=$1', [req.userId])).rows[0]?.nickname || ''
+      for (const f of files) {
+        const ext = path.extname(f.name || '').toLowerCase().slice(1)
+        const isGpSource = !!gp && files.length === 1
+        const type = isGpSource || ['gp', 'gpx', 'gp3', 'gp4', 'gp5', 'musicxml', 'mxl', 'capx'].includes(ext) ? 'gp'
+          : ['sib', 'mscz', 'mscx'].includes(ext) ? 'notation'
+          : ext === 'pdf' ? 'pdf' : 'images'
+        let name = (String(f.name || '').replace(/\.[^.]+$/, '').slice(0, 100)) || '未命名'
+        // 1013 欢哥定稿：重名自动序号后缀（房间内查重，无论谁传的）——sexy-V8 已存在→本次记 sexy-V8 2、3…
+        // （磁盘文件名本就随机不冲突，这是显示名去重；LIKE 里的 % 转义，谱名含 % 的极端场景也稳）
+        try {
+          const ex = await pool.query(
+            `SELECT name FROM room_scores WHERE room_code = $1 AND (name = $2 OR name LIKE ($2 || ' %'))`,
+            [req.params.code.toUpperCase(), name.replace(/[%_]/g, m => '\\' + m)]
+          )
+          if (ex.rows.some(r => r.name === name)) {
+            let max = 1
+            for (const r of ex.rows) {
+              const m = /^ (\d+)$/.exec(String(r.name).slice(name.length))
+              if (m) max = Math.max(max, parseInt(m[1], 10))
+            }
+            name = `${name} ${max + 1}`
+          }
+        } catch (e) { /* 查重失败退原名，不阻塞 */ }
+        await pool.query(
+          `INSERT INTO room_scores (room_code, name, type, files, mid_url, tracks, uploaded_by, uploaded_by_name)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [req.params.code.toUpperCase(), name, type, JSON.stringify([f.url]),
+           isGpSource ? gp.midUrl : null, isGpSource ? JSON.stringify(gp.tracks) : null,
+           req.userId, nick]
+        )
+      }
+    } catch (e) { console.error('Score shelf insert error:', e.message) /* 入册失败不阻塞上传 */ }
     res.json({ ok: true, files, gp })
   } catch (err) {
     console.error('Score upload error:', err)
     res.status(500).json({ ok: false, msg: '投谱上传失败' })
+  }
+})
+
+// ⑥-3 谱架列表（1013 欢哥11条）：格式分组排序——GP/制谱类→PDF→图片，同类新→旧；全员可见（听众也翻谱看）
+app.get('/api/rooms/:code/scores', requireAuth, async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT id, name, type, files, mid_url, tracks, uploaded_by_name, created_at
+       FROM room_scores WHERE room_code = $1
+       ORDER BY CASE type WHEN 'gp' THEN 0 WHEN 'notation' THEN 1 WHEN 'pdf' THEN 2 ELSE 3 END, created_at DESC, id DESC
+       LIMIT 200`,
+      [String(req.params.code || '').toUpperCase()]
+    )
+    res.json({ ok: true, scores: r.rows.map(row => ({
+      id: row.id, name: row.name, type: row.type, files: row.files, midUrl: row.mid_url || undefined,
+      tracks: row.tracks || undefined, by: row.uploaded_by_name, at: row.created_at,
+    })) })
+  } catch (err) {
+    console.error('Score list error:', err.message)
+    res.status(500).json({ ok: false, msg: '谱架读取失败' })
+  }
+})
+
+// ⑥-3 谱子下载（1013 欢哥拍板：下服务器原始文件，砍 Gp7Exporter）：按条目 id 取原文件流（全类型可下）
+app.get('/api/rooms/:code/score/download/:id', requireAuth, async (req, res) => {
+  try {
+    const r = await pool.query('SELECT name, type, files FROM room_scores WHERE id=$1 AND room_code=$2',
+      [Number(req.params.id) || 0, String(req.params.code || '').toUpperCase()])
+    const row = r.rows[0]
+    if (!row || !Array.isArray(row.files) || row.files.length === 0) return res.status(404).json({ ok: false, msg: '谱子不存在' })
+    const fname = path.basename(String(row.files[0]))
+    const fpath = path.join(scoresDir, req.params.code, fname)
+    if (!fs.existsSync(fpath)) return res.status(404).json({ ok: false, msg: '文件已失效' })
+    const ext = path.extname(fname) || (row.type === 'gp' ? '.gp' : row.type === 'notation' ? '.mscz' : '.pdf')
+    res.download(fpath, `${row.name || 'score'}${ext}`)
+  } catch (err) {
+    console.error('Score download error:', err.message)
+    res.status(500).json({ ok: false, msg: '下载失败' })
+  }
+})
+
+// ⑥-3 删除谱架条目（1013 欢哥拍板：直接删服务器文件）：仅合奏者（与上传对齐）；
+// 若删的正是大屏正显内容 → 连带收回大屏（停走带+清状态+广播），防死引用
+app.delete('/api/rooms/:code/score/shelf/:id', requireAuth, async (req, res) => {
+  try {
+    const code = String(req.params.code || '').toUpperCase()
+    if (!(await isRoomMusician(req.userId, code))) return res.status(403).json({ ok: false, msg: '仅合奏者可删除' })
+    const r = await pool.query('SELECT id, files, mid_url FROM room_scores WHERE id=$1 AND room_code=$2', [Number(req.params.id) || 0, code])
+    const row = r.rows[0]
+    if (!row) return res.status(404).json({ ok: false, msg: '条目不存在' })
+    const rowFiles = Array.isArray(row.files) ? row.files.map(String) : []
+    for (const u of rowFiles) {
+      try { fs.unlinkSync(path.join(scoresDir, code, path.basename(u))) } catch (e) {}
+    }
+    if (row.mid_url) { try { fs.unlinkSync(path.join(scoresDir, code, path.basename(String(row.mid_url)))) } catch (e) {} }
+    await pool.query('DELETE FROM room_scores WHERE id=$1', [row.id])
+    // 大屏正显的正是被删内容 → 收回（GP 走带随停，全房广播还原空屏）
+    const cur = await pool.query('SELECT current_score FROM rooms WHERE room_code=$1', [code])
+    let curScore = null
+    try { curScore = cur.rows[0]?.current_score ? JSON.parse(cur.rows[0].current_score) : null } catch (e) {}
+    if (curScore && Array.isArray(curScore.files) && rowFiles.some(u => curScore.files.includes(u))) {
+      await pool.query('UPDATE rooms SET current_score = NULL WHERE room_code = $1', [code])
+      await stopGpByCode(code, true)
+      io.to(code).emit('score-update', { score: null })
+    }
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('Score shelf delete error:', err.message)
+    res.status(500).json({ ok: false, msg: '删除失败' })
   }
 })
 
@@ -1680,6 +1788,7 @@ async function removeMemberAndCheckDissolve(userId, roomId, roomCode) {
       try { execSync(`pkill -f "jm-stream-${closePort}"`, { timeout: 3000, stdio: 'pipe' }) } catch (e) { /* 无进程时 pkill 返回非 0，正常，忽略 */ }
       try { execSync(`rm -rf /var/jamony/recordings/room-${closePort}-records/`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve rm recordings ' + closePort + ':', e.message) }
       try { execSync(`rm -rf "/var/jamony/scores/${roomCode}"`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve rm scores ' + roomCode + ':', e.message) }  // 10-07 投谱=房间物料，随房清
+      try { await pool.query('DELETE FROM room_scores WHERE room_code = $1', [roomCode]) } catch (e) { console.error('dissolve rm score shelf ' + roomCode + ':', e.message) }  // ⑥-3 谱架册随房清
       await stopGpByCode(roomCode)  // 10-07 GP走带随房停
       // 兜底：杀残留 ffmpeg + 清 ghost.json 条目（stop 已处理，此处防 state 漏记）
       try {
@@ -4173,6 +4282,7 @@ app.post('/api/users/:userId/leave-all-rooms', requireAuth, async (req, res) => 
           try { execSync(`pkill -f "jm-stream-${closePort2}"`, { timeout: 3000, stdio: 'pipe' }) } catch (e) { /* 无进程时 pkill 返回非 0，正常，忽略 */ }
           try { execSync(`rm -rf /var/jamony/recordings/room-${closePort2}-records/`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve rm recordings ' + closePort2 + ':', e.message) }
           try { execSync(`rm -rf "/var/jamony/scores/${dissolveCode}"`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve rm scores ' + dissolveCode + ':', e.message) }  // 10-07 投谱=房间物料，随房清
+          try { await pool.query('DELETE FROM room_scores WHERE room_code = $1', [dissolveCode]) } catch (e) { console.error('dissolve rm score shelf ' + dissolveCode + ':', e.message) }  // ⑥-3 谱架册随房清
           await stopGpByCode(dissolveCode)  // 10-07 GP走带随房停
           try {
             const gs = JSON.parse(fs.readFileSync('/var/lib/jamony/ghost.json', 'utf8').toString() || '{}')

@@ -141,7 +141,8 @@ export function FilterSelect({
                 key={o.value}
                 type="button"
                 onClick={(e) => { e.stopPropagation(); e.preventDefault(); onChange(o.value); setRect(null) }}
-                className="flex w-full items-center whitespace-nowrap rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-white/5"
+                // 1013 欢哥定稿：弹层字号跟随变体——compact 与按钮同号 text-xs（与"上传乐谱"一致），其余变体维持全站 text-sm
+                className={`flex w-full items-center whitespace-nowrap rounded-lg px-3 py-2 text-left transition-colors hover:bg-white/5 ${variant === "compact" ? "text-xs" : "text-sm"}`}
                 style={{ color: o.value === value ? "#FFFFFF" : "#9A9A9A" }}
               >
                 {o.label}
