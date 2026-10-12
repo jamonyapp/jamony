@@ -56,11 +56,64 @@ const CONVERT_EXTS = [...GP_EXTS, '.musicxml', '.mxl', '.capx']
    ScoreLoader→MidiFileGenerator→toBinary 与 alphaTab 浏览器播放器同一条生成代码路径，时值无损 */
 const alphatab = require('@coderline/alphatab')
 
+// MIDI 掐尾到 endTick（1012 ⑥-2c 原生循环）：>endTick 事件全弃；A..B 间开了没关的音补 note-off@endTick
+// （不补=原生循环下尾音跨遍永鸣）；末尾钉 vel0 无声事件作 end 锚（引擎"end"取事件尾，纯休止结尾的选段会被引擎提前回头）
+function gpTruncateMidi(midiFile, endTick) {
+  const ET = alphatab.midi.MidiEventType
+  const CT = alphatab.midi.ControllerType
+  const tr0 = midiFile.tracks[0]
+  const tr0track = tr0 && tr0.events.length ? tr0.events[0].track : 0
+  for (const tr of midiFile.tracks) {
+    const kept = []
+    const open = new Map()  // `${ev.track}|${ev.channel}|${ev.noteKey}` → 未关 note-on 数
+    const chans = new Set() // 有事件落地的通道（B 点收口要用）
+    for (const ev of tr.events) {
+      if (ev.tick > endTick) {
+        if (ev.type === ET.NoteOn) continue
+        if (ev.type === ET.NoteOff) continue
+        continue
+      }
+      if (typeof ev.channel === 'number') chans.add(ev.channel)
+      if (ev.type === ET.NoteOn) {
+        const k = `${ev.track}|${ev.channel}|${ev.noteKey}`
+        open.set(k, (open.get(k) || 0) + 1)
+      } else if (ev.type === ET.NoteOff) {
+        const k = `${ev.track}|${ev.channel}|${ev.noteKey}`
+        if (open.get(k)) open.set(k, open.get(k) - 1)
+      }
+      kept.push(ev)
+    }
+    // B 点收口（1012 E2E 实测定罪：只补 note-off 不够——延音踏板 CC64-off 被截掉=踏板永按，
+    // 每遍层积成音墙（cycle2/3 头不回落）。补音关 + 每通道[抬踏板→重置控制器→全切兜底]（同 tick 等效，连 A 前就按住跨整个选段的音也切）
+    const ccs = []
+    for (const ch of chans) {
+      ccs.push(new alphatab.midi.ControlChangeEvent(tr0track, endTick, ch, CT.HoldPedal, 0))
+      ccs.push(new alphatab.midi.ControlChangeEvent(tr0track, endTick, ch, CT.ResetControllers, 0))
+      ccs.push(new alphatab.midi.ControlChangeEvent(tr0track, endTick, ch, CT.AllSoundOff, 0))
+    }
+    const offs = []
+    for (const [k, n] of open) {
+      if (n <= 0) continue
+      const [t, ch, key] = k.split('|').map(Number)
+      for (let i = 0; i < n; i++) offs.push(new alphatab.midi.NoteOffEvent(t, endTick, ch, key, 0))
+    }
+    tr.events = kept.concat(offs, ccs).sort((a, b) => a.tick - b.tick)
+  }
+  // end 锚钉在 tracks[0]（vel0 note-on=静默的 note-off 语义，任何通道都无害）
+  if (tr0 && tr0.events.length) {
+    tr0.events.push(new alphatab.midi.NoteOnEvent(tr0track, endTick, 0, 127, 0))
+    tr0.events.sort((a, b) => a.tick - b.tick)
+  }
+}
+
 // GP→MIDI：返回 { midPath, tracks } 或抛错（格式不支持/文件损坏）
 // mix（10-09 步骤② 调音台，欢哥 A 方案：全员后动作胜出、播放瞬间定稿）：生效点=播放前改各轨
 // playbackInfo.volume（0..16 域，有效静音=0；任一 S 亮=只放 S 且未 M 的轨），生成器自动烤成 CC7
 // ——零事件手术，语义与 alphaTab 播放器一致；缺省无混音=原音量不变
-function gpToMidi(gpPath, midPath, mix, startMs, speedArg, countIn) {
+// endMs（1012 ⑥-2c）：选段 B 点（原速域 ms）——存在则文件烤到 B 为止（引擎原生 player_loop 在 B 无缝回头）
+// seekMs（1013 全曲循环）：全谱文件（startMs=0）首遍从此处（原速域 ms）跳入——首遍从指针播到尾、
+// 之后引擎原生循环头↔尾（⑥-2a"全曲循环=回曲目头"语义在原生循环下的实现；昨天的病根=烤制窗口≠全谱，今天同病起播路径发作）
+function gpToMidi(gpPath, midPath, mix, startMs, speedArg, countIn, endMs, seekMs) {
   const data = new Uint8Array(fs.readFileSync(gpPath))
   const score = alphatab.importer.ScoreLoader.loadScoreFromBytes(data, null)
   const mutes = Array.isArray(mix && mix.mutes) ? mix.mutes.map(Number) : []
@@ -81,6 +134,15 @@ function gpToMidi(gpPath, midPath, mix, startMs, speedArg, countIn) {
   if (Number.isFinite(startMs) && startMs > 0) {
     gpShiftMidiStart(midiFile, Math.round(gpMsToTick(midiFile, startMs)))
   }
+  // 选段掐尾（1012 ⑥-2c）：B 点截文件（tick 域倍速无关，与 startMs 同在原速积分、speed 烤写之前）
+  // ⚠️gpMsToTick 在已平移的时间轴上查（shift 后 0=原 A 点），故查 (endMs - 实效startMs)——首版写绝对 endMs 多留一个 A（干跑45000≠15000定罪）
+  const gpStartBase = Number.isFinite(startMs) && startMs > 0 ? startMs : 0
+  if (Number.isFinite(endMs) && endMs > gpStartBase) {
+    gpTruncateMidi(midiFile, Math.round(gpMsToTick(midiFile, endMs - gpStartBase)))
+  }
+  // 首遍跳入点（1013 全曲循环）：原速域 seekMs→tick（原 tempo 域积分，与 startMs 同理；tick 域倍速无关）
+  const musicSeekTick = (Number.isFinite(seekMs) && seekMs > 0 && !(Number.isFinite(startMs) && startMs > 0))
+    ? Math.round(gpMsToTick(midiFile, seekMs)) : 0
   // 倍速（10-10 步骤⑤）：tempo ×speed 烤进 live MIDI，fluidsynth 按文件 tempo 走 → 全员音频同倍速；
   // tick 域不动=谱面位置语义不变，客户端对表只需墙钟 elapsed ×speed
   const speed = Number(speedArg) || 1
@@ -93,6 +155,7 @@ function gpToMidi(gpPath, midPath, mix, startMs, speedArg, countIn) {
   // 全事件右移 N 拍 + channel9 side stick 每拍一击置头；tick0 补烤后 tempo（平移后首个 tempo 在 N 拍处，
   // click 时长依赖它否则 fluidsynth 按默认120走）。N=第一拍号分子（默认4）；countInMs=烤速域时长随 gp-state 下发
   let countInMs = 0
+  let countInShift = 0
   if (countIn) {
     const division = midiFile.division
     let numerator = 4, denIdx = 2
@@ -101,6 +164,7 @@ function gpToMidi(gpPath, midPath, mix, startMs, speedArg, countIn) {
     }
     const beatTicks = Math.round(division * 4 / Math.pow(2, denIdx))
     const shift = numerator * beatTicks
+    countInShift = shift
     for (const tr of midiFile.tracks) for (const ev of tr.events) ev.tick += shift
     let bpm = 120, bestTick = Infinity
     for (const tr of midiFile.tracks) for (const ev of tr.events) {
@@ -121,11 +185,20 @@ function gpToMidi(gpPath, midPath, mix, startMs, speedArg, countIn) {
   for (const tr of midiFile.tracks) for (const ev of tr.events) if (ev.tick > maxTick) maxTick = ev.tick
   const totalMs = Math.ceil(gpTickToMs(midiFile, maxTick))
   fs.writeFileSync(midPath, Buffer.from(midiFile.toBinary()))
+  // seek 定位（1013 全曲循环）：目标=跳入点前留一拍余量（seek 落点滞后几 tick 会跳过落点音符——1012 六连全静音判例）；
+  // seekTickMs=落点的烤速域墙钟偏移（playAt 锚=开声时刻-此值 → tick0↔playAt 精确对齐）；≤1.5拍不跳（从头走）
+  let seekTick = 0, seekTickMs = 0
+  if (musicSeekTick > 1440) {
+    seekTick = musicSeekTick + countInShift - 480
+    seekTickMs = Math.round(gpTickToMs(midiFile, seekTick))
+  }
   return {
     midPath,
     tracks: score.tracks.map(t => ({ name: String(t.name || '').slice(0, 40) })),
     countInMs,
     totalMs,
+    endTick: maxTick,  // 1012 ⑥-2c：烤制周期（引擎回显 end 的校验基准）
+    seekTick, seekTickMs,
   }
 }
 
@@ -3451,10 +3524,20 @@ const gpEngines = new Map()  // roomCode → { child, port, wired }
 
 function killGpEngine(roomCode) {
   const e = gpEngines.get(roomCode)
-  if (e) { try { e.child.kill('SIGTERM') } catch (err) {} gpEngines.delete(roomCode) }
+  if (e) {
+    if (e.boundaryTimer) { clearTimeout(e.boundaryTimer); e.boundaryTimer = null }
+    try { e.child.kill('SIGTERM') } catch (err) {}
+    gpEngines.delete(roomCode)
+  }
 }
 
-function startGpPlayback(roomCode, port, midPath, totalMs) {
+// opts（1012 ⑥-2c 原生循环 + 1013 全曲循环 seek 跳入）：{ loop, stateTemplate, expectedEndTick, seekTick, seekTickMs }
+//   loop=spawn 即武装 player_loop -1（引擎在 B 无缝回头，服务器零 respawn 零每周期命令，只按周期广播 gp-state 锚指针）；
+//   stateTemplate=周期广播的 gp-state 模板（startMs/speed/countInMs/endMs，startedAt 每遍现填）；
+//   expectedEndTick=烤制周期（player_start 回显 end:N 的校验基准，偏差>2tick 报警）；
+//   seekTick/seekTickMs=首遍跳入（全曲循环从指针进入）：文件为全谱+原生头尾循环，起播后增益0静默定位
+//   （no-op seek 读位→相对位移跳到目标前1拍→开声），playAt=开声时刻-seekTickMs（tick0↔playAt 精确锚）
+function startGpPlayback(roomCode, port, midPath, totalMs, opts) {
   killGpEngine(roomCode)
   const gpName = `FluidSynth-GP-${port}`
   // B' 方案（1011 ⑥-1"第一声嘀被吃"根治）：MIDI 随 spawn 载入自动播但初始增益 0（白丢窗口吃静音，无感）
@@ -3468,19 +3551,49 @@ function startGpPlayback(roomCode, port, midPath, totalMs) {
     '-g', '0.0',
     '-o', 'synth.polyphony=128',
     GP_SOUNDFONT, midPath,
-  ], { stdio: ['pipe', 'ignore', 'ignore'] })
+  ], { stdio: ['pipe', 'pipe', 'ignore'] })
   child.stdin.on('error', () => {})  // EPIPE 静默（进程退出后写，main.js 同款教训）
+  // stdout 解析（1012 ⑥-2c）：player_start/seek 回显 "player current pos:N, end:E, bpm:B"——end=引擎真周期，
+  // 校验烤制值（fluidsynth 的 end 取事件尾+拍位填充，实测有 quirky 案例，靠回显对账不靠猜）
+  let gpOutBuf = ''
+  child.stdout.on('data', (d) => {
+    gpOutBuf += String(d)
+    const lines = gpOutBuf.split('\n')
+    gpOutBuf = lines.pop()
+    for (const ln of lines) {
+      const m = ln.match(/pos:\s*(\d+),\s*end:\s*(\d+)/)
+      if (!m) continue
+      const e0 = gpEngines.get(roomCode)
+      if (e0 && e0.child === child) {
+        e0.endTickEcho = Number(m[2])
+        e0.posEcho = Number(m[1])  // 1013 全曲循环：no-op seek 查当前位（seek 链算相对位移用）
+        e0.posEchoAt = Date.now()
+        if (!e0.endLogged) {
+          e0.endLogged = true
+          if (e0.expectedEndTick != null && Math.abs(Number(m[2]) - e0.expectedEndTick) > 2) {
+            console.error(`GP ${roomCode} 引擎end=${m[2]} ≠ 烤制end=${e0.expectedEndTick}（周期按烤制值走，留意循环长度偏差）`)
+          }
+        }
+      }
+    }
+  })
   child.on('exit', () => {
     const e = gpEngines.get(roomCode)
     if (e && e.child === child) {
-      if (e.naturalEndTimer) { clearTimeout(e.naturalEndTimer); e.naturalEndTimer = null }
+      if (e.boundaryTimer) { clearTimeout(e.boundaryTimer); e.boundaryTimer = null }
       gpEngines.delete(roomCode)
-      // ⑥-2a（1011）：自然结束→查循环（读DB最新值,播放中可关loop）→开着就重播同一份 MIDI
-      // （mix/speed/countin 全烤在文件里,循环=完整继承当前谱面状态——欢哥"按现有状态循环"天然成立）
+      // 到达边界被 kill（loop 已关=原自然结束路径：gpLoopRestart 清状态广播停）或引擎崩溃（loop 仍开=重烤 respawn 自愈，1012 起 respawn 也武装原生循环）
       gpLoopRestart(roomCode, e).catch(() => {})
     }
   })
-  gpEngines.set(roomCode, { child, port, wired: false, spawnedAt: Date.now() })
+  gpEngines.set(roomCode, {
+    child, port, wired: false, spawnedAt: Date.now(),
+    loop: !!(opts && opts.loop), nativeLoop: !!(opts && opts.loop),
+    stateTemplate: (opts && opts.stateTemplate) || null,
+    expectedEndTick: opts ? opts.expectedEndTick : undefined,
+    cycleMs: Number(totalMs) || 0,
+    seekTick: (opts && opts.seekTick) || 0, seekTickMs: (opts && opts.seekTickMs) || 0,
+  })
   const ghostL = `jamsoul-${port} jamony-looper:input left`
   const ghostR = `jamsoul-${port} jamony-looper:input right`
   // ⚠️时间线零点三段账（1010晚欢哥耳朵实测定案）：spawn → [init:端口出现=起播] → [wire:接线=进网络]。
@@ -3512,20 +3625,66 @@ function startGpPlayback(roomCode, port, midPath, totalMs) {
         // B' 起播：先写命令链+记 playAt（零点=第一声真实起点），再置 wired（waitGpWired 返回时 playAt 必就绪）
         // ⚠️不能带 player_stop——stdin(user command file)上下文里 stop 后 start 进坏状态=静音(-91dB，ABCD四组
         // 对照+端口服刑定罪)；player_start 单发即"从头"（回显 pos:0 + 端口有声实测）
+        // 1012 ⑥-2c：loop 时先武装 player_loop -1（引擎原生无缝循环，实测 stdin 可用、回跳自动切正在响的音=无卡音）
+        // 1013 全曲循环 seek：start 后仍增益0 → no-op seek 读当前位 → 相对位移跳到目标（烤制时已留1拍余量防跳过落点音符）
+        //   → 开声；playAt=开声时刻-seekTickMs（tick0↔playAt 精确锚，边界链与指针全程同锚）
+        const armBoundary = () => {
+          if (e2.cycleMs <= 0) { e2.boundaryTimer = setTimeout(() => { try { child.kill('SIGTERM') } catch (err) {} }, 500); return }
+          e2.boundaryTimer = setTimeout(() => fire(1), Math.max(0, (e2.playAt || Date.now()) + e2.cycleMs + (e2.loop ? 0 : 500) - Date.now()))
+        }
+        const fire = (k) => {
+          const e3 = gpEngines.get(roomCode)
+          if (!e3 || e3.child !== child) return
+          if (e3.loop && e3.nativeLoop && e3.cycleMs > 0) {
+            const seam = new Date()
+            const st = { playing: true, startedAt: seam.toISOString(), ...(e3.stateTemplate || {}) }
+            pool.query('UPDATE rooms SET gp_state = $1 WHERE room_code = $2', [JSON.stringify(st), roomCode]).catch(() => {})
+            io.to(roomCode).emit('gp-state', st)
+            console.log(`GP loop seam ${roomCode} #${k} ${seam.toISOString().slice(11, 23)} end=${e3.endTickEcho ?? '?'}/${e3.expectedEndTick ?? '?'} 周期${e3.cycleMs}ms`)
+            e3.boundaryTimer = setTimeout(() => fire(k + 1), Math.max(0, (e3.playAt || 0) + (k + 1) * e3.cycleMs - Date.now()))
+          } else {
+            try { child.kill('SIGTERM') } catch (err) {}
+          }
+        }
         try {
-          e2.child.stdin.write('player_start\ngain 1.0\n')
-          e2.playAt = Date.now()
+          if (e2.seekTick > 0) {
+            e2.child.stdin.write((e2.loop ? 'player_loop -1\n' : '') + 'player_start\n')
+            e2.playAt = Date.now()  // 兜底锚（seek 未完成即被查走时用；seekDone 后覆盖为精确锚）
+            setTimeout(() => {
+              const e3 = gpEngines.get(roomCode)
+              if (!e3 || e3.child !== child) return
+              try { e3.child.stdin.write('player_seek 0\n') } catch (err) { return }  // 查当前位（回显 pos:N）
+              setTimeout(() => {
+                const e4 = gpEngines.get(roomCode)
+                if (!e4 || e4.child !== child) return
+                const p0 = e4.posEcho || 0
+                try { e4.child.stdin.write(`player_seek ${e4.seekTick - p0}\n`) } catch (err) { return }  // 相对位移跳入
+                setTimeout(() => {
+                  const e5 = gpEngines.get(roomCode)
+                  if (!e5 || e5.child !== child || e5.seekDone) return
+                  try { e5.child.stdin.write('gain 1.0\n') } catch (err) {}
+                  e5.playAt = Date.now() - e5.seekTickMs  // 精确锚：tick0 ↔ playAt
+                  e5.seekDone = true
+                  if (e5.boundaryTimer) clearTimeout(e5.boundaryTimer)
+                  armBoundary()  // 用精确锚重挂周期边界链
+                  console.log(`GP seek ${roomCode} 跳入 ${e5.seekTick}tick(${e5.seekTickMs}ms) 前一拍就位`)
+                }, 150)
+              }, 150)
+            }, 150)
+          } else {
+            e2.child.stdin.write((e2.loop ? 'player_loop -1\n' : '') + 'player_start\ngain 1.0\n')
+            e2.playAt = Date.now()
+          }
         } catch (err) { console.error(`GP start ${roomCode} 起播命令失败:`, err.message) }
         e2.wired = true
         e2.wiredAt = Date.now()
-        // shell 模式播完进程常驻（旧 -i 模式靠 exit 检测自然结束已失效）→ 全时长定时器收摊：
-        // 到点 kill 且 map 还在 → exit 回调走"自然播完"（手动停=先删map+kill，不误触）
-        // 宽限500ms（1011欢哥"循环延迟3-4小节"：totalMs精确积分+playAt已对齐起播,3s过保守）
-        e2.naturalEndTimer = setTimeout(() => {
-          const e3 = gpEngines.get(roomCode)
-          if (e3 && e3.child === child) { try { child.kill('SIGTERM') } catch (err) {} }
-        }, (Number(totalMs) || 0) + 500)
-        console.log(`GP start ${roomCode} wired+play (${tries} 次)`)
+        // 周期边界链（1012 ⑥-2c，替代 naturalEndTimer 收摊）：绝对时刻 playAt+k×周期（零累计误差），边界上——
+        //   loop 开（spawn 即武装）→ 引擎自己在 B 无缝回头，这里只广播 gp-state 重锚全员指针（指针回 A、强刷者拿到新鲜状态）；
+        //   loop 关 → kill → exit 走 gpLoopRestart 原自然结束路径（清状态广播停；播放中关 loop=本遍播完即止，语义不变）；
+        //   中途开的 loop（spawn 时没武装）→ kill → gpLoopRestart 重烤 respawn 成原生循环引擎（一次性换代尾巴，之后每遍无缝）；
+        //   非 loop 播一遍 → B+500ms 宽限 kill（保留 1011 掐尾宽限语义）
+        armBoundary()
+        console.log(`GP start ${roomCode} wired+play (${tries} 次)${e2.loop ? ' loop=原生' : ''}${e2.seekTick > 0 ? ' seek=全曲跳入' : ''}`)
       }
       else if (tries < 15 && e2 && e2.child === child && !e2.wired) setTimeout(wire, 400)
       else if (!ok) console.error(`GP start ${roomCode} JACK 接线失败`)
@@ -3535,7 +3694,8 @@ function startGpPlayback(roomCode, port, midPath, totalMs) {
   setTimeout(pollPort, 100)
 }
 
-// ⑥-2a 循环重启（1011）：自然结束后查 loop（DB 最新值）→重播同一份 live MIDI（状态天然继承）；
+// ⑥-2a 循环重启（1011）→ 1012 ⑥-2c 角色收窄：引擎 exit 后到这里——loop 已关=原自然结束（清状态广播停）；
+// loop 仍开=中途开的 loop 换代 或 崩溃自愈 → 重烤 respawn（respawn 即武装原生循环，之后每遍引擎无缝回头零 respawn）。
 // startMs 归 0（全曲循环=回曲目头）；countInMs 沿用烤进文件的值（循环也数拍——排练场景数拍当间隔）
 async function gpLoopRestart(roomCode, prev) {
   const r = await pool.query('SELECT server_port, current_score FROM rooms WHERE room_code = $1', [roomCode])
@@ -3566,7 +3726,7 @@ async function gpLoopRestart(roomCode, prev) {
   const spd = sanitizeGpSpeed(score.speed)
   const startMs = score.range ? Math.round(score.range.a) : 0
   let gpGen
-  try { gpGen = gpToMidi(gpPath, midPath, score.mix, startMs, spd, !!score.countin) }
+  try { gpGen = gpToMidi(gpPath, midPath, score.mix, startMs, spd, !!score.countin, score.range ? Math.round(score.range.b) : undefined) }
   catch (err) {
     console.error('gp loop remix error:', err.message)
     await pool.query('UPDATE rooms SET gp_state = NULL WHERE room_code = $1', [roomCode]).catch(() => {})
@@ -3574,7 +3734,11 @@ async function gpLoopRestart(roomCode, prev) {
     return
   }
   const playTotalMs = score.range ? Math.round((score.range.b - score.range.a) / spd) + Math.round(gpGen.countInMs || 0) : gpGen.totalMs
-  startGpPlayback(roomCode, row.server_port, midPath, playTotalMs)
+  startGpPlayback(roomCode, row.server_port, midPath, playTotalMs, {
+    loop: !!score.loop,
+    stateTemplate: { startMs, speed: spd, countInMs: Math.round(gpGen.countInMs || 0), endMs: score.range ? Math.round(score.range.b) : undefined },
+    expectedEndTick: gpGen.endTick,
+  })
   const engine = gpEngines.get(roomCode)
   if (engine) { engine.liveMidPath = midPath; engine.totalMs = playTotalMs; engine.countInMs = gpGen.countInMs }
   const wired = await waitGpWired(roomCode, 8000)
@@ -3789,20 +3953,37 @@ io.on("connection", (socket) => {
     try { for (const f of fs.readdirSync(dir)) if (f.startsWith('live_') && f.endsWith('.mid')) { try { fs.unlinkSync(path.join(dir, f)) } catch (e) {} } } catch (e) { /* 目录异常由 gpPath 检查兜底 */ }
     const midPath = path.join(dir, `live_${Date.now()}.mid`)
     let gpGen = null
+    // 1013 全曲循环：loop 且无选段 → 全谱烤制（startMs=0）+seekTick 首遍从指针跳入——原生循环=头↔尾
+    // （⑥-2a"全曲循环=回曲目头"语义；烤制窗口≠全谱的病根昨在重启路径、今在起播路径，根治=全谱进文件）
+    let gpSeekMs
+    if (!score.range && score.loop && startMs > 0) { gpSeekMs = startMs; startMs = 0 }
     try {
-      gpGen = gpToMidi(gpPath, midPath, score.mix, startMs, sanitizeGpSpeed(score.speed), !!score.countin)
+      gpGen = gpToMidi(gpPath, midPath, score.mix, startMs, sanitizeGpSpeed(score.speed), !!score.countin, score.range ? Math.round(score.range.b) : undefined, gpSeekMs)
     } catch (err) {
       console.error('gp play remix error:', err.message)
       clearTimeout(gpInflight.get(roomId)); gpInflight.delete(roomId)
       socket.emit('gp-state', { playing: false })
       return
     }
-    // 选段掐尾：totalMs=选区时长(烤速域)+countIn；无选区=全曲积分
+    // 选段掐尾：totalMs=选区时长(烤速域)+countIn；无选区=全曲积分（全曲循环=全谱积分）
     const playTotalMs = score.range ? Math.round((score.range.b - score.range.a) / spd) + Math.round(gpGen.countInMs || 0) : gpGen.totalMs
-    startGpPlayback(roomId, row.server_port, midPath, playTotalMs)
+    // 1012 ⑥-2c：loop 随 spawn 武装原生循环；stateTemplate=周期广播模板（每遍重锚指针）；
+    // 1013 全曲循环：周期模板 startMs=0（每遍回曲目头），首播单独广播 startMs=指针+startedAt=开声时刻
+    startGpPlayback(roomId, row.server_port, midPath, playTotalMs, {
+      loop: !!score.loop,
+      stateTemplate: { startMs: Math.round(startMs), speed: spd, countInMs: Math.round(gpGen.countInMs || 0), endMs: score.range ? Math.round(score.range.b) : undefined },
+      expectedEndTick: gpGen.endTick,
+      seekTick: gpGen.seekTick, seekTickMs: gpGen.seekTickMs,
+    })
     const wired = await waitGpWired(roomId, 8000)
     clearTimeout(gpInflight.get(roomId)); gpInflight.delete(roomId)
     if (!wired) { console.error('gp play: not wired', roomId); return }
+    // seek 跳入（1013 全曲循环）：等定位完成（开声）再广播——首播 startedAt=开声时刻、startMs=指针原速域值
+    // （指针线过(开声,指针)点斜率spd=与音频严格同步；周期边界链已用精确锚重挂）
+    const engSeek = gpEngines.get(roomId)
+    if (engSeek && engSeek.seekTick > 0) {
+      for (let i = 0; i < 40 && !engSeek.seekDone && gpEngines.get(roomId) === engSeek; i++) await new Promise(r => setTimeout(r, 50))
+    }
     // startedAt=spawn 时刻（10-09 滚动超前根治）：fluidsynth 从 spawn 就在播，接线耗时那段音乐已白丢。
     // 若记接线时刻，客户端时间线恒慢~0.5s → 2s对表反复前跳（seek风暴）→ 谱面滚动被拽超前、当前小节顶出视野
     const engine = gpEngines.get(roomId)
@@ -3812,13 +3993,15 @@ io.on("connection", (socket) => {
     if (engine && engine.spawnedAt) {
       console.log(`GP play ${roomId} 时间线账目: spawn→port=${(engine.portAt || 0) - engine.spawnedAt}ms port→wire=${engine.wiredAt && engine.portAt ? engine.wiredAt - engine.portAt : "?"}ms wire→play=${engine.playAt && engine.wiredAt ? engine.playAt - engine.wiredAt : "?"}ms`)
     }
-    const startedAt = new Date(t0).toISOString()
+    // seek 跳入（1013 全曲循环）：首播锚=开声时刻（=playAt+seekTickMs），startMs=指针原速域值（指针线过该点斜率spd）
+    const firstStartMs = gpSeekMs != null ? Math.round(gpSeekMs) : Math.round(startMs)
+    const firstStartedAt = new Date(gpSeekMs != null && engine ? t0 + (engine.seekTickMs || 0) : t0).toISOString()
     // speed 随广播下发：客户端对表 target=base+墙钟elapsed×speed（谱面域换算）+本地playbackSpeed同设
     // countInMs（⑥-1 预备拍）：本地公式=内容x到耳墙钟 startedAt+countInMs+(x−base)+lag；count-in 期间指针钳在起点
-    const gpState = { playing: true, startedAt, startMs: Math.round(startMs), speed: spd, countInMs: Math.round(gpGen.countInMs || 0), endMs: score.range ? Math.round(score.range.b) : undefined }
+    const gpState = { playing: true, startedAt: firstStartedAt, startMs: firstStartMs, speed: spd, countInMs: Math.round(gpGen.countInMs || 0), endMs: score.range ? Math.round(score.range.b) : undefined }
     try { await pool.query('UPDATE rooms SET gp_state = $1 WHERE room_code = $2', [JSON.stringify(gpState), roomId]) } catch (e) {}
     io.to(roomId).emit("gp-state", gpState)
-    console.log(`GP play ${roomId} port ${row.server_port} from ${Math.round(startMs)}ms`)
+    console.log(`GP play ${roomId} port ${row.server_port} from ${firstStartMs}ms${gpSeekMs != null ? ' 全曲循环首遍跳入' : ''}`)
   })
 
   socket.on("gp-pause", async (data) => {
@@ -3887,6 +4070,9 @@ io.on("connection", (socket) => {
     score.loop = !!loop
     await pool.query('UPDATE rooms SET current_score = $1 WHERE room_code = $2', [JSON.stringify(score), roomId])
     io.to(roomId).emit("gp-loop", { loop: score.loop })
+    // 1012 ⑥-2c：同步引擎内存 flag——下个 B 点生效（开着=周期广播继续原生循环；关了=B 点干净停；中途开=换代 respawn）
+    const gpEng = gpEngines.get(roomId)
+    if (gpEng) gpEng.loop = score.loop
   })
 
   // GP 选段（1011 ⑥-2b）：房级 A-B（原速域 ms，倍速无关）；null=清选区回全曲；合奏者可调/后动作胜出
