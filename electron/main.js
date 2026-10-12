@@ -323,18 +323,25 @@ function sendLeaveRequest() {
     let done = false
     const finish = (ok) => { if (!done) { done = true; currentRoom = null; resolve(ok) } }
     const timer = setTimeout(() => { console.log('[jamony] leave request timeout (3s)'); finish(false) }, 3000)
-    try {
-      const req = net.request({ url: `${WEB_URL}/api/rooms/${roomCode}/leave`, method: 'POST', session: session.defaultSession })
-      req.setHeader('Content-Type', 'application/json')
-      req.on('response', () => { clearTimeout(timer); console.log('[jamony] leave request sent ok'); finish(true) })
-      req.on('error', (e) => { clearTimeout(timer); console.log('[jamony] leave request error:', e.message); finish(false) })
-      req.write(JSON.stringify({ userId }))
-      req.end()
-    } catch (e) {
-      clearTimeout(timer)
-      console.log('[jamony] leave request exception:', e.message)
-      finish(false)
-    }
+    // 1012 修（叉窗确认后房间不散+重开变漫游态，nginx 实测 leave 401 定罪）：net.request 无 initiator 上下文，
+    // Electron39/Chromium142 按 SameSite=Lax 扣下 jamony_token（老 Electron35 不执行=10-03 换代后悄悄断）。
+    // 渲染进程同源 fetch 不受影响（心跳一路 200）。修=显式读 cookie 塞请求头，绕开 SameSite 语义一劳永逸。
+    session.defaultSession.cookies.get({ url: WEB_URL })
+      .then((cks) => {
+        const token = (cks || []).find((c) => c.name === 'jamony_token')
+        const req = net.request({ url: `${WEB_URL}/api/rooms/${roomCode}/leave`, method: 'POST', session: session.defaultSession })
+        req.setHeader('Content-Type', 'application/json')
+        if (token) req.setHeader('Cookie', `jamony_token=${token.value}`)
+        req.on('response', (resp) => {
+          clearTimeout(timer)
+          console.log(`[jamony] leave request done status=${resp.statusCode}`)
+          finish(resp.statusCode >= 200 && resp.statusCode < 300)
+        })
+        req.on('error', (e) => { clearTimeout(timer); console.log('[jamony] leave request error:', e.message); finish(false) })
+        req.write(JSON.stringify({ userId }))
+        req.end()
+      })
+      .catch((e) => { clearTimeout(timer); console.log('[jamony] cookie read fail:', e.message); finish(false) })
   })
 }
 

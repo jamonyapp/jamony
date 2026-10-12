@@ -31,8 +31,9 @@ function ToolbarMenu({ value, options, onPick, title, icon, disabled }: { value:
       </button>
       {open && (
         <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute bottom-full right-0 z-20 mb-1.5 w-32 rounded-lg border border-white/10 bg-[#141414] p-1 shadow-2xl">
+          {/* 1012 层序修：alphaTab 光标层 inline z-index=1000（黄色小节背景/指针/选区），弹层家族须整体压过它 */}
+          <div className="fixed inset-0 z-[1050]" onClick={() => setOpen(false)} />
+          <div className="absolute bottom-full right-0 z-[1100] mb-1.5 w-32 rounded-lg border border-white/10 bg-[#141414] p-1 shadow-2xl">
             {options.map((o) => (
               <button
                 key={o.v}
@@ -1391,6 +1392,7 @@ type GpApi = {
   beatMouseDown?: { on: (cb: (beat: { absolutePlaybackStart?: number; playbackDuration?: number; voice?: { bar?: { masterBar?: unknown } } } | null) => void) => void }
   beatMouseMove?: { on: (cb: (beat: unknown) => void) => void }  // 拖选实时预览（⑥-2b）
   highlightPlaybackRange?: (startBeat: unknown, endBeat: unknown) => void  // ⑥-2b 选段高亮（官方自建选区API，只放标记不动播放）
+  postRenderFinished?: { on: (cb: () => void) => void }  // 重渲染终了（内部选区重画之后——选区重穿挂钩点，1012修三）
   clearPlaybackRangeHighlight?: () => void
   tickCache?: { masterBars?: { start: number; masterBar?: unknown }[] } | null
   settings?: { display: { scale: number; staveProfile: number; layoutMode: number }; player: { scrollMode: number } }
@@ -1478,9 +1480,12 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
   // 选段（1011 ⑥-2b）基建
   const selDownTickRef = useRef<number | null>(null)  // mousedown 记 A 的绝对tick（null=单击语义）
   const selDownBeatRef = useRef<unknown>(null)  // mousedown 的 beat 对象（拖动实时高亮用）
+  const selTrackIdxRef = useRef<number | null>(null)  // 1012 修：用户在哪轨上框选的（回填高亮用同轨=不跳轨）
   const scoreRangeRef = useRef<{ a: number; b: number } | undefined>(undefined)
   scoreRangeRef.current = score.range
-  const mbBeatsRef = useRef<Map<unknown, unknown[]>>(new Map())  // masterBar→该轨beats（选区高亮回填用，beat级）
+  // 选区高亮 beat 表（1012 修：按轨建）——旧版只建第 0 轨的表，切到其他轨独显时第 0 轨不在画面上，
+  // alphaTab findBeat 找不到坐标抛异常（被吞）但 DOM 已"先清空后重建"=松手后紫色永远消失（欢哥六线谱实测定罪）
+  const mbBeatsRef = useRef<Map<number, Map<unknown, unknown[]>>>(new Map())  // trackIndex → (masterBar → beats)
   // 音频时延补偿（10-10 欢哥"指针从头恒快1拍"）：指针=墙钟理论线，耳朵=网络流到达线，差=端到端音频时延（常数无漂移）。
   // 测法：ping端点取最小RTT/2（网络单程）+ 固定播放缓冲常数（编码+抖动缓冲+解码）；残差靠耳朵报数调常数
   const AUDIO_PLAYOUT_MS = 200
@@ -1629,15 +1634,19 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
           setFileMeta({ title: String(s.title || "").slice(0, 60), artist: String(s.artist || "").slice(0, 40) })
           const src = s.tracks ?? []
           realTracksRef.current = src  // 原对象留给 renderTracks
-          // 选段高亮表（⑥-2b beat级）：masterBar→该轨全部beats（highlightPlaybackRange 需要 beat 对象）
+          // 选段高亮表（⑥-2b beat级；1012 按轨建）：每轨 masterBar→beats（highlightPlaybackRange 需要
+          // **当前渲染中轨**的 beat 对象——不在画面上的轨没有坐标）
           try {
-            const m = new Map<unknown, unknown[]>()
-            const track0 = (src[0] ?? {}) as { staves?: { bars?: { masterBar?: unknown; voices?: { beats?: unknown[] }[] }[] }[] }
-            for (const st of track0.staves ?? []) for (const bar of st.bars ?? []) {
-              const beats = bar.voices?.[0]?.beats ?? []
-              if (bar.masterBar !== undefined && beats.length > 0) m.set(bar.masterBar, beats)
+            const byTrack = new Map<number, Map<unknown, unknown[]>>()
+            for (const tr of src as unknown as { index?: number; staves?: { bars?: { masterBar?: unknown; voices?: { beats?: unknown[] }[] }[] }[] }[]) {
+              const m = new Map<unknown, unknown[]>()
+              for (const st of tr.staves ?? []) for (const bar of st.bars ?? []) {
+                const beats = bar.voices?.[0]?.beats ?? []
+                if (bar.masterBar !== undefined && beats.length > 0) m.set(bar.masterBar, beats)
+              }
+              if (m.size > 0) byTrack.set(typeof tr.index === "number" ? tr.index : byTrack.size, m)
             }
-            mbBeatsRef.current = m
+            mbBeatsRef.current = byTrack
           } catch (e) { /* 高亮表失败不阻塞 */ }
           setTracks(src.map((t) => ({ index: t.index, name: String(t.name || `轨 ${t.index + 1}`).slice(0, 40) })))
           // 本地静音·根治版（10-10 欢哥jamsoul静音looper仍闻声=本地漏音定罪）：混音器级静音架不住
@@ -1740,12 +1749,17 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
           setRenderedIdx((prev) => (prev.join() === idxs.join() ? prev : idxs))
         })
         real.renderFinished?.on?.(() => { if (!cancelled) setLoading(false) })
+        // 1012 修三：alphaTab 重渲染时对选区"先清空后重建"，旧 beat 坐标失效（切轨/换显）就清空不重建——
+        // 挂 postRenderFinished（在它内部重画之后）用当前渲染轨的 beat 把房级 range 重穿回去
+        real.postRenderFinished?.on?.(() => { if (!cancelled && scoreRangeRef.current) applyRangeHighlightRef.current() })
         // 选段（1012 ⑥-2b beat级）：暂停态按下记 A，松开记 B——beat 级精确（absolutePlaybackStart 官方语义，
         // 同 alphaTab demo 可精确到音符）；同 beat 单击=定起点（10-09 原语义）或清选区（已有选区时）。播放中锁
         real.beatMouseDown?.on?.((beat) => {
           if (cancelled || playingRef.current || !beat) return
           selDownTickRef.current = typeof beat.absolutePlaybackStart === "number" ? beat.absolutePlaybackStart : null
           selDownBeatRef.current = beat
+          const st = (beat as { voice?: { bar?: { staff?: { track?: { index?: number } } } } }).voice?.bar?.staff?.track
+          if (st && typeof st.index === "number") selTrackIdxRef.current = st.index
         })
         // 拖选实时预览（1012）：拖动经过的 beat 即时染色（demo 同款——用户需要"已经开始选了"的反馈）
         real.beatMouseMove?.on?.((beat) => {
@@ -1970,35 +1984,51 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
     try { void m.ac?.close() } catch (e) { /* 静默 */ }
   }, [])
 
-  // 选区高亮回填（⑥-2b）：score.range（房级真相，广播/水合）→谱面 A-B 高亮；
-  // 原速域×spd=烤速域→msToTick→找小节→beat→官方 highlight（只放标记不动播放）
+  // 选区高亮回填（⑥-2b；1012 两修）：score.range（房级真相，广播/水合）→谱面 A-B 高亮；
+  // 修一=B端留1tick边界余量（B=末音符结束点，恰等于下一音符起点——旧版 <= 把它圈进来=松手后自动多选一个音符）；
+  // 修二=beat 取**当前渲染中轨**的表（旧版硬绑第0轨，独显其他轨时坐标不存在→alphaTab清空后重建抛异常=紫色消失）。
+  // 抽成 ref 化的"重穿"函数：广播回填与每次重渲染（postRenderFinished 后，切轨/缩放重画）共用
+  const applyRangeHighlightRef = useRef<() => void>(() => {})
+  applyRangeHighlightRef.current = () => {
+    const api = apiRef.current
+    if (!api?.highlightPlaybackRange || !scoreRangeRef.current) return
+    const spd = speedRef.current || 1
+    const cache = api.tickCache
+    if (!cache?.masterBars?.length) return
+    const tA = msToTick(scoreRangeRef.current.a * spd), tB = msToTick(scoreRangeRef.current.b * spd)
+    const byTrack = mbBeatsRef.current
+    // 优先"用户框选时所在的轨"（全部渲染模式下预览圈在哪轨、回填就圈哪轨，不跳轨）；该轨未渲染退首个渲染轨
+    const rendered = renderedIdxRef.current
+    const idx = selTrackIdxRef.current != null && rendered.includes(selTrackIdxRef.current)
+      ? selTrackIdxRef.current
+      : (rendered.length > 0 ? rendered[0] : 0)
+    const beatsMap = byTrack.get(idx) ?? (byTrack.size > 0 ? [...byTrack.values()][0] : undefined)
+    if (!beatsMap) { console.warn("[gp选区回填] 无beat表（trackIndex=", idx, "）"); return }
+    // 1012 终修（欢哥实测"前后各偶尔多圈一个音符且无规律"）：tick→ms→服务器→ms→tick 往返带 ±1~2 tick
+    // 舍入漂移，旧"≤门槛"解析被漂移击穿边界=莫名扩选。改**就近吸附**：A端贴最近音符起点、B端贴最近
+    // 音符结束点（alphaTab 官方全程抱 beat 对象无此问题；我们房级广播必须走 ms 往返，吸附容差=半个
+    // 音符时值，漂移永远够不着）。B端语义=末音符结束（播放含末音符全程），与松手时 tickB 同构。
+    type CandBeat = { absolutePlaybackStart?: number; playbackDuration?: number }
+    const endOf = (b: CandBeat) => (b.absolutePlaybackStart ?? 0) + (typeof b.playbackDuration === "number" && b.playbackDuration > 0 ? b.playbackDuration : 240)
+    const cand: CandBeat[] = []
+    for (const x of cache.masterBars) {
+      if (x.start <= tB) for (const b of (beatsMap.get(x.masterBar) ?? []) as CandBeat[]) {
+        if (typeof b.absolutePlaybackStart === "number") cand.push(b)
+      }
+    }
+    if (cand.length === 0) { console.warn("[gp选区回填] 无候选beat tA/tB=", tA, tB); return }
+    let beatA = cand.reduce((p, c) => Math.abs((c.absolutePlaybackStart ?? 0) - tA) < Math.abs((p.absolutePlaybackStart ?? 0) - tA) ? c : p)
+    let beatB = cand.reduce((p, c) => Math.abs(endOf(c) - tB) < Math.abs(endOf(p) - tB) ? c : p)
+    if ((beatA.absolutePlaybackStart ?? 0) > (beatB.absolutePlaybackStart ?? 0)) { const t = beatA; beatA = beatB; beatB = t }  // 反向选归位
+    console.log("[gp选区回填] tA/tB=", Math.round(tA), Math.round(tB), "→ A起=", beatA.absolutePlaybackStart, "B末=", endOf(beatB), "轨=", idx)
+    try { api.highlightPlaybackRange(beatA, beatB) } catch (e) { console.warn("[gp选区回填] highlight异常:", e) }
+  }
   useEffect(() => {
     const api = apiRef.current
     if (!api?.highlightPlaybackRange) return
     if (!score.range) { try { api.clearPlaybackRangeHighlight?.() } catch (e) { /* 静默 */ } return }
-    const spd = speedRef.current || 1
-    const cache = api.tickCache
-    if (!cache?.masterBars?.length) return
-    const tA = msToTick(score.range.a * spd), tB = msToTick(score.range.b * spd)
-    let beatsA: unknown[] | undefined, beatsB: unknown[] | undefined
-    for (const x of cache.masterBars) {
-      if (x.start <= tA) beatsA = mbBeatsRef.current.get(x.masterBar)
-      if (x.start <= tB) beatsB = mbBeatsRef.current.get(x.masterBar)
-    }
-    // bar 内再定位到 ≤tick 的最后一个 beat（beat 级精确）
-    const pickBeat = (beats: unknown[] | undefined, tick: number) => {
-      if (!beats || beats.length === 0) return undefined
-      let found = beats[0]
-      for (const b of beats) {
-        const st = (b as { absolutePlaybackStart?: number }).absolutePlaybackStart
-        if (typeof st === "number" && st <= tick) found = b
-        else break
-      }
-      return found
-    }
-    const beatA = pickBeat(beatsA, tA), beatB = pickBeat(beatsB, tB)
-    if (beatA && beatB) { try { api.highlightPlaybackRange(beatA, beatB) } catch (e) { /* 高亮失败无碍 */ } }
-  }, [score.range])
+    applyRangeHighlightRef.current()
+  }, [score.range, renderedIdx])  // renderedIdx 入依赖：切轨后用新渲染轨的beat重穿
 
   const allOn = tracks.length > 0 && renderedIdx.length === tracks.length
   const currentTrackName = allOn ? "全部" : (tracks.find((t) => renderedIdx.includes(t.index))?.name ?? "全部")
@@ -2108,8 +2138,8 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
             </button>
             {panelOpen && (
               <>
-                <div className="fixed inset-0 z-10" onClick={() => setPanelOpen(false)} />
-                <div className="absolute bottom-full left-0 z-20 mb-1.5 max-h-[50vh] w-64 overflow-y-auto rounded-lg border border-white/10 bg-[#141414] p-1 shadow-2xl scrollbar-thin">
+                <div className="fixed inset-0 z-[1050]" onClick={() => setPanelOpen(false)} />
+                <div className="absolute bottom-full left-0 z-[1100] mb-1.5 max-h-[50vh] w-64 overflow-y-auto rounded-lg border border-white/10 bg-[#141414] p-1 shadow-2xl scrollbar-thin">
                   <button
                     onClick={() => showTracks("all")}
                     className={`flex w-full items-center gap-2 rounded-[6px] px-2 py-1.5 text-left text-[11px] transition-colors ${allOn ? "bg-white/12 font-semibold text-white" : "text-white/60 hover:bg-white/8 hover:text-white/85"}`}
