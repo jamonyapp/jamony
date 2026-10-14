@@ -2215,7 +2215,7 @@ app.post('/api/rooms/:code/recording/stop', requireAuth, async (req, res) => {
   }
   res.json(await stopRoomRecording(code, id, duration))
 })
-// 下载分轨 WAV（混音/发表试听用）
+// 试听拉流（混音器/发表 fetch 用；他人需 allow_use）——文件下载走下方 /download-file（1014 起两窗各司其职）
 app.get('/api/rooms/:code/sessions/:sid/tracks/:tid/download', requireAuth, async (req, res) => {
   try {
     const { code, sid: sessionId, tid: trackId } = req.params
@@ -2254,6 +2254,47 @@ app.get('/api/rooms/:code/sessions/:sid/tracks/:tid/download', requireAuth, asyn
     stream.on('error', () => { if (!res.headersSent) res.status(500).end() })
   } catch (err) {
     console.error('Track download error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// 下载分轨文件（1014 修复：下载授权独立于使用授权——自己始终可下，他人需轨主 allow_download=true）。
+// 历史病根：曾有同路径双注册（/download 上先注册本试听版、后注册下载版），Express 先到先得致下载版永久死代码——
+// 下载请求全涌到试听版被 allow_use 的尺子错量（病A：可下载但未授权使用→403 假按钮；病B：授权使用+禁下载→直连URL可拿文件）。
+// 现下载独立开窗（本路由），试听拉流归上方 /download（查 allow_use，混音器 fetch 用），各司其职。
+app.get('/api/rooms/:code/sessions/:sid/tracks/:tid/download-file', requireAuth, async (req, res) => {
+  try {
+    const { code, sid: sessionId, tid: trackId } = req.params
+    const userId = req.userId
+    const roomId = await getRoomIdByCode(code)
+    if (!roomId) return res.status(404).json({ ok: false, msg: '房间不存在' })
+
+    const tr = await pool.query('SELECT * FROM session_tracks WHERE id=$1 AND session_id=$2', [trackId, sessionId])
+    if (tr.rows.length === 0) return res.status(404).json({ ok: false, msg: '分轨不存在' })
+    const track = tr.rows[0]
+
+    const member = await pool.query('SELECT id FROM room_members WHERE room_id=$1 AND user_id=$2', [roomId, userId])
+    if (member.rows.length === 0) return res.status(403).json({ ok: false, msg: '你不是该房间成员' })
+
+    // 下载授权独立判定：自己 或 轨主开放下载（不查 allow_use——产品逻辑：下载不制于使用授权）
+    const isSelf = track.user_id === userId
+    if (!isSelf && track.allow_download !== true) {
+      return res.status(403).json({ ok: false, msg: '未开放下载' })
+    }
+
+    if (!track.normalized) return res.status(403).json({ ok: false, msg: '音轨准备中' })
+    if (!track.file_path || !fs.existsSync(track.file_path)) {
+      return res.status(404).json({ ok: false, msg: 'WAV 文件不存在' })
+    }
+
+    const fileName = path.basename(track.file_path)
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`)
+    res.setHeader('Content-Type', 'audio/wav')
+    const stream = fs.createReadStream(track.file_path)
+    stream.pipe(res)
+    stream.on('error', () => { if (!res.headersSent) res.status(500).end() })
+  } catch (err) {
+    console.error('Track download-file error:', err)
     res.status(500).json({ ok: false, msg: '服务器错误' })
   }
 })
@@ -3473,37 +3514,8 @@ app.patch('/api/rooms/:code/sessions/:sid/tracks/:tid', requireAuth, async (req,
 })
 
 
-// 下载分轨 WAV（自己始终可下载；他人需 allow_download=true）
-app.get('/api/rooms/:code/sessions/:sid/tracks/:tid/download', async (req, res) => {
-  try {
-    const { code, sid, tid } = req.params
-    const userId = parseInt(req.query.userId)
-    if (!userId) return res.status(400).json({ ok: false, msg: '缺少 userId' })
-    const tr = await pool.query('SELECT * FROM session_tracks WHERE id=$1 AND session_id=$2', [tid, sid])
-    if (tr.rows.length === 0) return res.status(404).json({ ok: false, msg: '分轨不存在' })
-    const t = tr.rows[0]
-    if (!t.file_path) return res.status(404).json({ ok: false, msg: '分轨文件暂不可用' })
-    // 权限：自己 或 对方允许下载
-    const isSelf = t.user_id === userId
-    if (!isSelf && t.allow_download !== true) {
-      return res.status(403).json({ ok: false, msg: '未开放下载' })
-    }
-    // 音量标准化未完成则不可下载
-    if (!t.normalized) {
-      return res.status(403).json({ ok: false, msg: '音轨准备中' })
-    }
-    // 发送文件
-    if (!fs.existsSync(t.file_path)) return res.status(404).json({ ok: false, msg: '文件不存在' })
-    const fileName = path.basename(t.file_path)
-    res.setHeader('Content-Disposition', 'attachment; filename="' + fileName + '"')
-    res.setHeader('Content-Type', 'audio/wav')
-    const stream = fs.createReadStream(t.file_path)
-    stream.pipe(res)
-  } catch (err) {
-    console.error('Download error:', err)
-    res.status(500).json({ ok: false, msg: '下载失败' })
-  }
-})
+// （1014 清理）曾有同路径双注册的"对外下载分轨"死代码（allow_download 语义，被上方 2219 requireAuth 版全拦、从未生效；
+//  系"允许下载"授权开关的未接线雏形——将来做对外下载时从 git 历史取回并改 cookie 鉴权重写）
 
 // ========== 鼓机控制 ==========
 const DRUM_STYLES = ['basic', 'rock', 'funk', 'jazz', 'rnb', 'folk', 'metal', 'reggae', 'pop', 'punk', 'soul']

@@ -324,7 +324,7 @@ export default function PublishWorkModal({
 
       // 1. 拉取所有授权分轨的 WAV
       const wavPromises = authorizedTrackIds.map(async (trackId) => {
-        const url = `/api/rooms/${roomId}/sessions/${sessionId}/tracks/${trackId}/download?userId=${currentUserId}`
+        const url = `/api/rooms/${roomId}/sessions/${sessionId}/tracks/${trackId}/download`
         const res = await fetch(url)
         if (!res.ok) throw new Error(`分轨 ${trackId} 加载失败`)
         return res.arrayBuffer()

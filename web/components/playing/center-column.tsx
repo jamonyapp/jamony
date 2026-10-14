@@ -666,7 +666,7 @@ function RecordingPanel({
         id: String(t.id),
         name: t.nickname,
         instrument: t.is_system ? "🥁" : instrumentEmoji(t.instrument_category),
-        wavUrl: `/api/rooms/${roomId}/sessions/${mixerSessionId}/tracks/${t.id}/download?userId=${currentUserId}`,
+        wavUrl: `/api/rooms/${roomId}/sessions/${mixerSessionId}/tracks/${t.id}/download`,
         duration: 0,
         color: TRACK_COLORS[i % TRACK_COLORS.length],
       }))
@@ -846,7 +846,7 @@ function RecordingPanel({
         id: String(t.id),
         name: t.nickname,
         instrument: t.is_system ? "🥁" : instrumentEmoji(t.instrument_category),
-        wavUrl: `/api/rooms/${roomId}/sessions/${mixerSessionId}/tracks/${t.id}/download?userId=${currentUserId}`,
+        wavUrl: `/api/rooms/${roomId}/sessions/${mixerSessionId}/tracks/${t.id}/download`,
         duration: 0,
         color: TRACK_COLORS[i % TRACK_COLORS.length],
       }))
@@ -1335,7 +1335,7 @@ function TrackRow({
       <div className="ml-auto">
         {isSelf ? (
           track.normalized ? (
-            <a href={`/api/rooms/${roomId}/sessions/${session.id}/tracks/${track.id}/download?userId=${currentUserId}`} className="grid size-5 place-items-center rounded-[6px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" title="下载我的分轨" download>
+            <a href={`/api/rooms/${roomId}/sessions/${session.id}/tracks/${track.id}/download-file`} className="grid size-5 place-items-center rounded-[6px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" title="下载我的分轨" download>
               <Download className="size-3" />
             </a>
           ) : (
@@ -1345,7 +1345,7 @@ function TrackRow({
           )
         ) : track.allow_download === true ? (
           track.normalized ? (
-            <a href={`/api/rooms/${roomId}/sessions/${session.id}/tracks/${track.id}/download?userId=${currentUserId}`} className="grid size-5 place-items-center rounded-[6px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" title={`下载 ${track.nickname} 的分轨`} download>
+            <a href={`/api/rooms/${roomId}/sessions/${session.id}/tracks/${track.id}/download-file`} className="grid size-5 place-items-center rounded-[6px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" title={`下载 ${track.nickname} 的分轨`} download>
               <Download className="size-3" />
             </a>
           ) : (
@@ -2067,8 +2067,9 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
           <div ref={containerRef} />
         </div>
       </div>
-      {/* 底部工具栏（10-09 欢哥定稿布局）：走带+分轨+工作站功能全收这里，不占谱面水平空间 */}
-      <div className="relative flex h-9 shrink-0 items-center gap-1 border-t border-white/10 px-2.5">
+      {/* 底部工具栏（10-09 欢哥定稿布局）：走带+分轨+工作站功能全收这里，不占谱面水平空间。
+          1014 欢哥定稿：gap-0.5 收紧间距（内容刚性放不下时收紧而非截断）；justify-center 整体居中左右对称 */}
+      <div className="relative flex h-9 shrink-0 items-center justify-center gap-0.5 border-t border-white/10 px-2.5">
         {/* 走带进度线：播放中=真实位置（秒步进+1s线性过渡抹平）；未播放=可点设起始位置（本地指针预览，谁点播放用谁的位置） */}
         {totalMs > 0 && (
           <div
@@ -2132,12 +2133,14 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
           const elapsed = playing && gpState?.startedAt
             ? Math.max(0, Math.floor((posMs > 0 ? posMs : now - new Date(gpState.startedAt).getTime()) / 1000))
             : Math.floor(scrubMs / 1000)
+          // 时间区改回刚性（1014 欢哥反馈："…"截断不可接受）——间距收紧后放得下，truncate 仅留作极限兜底
           return (
             <span className="flex shrink-0 items-center gap-1 font-mono text-[11px]">
-              {playing && <span className="size-1.5 animate-rec-pulse rounded-full" style={{ background: "#BBEE00" }} />}
-              <span style={playing ? { color: "#BBEE00" } : { color: "rgba(255,255,255,0.6)" }}>{fmt(elapsed)}</span>
-              {totalMs > 0 && <span className="text-white/35">/ {fmt(Math.floor(totalMs / 1000))}</span>}
-              {sfPct >= 0 && <span className="text-white/40">· 音源 {sfPct}%</span>}
+              {/* 绿点常驻占位（1014）：条件渲染会让整条工具栏在播放瞬间右移~10px、打印按钮被顶出——invisible 保位置零跳动 */}
+              <span className={`size-1.5 shrink-0 rounded-full ${playing ? "animate-rec-pulse" : "invisible"}`} style={playing ? { background: "#BBEE00" } : undefined} />
+              <span className="truncate" style={playing ? { color: "#BBEE00" } : { color: "rgba(255,255,255,0.6)" }}>
+                {fmt(elapsed)}{totalMs > 0 ? ` / ${fmt(Math.floor(totalMs / 1000))}` : ""}{sfPct >= 0 ? ` · 音源 ${sfPct}%` : ""}
+              </span>
             </span>
           )
         })()}
@@ -2157,7 +2160,7 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
         {/* 分轨入口（10-09 欢哥定稿：吉他社样式）——工具栏只放一个按钮，点开向上弹列表；
             常驻（含单轨谱，点开就一条轨——避免用户猜"按钮没了是bug还是谱子问题"）；谱面始终全宽 */}
         {tracks.length >= 1 && (
-          <div className="relative flex">
+          <div className="relative flex shrink-0">
             <button
               onClick={() => setPanelOpen((v) => !v)}
               title={`分轨（当前：${currentTrackName}）`}

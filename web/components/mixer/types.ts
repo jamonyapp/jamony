@@ -45,6 +45,10 @@ export interface MixerFullscreenProps {
   masterClip?: boolean
   onMasterVolumeChange?: (value: number) => void
   onResetMasterClip?: () => void
+  /** 标题尾（1014 按调起方区分）：录音试听默认"试听混音"；program 传"背景轨"等专属文案 */
+  titleLabel?: string
+  /** 走带区提示文案：默认试听文案；program 链路传专属提示 */
+  footerHint?: string
 }
 
 export interface MixerMiniProps {
