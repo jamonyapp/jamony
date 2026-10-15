@@ -3,8 +3,8 @@
 import { useState, useRef, useCallback, useEffect } from "react"
 import type { MixerTrack } from "@/components/mixer/types"
 
-/** 从 AudioBuffer 提取波形峰值，downsample 到 targetCount 点 */
-function extractPeaks(buf: AudioBuffer, targetCount: number): number[] {
+/** 从 AudioBuffer 提取波形峰值，downsample 到 targetCount 点（1015 起 program 背景轨波形共用） */
+export function extractPeaks(buf: AudioBuffer, targetCount: number): number[] {
   const raw = buf.getChannelData(0)
   const peaks: number[] = []
   const bucketSize = Math.max(1, Math.floor(raw.length / targetCount))

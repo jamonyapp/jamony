@@ -52,6 +52,14 @@ const GP_EXTS = ['.gp', '.gpx', '.gp3', '.gp4', '.gp5']
    musicxml/mxl 已真枪解析验证；capx 走 alphaTab 官方 Capella 解析器，坏文件返回明确报错 */
 const CONVERT_EXTS = [...GP_EXTS, '.musicxml', '.mxl', '.capx']
 
+/* multer — program 背景轨上传（1015 开工，1014 方案定稿：高质量伴奏音频，8 轨上限 10M/轨欢哥拍板）
+   排练物料语义同 scores：按房间码分目录、随机文件名保留后缀、房间解散即清、不进作品库
+   播放走 ffmpeg amix（混音快照烤进命令）→ jack-stdin → 幽灵乐手（1015 干跑实测闭环：48k s16le stereoline） */
+const programsDir = '/var/jamony/programs'
+try { if (!fs.existsSync(programsDir)) fs.mkdirSync(programsDir, { recursive: true }) } catch (e) { console.error('Programs dir error:', e) }
+const PROGRAM_EXTS = ['.mp3', '.wav', '.ogg', '.flac', '.m4a']
+const PROGRAM_MAX_TRACKS = 8
+
 /* alphaTab — GP 谱服务端转换（10-07 P2 步骤②前置：GP→MIDI 走 fluidsynth→幽灵乐手，音频单源=欢哥架构定稿）
    ScoreLoader→MidiFileGenerator→toBinary 与 alphaTab 浏览器播放器同一条生成代码路径，时值无损 */
 const alphatab = require('@coderline/alphatab')
@@ -321,6 +329,27 @@ const scoreUpload = multer({
     const ext = path.extname(file.originalname || '').toLowerCase()
     if (SCORE_EXTS.includes(ext)) cb(null, true)
     else cb(new Error('仅支持 PDF/PNG/JPG/WEBP 格式'))
+  }
+})
+const programUpload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => {
+      const code = String(req.params.code || '').replace(/[^a-zA-Z0-9_-]/g, '')
+      if (!code) return cb(new Error('房间码无效'))
+      const dir = path.join(programsDir, code)
+      try { fs.mkdirSync(dir, { recursive: true }) } catch (e) { return cb(e) }
+      cb(null, dir)
+    },
+    filename: (req, file, cb) => {
+      const ext = path.extname(file.originalname || '').toLowerCase()
+      cb(null, `prog_${Date.now()}_${Math.random().toString(36).slice(2, 8)}${PROGRAM_EXTS.includes(ext) ? ext : ''}`)
+    }
+  }),
+  limits: { fileSize: 10 * 1024 * 1024 },  // 1014 欢哥定稿：10M/轨，鼓励 mp3（对硬盘容量负责）
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname || '').toLowerCase()
+    if (PROGRAM_EXTS.includes(ext)) cb(null, true)
+    else cb(new Error('仅支持 MP3/WAV/OGG/FLAC/M4A 格式'))
   }
 })
 
@@ -1324,12 +1353,190 @@ app.delete('/api/rooms/:code/score/shelf/:id', requireAuth, async (req, res) => 
   }
 })
 
+// 清空整个谱架（1016 欢哥：乐谱共享加"清空"按钮——批量删全部谱子+伴生 mid；正投屏内容随删收回，GP 走带随停）
+app.delete('/api/rooms/:code/score/shelf', requireAuth, async (req, res) => {
+  try {
+    const code = String(req.params.code || '').toUpperCase()
+    if (!(await isRoomMusician(req.userId, code))) return res.status(403).json({ ok: false, msg: '仅合奏者可清空' })
+    const r = await pool.query('SELECT id, files, mid_url FROM room_scores WHERE room_code=$1', [code])
+    const allFiles = []
+    for (const row of r.rows) {
+      const rowFiles = Array.isArray(row.files) ? row.files.map(String) : []
+      for (const u of rowFiles) {
+        try { fs.unlinkSync(path.join(scoresDir, code, path.basename(u))) } catch (e) {}
+        allFiles.push(u)
+      }
+      if (row.mid_url) { try { fs.unlinkSync(path.join(scoresDir, code, path.basename(String(row.mid_url)))) } catch (e) {} }
+    }
+    await pool.query('DELETE FROM room_scores WHERE room_code=$1', [code])
+    // 投屏中必然是被删内容之一（谱架已空）→ 收回+停走带+广播空屏
+    if (allFiles.length > 0) {
+      await pool.query('UPDATE rooms SET current_score = NULL WHERE room_code = $1', [code])
+      await stopGpByCode(code, true)
+      io.to(code).emit('score-update', { score: null })
+    }
+    res.json({ ok: true, removed: r.rows.length })
+  } catch (err) {
+    console.error('Score shelf clear error:', err.message)
+    res.status(500).json({ ok: false, msg: '清空失败' })
+  }
+})
+
 // 投谱文件读取（随机文件名不可枚举即房间内可见性边界；房间解散即删）
 app.get('/api/rooms/:code/score/files/:fname', (req, res) => {
   const code = String(req.params.code || '').replace(/[^a-zA-Z0-9_-]/g, '')
   const fname = String(req.params.fname || '').replace(/[^a-zA-Z0-9_.-]/g, '')
   if (!code || !fname.includes('.') || fname.startsWith('.')) return res.status(400).json({ ok: false, msg: '参数错误' })
   const fpath = path.join(scoresDir, code, fname)
+  if (!fs.existsSync(fpath)) return res.status(404).json({ ok: false, msg: '文件不存在' })
+  res.sendFile(fpath)
+})
+
+/* ========== program 背景轨物料 API（1015，1014 方案定稿） ==========
+   current_program JSONB = { tracks:[{id,name,file,size,uploadedBy,uploadedByName}], mix:{vols,mutes} }
+   物料语义同投谱：房内合奏者操作、随机文件名、房间解散随目录清；轨 id 用随机串（非自增——
+   轨列表可增删，索引会漂移；GP 的 mix 用轨索引是 GP 轨序固定，两者语境不同）
+   物料变更（上传/删轨/清空）时若正在播 → 停播（快照与轨集不一致会造成混乱；删谱停 GP 同款先例） */
+
+function progRead(row) {
+  try { return row && row.current_program ? JSON.parse(row.current_program) : null } catch (e) { return null }
+}
+function progSanitize(p) {
+  if (!p || !Array.isArray(p.tracks)) return { tracks: [], mix: { vols: {}, mutes: [] } }
+  const ids = new Set(p.tracks.map(t => t.id))
+  const vols = {}
+  for (const t of p.tracks) {
+    const v = Number(p.mix && p.mix.vols ? p.mix.vols[t.id] : 100)
+    vols[t.id] = Number.isFinite(v) ? Math.max(0, Math.min(100, Math.round(v))) : 100
+  }
+  const mutes = Array.isArray(p.mix && p.mix.mutes) ? [...new Set(p.mix.mutes.filter(m => ids.has(m)))] : []
+  // totalMs=最长轨毫秒（1016 欢哥：走带条常驻可点——上传即随物料下发，时间/进度条不待播放即可用）
+  const tm = Number(p.totalMs)
+  return { tracks: p.tracks, mix: { vols, mutes }, ...(tm > 0 ? { totalMs: Math.round(tm) } : {}) }
+}
+// 算最长轨毫秒（上传/删轨时写进 current_program；探测失败返 0 由 play 兜底现测）
+function progCalcTotalMs(code, tracks) {
+  let totalMs = 0
+  for (const t of tracks) {
+    const dur = progProbeDurationSec(path.join(programsDir, code, t.file))
+    if (dur != null) totalMs = Math.max(totalMs, Math.round(dur * 1000))
+  }
+  return totalMs
+}
+async function progSaveAndBroadcast(code, prog) {
+  await pool.query('UPDATE rooms SET current_program = $1 WHERE room_code = $2', [JSON.stringify(prog), code])
+  io.to(code).emit('program-update', { program: prog })
+}
+
+// 读当前 program（进面板拉一次；走带态另走 program-state）
+app.get('/api/rooms/:code/program', requireAuth, async (req, res) => {
+  try {
+    const r = await pool.query('SELECT current_program FROM rooms WHERE room_code = $1', [String(req.params.code || '').toUpperCase()])
+    res.json({ ok: true, program: progSanitize(progRead(r.rows[0])) })
+  } catch (err) {
+    console.error('Program get error:', err.message)
+    res.status(500).json({ ok: false, msg: '读取失败' })
+  }
+})
+
+// 上传轨（追加进当前伴奏包；8 轨上限，10M/轨 multer 层拦）
+app.post('/api/rooms/:code/program/tracks', requireAuth, programUpload.array('files', 8), async (req, res) => {
+  try {
+    if (!req.files || req.files.length === 0) return res.status(400).json({ ok: false, msg: '未收到文件' })
+    const code = String(req.params.code || '').toUpperCase()
+    if (!(await isRoomMusician(req.userId, code))) {
+      req.files.forEach(f => { try { fs.unlinkSync(f.path) } catch (e) {} })
+      return res.status(403).json({ ok: false, msg: '仅合奏者可上传伴奏轨' })
+    }
+    const r = await pool.query('SELECT current_program FROM rooms WHERE room_code = $1', [code])
+    const prog = progSanitize(progRead(r.rows[0]))
+    if (prog.tracks.length + req.files.length > PROGRAM_MAX_TRACKS) {
+      req.files.forEach(f => { try { fs.unlinkSync(f.path) } catch (e) {} })
+      return res.status(400).json({ ok: false, msg: `最多 ${PROGRAM_MAX_TRACKS} 轨（当前 ${prog.tracks.length} 轨）` })
+    }
+    const nick = (await pool.query('SELECT nickname FROM users WHERE id=$1', [req.userId])).rows[0]?.nickname || ''
+    for (const f of req.files) {
+      prog.tracks.push({
+        id: Math.random().toString(36).slice(2, 10),
+        name: (Buffer.from(f.originalname, 'latin1').toString('utf8').slice(0, 100)) || '未命名轨',
+        file: path.basename(f.path), size: f.size,
+        uploadedBy: req.userId, uploadedByName: nick,
+      })
+    }
+    prog.totalMs = progCalcTotalMs(code, prog.tracks)  // 1016：上传即下发总长（走带条不待播放即可用）
+    await stopProgramByCode(code, true)  // 物料变更停播（快照一致性）
+    await progSaveAndBroadcast(code, prog)
+    res.json({ ok: true, program: prog })
+  } catch (err) {
+    console.error('Program upload error:', err.message)
+    res.status(500).json({ ok: false, msg: '上传失败' })
+  }
+})
+
+// 删单轨（删文件+记录；正在播 → 停播）
+app.delete('/api/rooms/:code/program/tracks/:tid', requireAuth, async (req, res) => {
+  try {
+    const code = String(req.params.code || '').toUpperCase()
+    if (!(await isRoomMusician(req.userId, code))) return res.status(403).json({ ok: false, msg: '仅合奏者可删除' })
+    const r = await pool.query('SELECT current_program FROM rooms WHERE room_code = $1', [code])
+    const prog = progSanitize(progRead(r.rows[0]))
+    const t = prog.tracks.find(t => t.id === req.params.tid)
+    if (!t) return res.status(404).json({ ok: false, msg: '轨不存在' })
+    try { fs.unlinkSync(path.join(programsDir, code, t.file)) } catch (e) {}
+    prog.tracks = prog.tracks.filter(x => x.id !== req.params.tid)
+    delete prog.mix.vols[t.id]
+    prog.mix.mutes = prog.mix.mutes.filter(m => m !== t.id)
+    prog.totalMs = progCalcTotalMs(code, prog.tracks)
+    await stopProgramByCode(code, true)
+    await progSaveAndBroadcast(code, prog)
+    res.json({ ok: true, program: prog })
+  } catch (err) {
+    console.error('Program track delete error:', err.message)
+    res.status(500).json({ ok: false, msg: '删除失败' })
+  }
+})
+
+// 清空整个伴奏包（换歌场景；正在播 → 停播）
+app.delete('/api/rooms/:code/program', requireAuth, async (req, res) => {
+  try {
+    const code = String(req.params.code || '').toUpperCase()
+    if (!(await isRoomMusician(req.userId, code))) return res.status(403).json({ ok: false, msg: '仅合奏者可清空' })
+    const r = await pool.query('SELECT current_program FROM rooms WHERE room_code = $1', [code])
+    const prog = progSanitize(progRead(r.rows[0]))
+    for (const t of prog.tracks) { try { fs.unlinkSync(path.join(programsDir, code, t.file)) } catch (e) {} }
+    await stopProgramByCode(code, true)
+    await pool.query('UPDATE rooms SET current_program = NULL, program_state = NULL WHERE room_code = $1', [code])
+    io.to(code).emit('program-update', { program: null })
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('Program clear error:', err.message)
+    res.status(500).json({ ok: false, msg: '清空失败' })
+  }
+})
+
+// 下载伴奏轨（1016 欢哥：行内按钮组对齐乐谱共享——res.download 强制附件+原始文件名，sendFile 会让浏览器直接播 mp3）
+app.get('/api/rooms/:code/program/download/:tid', requireAuth, async (req, res) => {
+  try {
+    const code = String(req.params.code || '').toUpperCase()
+    const r = await pool.query('SELECT current_program FROM rooms WHERE room_code = $1', [code])
+    const prog = progSanitize(progRead(r.rows[0]))
+    const t = prog.tracks.find(t => t.id === req.params.tid)
+    if (!t) return res.status(404).json({ ok: false, msg: '轨不存在' })
+    const fpath = path.join(programsDir, code, t.file)
+    if (!fs.existsSync(fpath)) return res.status(404).json({ ok: false, msg: '文件不存在' })
+    res.download(fpath, t.name)
+  } catch (err) {
+    console.error('Program track download error:', err.message)
+    res.status(500).json({ ok: false, msg: '下载失败' })
+  }
+})
+
+// 伴奏轨文件读取（波形 decode 用；随机文件名即边界，同 score/files 语义）
+app.get('/api/rooms/:code/program/files/:fname', (req, res) => {
+  const code = String(req.params.code || '').replace(/[^a-zA-Z0-9_-]/g, '')
+  const fname = String(req.params.fname || '').replace(/[^a-zA-Z0-9_.-]/g, '')
+  if (!code || !fname.includes('.') || fname.startsWith('.')) return res.status(400).json({ ok: false, msg: '参数错误' })
+  const fpath = path.join(programsDir, code, fname)
   if (!fs.existsSync(fpath)) return res.status(404).json({ ok: false, msg: '文件不存在' })
   res.sendFile(fpath)
 })
@@ -1789,7 +1996,9 @@ async function removeMemberAndCheckDissolve(userId, roomId, roomCode) {
       try { execSync(`rm -rf /var/jamony/recordings/room-${closePort}-records/`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve rm recordings ' + closePort + ':', e.message) }
       try { execSync(`rm -rf "/var/jamony/scores/${roomCode}"`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve rm scores ' + roomCode + ':', e.message) }  // 10-07 投谱=房间物料，随房清
       try { await pool.query('DELETE FROM room_scores WHERE room_code = $1', [roomCode]) } catch (e) { console.error('dissolve rm score shelf ' + roomCode + ':', e.message) }  // ⑥-3 谱架册随房清
+      try { execSync(`rm -rf "/var/jamony/programs/${roomCode}"`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve rm programs ' + roomCode + ':', e.message) }  // 1015 program 轨=房间物料，随房清
       await stopGpByCode(roomCode)  // 10-07 GP走带随房停
+      await stopProgramByCode(roomCode, false)  // 1015 program 走带随房停
       // 兜底：杀残留 ffmpeg + 清 ghost.json 条目（stop 已处理，此处防 state 漏记）
       try {
         const ghostState = JSON.parse(fs.readFileSync('/var/lib/jamony/ghost.json', 'utf8').toString() || '{}')
@@ -3894,6 +4103,107 @@ async function stopGpByCode(roomCode, broadcast) {
   } catch (e) { console.error('stopGp error:', e.message) }
 }
 
+/* ========== program 背景轨渲染走带（1015 开工，1014 方案定稿 + 1015 干跑实测定版） ==========
+   渲染链：ffmpeg（每轨 volume 快照 + amix normalize=0 + 48k s16le stereo）→ pipe →
+   jack-stdin -n jamony-program-<port>（自动连接幽灵乐手 jamsoul-<port> jamony-looper:input）→ 房间混音。
+   前端本地不出声（防双声打架），走带=socket 遥控，时间线对照 GP 三段账：零点=portAt（JACK 端口出现时刻）。
+   教训沿用：分别 spawn ffmpeg/jack-stdin 两进程（不 sh -c 管道，防 kill 孤儿 0728 教训）；
+   ffmpeg 先死→jstdin stdin EOF 自退；jstdin 先死→ffmpeg EPIPE 自退，天然互清。
+   mix 播放中改=kill 重 spawn 带 -ss 续播（接缝~1s，GP 重烤 respawn 同款接受） */
+const programInflight = new Map()  // 走带 in-flight 防抖（防连点振荡，GP 同款）
+const programEngines = new Map()   // roomCode → { ffmpeg, jstdin, port, prog, spawnedAt, portAt, totalMs, startMs }
+
+function killProgramEngine(roomCode) {
+  const e = programEngines.get(roomCode)
+  if (!e) return
+  programEngines.delete(roomCode)  // 先删再杀：exit handler 见 map 无此引擎=被 kill，不触发自然结束链
+  for (const c of [e.jstdin, e.ffmpeg]) { try { c.kill('SIGTERM') } catch (err) {} }
+  if (e.port) { try { execSync(`pkill -f "jamony-program-${e.port}"`, { timeout: 5000, stdio: 'pipe' }) } catch (err) { /* 无进程正常 */ } }
+}
+
+async function stopProgramByCode(roomCode, broadcast) {
+  try {
+    killProgramEngine(roomCode)
+    await pool.query('UPDATE rooms SET program_state = NULL WHERE room_code = $1', [roomCode])
+    if (broadcast) io.to(roomCode).emit('program-state', { playing: false })
+  } catch (e) { console.error('stopProgram error:', e.message) }
+}
+
+// ffprobe 轨时长（秒，float）；读文件头快；失败返 null 由调用方跳过该轨
+function progProbeDurationSec(fpath) {
+  try {
+    const out = execSync(`ffprobe -v error -show_entries format=duration -of csv=p=0 "${fpath}"`, { timeout: 5000, stdio: ['pipe', 'pipe', 'ignore'] }).toString().trim()
+    const d = parseFloat(out)
+    return Number.isFinite(d) && d > 0 ? d : null
+  } catch (e) { return null }
+}
+
+// 起播：混音快照烤进 ffmpeg 命令（volume 0-100→0-1，mute=0；normalize=0 不自动衰减）
+function startProgramPlayback(roomCode, port, prog, startMs, totalMs) {
+  killProgramEngine(roomCode)
+  const progName = `jamony-program-${port}`  // JACK 命名契约（reference-jack-naming-formula 新成员）
+  const ghostL = `jamsoul-${port} jamony-looper:input left`
+  const ghostR = `jamsoul-${port} jamony-looper:input right`
+  const parts = ['ffmpeg', '-v', 'error', '-nostdin']
+  if (startMs > 0) parts.push('-ss', (startMs / 1000).toFixed(3))
+  for (const t of prog.tracks) parts.push('-i', path.join(programsDir, roomCode, t.file))
+  const fc = prog.tracks.map((t, i) => {
+    const muted = prog.mix.mutes.includes(t.id)
+    const vol = (Number(prog.mix.vols[t.id]) || 0) / 100
+    return `[${i}:a]volume=${muted ? '0' : vol.toFixed(3)}[a${i}]`
+  })
+  fc.push(`${prog.tracks.map((_, i) => `[a${i}]`).join('')}amix=inputs=${prog.tracks.length}:duration=longest:normalize=0,` +
+    `aformat=sample_fmts=fltp,aresample=48000:first_pts=0,aformat=sample_fmts=s16:channel_layouts=stereo[out]`)
+  parts.push('-filter_complex', fc.join(';'), '-map', '[out]', '-f', 's16le', '-c:a', 'pcm_s16le', '-')
+  const ffmpeg = spawn(parts[0], parts.slice(1), { stdio: ['ignore', 'pipe', 'pipe'] })
+  let errTail = ''
+  ffmpeg.stderr.on('data', d => { if (errTail.length < 500) errTail += String(d) })
+  ffmpeg.on('exit', (code) => {
+    const e = programEngines.get(roomCode)
+    if (e && e.ffmpeg === ffmpeg && code !== 0 && code !== null) {
+      console.error(`Program ffmpeg ${roomCode} exit=${code}: ${errTail.trim().slice(-200)}`)
+    }
+  })
+  const jstdin = spawn('jack-stdin', ['-q', '-n', progName, '-b', '16', ghostL, ghostR], { stdio: ['pipe', 'ignore', 'ignore'] })
+  ffmpeg.stdout.pipe(jstdin.stdin)
+  jstdin.stdin.on('error', () => {})  // EPIPE 静默（对端先退，main.js 同款教训）
+  const engine = { ffmpeg, jstdin, port, prog, spawnedAt: Date.now(), portAt: null, totalMs, startMs }
+  programEngines.set(roomCode, engine)
+  // 端口轮询（GP 同款 100ms×50）：见端口=记 portAt（时间线零点）；5s 未现=起播失败清理
+  let polls = 0
+  const pollPort = () => {
+    polls++
+    const e = programEngines.get(roomCode)
+    if (!e || e.jstdin !== jstdin) return
+    let visible = false
+    try { execSync(`jack_lsp | grep -q "^${progName}:"`, { stdio: 'ignore' }); visible = true } catch (err) {}
+    if (visible) { e.portAt = Date.now(); return }
+    if (polls < 50) setTimeout(pollPort, 100)
+    else {
+      console.error(`Program start ${roomCode} JACK 端口未出现（ghost 未起或 jack-stdin 退出）`)
+      stopProgramByCode(roomCode, true).catch(() => {})
+    }
+  }
+  setTimeout(pollPort, 100)
+  // 自然结束：jstdin 退出且引擎仍在 map（非 kill）= 播完到尾 → 清状态广播停
+  jstdin.on('exit', () => {
+    const e = programEngines.get(roomCode)
+    if (e && e.jstdin === jstdin) stopProgramByCode(roomCode, true).catch(() => {})
+  })
+  return engine
+}
+
+async function waitProgramPort(roomCode, maxMs) {
+  const t0 = Date.now()
+  while (Date.now() - t0 < maxMs) {
+    await new Promise(r => setTimeout(r, 250))
+    const e = programEngines.get(roomCode)
+    if (e && e.portAt) return true
+  }
+  const e = programEngines.get(roomCode)
+  return !!(e && e.portAt)
+}
+
 // 校验用户是否某房间房主（rooms.host_id === userId），按 room_code 查
 async function isRoomHost(userId, roomCode) {
   const r = await pool.query("SELECT host_id FROM rooms WHERE UPPER(room_code)=UPPER($1)", [roomCode])
@@ -4214,6 +4524,105 @@ io.on("connection", (socket) => {
     io.to(roomId).emit("gp-range", { range: score.range ?? null })
   })
 
+  /* ========== program 背景轨走带事件（1015）：play/pause/stop/mix，广播走 program-state/update ========== */
+  socket.on("program-play", async (data) => {
+    const { roomId } = data || {}
+    const startMs = Math.max(0, Math.min(Number(data?.startMs) || 0, 3600 * 1000))
+    if (!roomId || !socket.userId) return
+    if (!(await isRoomMusician(socket.userId, roomId))) return
+    if (programInflight.has(roomId)) return
+    programInflight.set(roomId, setTimeout(() => programInflight.delete(roomId), 15000))
+    const fail = (msg) => { clearTimeout(programInflight.get(roomId)); programInflight.delete(roomId); socket.emit('program-error', { msg }); io.to(roomId).emit('program-state', { playing: false }) }
+    const r = await pool.query('SELECT server_port, current_program FROM rooms WHERE room_code = $1', [roomId])
+    const row = r.rows[0]
+    const prog = progSanitize(progRead(row))
+    if (!row || !row.server_port) { fail('房间服务未就绪'); return }
+    if (!prog.tracks.length) { fail('还没有伴奏轨，先上传'); return }
+    // ghost 前置检查（jack-stdin 连不上目标端口会直接退；fluidsynth 有接线重试，这里必须显式拦）
+    const port = row.server_port
+    try { execSync(`jack_lsp | grep -q "jamsoul-${port} jamony-looper:input left"`, { stdio: 'ignore' }) } catch (e) { fail('合奏服务未就绪，稍等再试'); return }
+    // 轨时长：上传时已算好（1016）；存量/异常缺失才现测兜底+回写（最长轨=时间轴总长）
+    let totalMs = Number(prog.totalMs) || 0
+    if (!(totalMs > 0)) {
+      for (const t of prog.tracks) {
+        const dur = progProbeDurationSec(path.join(programsDir, roomId, t.file))
+        if (dur == null) { fail(`轨「${t.name}」读取失败，请删除后重新上传`); return }
+        totalMs = Math.max(totalMs, Math.round(dur * 1000))
+      }
+      prog.totalMs = totalMs
+      await pool.query('UPDATE rooms SET current_program = $1 WHERE room_code = $2', [JSON.stringify(prog), roomId]).catch(() => {})
+    }
+    if (startMs >= totalMs) { clearTimeout(programInflight.get(roomId)); programInflight.delete(roomId); socket.emit('program-error', { msg: '已到曲尾' }); io.to(roomId).emit('program-state', { playing: false }); return }
+    const engine = startProgramPlayback(roomId, port, prog, startMs, totalMs)
+    const portUp = await waitProgramPort(roomId, 8000)
+    clearTimeout(programInflight.get(roomId)); programInflight.delete(roomId)
+    if (!portUp) { console.error('program play: port not up', roomId); return }  // pollPort 失败路径已清理+广播
+    // 零点=portAt（JACK 端口出现=出声前一刻；prebuffer 常数残差走实测校准，GP 三段账同款哲学）
+    const eng = programEngines.get(roomId)
+    const t0 = eng && eng.portAt ? eng.portAt : Date.now()
+    if (eng && eng.spawnedAt) console.log(`Program play ${roomId} port ${port} from ${startMs}ms total ${totalMs}ms 时间线: spawn→port=${t0 - eng.spawnedAt}ms`)
+    const st = { playing: true, startedAt: new Date(t0).toISOString(), startMs: Math.round(startMs), totalMs }
+    try { await pool.query('UPDATE rooms SET program_state = $1 WHERE room_code = $2', [JSON.stringify(st), roomId]) } catch (e) {}
+    io.to(roomId).emit('program-state', st)
+  })
+
+  socket.on("program-pause", async (data) => {
+    const { roomId } = data || {}
+    if (!roomId || !socket.userId) return
+    if (!(await isRoomMusician(socket.userId, roomId))) return
+    await stopProgramByCode(roomId, true)  // 位置由下次点播者定（GP pause 同语义；前端 mini 条本地记指针）
+  })
+
+  socket.on("program-stop", async (data) => {
+    const { roomId } = data || {}
+    if (!roomId || !socket.userId) return
+    if (!(await isRoomMusician(socket.userId, roomId))) return
+    await stopProgramByCode(roomId, true)
+  })
+
+  // 混音实时同步（1014 拍板②：暂停态谁动全屋可见；播放中=重启渲染续播，GP 重烤 respawn 同款）
+  socket.on("program-mix", async (data) => {
+    const { roomId, mix } = data || {}
+    if (!roomId || !socket.userId) return
+    if (!(await isRoomMusician(socket.userId, roomId))) return
+    const r = await pool.query('SELECT current_program, program_state FROM rooms WHERE room_code = $1', [roomId])
+    const row = r.rows[0]
+    if (!row) return
+    const prog = progSanitize(progRead(row))
+    if (!prog.tracks.length) return
+    // 合并清洗：形状约束同 sanitizeGpMix（后动作胜出）
+    if (mix && typeof mix === 'object') {
+      if (mix.vols && typeof mix.vols === 'object') {
+        for (const t of prog.tracks) {
+          const v = Number(mix.vols[t.id])
+          if (Number.isFinite(v)) prog.mix.vols[t.id] = Math.max(0, Math.min(100, Math.round(v)))
+        }
+      }
+      if (Array.isArray(mix.mutes)) {
+        const ids = new Set(prog.tracks.map(t => t.id))
+        prog.mix.mutes = [...new Set(mix.mutes.filter(m => ids.has(m)))]
+      }
+    }
+    await pool.query('UPDATE rooms SET current_program = $1 WHERE room_code = $2', [JSON.stringify(prog), roomId])
+    const eng = programEngines.get(roomId)
+    let st = null
+    try { st = row.program_state ? JSON.parse(row.program_state) : null } catch (e) {}
+    if (eng && st && st.playing) {
+      // 播放中：kill+带当前位置重 spawn（-ss 续播）；新零点=新 portAt
+      const curMs = Math.round(st.startMs + (Date.now() - new Date(st.startedAt).getTime()))
+      const resumeMs = Math.max(0, Math.min(curMs, eng.totalMs - 1))
+      const engine2 = startProgramPlayback(roomId, eng.port, prog, resumeMs, eng.totalMs)
+      const portUp = await waitProgramPort(roomId, 8000)
+      if (portUp) {
+        const t0 = engine2.portAt || Date.now()
+        const st2 = { playing: true, startedAt: new Date(t0).toISOString(), startMs: resumeMs, totalMs: eng.totalMs }
+        await pool.query('UPDATE rooms SET program_state = $1 WHERE room_code = $2', [JSON.stringify(st2), roomId]).catch(() => {})
+        io.to(roomId).emit('program-state', st2)
+      }
+    }
+    io.to(roomId).emit('program-update', { program: prog })  // 暂停态参数全屋可见（方案拍板②）
+  })
+
   socket.on("disconnect", async () => {
     console.log("Socket disconnected, userId:", socket.userId)
     if (!socket.userId) return
@@ -4295,7 +4704,9 @@ app.post('/api/users/:userId/leave-all-rooms', requireAuth, async (req, res) => 
           try { execSync(`rm -rf /var/jamony/recordings/room-${closePort2}-records/`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve rm recordings ' + closePort2 + ':', e.message) }
           try { execSync(`rm -rf "/var/jamony/scores/${dissolveCode}"`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve rm scores ' + dissolveCode + ':', e.message) }  // 10-07 投谱=房间物料，随房清
           try { await pool.query('DELETE FROM room_scores WHERE room_code = $1', [dissolveCode]) } catch (e) { console.error('dissolve rm score shelf ' + dissolveCode + ':', e.message) }  // ⑥-3 谱架册随房清
+          try { execSync(`rm -rf "/var/jamony/programs/${dissolveCode}"`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve rm programs ' + dissolveCode + ':', e.message) }  // 1015 program 轨=房间物料，随房清
           await stopGpByCode(dissolveCode)  // 10-07 GP走带随房停
+          await stopProgramByCode(dissolveCode, false)  // 1015 program 走带随房停
           try {
             const gs = JSON.parse(fs.readFileSync('/var/lib/jamony/ghost.json', 'utf8').toString() || '{}')
             const ent = gs[String(closePort2)]

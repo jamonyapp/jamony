@@ -6,6 +6,12 @@ import type { GpMix, RoomScore } from "@/lib/jam-data"
 
 export type GpState = { playing: boolean; startedAt?: string; startMs?: number; speed?: number; countInMs?: number; endMs?: number }
 
+// program 背景轨（1015）：物料（轨+混音快照）与走带态分离——对照 current_score/gp_state 双通道模式
+export type ProgramTrack = { id: string; name: string; file: string; size: number; uploadedBy: number; uploadedByName: string }
+export type ProgramMix = { vols: Record<string, number>; mutes: string[] }
+export type ProgramData = { tracks: ProgramTrack[]; mix: ProgramMix; totalMs?: number } | null
+export type ProgramState = { playing: boolean; startedAt?: string; startMs?: number; totalMs?: number }
+
 export type ChatMessage = {
   id: string
   author: string
@@ -23,6 +29,9 @@ export function useChatSocket(roomId?: string, nickname?: string) {
   const [realtimeTheme, setRealtimeTheme] = useState<string>("")
   const [realtimeScore, setRealtimeScore] = useState<RoomScore | null>(null)
   const [realtimeGpState, setRealtimeGpState] = useState<GpState | null>(null)
+  const [realtimeProgram, setRealtimeProgram] = useState<ProgramData>(null)
+  const [realtimeProgramState, setRealtimeProgramState] = useState<ProgramState | null>(null)
+  const [programError, setProgramError] = useState<{ msg: string; ts: number } | null>(null)
   const [realtimeBpm, setRealtimeBpm] = useState<number>(0)
   const [realtimeMembers, setRealtimeMembers] = useState<any[]>([])
   const [realtimeHostId, setRealtimeHostId] = useState<number | null>(null)
@@ -66,6 +75,19 @@ export function useChatSocket(roomId?: string, nickname?: string) {
 
     socket.on("gp-state", (data: GpState) => {
       setRealtimeGpState(data)
+    })
+
+    // program 背景轨（1015）：物料/走带双通道 + 错误反馈（起播失败原因直接弹给点播者）
+    socket.on("program-update", (data: { program: ProgramData }) => {
+      setRealtimeProgram(data.program ?? null)
+    })
+
+    socket.on("program-state", (data: ProgramState) => {
+      setRealtimeProgramState(data)
+    })
+
+    socket.on("program-error", (data: { msg: string }) => {
+      if (data && data.msg) setProgramError({ msg: data.msg, ts: Date.now() })
     })
 
     // GP 调音台（10-09 步骤②）：房级混音广播，后动作胜出；合并进当前谱（必新对象，同值跳过坑）
@@ -171,6 +193,19 @@ export function useChatSocket(roomId?: string, nickname?: string) {
 
   const playGp = (startMs?: number) => { if (!socketRef.current || !roomId) return; socketRef.current.emit("gp-play", { roomId, startMs: Math.max(0, Math.round(startMs ?? 0)) }) }
   const pauseGp = () => { if (!socketRef.current || !roomId) return; socketRef.current.emit("gp-pause", { roomId }) }
+
+  // program 背景轨走带（1015）：pause=服务器杀进程位置由下次点播定（GP pause 同语义，前端 mini 条本地记指针）
+  const playProgram = (startMs?: number) => { if (!socketRef.current || !roomId) return; socketRef.current.emit("program-play", { roomId, startMs: Math.max(0, Math.round(startMs ?? 0)) }) }
+  const pauseProgram = () => { if (!socketRef.current || !roomId) return; socketRef.current.emit("program-pause", { roomId }) }
+  const stopProgram = () => { if (!socketRef.current || !roomId) return; socketRef.current.emit("program-stop", { roomId }) }
+  // 混音实时同步（1014 拍板②）：乐观本地+广播（滑条组件侧节流后调用）
+  const updateProgramMix = (mix: ProgramMix) => {
+    if (!socketRef.current || !roomId) return
+    socketRef.current.emit("program-mix", { roomId, mix })
+    setRealtimeProgram((prev) => (prev ? { ...prev, mix } : prev))
+  }
+  // 水合（强刷/后进）：照 hydrateScore 模式喂单一真相源
+  const hydrateProgram = (program: ProgramData, state: ProgramState | null) => { setRealtimeProgram(program); setRealtimeProgramState(state) }
   // GP 调音台：乐观本地+广播（滑条由组件侧节流后调用，这里即时发）
   const updateGpMix = (mix: GpMix) => {
     if (!socketRef.current || !roomId) return
@@ -217,5 +252,5 @@ export function useChatSocket(roomId?: string, nickname?: string) {
     setRealtimeScore(null)
   }
 
-  return { messages, sendMessage, connected, realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, hydrateScore, realtimeScore, realtimeGpState, playGp, pauseGp, updateGpMix, setGpSpeed, setGpCountin, setGpLoop, setGpRange, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, kickedEvent, dissolvedEvent }
+  return { messages, sendMessage, connected, realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, hydrateScore, realtimeScore, realtimeGpState, playGp, pauseGp, updateGpMix, setGpSpeed, setGpCountin, setGpLoop, setGpRange, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, kickedEvent, dissolvedEvent, realtimeProgram, realtimeProgramState, programError, playProgram, pauseProgram, stopProgram, updateProgramMix, hydrateProgram }
 }

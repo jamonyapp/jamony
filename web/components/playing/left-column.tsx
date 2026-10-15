@@ -13,8 +13,11 @@ import {
   generateProgression,
   type RoomScore,
 } from "@/lib/jam-data"
+import { ProgramPanel } from "@/components/playing/program-tool"
+import { HoverName } from "@/components/playing/hover-fullname"
+import type { ProgramData, ProgramMix, ProgramState } from "@/lib/chat-socket"
 
-type Tool = "chords" | "drums" | "score"
+type Tool = "chords" | "drums" | "score" | "program"
 
 export function LeftColumn({
   onPushChord,
@@ -34,6 +37,13 @@ export function LeftColumn({
   currentScore,
   onPushScore,
   onClearScore,
+  program,
+  programState,
+  programError,
+  onOpenProgramMixer,
+  onProgramPlay,
+  onProgramPause,
+  onProgramStop,
 }: {
   onPushChord: (chords: string[], style: string) => void
   onPushTheme: (theme: string) => void
@@ -52,6 +62,13 @@ export function LeftColumn({
   currentScore?: RoomScore | null
   onPushScore: (score: RoomScore) => void
   onClearScore: () => void
+  program: ProgramData
+  programState: ProgramState | null
+  programError: { msg: string; ts: number } | null
+  onOpenProgramMixer: () => void
+  onProgramPlay: (startMs?: number) => void
+  onProgramPause: () => void
+  onProgramStop: () => void
 }) {
   const [tool, setTool] = useState<Tool>("drums")  // 默认鼓机（使用概率高于灵感进程，欢哥 2026-09-23 定）
   const [style, setStyle] = useState<string>(CHORD_STYLES[0])
@@ -145,7 +162,7 @@ export function LeftColumn({
           <label className="mt-2 flex flex-col gap-1">
             <span className="text-xs" style={{ color: "#8A8A8A" }}>选择工具</span>
             <FilterSelect variant="compact" label="选择工具" value={tool} onChange={(v) => setTool(v as Tool)}
-              options={[{ value: "drums", label: "🥁 鼓机" }, { value: "score", label: "📄 乐谱共享" }, { value: "chords", label: "💡 灵感进程" }]} />
+              options={[{ value: "drums", label: "🥁 鼓机" }, { value: "score", label: "📄 乐谱共享" }, { value: "program", label: "🎧 Program" }, { value: "chords", label: "💡 灵感进程" }]} />
           </label>
 
           <div className="mt-2 min-h-0 flex-1 overflow-y-auto scrollbar-thin">
@@ -192,6 +209,10 @@ export function LeftColumn({
                   <ScorePanel roomId={params?.code as string} currentScore={currentScore ?? null} onPushScore={onPushScore} />
                 </div>
               </div>
+            ) : tool === "program" ? (
+              <ProgramPanel roomId={params?.code as string} program={program} progState={programState} error={programError}
+                canOperate={myRole === "musician"} onOpenMixer={onOpenProgramMixer}
+                playProgram={onProgramPlay} pauseProgram={onProgramPause} stopProgram={onProgramStop} />
             ) : (
               <DrumMachineTool roomId={params?.code as string} realtimeBpm={realtimeBpm || 0} />
             )}
@@ -475,7 +496,24 @@ function ScorePanel({ roomId, currentScore, onPushScore }: {
     setError(""); setHint(`已投屏：${item.name}`)
   }
 
-    // 垃圾桶=删它所在的那一行（1013 修复：旧版删"当前选中行"，直接点行内垃圾桶时无选中态=静默不动）
+    // 清空整个谱架（1016 欢哥：乐谱共享三按钮"上传/清空/投屏"——批量删+投屏内容随删收回）
+  const clearShelf = async () => {
+    if (!roomId || items.length === 0) return
+    if (!confirm("清空谱架全部乐谱？")) return
+    setError(""); setHint("")
+    try {
+      const res = await fetch(`/api/rooms/${roomId}/score/shelf`, { method: "DELETE" })
+      const data = await res.json()
+      if (!data.ok) { setError(data.msg || "清空失败"); return }
+      setSelected(null)
+      setHint(`已清空 ${data.removed ?? 0} 份`)
+      load()
+    } catch {
+      setError("清空失败，请重试")
+    }
+  }
+
+  // 垃圾桶=删它所在的那一行（1013 修复：旧版删"当前选中行"，直接点行内垃圾桶时无选中态=静默不动）
   const handleDeleteFor = (item: ShelfItem) => {
     // 正投屏中的谱删除前先过闸（1013 欢哥定稿：弹窗"删除将终止投屏"，返回/删除二选一）
     const projecting = !!currentScore && Array.isArray(currentScore.files) && item.files.some(u => currentScore.files!.includes(u))
@@ -507,18 +545,23 @@ function ScorePanel({ roomId, currentScore, onPushScore }: {
 
   return (
     <div className="flex h-full flex-col gap-2 py-1">
-      {/* 双按钮：上传 + 投屏（对选中项生效） */}
+      {/* 三按钮：上传 + 清空 + 投屏（1016 欢哥，对齐 Program 三键节奏；投屏对选中项生效） */}
       <input ref={fileInputRef} type="file" multiple hidden accept={ACCEPT} onChange={handlePick} />
-      <div className="grid shrink-0 grid-cols-2 gap-2">
+      <div className="grid shrink-0 grid-cols-3 gap-2">
         <button onClick={() => fileInputRef.current?.click()} disabled={uploading}
           className="rounded-[6px] border py-1.5 text-xs font-medium transition-colors hover:bg-white/5 disabled:opacity-50"
           style={{ borderColor: "#3A3A3A", color: "#E0E0E0" }}>
-          {uploading ? "上传中…" : "⬆ 上传乐谱"}
+          {uploading ? "上传中…" : "⬆ 上传"}
+        </button>
+        <button onClick={clearShelf} disabled={uploading || items.length === 0}
+          className="rounded-[6px] border py-1.5 text-xs font-medium transition-colors hover:bg-white/5 disabled:opacity-50"
+          style={{ borderColor: "#3A3A3A", color: "#E0E0E0" }}>
+          清空
         </button>
         <button onClick={handleStage}
           className="rounded-[6px] py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-40"
           style={{ background: "#9933FF" }} disabled={!sel || sel.type === "notation"}>
-          投屏乐谱
+          投屏
         </button>
       </div>
       {/* 1013 欢哥定稿：一行不折（MusicXML 等长词由文件对话框过滤+报错承担，这里只留代表性枚举） */}
@@ -532,23 +575,18 @@ function ScorePanel({ roomId, currentScore, onPushScore }: {
           <p className="px-3 py-4 text-center text-[11px] leading-relaxed" style={{ color: "#8A8A8A" }}>
             谱架空着<br />上传的乐谱都在这里，选中即可投屏
           </p>
-        ) : items.map(it => (
+        ) : items.map((it, idx) => (
           <div key={it.id}
             onClick={() => { setSelected(it.id === selected ? null : it.id); setError(""); setHint("") }}
-            title={it.type === "notation" ? "西贝柳斯/MuseScore 文件：可下载，投屏请在本地打开" : "点击选中，再按「投屏乐谱」上大屏"}
-            className={`flex cursor-pointer items-center gap-1.5 border-b px-2 py-1.5 transition-colors last:border-b-0 ${it.id === selected ? "bg-white/10" : "hover:bg-white/5"}`}
+            className={`group relative flex cursor-pointer items-center gap-1.5 border-b px-2 py-1.5 transition-colors last:border-b-0 ${it.id === selected ? "bg-white/10" : "hover:bg-white/5"}`}
             style={{ borderColor: "#222" }}>
             <span className="shrink-0 text-sm">{typeIcon(it.type)}</span>
-            <div className="min-w-0 flex-1">
-              {/* 1013 欢哥定稿：名字带后缀显示（确切格式一眼识别）；超长名=名字段截断省略、后缀钉死行尾 */}
-              <p className={`flex items-baseline ${it.id === selected ? "font-medium text-white" : "text-white/80"}`}>
-                <span className="min-w-0 truncate text-[11px]">{it.name}</span>
-                <span className="shrink-0 text-[10px]">{extOf(it.files)}</span>
-              </p>
+            <HoverName full={`${it.name}${extOf(it.files)}`} base={it.name} ext={extOf(it.files)} first={idx === 0}
+              wrapClass={`flex items-baseline ${it.id === selected ? "font-medium text-white" : "text-white/80"}`}>
               <p className="truncate text-[10px]" style={{ color: "#6A6A6A" }}>
                 {it.by}{it.by ? " · " : ""}{new Date(it.at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
               </p>
-            </div>
+            </HoverName>
             <a href={`/api/rooms/${roomId}/score/download/${it.id}`} title="下载" onClick={e => e.stopPropagation()}
               className="grid size-6 shrink-0 place-items-center rounded-[6px] text-white/45 transition-colors hover:bg-white/10 hover:text-white">
               <Download className="size-3" />

@@ -6,6 +6,7 @@ import { TopNav } from "@/components/jamony/top-nav"
 import { LeftColumn } from "@/components/playing/left-column"
 import { CenterColumn } from "@/components/playing/center-column"
 import { RightColumn } from "@/components/playing/right-column"
+import { ProgramStage } from "@/components/playing/program-tool"
 import { DisconnectDialog } from "@/components/playing/disconnect-dialog"
 import { KickConfirmDialog } from "@/components/playing/kick-confirm-dialog"
 import { KickedDialog } from "@/components/playing/kicked-dialog"
@@ -58,7 +59,7 @@ export function PlayingPage() {
   const roomSession = useRoomSession()
   // 10-07 漫游续听：收听音频上移 Provider 全局常驻，listenerActive 为派生值（漫游不断流）
   const listenerActive = roomSession.listening != null
-  const { realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, hydrateScore, realtimeScore, realtimeGpState, playGp, pauseGp, updateGpMix, setGpSpeed, setGpCountin, setGpLoop, setGpRange, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, kickedEvent, dissolvedEvent } = useChatSocket(params?.code as string, user?.nickname)
+  const { realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, hydrateScore, realtimeScore, realtimeGpState, playGp, pauseGp, updateGpMix, setGpSpeed, setGpCountin, setGpLoop, setGpRange, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, kickedEvent, dissolvedEvent, realtimeProgram, realtimeProgramState, programError, playProgram, pauseProgram, stopProgram, updateProgramMix, hydrateProgram } = useChatSocket(params?.code as string, user?.nickname)
   const [room, setRoom] = useState<RoomData | null>(null)
   const [showShareHint, setShowShareHint] = useState(false)
   // 建房跳转带 ?new=1 → 弹分享引导窗（room 加载完才弹），并清掉 query 避免刷新重复弹
@@ -95,6 +96,9 @@ export function PlayingPage() {
   const [confirmTarget, setConfirmTarget] = useState<"stay" | "home" | "lobby">("stay")
   const pendingSwitchRef = useRef(false) // v3 — 监听→合奏切换：Icecast 停干净后再启动 jamsoul
   const killingRef = useRef(false) // 主动杀 jamsoul 标记（doDisconnect 主动杀时 true，jamsoul-exited 不重复 alert）
+
+  // program 背景轨混音器（1015 建，1016 改）：全屏弹层开关——浮窗 mini 已废，走带条常驻左栏（ProgramTransportBar）
+  const [programMixerOpen, setProgramMixerOpen] = useState(false)
 
   // 踢人相关：房主踢人确认 + 自己被踢通知
   const [kickTarget, setKickTarget] = useState<{ user_id: number; nickname: string } | null>(null)
@@ -178,6 +182,14 @@ export function PlayingPage() {
             try { hydrateScore(JSON.parse(data.room.current_score)) } catch (e) { /* 脏数据忽略 */ }
           }
           if (data.room.gp_state) { try { setGpState(JSON.parse(data.room.gp_state)) } catch (e) {} }
+          // program 背景轨水合（1015）：物料/走带双通道，照 current_score/gp_state 模式
+          if (data.room.current_program || data.room.program_state) {
+            let prog = null
+            try { prog = data.room.current_program ? JSON.parse(data.room.current_program) : null } catch (e) {}
+            let pState = null
+            try { pState = data.room.program_state ? JSON.parse(data.room.program_state) : null } catch (e) {}
+            hydrateProgram(prog, pState)
+          }
 
           // 仅合奏者自动调起 jamsoul
           if (role === "musician") {
@@ -430,6 +442,13 @@ export function PlayingPage() {
             currentScore={score}
             onPushScore={pushScore}
             onClearScore={handleClearScore}
+            program={realtimeProgram}
+            programState={realtimeProgramState}
+            programError={programError}
+            onOpenProgramMixer={() => setProgramMixerOpen(true)}
+            onProgramPlay={playProgram}
+            onProgramPause={pauseProgram}
+            onProgramStop={stopProgram}
           />
         </div>
         <div className="min-h-0 border-b lg:border-b-0 lg:border-r" style={{ borderColor: "#1A1A1A" }}>
@@ -463,6 +482,20 @@ export function PlayingPage() {
           <RightColumn roomId={params?.code as string} room={room} refreshTrigger={refreshTrigger} realtimeMembers={realtimeMembers} currentUserId={user?.id} hostId={effectiveHostId} onKick={(m) => { setKickTarget({ user_id: m.user_id, nickname: m.nickname }); setKickOpen(true) }} />
         </div>
       </div>
+
+      {/* program 背景轨混音器（1015 建，1016 改）：全屏弹层，轨被清空自动消失；常驻走带条在左栏 */}
+      <ProgramStage
+        roomId={params?.code as string}
+        program={realtimeProgram}
+        progState={realtimeProgramState}
+        open={programMixerOpen}
+        canOperate={myRole === "musician"}
+        onClose={() => setProgramMixerOpen(false)}
+        playProgram={playProgram}
+        pauseProgram={pauseProgram}
+        stopProgram={stopProgram}
+        updateProgramMix={updateProgramMix}
+      />
 
       {null}
       <DisconnectDialog

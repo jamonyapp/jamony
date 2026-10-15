@@ -37,6 +37,7 @@ export function MixerFullscreen({
   masterClip,
   onMasterVolumeChange,
   onResetMasterClip,
+  icon = "🎸",
   titleLabel = "试听混音",
   footerHint = "你可以在这里试听本次录音，在下方调音台区域进行分轨调整。调整只作用于试听，不影响混音发表。",
 }: MixerFullscreenProps) {
@@ -90,11 +91,11 @@ export function MixerFullscreen({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6"
+      className="fixed inset-0 z-[300] flex items-center justify-center p-3 sm:p-6"
       style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }}
       role="dialog"
       aria-modal="true"
-      aria-label={`${sessionLabel} ${titleLabel}`}
+      aria-label={`${sessionLabel}${titleLabel ? ` ${titleLabel}` : ""}`}
     >
       <div
         className="relative flex max-h-full w-full max-w-6xl flex-col overflow-hidden rounded-2xl"
@@ -110,8 +111,8 @@ export function MixerFullscreen({
           style={{ borderBottom: `1px solid ${MIXER_COLORS.border}` }}
         >
           <h2 className="flex items-center gap-2 text-sm font-semibold" style={{ color: MIXER_COLORS.text }}>
-            <span className="text-lg">🎸</span>
-            {sessionLabel} · {titleLabel}
+            {icon ? <span className="text-lg">{icon}</span> : null}
+            {sessionLabel}{titleLabel ? ` · ${titleLabel}` : ""}
           </h2>
           <div className="flex items-center gap-2">
             <button
