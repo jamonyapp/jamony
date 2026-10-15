@@ -1402,17 +1402,27 @@ function progRead(row) {
   try { return row && row.current_program ? JSON.parse(row.current_program) : null } catch (e) { return null }
 }
 function progSanitize(p) {
-  if (!p || !Array.isArray(p.tracks)) return { tracks: [], mix: { vols: {}, mutes: [] } }
+  if (!p || !Array.isArray(p.tracks)) return { tracks: [], mix: { vols: {}, mutes: [], solos: [], pans: {}, master: 100 } }
   const ids = new Set(p.tracks.map(t => t.id))
+  // vols 上限 200=+6dB 头空间（1016 欢哥拍板对齐录音混音器 DAW 级；amix normalize=0 叠加超 0dB 用户自负，无 limiter）
   const vols = {}
   for (const t of p.tracks) {
     const v = Number(p.mix && p.mix.vols ? p.mix.vols[t.id] : 100)
-    vols[t.id] = Number.isFinite(v) ? Math.max(0, Math.min(100, Math.round(v))) : 100
+    vols[t.id] = Number.isFinite(v) ? Math.max(0, Math.min(200, Math.round(v))) : 100
   }
   const mutes = Array.isArray(p.mix && p.mix.mutes) ? [...new Set(p.mix.mutes.filter(m => ids.has(m)))] : []
+  // solo/pan/master（1016 四功能，对齐录音 useMixerEngine 的 effectiveGain/StereoPanner/masterGain 语义）
+  const solos = Array.isArray(p.mix && p.mix.solos) ? [...new Set(p.mix.solos.filter(m => ids.has(m)))] : []
+  const pans = {}
+  for (const t of p.tracks) {
+    const pv = Number(p.mix && p.mix.pans ? p.mix.pans[t.id] : 0)
+    pans[t.id] = Number.isFinite(pv) ? Math.max(-1, Math.min(1, pv)) : 0
+  }
+  const mRaw = p.mix ? Number(p.mix.master) : NaN
+  const master = Number.isFinite(mRaw) ? Math.max(0, Math.min(200, Math.round(mRaw))) : 100
   // totalMs=最长轨毫秒（1016 欢哥：走带条常驻可点——上传即随物料下发，时间/进度条不待播放即可用）
   const tm = Number(p.totalMs)
-  return { tracks: p.tracks, mix: { vols, mutes }, ...(tm > 0 ? { totalMs: Math.round(tm) } : {}) }
+  return { tracks: p.tracks, mix: { vols, mutes, solos, pans, master }, ...(tm > 0 ? { totalMs: Math.round(tm) } : {}) }
 }
 // 算最长轨毫秒（上传/删轨时写进 current_program；探测失败返 0 由 play 兜底现测）
 function progCalcTotalMs(code, tracks) {
@@ -4147,12 +4157,26 @@ function startProgramPlayback(roomCode, port, prog, startMs, totalMs) {
   const parts = ['ffmpeg', '-v', 'error', '-nostdin']
   if (startMs > 0) parts.push('-ss', (startMs / 1000).toFixed(3))
   for (const t of prog.tracks) parts.push('-i', path.join(programsDir, roomCode, t.file))
+  // 每轨链（1016 四功能，对齐录音混音器 DAW 语义）：
+  //   effectiveGain=有 solo 只放 solo 轨、否则看 mute（useMixerEngine 同款规则）；
+  //   pan=linear balance（pan=0 完全直通无衰减无串音；p>0 衰左/p<0 衰右；mono 先立体声化）；
+  //   master=amix 后总 gain（0-200/100，同推子口径）
+  const hasSolo = prog.mix.solos.length > 0
   const fc = prog.tracks.map((t, i) => {
+    const soloed = prog.mix.solos.includes(t.id)
     const muted = prog.mix.mutes.includes(t.id)
-    const vol = (Number(prog.mix.vols[t.id]) || 0) / 100
-    return `[${i}:a]volume=${muted ? '0' : vol.toFixed(3)}[a${i}]`
+    const audible = hasSolo ? soloed : !muted
+    const vol = audible ? (Number(prog.mix.vols[t.id]) || 0) / 100 : 0
+    const p = Number.isFinite(prog.mix.pans[t.id]) ? prog.mix.pans[t.id] : 0
+    const lc = 1 - Math.max(0, p)
+    const rc = 1 - Math.max(0, -p)
+    const panPart = Math.abs(p) < 0.001
+      ? '' : `,pan=stereo|c0<${lc.toFixed(3)}*c0|c1<${rc.toFixed(3)}*c1`  // ⚠️pan 滤镜系数必须在通道名前（0.7*c0 合法、c0*0.7 语法错——1016 干跑定罪）
+    return `[${i}:a]aformat=channel_layouts=stereo,volume=${vol.toFixed(3)}${panPart}[a${i}]`
   })
-  fc.push(`${prog.tracks.map((_, i) => `[a${i}]`).join('')}amix=inputs=${prog.tracks.length}:duration=longest:normalize=0,` +
+  const mGain = (Number(prog.mix.master) || 100) / 100
+  const masterPart = Math.abs(mGain - 1) < 0.001 ? '' : `,volume=${mGain.toFixed(3)}`
+  fc.push(`${prog.tracks.map((_, i) => `[a${i}]`).join('')}amix=inputs=${prog.tracks.length}:duration=longest:normalize=0${masterPart},` +
     `aformat=sample_fmts=fltp,aresample=48000:first_pts=0,aformat=sample_fmts=s16:channel_layouts=stereo[out]`)
   parts.push('-filter_complex', fc.join(';'), '-map', '[out]', '-f', 's16le', '-c:a', 'pcm_s16le', '-')
   const ffmpeg = spawn(parts[0], parts.slice(1), { stdio: ['ignore', 'pipe', 'pipe'] })
@@ -4590,18 +4614,30 @@ io.on("connection", (socket) => {
     if (!row) return
     const prog = progSanitize(progRead(row))
     if (!prog.tracks.length) return
-    // 合并清洗：形状约束同 sanitizeGpMix（后动作胜出）
+    // 合并清洗：形状约束同 sanitizeGpMix（后动作胜出）；1016 四功能加 solos/pans/master
     if (mix && typeof mix === 'object') {
       if (mix.vols && typeof mix.vols === 'object') {
         for (const t of prog.tracks) {
           const v = Number(mix.vols[t.id])
-          if (Number.isFinite(v)) prog.mix.vols[t.id] = Math.max(0, Math.min(100, Math.round(v)))
+          if (Number.isFinite(v)) prog.mix.vols[t.id] = Math.max(0, Math.min(200, Math.round(v)))
         }
       }
       if (Array.isArray(mix.mutes)) {
         const ids = new Set(prog.tracks.map(t => t.id))
         prog.mix.mutes = [...new Set(mix.mutes.filter(m => ids.has(m)))]
       }
+      if (Array.isArray(mix.solos)) {
+        const ids2 = new Set(prog.tracks.map(t => t.id))
+        prog.mix.solos = [...new Set(mix.solos.filter(m => ids2.has(m)))]
+      }
+      if (mix.pans && typeof mix.pans === 'object') {
+        for (const t of prog.tracks) {
+          const pv = Number(mix.pans[t.id])
+          if (Number.isFinite(pv)) prog.mix.pans[t.id] = Math.max(-1, Math.min(1, pv))
+        }
+      }
+      const mG = Number(mix.master)
+      if (Number.isFinite(mG)) prog.mix.master = Math.max(0, Math.min(200, Math.round(mG)))
     }
     await pool.query('UPDATE rooms SET current_program = $1 WHERE room_code = $2', [JSON.stringify(prog), roomId])
     const eng = programEngines.get(roomId)

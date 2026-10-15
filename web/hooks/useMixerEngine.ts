@@ -339,15 +339,28 @@ export function useMixerEngine() {
     if (masterGainRef.current) masterGainRef.current.gain.value = value
   }, [])
 
+  // M/S 同轨互斥（1016 欢哥：DAW 惯例对齐 program 混音器——开 M 自动解除该轨 S、反之亦然）
   const handleMute = useCallback((id: string, muted: boolean) => {
     mutesRef.current[id] = muted
+    if (muted && solosRef.current[id]) {
+      solosRef.current[id] = false
+      setSolos(prev => ({ ...prev, [id]: false }))
+    }
     setMutes(prev => ({ ...prev, [id]: muted }))
-    const gain = gainNodesRef.current.get(id)
-    if (gain && isPlayingRef.current) gain.gain.value = effectiveGain(id)
+    // 全轨刷 gain：互斥可能改变 solo 集合（hasSolo 翻转影响所有轨的 effectiveGain）
+    if (isPlayingRef.current) {
+      gainNodesRef.current.forEach((gain, gid) => {
+        gain.gain.value = effectiveGain(gid)
+      })
+    }
   }, [effectiveGain])
 
   const handleSolo = useCallback((id: string, soloed: boolean) => {
     solosRef.current[id] = soloed
+    if (soloed && mutesRef.current[id]) {
+      mutesRef.current[id] = false
+      setMutes(prev => ({ ...prev, [id]: false }))
+    }
     setSolos(prev => ({ ...prev, [id]: soloed }))
     if (isPlayingRef.current) {
       gainNodesRef.current.forEach((gain, gid) => {

@@ -123,24 +123,65 @@ export function ProgramStage(props: {
   const totalMs = progState?.totalMs || Math.max(0, ...mixerTracks.map(t => t.duration * 1000), 0)
   const playing = !!(progState && progState.playing)
 
+  const mix = program?.mix || { vols: {}, mutes: [], solos: [], pans: {}, master: 100 }
+  const solos = mix.solos || []
+  const pans = mix.pans || {}
+  const masterGain = (mix.master ?? 100) / 100
+  const hasSolo = solos.length > 0
+
+  // 消波锁存（1016 四功能：对齐录音混音器——峰值≥1(0dBFS) 灯亮锁存，手动点灭；伪电平源=peaks，ref 防闭包）
+  const [clips, setClips] = useState<Record<string, boolean>>({})
+  const [masterClip, setMasterClip] = useState(false)
+  const clipsRef = useRef<Record<string, boolean>>({})
+  const masterClipRef = useRef(false)
+  const handleResetClip = (trackId: string) => { delete clipsRef.current[trackId]; setClips({ ...clipsRef.current }) }
+  const handleResetMasterClip = () => { masterClipRef.current = false; setMasterClip(false) }
+
   // 伪电平：波形 peaks 即电平源（本地不出声，analyser 无从谈起；指针扫到哪段取该段峰值=与真实内容一致）
+  // solo 规则=录音 effectiveGain 同款：有 solo 只显 solo 轨；master=各轨功率合成（RMS 平方和开方）× 总增益
   const levels: Record<string, number> = {}
+  let masterSq = 0
   if (playing) {
     for (const t of mixerTracks) {
       if (!t.peaks || !t.peaks.length) continue
-      const muted = program?.mix.mutes.includes(t.id)
-      if (muted) continue
+      const audible = hasSolo ? solos.includes(t.id) : !mix.mutes.includes(t.id)
+      if (!audible) continue
       const idx = Math.min(t.peaks.length - 1, Math.floor((currentTime / (totalMs || 1)) * t.peaks.length))
-      const vol = (program?.mix.vols[t.id] ?? 100) / 100
-      levels[t.id] = (t.peaks[idx] || 0) * vol
+      const vol = (mix.vols[t.id] ?? 100) / 100
+      const lv = (t.peaks[idx] || 0) * vol
+      levels[t.id] = lv
+      masterSq += lv * lv
     }
   }
+  const masterLevel = Math.sqrt(masterSq) * masterGain
 
-  const mix = program?.mix || { vols: {}, mutes: [] }
+  // clip 检测（effect 随指针每帧跑，锁存只翻转时 set 不风暴）
+  useEffect(() => {
+    if (!playing) return
+    let hit = false
+    for (const [id, lv] of Object.entries(levels)) {
+      if (lv >= 1 && !clipsRef.current[id]) { clipsRef.current[id] = true; hit = true }
+    }
+    if (hit) setClips({ ...clipsRef.current })
+    if (masterLevel >= 1 && !masterClipRef.current) { masterClipRef.current = true; setMasterClip(true) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentTime, playing])
+
   const mutes: Record<string, boolean> = {}
-  for (const t of program?.tracks || []) mutes[t.id] = mix.mutes.includes(t.id)
+  const solosMap: Record<string, boolean> = {}
   const volumes: Record<string, number> = {}
-  for (const t of program?.tracks || []) volumes[t.id] = (mix.vols[t.id] ?? 100) / 100  // 0dB=100%=原声（准确优先，推子上半程闲置留欢哥验收定夺）
+  const pansMap: Record<string, number> = {}
+  for (const t of program?.tracks || []) {
+    mutes[t.id] = mix.mutes.includes(t.id)
+    solosMap[t.id] = solos.includes(t.id)
+    volumes[t.id] = (mix.vols[t.id] ?? 100) / 100  // 100=0dB 原声；上限 200=+6dB（1016 对齐录音推子量程）
+    pansMap[t.id] = pans[t.id] ?? 0
+  }
+
+  // mix 全量补丁（updateProgramMix 发全量，后动作胜出；solos/pans/master 兜底默认值防丢字段）
+  const mixPatch = (partial: Partial<ProgramMix>): ProgramMix => ({
+    vols: mix.vols, mutes: mix.mutes, solos, pans, master: mix.master ?? 100, ...partial,
+  })
 
   const handlePlayPause = () => {
     if (!canOperate) return
@@ -160,11 +201,30 @@ export function ProgramStage(props: {
   }
   const handleVolume = (trackId: string, gain: number) => {
     if (!canOperate || !program) return
-    props.updateProgramMix({ vols: { ...mix.vols, [trackId]: Math.round(Math.min(2, Math.max(0, gain)) * 100) }, mutes: mix.mutes })
+    props.updateProgramMix(mixPatch({ vols: { ...mix.vols, [trackId]: Math.round(Math.min(2, Math.max(0, gain)) * 100) } }))
   }
   const handleMute = (trackId: string, muted: boolean) => {
     if (!canOperate || !program) return
-    props.updateProgramMix({ vols: mix.vols, mutes: muted ? [...new Set([...mix.mutes, trackId])] : mix.mutes.filter(m => m !== trackId) })
+    // M/S 同轨互斥（1016 欢哥：DAW 惯例——开 M 自动解除该轨 S，反之亦然，一键直达目标态）
+    props.updateProgramMix(mixPatch({
+      mutes: muted ? [...new Set([...mix.mutes, trackId])] : mix.mutes.filter(m => m !== trackId),
+      solos: muted ? solos.filter(m => m !== trackId) : solos,
+    }))
+  }
+  const handleSolo = (trackId: string, soloed: boolean) => {
+    if (!canOperate || !program) return
+    props.updateProgramMix(mixPatch({
+      solos: soloed ? [...new Set([...solos, trackId])] : solos.filter(m => m !== trackId),
+      mutes: soloed ? mix.mutes.filter(m => m !== trackId) : mix.mutes,
+    }))
+  }
+  const handlePan = (trackId: string, pan: number) => {
+    if (!canOperate || !program) return
+    props.updateProgramMix(mixPatch({ pans: { ...pans, [trackId]: Math.max(-1, Math.min(1, pan)) } }))
+  }
+  const handleMaster = (gain: number) => {
+    if (!canOperate) return
+    props.updateProgramMix(mixPatch({ master: Math.round(Math.min(2, Math.max(0, gain)) * 100) }))
   }
 
   if (!open || !program || !program.tracks.length) return null
@@ -180,8 +240,14 @@ export function ProgramStage(props: {
       progress={totalMs > 0 ? currentTime / totalMs : 0}
       loadingProgress={loadingProgress}
       mutes={mutes}
+      solos={solosMap}
       levels={levels}
       volumes={volumes}
+      pans={pansMap}
+      clips={clips}
+      masterVolume={masterGain}
+      masterLevel={masterLevel}
+      masterClip={masterClip}
       onClose={props.onClose}
       onMinimize={props.onClose}  // 缩小=收起全屏（左栏走带条常驻，1016）
       onPlayPause={handlePlayPause}
@@ -189,6 +255,11 @@ export function ProgramStage(props: {
       onSeek={handleSeek}
       onVolumeChange={handleVolume}
       onMuteToggle={handleMute}
+      onSoloToggle={handleSolo}
+      onPanChange={handlePan}
+      onResetClip={handleResetClip}
+      onMasterVolumeChange={handleMaster}
+      onResetMasterClip={handleResetMasterClip}
       icon={false}
       titleLabel=""
       footerHint="播放由服务器渲染并推流至全房间；音量/静音调整实时同步（播放中调整将接缝续播）。"

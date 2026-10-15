@@ -198,17 +198,10 @@ function ChannelStripImpl({
   const [editingPan, setEditingPan] = useState(false)
   const [panDraft, setPanDraft] = useState("")
 
-  // M/S 互斥：点 M 关 S，点 S 关 M
-  const toggleMute = () => {
-    const next = !muted
-    onMuteToggle?.(id, next)
-    if (next && soloed) onSoloToggle?.(id, false)
-  }
-  const toggleSolo = () => {
-    const next = !soloed
-    onSoloToggle?.(id, next)
-    if (next && muted) onMuteToggle?.(id, false)
-  }
+  // M/S 互斥归上层 handler（1016 修：原此处连发两次回调的互斥与上层互斥在 program 闭包快照下打架——
+  // 第二次调用以旧 mix 为基底，把第一次刚开的 solo 冲掉=欢哥遇到"要点两下"；录音侧 ref 机制虽无害但双保险冗余）
+  const toggleMute = () => onMuteToggle?.(id, !muted)
+  const toggleSolo = () => onSoloToggle?.(id, !soloed)
 
   const handleVolume = (gain: number) => onVolumeChange?.(id, gain)
   const handlePan = (v: number) => onPanChange?.(id, v)

@@ -8,7 +8,8 @@ export type GpState = { playing: boolean; startedAt?: string; startMs?: number; 
 
 // program 背景轨（1015）：物料（轨+混音快照）与走带态分离——对照 current_score/gp_state 双通道模式
 export type ProgramTrack = { id: string; name: string; file: string; size: number; uploadedBy: number; uploadedByName: string }
-export type ProgramMix = { vols: Record<string, number>; mutes: string[] }
+export type ProgramMix = { vols: Record<string, number>; mutes: string[]; solos?: string[]; pans?: Record<string, number>; master?: number }
+// vols 0-200（100=0dB 原声，200=+6dB 头空间——1016 欢哥拍板对齐录音混音器 DAW 级）；pans -1~1；master 0-200 同 vols 口径
 export type ProgramData = { tracks: ProgramTrack[]; mix: ProgramMix; totalMs?: number } | null
 export type ProgramState = { playing: boolean; startedAt?: string; startMs?: number; totalMs?: number }
 
