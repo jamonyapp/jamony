@@ -178,7 +178,7 @@ export function LoginModal() {
                   value={nickname}
                   onChange={(e) => setNickname(e.target.value)}
                   placeholder="输入用户名"
-                  className="w-full rounded-xl border px-4 py-2.5 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
+                  className="w-full rounded-xl border px-4 py-1.5 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
                   style={{ background: "#141414", borderColor: "#2A2A2A" }}
                 />
               </div>
@@ -192,7 +192,7 @@ export function LoginModal() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="输入密码"
-                  className="w-full rounded-xl border px-4 py-2.5 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
+                  className="w-full rounded-xl border px-4 py-1.5 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
                   style={{ background: "#141414", borderColor: "#2A2A2A" }}
                 />
               </div>
@@ -229,7 +229,7 @@ export function LoginModal() {
                   value={regNickname}
                   onChange={(e) => setRegNickname(e.target.value)}
                   placeholder="给自己取个名字"
-                  className="w-full rounded-xl border px-4 py-2.5 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
+                  className="w-full rounded-xl border px-4 py-1.5 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
                   style={{ background: "#141414", borderColor: "#2A2A2A" }}
                 />
               </div>
@@ -242,8 +242,8 @@ export function LoginModal() {
                   type="password"
                   value={regPassword}
                   onChange={(e) => setRegPassword(e.target.value)}
-                  placeholder="至少 8 位，建议字母+数字组合"
-                  className="w-full rounded-xl border px-4 py-2.5 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
+                  placeholder="至少8位，建议大小写字母+数字+特殊符号"
+                  className="w-full rounded-xl border px-4 py-1.5 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
                   style={{ background: "#141414", borderColor: "#2A2A2A" }}
                 />
                 {/* jamony 1018: 密码强度实时提醒(欢哥口述)——字符类别(小写/大写/数字/符号)+长度打分,三段色条+文案 */}
@@ -271,7 +271,7 @@ export function LoginModal() {
                   value={regConfirm}
                   onChange={(e) => setRegConfirm(e.target.value)}
                   placeholder="再次输入密码"
-                  className="w-full rounded-xl border px-4 py-2.5 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
+                  className="w-full rounded-xl border px-4 py-1.5 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
                   style={{ background: "#141414", borderColor: "#2A2A2A" }}
                 />
               </div>
@@ -286,6 +286,7 @@ export function LoginModal() {
                   value={regInstrument}
                   onChange={(v) => { setRegInstrument(v); setRegOtherInstrument("") }}
                   options={INSTRUMENTS.map((ins) => ({ value: ins, label: ins }))}
+                  className="!py-1.5"  /* jamony 1018: 登录卡专属压高(field变体全站共享不动能本体) */
                 />
                 {INSTRUMENT_NEEDS_INPUT.includes(regInstrument) && (
                   <input
@@ -294,7 +295,7 @@ export function LoginModal() {
                     onChange={(e) => setRegOtherInstrument(e.target.value)}
                     placeholder={regInstrument === "其他" ? "请输入你的乐器" : regInstrument === "弦乐" ? "例如：小提琴、大提琴..." : regInstrument === "管乐" ? "例如：萨克斯、小号、电吹管" : "例如：古筝、二胡、琵琶..."}
                     autoFocus
-                    className="mt-2 w-full rounded-xl border px-4 py-2.5 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
+                    className="mt-2 w-full rounded-xl border px-4 py-1.5 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
                     style={{ background: "#141414", borderColor: "#2A2A2A" }}
                   />
                 )}

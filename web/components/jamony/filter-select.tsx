@@ -34,6 +34,7 @@ export function FilterSelect({
   allValue = "全部",
   variant = "filter",
   disabled = false,
+  className = "",
 }: {
   label: string // aria-label + 未选中时按钮文案（field/compact 下即占位提示）
   value: string
@@ -42,6 +43,7 @@ export function FilterSelect({
   allValue?: string | null // filter 变体：视为"未筛选"的值（不亮蓝边，未含时自动补第一项）；null=无全部概念（如排序）。其他变体忽略。
   variant?: "filter" | "field" | "compact"
   disabled?: boolean
+  className?: string  // jamony 1018: 追加在触发钮末尾的覆盖类(如登录卡 !py-1.5 压高,不影响其他站点用场)
 }) {
   const btnRef = useRef<HTMLButtonElement | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
@@ -103,7 +105,7 @@ export function FilterSelect({
         onClick={() => (open ? setRect(null) : openMenu())}
         className={`relative flex w-full items-center border text-left text-white transition-colors ${
           VARIANT_BTN[variant]
-        } ${btnBorder} ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
+        } ${btnBorder} ${disabled ? "cursor-not-allowed opacity-50" : ""} ${className}`}
         style={{ color: textColor }}
       >
         <span className="min-w-0 flex-1 truncate">{selected ? selected.label : label}</span>
