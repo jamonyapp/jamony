@@ -35,10 +35,13 @@ export function RoomCard({ room, onSelect }: { room: Room; onSelect?: () => void
           </span>
         )}
         <ProficiencyBadge proficiency={room.proficiency} />
-        <span className={`flex items-center gap-1 tabular-nums ${isFull ? "text-destructive" : isNearFull ? "text-[#ffb84d]" : "text-foreground"}`}>
-          <User className="h-3.5 w-3.5" style={{ color: "#9933FF" }} />{room.current}/{room.capacity}
+        {/* jamony 1017: 人数+满 同组(gap-1紧距)——前端UI语义同结构,与外层字段距(gap-2)区分 */}
+        <span className="flex items-center gap-1">
+          <span className={`flex items-center gap-1 tabular-nums ${isFull ? "text-destructive" : isNearFull ? "text-[#ffb84d]" : "text-foreground"}`}>
+            <User className="h-3.5 w-3.5" style={{ color: "#9933FF" }} />{room.current}/{room.capacity}
+          </span>
+          {isFull ? <span className="text-destructive">满</span> : null}
         </span>
-        {isFull ? <span className="text-destructive">满</span> : null}
         <span className="flex items-center gap-1 tabular-nums" style={{ color: "#FF33AA" }}><Headphones className="h-3.5 w-3.5" />{room.listener_count ?? 0}</span>
       </div>
       <div className="flex items-center gap-2">
