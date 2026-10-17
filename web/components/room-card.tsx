@@ -38,10 +38,11 @@ export function RoomCard({ room, onSelect }: { room: Room; onSelect?: () => void
         </div>
         {/* jamony 1017: 满员态右组瘦身(px-1+text-[10px]+gap-1.5,省~20px)——4列卡~250px下 首行内容245px贴脸,光nowrap会溢出,须同时收窄 */}
         <span className="flex shrink-0 items-center gap-1.5 whitespace-nowrap text-sm font-semibold tabular-nums">
-          {isFull ? <span className="rounded-md bg-destructive/15 px-1 py-0.5 text-[10px] text-destructive">已满</span> : null}
+          {/* jamony 1017: 已满徽标位置调序(欢哥口述)——人数之后、听众之前 */}
           <span className={`flex items-center gap-1 ${isFull ? "text-destructive" : isNearFull ? "text-[#ffb84d]" : "text-foreground"}`}>
             <User className="h-3.5 w-3.5" style={{ color: "#9933FF" }} />{room.current}/{room.capacity}
           </span>
+          {isFull ? <span className="rounded-md bg-destructive/15 px-1 py-0.5 text-[10px] text-destructive">已满</span> : null}
           <span className="flex items-center gap-1 text-xs font-medium" style={{ color: "#FF33AA" }}><Headphones className="h-3.5 w-3.5" />{room.listener_count ?? 0}</span>
         </span>
       </div>
