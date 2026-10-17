@@ -144,7 +144,7 @@ export function RightColumn({ roomId, room, refreshTrigger, realtimeMembers, cur
         {musicians.length > 0 && (
         <div className="mt-2">
           <p className="text-[10px] font-medium mb-1" style={{ color: "#00AAFF" }}>
-            <Headphones className="h-3 w-3 inline mr-0.5" />合奏者 {musicians.length}
+            <Headphones className="h-3 w-3 inline mr-0.5" />合奏者 {musicians.length}{room ? `/${room.max_musicians}` : ""}
           </p>
           <div className="overflow-y-auto" style={{ maxHeight: "120px" }}>
           <div className="flex flex-wrap gap-x-3 gap-y-1.5">
