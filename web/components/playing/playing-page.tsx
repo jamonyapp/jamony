@@ -130,7 +130,19 @@ export function PlayingPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: user.id, role: "musician" }),
-      }).then(() => {
+      }).then(async (r) => {
+        const d = await r.json().catch(() => ({ ok: false }))
+        if (!r.ok || !d.ok) {
+          // jamony 1017: 切合奏失败（名额满等）——回滚乐观切换+杀 jamsoul+弹服务器消息。
+          // 原版不看响应体: 400 被吞、UI 已切合奏者视角 → 本地与服务器状态分叉(满房调起 jamsoul 连不进还挂着)。
+          // 名额预检(handleReconnect 实时数)后此处仅剩"预检瞬间被抢满"竞态, 但乐观 UI 不允许有无限欺瞒模式。
+          if (window.jamonyAPI) window.jamonyAPI.killJamsoul()
+          setAudioConnected(false)
+          setMyRole("listener")
+          roomSession.setRole("listener")
+          alert(d.msg || "切换失败")
+          return
+        }
         setRefreshTrigger(n => n + 1)
         fetch(`/api/rooms/${room.room_code}`).then(r => r.json()).then(d => {
           if (d.ok) setRoom(prev => prev ? {...prev, musician_count: d.room.musician_count, listener_count: d.room.listener_count} : prev)
@@ -273,7 +285,12 @@ export function PlayingPage() {
 
   const handleReconnect = () => {
     if (!room || roomGone) return
-    if (room.musician_count >= room.max_musicians) {
+    // jamony 1017: 名额预检改吃实时成员广播现算——room.musician_count 只在部分动作后手动重拉不随广播更新,
+    // 曾以陈旧 4/5 放行满房请求(预检形同虚设); realtimeMembers 由 members-update 持续喂养永远新鲜, 旧值仅兜底
+    const liveMusicianCount = realtimeMembers && realtimeMembers.length > 0
+      ? realtimeMembers.filter(m => m.role === "musician").length
+      : room.musician_count
+    if (liveMusicianCount >= room.max_musicians) {
       alert("合奏名额已满")
       return
     }
