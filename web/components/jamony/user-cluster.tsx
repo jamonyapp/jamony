@@ -8,6 +8,7 @@ import { useNotifications } from "@/lib/notifications-context"
 import { useDM } from "@/lib/dm-context"
 import { useRoomSession } from "@/lib/room-session"
 import { Avatar } from "@/components/jamony/avatar"
+import { useJamonyDialog } from "@/components/jamony/dialog"
 import { NotificationDrawer } from "@/components/jamony/notification-drawer"
 import { NoticeDetailModal } from "@/components/jamony/notice-detail-modal"
 import { DisconnectDialog } from "@/components/playing/disconnect-dialog"
@@ -28,6 +29,7 @@ export function UserCluster({ onRefresh }: { onRefresh?: () => void }) {
   const [openMenu, setOpenMenu] = useState<"none" | "user">("none")
   const [refreshing, setRefreshing] = useState(false)
   const { drawerOpen, openDrawer, closeDrawer } = useDM()
+  const dialog = useJamonyDialog()
   const [globalNotice, setGlobalNotice] = useState<Notice | null>(null)
   const clusterRef = useRef<HTMLDivElement>(null)
   const { loggedIn, setShowLoginModal, logout, user } = useAuth()
@@ -66,17 +68,17 @@ export function UserCluster({ onRefresh }: { onRefresh?: () => void }) {
       const data = await r.json()
       // jamony 1018: 作者本人可开已过期公告(带删除按钮的卡片,与个人主页公告tab一致);真被删的诚实提示不再静默
       if (data.ok) { setGlobalNotice(mapNotice(data.notice)); closeDrawer() }
-      else { alert(data.msg || '该公告已删除') }
+      else { await dialog.alert(data.msg || '该公告已删除') }
     } catch {}
   }
   const handleGlobalDelete = async (n: Notice) => {
-    if (!confirm(`确认删除公告「${n.title}」？`)) return
+    if (!(await dialog.confirm(`确认删除公告「${n.title}」？`, { danger: true, confirmText: "删除" }))) return
     try {
       const res = await fetch(`/api/notices/${n.id}`, { method: "DELETE", credentials: "include" })
       const data = await res.json()
       if (data.ok) { setGlobalNotice(null); refreshUnread() }
-      else alert(data.msg || "删除失败")
-    } catch { alert("网络错误") }
+      else await dialog.alert(data.msg || "删除失败")
+    } catch { await dialog.alert("网络错误") }
   }
 
   useEffect(() => {

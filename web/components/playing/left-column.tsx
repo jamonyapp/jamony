@@ -16,6 +16,7 @@ import {
 import { ProgramPanel } from "@/components/playing/program-tool"
 import { HoverName } from "@/components/playing/hover-fullname"
 import type { ProgramData, ProgramMix, ProgramState } from "@/lib/chat-socket"
+import { useJamonyDialog } from "@/components/jamony/dialog"
 
 type Tool = "chords" | "drums" | "score" | "program"
 
@@ -427,6 +428,7 @@ function ScorePanel({ roomId, currentScore, onPushScore }: {
   currentScore: RoomScore | null
   onPushScore: (score: RoomScore) => void
 }) {
+  const dialog = useJamonyDialog()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [items, setItems] = useState<ShelfItem[]>([])
   const [selected, setSelected] = useState<number | null>(null)
@@ -499,7 +501,7 @@ function ScorePanel({ roomId, currentScore, onPushScore }: {
     // 清空整个谱架（1016 欢哥：乐谱共享三按钮"上传/清空/投屏"——批量删+投屏内容随删收回）
   const clearShelf = async () => {
     if (!roomId || items.length === 0) return
-    if (!confirm("清空谱架全部乐谱？")) return
+    if (!(await dialog.confirm("清空谱架全部乐谱？", { danger: true, confirmText: "清空" }))) return
     setError(""); setHint("")
     try {
       const res = await fetch(`/api/rooms/${roomId}/score/shelf`, { method: "DELETE" })

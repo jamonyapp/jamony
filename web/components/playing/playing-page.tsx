@@ -6,6 +6,7 @@ import { TopNav } from "@/components/jamony/top-nav"
 import { LeftColumn } from "@/components/playing/left-column"
 import { CenterColumn } from "@/components/playing/center-column"
 import { RightColumn } from "@/components/playing/right-column"
+import { useJamonyDialog } from "@/components/jamony/dialog"
 import { ProgramStage } from "@/components/playing/program-tool"
 import { DisconnectDialog } from "@/components/playing/disconnect-dialog"
 import { KickConfirmDialog } from "@/components/playing/kick-confirm-dialog"
@@ -56,6 +57,7 @@ export function PlayingPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { user } = useAuth()
+  const dialog = useJamonyDialog()
   const roomSession = useRoomSession()
   // 10-07 漫游续听：收听音频上移 Provider 全局常驻，listenerActive 为派生值（漫游不断流）
   const listenerActive = roomSession.listening != null
@@ -140,7 +142,7 @@ export function PlayingPage() {
           setAudioConnected(false)
           setMyRole("listener")
           roomSession.setRole("listener")
-          alert(d.msg || "切换失败")
+          await dialog.alert(d.msg || "切换失败")
           return
         }
         setRefreshTrigger(n => n + 1)
@@ -291,7 +293,7 @@ export function PlayingPage() {
       ? realtimeMembers.filter(m => m.role === "musician").length
       : room.musician_count
     if (liveMusicianCount >= room.max_musicians) {
-      alert("合奏名额已满")
+      dialog.alert("合奏名额已满")
       return
     }
 
@@ -347,7 +349,7 @@ export function PlayingPage() {
         "early-exit": "jamsoul 启动后立即退出了",
       }
       const why = reasonMap[data?.reason as string] || "未知原因"
-      alert(`jamsoul 启动失败：${why}\n\n请重新进入房间再试一次；若反复失败，请完全退出 jamony 再打开重试。`)
+      dialog.alert(`jamsoul 启动失败：${why}\n\n请重新进入房间再试一次；若反复失败，请完全退出 jamony 再打开重试。`)
     })
     return () => { cleanup?.() }
   }, [])

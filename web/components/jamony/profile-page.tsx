@@ -11,6 +11,7 @@ import { FollowButton } from "@/components/jamony/follow-button"
 import { Avatar } from "@/components/jamony/avatar"
 import { UserPopover } from "@/components/jamony/user-popover"
 import { NoticeDetailModal } from "@/components/jamony/notice-detail-modal"
+import { useJamonyDialog } from "@/components/jamony/dialog"
 import { PublishNoticeModal } from "@/components/jamony/publish-notice-modal"
 import { mapNotice } from "@/lib/notice-mappers"
 import { type Track, type Notice, NOTICE_TYPE_COLOR, NOTICE_TYPE_LABEL } from "@/lib/jamony-data"
@@ -50,6 +51,7 @@ export function ProfilePage({ nickname }: { nickname: string }) {
   const router = useRouter()
   const { user: currentUser, loggedIn, ready, setShowLoginModal } = useAuth()
   const { openConversation } = useDM()
+  const dialog = useJamonyDialog()
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [userWorks, setUserWorks] = useState<any[]>([])
@@ -142,14 +144,14 @@ export function ProfilePage({ nickname }: { nickname: string }) {
     setPublishOpen(true)
   }
   const handleNoticeDelete = async (n: Notice) => {
-    if (!confirm(`确认删除公告「${n.title}」？`)) return
+    if (!(await dialog.confirm(`确认删除公告「${n.title}」？`, { danger: true, confirmText: "删除" }))) return
     try {
       const res = await fetch(`/api/notices/${n.id}`, { method: "DELETE", credentials: "include" })
       const data = await res.json()
-      if (!data.ok) { alert(data.msg || "删除失败"); return }
+      if (!data.ok) { await dialog.alert(data.msg || "删除失败"); return }
       setMyNotices((prev) => prev.filter((x) => x.id !== n.id))
       setNoticeDetail(null)
-    } catch { alert("网络错误") }
+    } catch { await dialog.alert("网络错误") }
   }
   const handleNoticePublished = (n: Notice) => {
     setMyNotices((prev) => {

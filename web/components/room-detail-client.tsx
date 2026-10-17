@@ -6,6 +6,7 @@ import { Headphones, Crown, Lock, Loader2, Check, UserCheck, X, ShieldAlert } fr
 import { useAuth } from "@/lib/auth-context"
 import { Avatar } from "@/components/jamony/avatar"
 import { RoomPasswordModal } from "@/components/room-password-modal"
+import { useJamonyDialog } from "@/components/jamony/dialog"
 
 type Member = {
   id: number
@@ -38,6 +39,7 @@ type RoomData = {
 export function RoomDetailClient() {
   const params = useParams()
   const router = useRouter()
+  const dialog = useJamonyDialog()
   const { user, loggedIn, setShowLoginModal } = useAuth()
   const [room, setRoom] = useState<RoomData | null>(null)
   const [members, setMembers] = useState<Member[]>([])
@@ -119,7 +121,7 @@ export function RoomDetailClient() {
         } else if (data.code === "KICKED") {
           setKickedNotice(true)
         } else {
-          alert(data.msg || "加入失败")
+          dialog.alert(data.msg || "加入失败")
         }
         setJoinState("idle")
       })

@@ -16,6 +16,7 @@ import { PublishNoticeModal } from "@/components/jamony/publish-notice-modal"
 import { useAuth } from "@/lib/auth-context"
 import { UserPopover } from "@/components/jamony/user-popover"
 import { Avatar } from "@/components/jamony/avatar"
+import { useJamonyDialog } from "@/components/jamony/dialog"
 import { NoticeDetailModal } from "@/components/jamony/notice-detail-modal"
 
 const PAGE_SIZE = 20
@@ -25,6 +26,7 @@ type SortOption = "latest" | "hot"
 
 export function BoardPage() {
   const { loggedIn, setShowLoginModal } = useAuth()
+  const dialog = useJamonyDialog()
   const requireAuth = (fn: () => void) => { if (!loggedIn) { setShowLoginModal(true); return } fn() }
   const [allNotices, setAllNotices] = useState<Notice[]>([])
 
@@ -110,15 +112,15 @@ export function BoardPage() {
   }
 
   const handleDelete = async (notice: Notice) => {
-    if (!confirm(`确认删除公告「${notice.title}」？`)) return
+    if (!(await dialog.confirm(`确认删除公告「${notice.title}」？`, { danger: true, confirmText: "删除" }))) return
     try {
       const res = await fetch(`/api/notices/${notice.id}`, { method: "DELETE", credentials: "include" })
       const data = await res.json()
-      if (!data.ok) { alert(data.msg || "删除失败"); return }
+      if (!data.ok) { await dialog.alert(data.msg || "删除失败"); return }
       setAllNotices((prev) => prev.filter((n) => n.id !== notice.id))
       setDetail(null)
     } catch {
-      alert("网络错误")
+      await dialog.alert("网络错误")
     }
   }
 

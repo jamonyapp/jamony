@@ -12,6 +12,7 @@ import { FollowProvider } from '@/lib/follow-context'
 import { NotificationsProvider } from '@/lib/notifications-context'
 import { DMProvider } from '@/lib/dm-context'
 import { ElectronGate } from '@/components/jamony/electron-gate'
+import { DialogProvider } from '@/components/jamony/dialog'
 
 // 字体本地化：脱离 next/font/google 的 build 时联网依赖（国内服务器拉不到 Google Fonts）
 // Geist Sans + Geist Mono 的 latin 子集 variable woff2，含 100-900 全权重
@@ -78,6 +79,7 @@ export default function RootLayout({
         <script src="/lame.min.js" />
       </head>
       <body className="font-sans antialiased" style={{ background: '#000000' }}>
+        <DialogProvider>
         <AuthProvider>
           <RoomSessionProvider>
           <PlayerProvider>
@@ -99,6 +101,7 @@ export default function RootLayout({
           </RoomSessionProvider>
           <LoginModal />
         </AuthProvider>
+        </DialogProvider>
       </body>
     </html>
   )

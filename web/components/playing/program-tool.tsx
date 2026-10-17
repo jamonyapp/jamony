@@ -11,6 +11,7 @@ import { HoverName } from "@/components/playing/hover-fullname"
 import { MixerFullscreen } from "@/components/mixer/mixer-fullscreen"
 import { TRACK_COLORS, formatTime, type MixerTrack } from "@/components/mixer/types"
 import { extractPeaks } from "@/hooks/useMixerEngine"
+import { useJamonyDialog } from "@/components/jamony/dialog"
 import type { ProgramData, ProgramMix, ProgramState, ProgramTrack } from "@/lib/chat-socket"
 
 const PROGRAM_EXTS = [".mp3", ".wav", ".ogg", ".flac", ".m4a"]
@@ -118,6 +119,7 @@ export function ProgramStage(props: {
   updateProgramMix: (mix: ProgramMix) => void
 }) {
   const { roomId, program, progState, open, canOperate } = props
+  const dialog = useJamonyDialog()
   const { mixerTracks, loadingProgress } = useProgramTracks(roomId, program)
   const { currentTime, pausedAtRef, setPausedAt } = useProgramClock(progState)
   const totalMs = progState?.totalMs || Math.max(0, ...mixerTracks.map(t => t.duration * 1000), 0)
@@ -349,6 +351,7 @@ export function ProgramPanel(props: {
   pauseProgram: () => void
   stopProgram: () => void
 }) {
+  const dialog = useJamonyDialog()
   const { roomId, program, progState, error, canOperate } = props
   const fileRef = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
@@ -386,7 +389,7 @@ export function ProgramPanel(props: {
   }
 
   const clearAll = async () => {
-    if (!confirm("清空全部伴奏轨？")) return
+    if (!(await dialog.confirm("清空全部伴奏轨？", { danger: true, confirmText: "清空" }))) return
     setLocalErr(null); setBusy(true)
     try {
       const r = await fetch(`/api/rooms/${roomId}/program`, { method: "DELETE" })

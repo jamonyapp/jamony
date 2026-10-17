@@ -8,6 +8,7 @@ import { MixerMini } from "@/components/mixer/mixer-mini"
 import { useMixerEngine } from "@/hooks/useMixerEngine"
 import { TRACK_COLORS, type MixerTrack } from "@/components/mixer/types"
 import PublishWorkModal from "@/components/publishing/publish-work-modal"
+import { useJamonyDialog } from "@/components/jamony/dialog"
 
 // 工具栏上拉菜单（10-10 步骤④）：缩放/五线六线/横竖排三件套，样式与分轨弹层同族（欢哥：全照搬alphaTab下拉，底部工具栏=上拉）
 function ToolbarMenu({ value, options, onPick, title, icon, disabled }: { value: string; options: { v: string; t: string }[]; onPick: (v: string) => void; title?: string; icon?: React.ReactNode; disabled?: boolean }) {
@@ -228,6 +229,7 @@ export function CenterColumn({
   onGpLoop?: (loop: boolean) => void
   onGpRange?: (range: { a: number; b: number } | null) => void
 }) {
+  const dialog = useJamonyDialog()
   const [todayTheme, setTodayTheme] = useState({ title: "加载中...", emoji: "🎵" })
   useEffect(() => {
     fetch("/api/daily-theme")
@@ -623,6 +625,7 @@ function RecordingPanel({
   drawerOpen?: boolean
   onToggleDrawer?: () => void
 }) {
+  const dialog = useJamonyDialog()
   const [sessions, setSessions] = useState<RecordingSession[]>([])
   const [expanded, setExpanded] = useState<number | null>(null)
   const [mixerSessionId, setMixerSessionId] = useState<number | null>(null)
@@ -726,7 +729,7 @@ function RecordingPanel({
     if (data.ok) {
       setRecording(true); setRecordingMine(true); setRecTime(0)
     } else {
-      alert(data.msg || "无法开始录音")
+      dialog.alert(data.msg || "无法开始录音")
     }
   }
 

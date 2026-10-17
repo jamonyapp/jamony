@@ -9,6 +9,7 @@ import { waitJamsoulDead } from "@/lib/jamsoul-wait"
 import { Avatar } from "@/components/jamony/avatar"
 import { RoomPasswordModal } from "@/components/room-password-modal"
 import { SwitchRoomDialog } from "@/components/switch-room-dialog"
+import { useJamonyDialog } from "@/components/jamony/dialog"
 
 type Member = {
   id: number
@@ -45,6 +46,7 @@ export function RoomDetailModal({
   roomId: string | null
   onClose: () => void
 }) {
+  const dialog = useJamonyDialog()
   const router = useRouter()
   const [room, setRoom] = useState<RoomDetail | null>(null)
   const [members, setMembers] = useState<Member[]>([])
@@ -116,7 +118,7 @@ export function RoomDetailModal({
         setKickedNotice(true)
       } else {
         // jamony 10-01: 服务端拒绝必须可见（一人一房等）——此前此处静默失败
-        alert(data.msg || "加入失败")
+        dialog.alert(data.msg || "加入失败")
       }
     } catch {}
     setJoining(false)
