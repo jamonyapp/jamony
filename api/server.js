@@ -547,6 +547,12 @@ app.post('/api/register', async (req, res) => {
       return res.status(400).json({ ok: false, msg: '密码至少 6 位' })
     }
 
+    // jamony 10-18 欢哥拍板: 官方品牌保护——昵称包含 jamony(不分大小写)一律拒绝,
+    // 提示语与重名规则一致(不暴露封禁原因,防冒充官方); jamony-looper 等系统用户名同受此规则覆盖
+    if (nickname.toLowerCase().includes('jamony')) {
+      return res.status(409).json({ ok: false, msg: '该昵称已被注册' })
+    }
+
     // 查重
     const exist = await pool.query('SELECT id FROM users WHERE nickname = $1', [nickname])
     if (exist.rows.length > 0) {
