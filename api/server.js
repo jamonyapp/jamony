@@ -543,8 +543,9 @@ app.post('/api/register', async (req, res) => {
     if (nickname.length < 2 || nickname.length > 16) {
       return res.status(400).json({ ok: false, msg: '昵称长度 2-16 个字符' })
     }
-    if (password.length < 6) {
-      return res.status(400).json({ ok: false, msg: '密码至少 6 位' })
+    // jamony 1018: 注册密码下限 6→8(欢哥:更安全;改密码端点同步)
+    if (password.length < 8) {
+      return res.status(400).json({ ok: false, msg: '密码至少 8 位' })
     }
 
     // jamony 10-18 欢哥拍板: 官方品牌保护——昵称包含 jamony(不分大小写)一律拒绝,
@@ -1062,7 +1063,7 @@ app.post('/api/users/:id/password', requireAuth, async (req, res) => {
       return res.status(400).json({ ok: false, msg: '请填写完整' })
     }
     if (newPassword.length < 6) {
-      return res.status(400).json({ ok: false, msg: '新密码至少 6 位' })
+      return res.status(400).json({ ok: false, msg: '新密码至少 8 位' })
     }
 
     const result = await pool.query('SELECT * FROM users WHERE id = $1', [id])

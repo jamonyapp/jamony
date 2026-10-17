@@ -16,6 +16,21 @@ const INSTRUMENT_NEEDS_INPUT = ["弦乐", "管乐", "民乐", "其他"]
 
 type Mode = "login" | "register"
 
+// jamony 1018: 密码强度——字符类别(小写/大写/数字/符号)取类别数-1(0..3) + 长度档(≥8/≥12) → 弱/一般/强
+function pwdStrengthLevel(p: string): 1 | 2 | 3 {
+  let classes = 0
+  if (/[a-z]/.test(p)) classes++
+  if (/[A-Z]/.test(p)) classes++
+  if (/\d/.test(p)) classes++
+  if (/[^a-zA-Z0-9]/.test(p)) classes++
+  let score = Math.max(0, classes - 1)
+  if (p.length >= 8) score++
+  if (p.length >= 12) score++
+  return score <= 1 ? 1 : score <= 3 ? 2 : 3
+}
+const PWD_STRENGTH_COLORS = ["", "#FF5C5C", "#FFC107", "#BBEE00"] as const
+const PWD_STRENGTH_LABELS = ["", "弱", "一般", "强"] as const
+
 export function LoginModal() {
   const { showLoginModal, setShowLoginModal, login, register } = useAuth()
   const [mode, setMode] = useState<Mode>("login")
@@ -74,8 +89,8 @@ export function LoginModal() {
       setError("昵称需要 2-16 个字符")
       return
     }
-    if (regPassword.length < 6) {
-      setError("密码至少 6 位")
+    if (regPassword.length < 8) {
+      setError("密码至少 8 位")
       return
     }
     if (regPassword !== regConfirm) {
@@ -132,7 +147,7 @@ export function LoginModal() {
             className={`pb-2 text-sm font-semibold transition-colors ${mode === "login" ? "text-white" : "text-[#666]"}`}
           >
             登录
-            {mode === "login" && <span className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full" style={{ background: "#00AAFF" }} />}
+            {/* jamony 1018: 删蓝色指示线——按钮漏 relative 致其错位渲染到卡片底边(欢哥:碍眼删除) */}
           </button>
           <button
             onClick={() => switchMode("register")}
@@ -226,10 +241,24 @@ export function LoginModal() {
                   type="password"
                   value={regPassword}
                   onChange={(e) => setRegPassword(e.target.value)}
-                  placeholder="至少 6 位"
+                  placeholder="至少 8 位，建议字母+数字组合"
                   className="w-full rounded-xl border px-4 py-2.5 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
                   style={{ background: "#141414", borderColor: "#2A2A2A" }}
                 />
+                {/* jamony 1018: 密码强度实时提醒(欢哥口述)——字符类别(小写/大写/数字/符号)+长度打分,三段色条+文案 */}
+                {regPassword.length > 0 && (
+                  <div className="mt-2 flex items-center gap-2">
+                    <div className="flex flex-1 gap-1">
+                      {[0, 1, 2].map((i) => (
+                        <span key={i} className="h-1 flex-1 rounded-full transition-colors"
+                          style={{ background: i < pwdStrengthLevel(regPassword) ? PWD_STRENGTH_COLORS[pwdStrengthLevel(regPassword)] : "#2A2A2A" }} />
+                      ))}
+                    </div>
+                    <span className="text-xs font-medium" style={{ color: PWD_STRENGTH_COLORS[pwdStrengthLevel(regPassword)] }}>
+                      {PWD_STRENGTH_LABELS[pwdStrengthLevel(regPassword)]}
+                    </span>
+                  </div>
+                )}
               </div>
 
               <div>
