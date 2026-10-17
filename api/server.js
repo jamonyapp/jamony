@@ -1729,7 +1729,8 @@ app.get('/api/rooms/:code', optionalAuth, async (req, res) => {
 
 // 广播房间成员列表（身份/音频状态变化时调用，让房间内所有人实时同步右栏成员显示）
 // payload 带 hostId：房主转移后前端实时感知新房主（皇冠/管理权/房主行显示）
-async function broadcastMembers(roomCode) {
+// targetSocket 传入=单发该 socket（join-room 进房快照），不传=全房广播（默认，既有调用不变）
+async function broadcastMembers(roomCode, targetSocket = null) {
   try {
     const result = await pool.query(
       `SELECT rm.*, u.primary_instrument, u.instrument_category, REPLACE(u.avatar_url, '/var/jamony/avatars', '/avatars') AS avatar_url, r.host_id
@@ -1738,10 +1739,12 @@ async function broadcastMembers(roomCode) {
        WHERE r.room_code = $1 ORDER BY rm.joined_at`,
       [roomCode]
     )
-    io.to(roomCode).emit('members-update', {
+    const payload = {
       members: result.rows,
       hostId: result.rows.length > 0 ? result.rows[0].host_id : null
-    })
+    }
+    if (targetSocket) targetSocket.emit('members-update', payload)
+    else io.to(roomCode).emit('members-update', payload)
   } catch (e) {
     console.error('Broadcast members error:', e)
   }
@@ -4274,6 +4277,10 @@ const recordingStarters = new Map()
 io.on("connection", (socket) => {
   socket.on("join-room", (roomId) => {
     socket.join(roomId)
+    // jamony 1017: 进房即补发成员快照（单发本 socket）——封死三个丢事件窗口:
+    // ①页面挂载 fetch 与 socket join 之间的缝隙 ②nickname 异步晚到导致连接晚于首个事件
+    // ③断线重连期间错过的事件。成员/房主从此连上即对账, 右栏卡片不再需要硬刷新追平。
+    broadcastMembers(roomId, socket)
     // 强刷/断网抖动重连回来：取消该用户的 L2 延迟清理（人回来了，房不散）
     if (socket.userId) {
       for (const key of pendingL2Cleanup.keys()) {
