@@ -64,7 +64,9 @@ export function UserCluster({ onRefresh }: { onRefresh?: () => void }) {
     try {
       const r = await fetch(`/api/notices/${noticeId}`, { credentials: "include" })
       const data = await r.json()
+      // jamony 1018: 作者本人可开已过期公告(带删除按钮的卡片,与个人主页公告tab一致);真被删的诚实提示不再静默
       if (data.ok) { setGlobalNotice(mapNotice(data.notice)); closeDrawer() }
+      else { alert(data.msg || '该公告已删除') }
     } catch {}
   }
   const handleGlobalDelete = async (n: Notice) => {

@@ -180,7 +180,7 @@ export function NotificationDrawer({ open, onClose, onOpenNotice }: { open: bool
             ) : (
               conversations.map((c) => (
                 <div key={c.id} onClick={() => openExisting(c.id)} className="group flex cursor-pointer items-center gap-3 border-b px-4 py-3 transition-colors hover:bg-white/5" style={{ borderColor: "#1A1A1A", background: c.unread_count > 0 ? "rgba(153,51,255,0.06)" : "transparent" }}>
-                  <Avatar nickname={c.other_nickname || "U"} size={36} />
+                  <Avatar nickname={c.other_nickname || "U"} size={36} avatarUrl={c.other_avatar || undefined} />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between">
                       <p className="truncate text-sm font-medium text-white">{c.other_nickname}</p>
@@ -201,7 +201,7 @@ export function NotificationDrawer({ open, onClose, onOpenNotice }: { open: bool
               <div key={n.id} onClick={() => handleClick(n)}
                 className="group flex cursor-pointer items-start gap-3 border-b px-4 py-3 transition-colors hover:bg-white/5"
                 style={{ borderColor: "#1A1A1A", background: n.read_at ? "transparent" : "rgba(153,51,255,0.06)" }}>
-                <Avatar nickname={n.actor_nickname || "U"} size={32} />
+                <Avatar nickname={n.actor_nickname || "U"} size={32} avatarUrl={n.actor_avatar_url || undefined} />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm text-white">
                     {n.type === "system" ? (n.message || "系统通知")

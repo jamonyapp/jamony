@@ -17,6 +17,7 @@ export type Notif = {
   message: string | null
   actor_user_id: number | null
   actor_nickname: string | null
+  actor_avatar_url: string | null
   count: number
   read_at: string | null
   created_at: string

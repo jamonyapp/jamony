@@ -3152,7 +3152,7 @@ app.get('/api/notices/:id', optionalAuth, async (req, res) => {
               REPLACE(u.avatar_url, '/var/jamony/avatars', '/avatars') AS author_avatar,
               EXISTS(SELECT 1 FROM favorites WHERE user_id=$2 AND subject_type='notice' AND subject_id=n.id) AS is_favorited
        FROM notices n JOIN users u ON u.id = n.user_id
-       WHERE n.id = $1 AND n.status='active' AND n.expire_at > NOW()`,
+       WHERE n.id = $1 AND n.status='active' AND (n.expire_at > NOW() OR n.user_id = $2)`,
       [id, req.userId]
     )
     if (result.rows.length === 0) return res.status(404).json({ ok: false, msg: '公告不存在或已过期' })
@@ -3494,12 +3494,15 @@ app.get('/api/notifications', requireAuth, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT n.*, notice.title AS notice_title, nc.content AS comment_content,
-              w.title AS work_title, wc.content AS work_comment_content
+              w.title AS work_title, wc.content AS work_comment_content,
+              au.avatar_index AS actor_avatar_index,
+              REPLACE(au.avatar_url, '/var/jamony/avatars', '/avatars') AS actor_avatar_url
        FROM notifications n
        LEFT JOIN notices notice ON notice.id = n.notice_id
        LEFT JOIN notice_comments nc ON nc.id = n.comment_id
        LEFT JOIN works w ON w.id = n.work_id
        LEFT JOIN work_comments wc ON wc.id = n.work_comment_id
+       LEFT JOIN users au ON au.id = n.actor_user_id
        WHERE n.recipient_user_id = $1
        ORDER BY n.read_at IS NULL DESC, n.updated_at DESC
        LIMIT 50`,
