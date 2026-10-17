@@ -25,7 +25,8 @@ export function RoomCard({ room, onSelect }: { room: Room; onSelect?: () => void
           style={{ padding: "1px", background: "var(--brand-gradient)", WebkitMask: "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)", WebkitMaskComposite: "xor", maskComposite: "exclude", boxShadow: "0 0 24px -6px rgba(153,51,255,0.5)" }} />
       )}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
+        {/* jamony 1017: 首行两侧组 shrink-0+nowrap —— 窄卡时组内文字曾按字断行(「已满」竖摞/「公开」折行);锁死单行 */}
+        <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
           {room.isPrivate ? (
             <span className="flex items-center gap-1.5 text-xs font-medium text-foreground" title="加密房间"><Lock className="h-3.5 w-3.5" style={{ color: "#B4CDFF", filter: "drop-shadow(0 0 6px rgba(154,184,255,0.9))" }} />加密</span>
           ) : (
@@ -35,7 +36,7 @@ export function RoomCard({ room, onSelect }: { room: Room; onSelect?: () => void
           )}
           <ProficiencyBadge proficiency={room.proficiency} />
         </div>
-        <span className="flex items-center gap-2 text-sm font-semibold tabular-nums">
+        <span className="flex shrink-0 items-center gap-2 whitespace-nowrap text-sm font-semibold tabular-nums">
           {isFull ? <span className="rounded-md bg-destructive/15 px-1.5 py-0.5 text-xs text-destructive">已满</span> : null}
           <span className={`flex items-center gap-1 ${isFull ? "text-destructive" : isNearFull ? "text-[#ffb84d]" : "text-foreground"}`}>
             <User className="h-3.5 w-3.5" style={{ color: "#9933FF" }} />{room.current}/{room.capacity}
