@@ -24,27 +24,22 @@ export function RoomCard({ room, onSelect }: { room: Room; onSelect?: () => void
         <span aria-hidden className="pointer-events-none absolute inset-0 rounded-[10px] opacity-0 transition-opacity duration-200 group-hover:opacity-100"
           style={{ padding: "1px", background: "var(--brand-gradient)", WebkitMask: "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)", WebkitMaskComposite: "xor", maskComposite: "exclude", boxShadow: "0 0 24px -6px rgba(153,51,255,0.5)" }} />
       )}
-      <div className="flex items-center justify-between">
-        {/* jamony 1017: 首行两侧组 shrink-0+nowrap —— 窄卡时组内文字曾按字断行(「已满」竖摞/「公开」折行);锁死单行 */}
-        <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
-          {room.isPrivate ? (
-            <span className="flex items-center gap-1.5 text-xs font-medium text-foreground" title="加密房间"><Lock className="h-3.5 w-3.5" style={{ color: "#B4CDFF", filter: "drop-shadow(0 0 6px rgba(154,184,255,0.9))" }} />加密</span>
-          ) : (
-            <span className="flex items-center gap-1.5 text-xs font-medium text-foreground">
-              <span className="h-2 w-2 rounded-full bg-brand-lime shadow-[0_0_8px_var(--brand-lime)]" />公开
-            </span>
-          )}
-          <ProficiencyBadge proficiency={room.proficiency} />
-        </div>
-        {/* jamony 1017: 满员态右组瘦身(px-1+text-[10px]+gap-1.5,省~20px)——4列卡~250px下 首行内容245px贴脸,光nowrap会溢出,须同时收窄 */}
-        <span className="flex shrink-0 items-center gap-1.5 whitespace-nowrap text-sm font-semibold tabular-nums">
-          {/* jamony 1017: 已满徽标位置调序(欢哥口述)——人数之后、听众之前 */}
-          <span className={`flex items-center gap-1 ${isFull ? "text-destructive" : isNearFull ? "text-[#ffb84d]" : "text-foreground"}`}>
-            <User className="h-3.5 w-3.5" style={{ color: "#9933FF" }} />{room.current}/{room.capacity}
+      {/* jamony 1017 首行统一制式(欢哥口述三刀): ①全行统一 text-xs ②满员裸文案「满」红字不做UI ③单行等距gap-2拆两端分散;
+          内容合计~150px,4列卡250px内宽裕,禁折行守门 */}
+      <div className="flex shrink-0 items-center gap-2 whitespace-nowrap text-xs font-medium">
+        {room.isPrivate ? (
+          <span className="flex items-center gap-1.5 text-foreground" title="加密房间"><Lock className="h-3.5 w-3.5" style={{ color: "#B4CDFF", filter: "drop-shadow(0 0 6px rgba(154,184,255,0.9))" }} />加密</span>
+        ) : (
+          <span className="flex items-center gap-1.5 text-foreground">
+            <span className="h-2 w-2 rounded-full bg-brand-lime shadow-[0_0_8px_var(--brand-lime)]" />公开
           </span>
-          {isFull ? <span className="rounded-md bg-destructive/15 px-1 py-0.5 text-[10px] text-destructive">已满</span> : null}
-          <span className="flex items-center gap-1 text-xs font-medium" style={{ color: "#FF33AA" }}><Headphones className="h-3.5 w-3.5" />{room.listener_count ?? 0}</span>
+        )}
+        <ProficiencyBadge proficiency={room.proficiency} />
+        <span className={`flex items-center gap-1 tabular-nums ${isFull ? "text-destructive" : isNearFull ? "text-[#ffb84d]" : "text-foreground"}`}>
+          <User className="h-3.5 w-3.5" style={{ color: "#9933FF" }} />{room.current}/{room.capacity}
         </span>
+        {isFull ? <span className="text-destructive">满</span> : null}
+        <span className="flex items-center gap-1 tabular-nums" style={{ color: "#FF33AA" }}><Headphones className="h-3.5 w-3.5" />{room.listener_count ?? 0}</span>
       </div>
       <div className="flex items-center gap-2">
         <span aria-hidden className="text-xl">{room.emoji}</span>
