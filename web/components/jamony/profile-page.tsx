@@ -328,16 +328,20 @@ export function ProfilePage({ nickname }: { nickname: string }) {
                     {myNotices.map((n) => {
                       const expired = !!n.expireAt && new Date(n.expireAt).getTime() < Date.now()
                       return (
-                        <button key={n.id} onClick={() => setNoticeDetail(n)}
-                          className="flex items-center gap-3 rounded-lg border px-4 py-3 text-left transition-colors hover:bg-white/5"
+                        // jamony 1018: 行改 div(内嵌删除按钮,button套button非法);状态文案补「发布中」+行内删除(欢哥口述,免点开卡片)
+                        <div key={n.id} onClick={() => setNoticeDetail(n)}
+                          className="flex cursor-pointer items-center gap-3 rounded-lg border px-4 py-3 text-left transition-colors hover:bg-white/5"
                           style={{ borderColor: '#1A1A1A', opacity: expired ? 0.5 : 1 }}>
                           <span className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ backgroundColor: NOTICE_TYPE_COLOR[n.type] }} />
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-sm font-medium text-white">{n.title}</p>
                             <p className="text-xs" style={{ color: '#8A8A8A' }}>{NOTICE_TYPE_LABEL[n.type]} · {n.city} · {n.time}</p>
                           </div>
-                          {expired && <span className="text-xs" style={{ color: '#FF5C5C' }}>已过期</span>}
-                        </button>
+                          <span className="text-xs" style={{ color: expired ? '#FF5C5C' : '#BBEE00' }}>{expired ? '已过期' : '发布中'}</span>
+                          <button onClick={(e) => { e.stopPropagation(); handleNoticeDelete(n) }}
+                            className="rounded-md border border-[#2A2A2A] px-2 py-0.5 text-xs transition-colors hover:border-[#FF5C5C] hover:text-[#FF5C5C]"
+                            style={{ color: '#9A9A9A' }}>删除</button>
+                        </div>
                       )
                     })}
                   </div>
