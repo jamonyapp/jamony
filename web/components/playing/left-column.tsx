@@ -149,7 +149,7 @@ export function LeftColumn({
             </button>
           )}
           <p className="mt-auto text-center text-sm" style={{ color: "#8A8A8A" }}>
-            不过瘾？接上乐器！<br/>点击下方按钮，一起嗨！
+            不过瘾？接上乐器！<br/>切为合奏者，一起嗨！
           </p>
         </section>
       ) : roomGone ? null : (
