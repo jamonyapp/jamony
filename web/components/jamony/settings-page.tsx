@@ -223,7 +223,8 @@ export function SettingsPage() {
           </button>
         </div>
 
-        <div className="mt-7 flex justify-end">
+        {/* jamony 1018: 保存/改密两按钮 行右对齐→页面居中(欢哥口述) */}
+        <div className="mt-7 flex justify-center">
           <button type="button" onClick={handleSave}
             className="flex h-10 items-center justify-center rounded-[10px] px-6 text-sm font-medium text-white transition-opacity hover:opacity-90"
             style={{ background: "linear-gradient(90deg, #9933FF, #FF33AA)" }}
@@ -280,10 +281,12 @@ export function SettingsPage() {
             {pwdMismatch && <p className="mt-1.5 text-xs" style={{ color: "#FF5C5C" }}>两次输入的密码不一致</p>}
             {pwdError && <p className="mt-1.5 text-xs" style={{ color: "#FF5C5C" }}>{pwdError}</p>}
           </div>
-          <div className="flex justify-end">
+          {/* jamony 1018: 居中+品牌红#FF33AA填充(欢哥口述:品牌色里偏红),替原描边款 */}
+          <div className="flex justify-center">
             <button type="button" disabled={pwdMismatch || newPwd.length === 0}
               onClick={handleChangePassword}
-              className="flex h-9 items-center gap-1.5 rounded-[10px] border px-4 text-sm text-white transition-colors hover:border-[#3A3A3A] disabled:cursor-not-allowed" style={{ borderColor: "#2A2A2A", color: pwdMismatch || newPwd.length === 0 ? "#5A5A5A" : "#FFFFFF" }}>
+              className="flex h-9 items-center gap-1.5 rounded-[10px] px-4 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+              style={{ background: "#FF33AA" }}>
               {pwdSaved ? <><Check className="h-4 w-4" />已修改</> : "修改密码"}
             </button>
           </div>
