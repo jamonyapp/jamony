@@ -38,6 +38,15 @@ export function NotificationDrawer({ open, onClose, onOpenNotice }: { open: bool
     }
   }, [open])
 
+  // jamony 1018: 抽屉开启锁背景滚动——macOS 滚动惯性会把前一手势的动量事件持续发给旧目标(背景页)数秒,
+  // 造成"指针在抽屉上却滚背景"的错乱;背景锁死后惯性打空,指针在哪滚哪(欢哥报:切换识别延迟难受)
+  useEffect(() => {
+    if (!open) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    return () => { document.body.style.overflow = prev }
+  }, [open])
+
   // 私信：activeCid 变化 → 拉消息历史 + 标记已读 + 刷新红点
   useEffect(() => {
     if (activeCid) {
