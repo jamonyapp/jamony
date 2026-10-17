@@ -144,10 +144,11 @@ export function LoginModal() {
         <div className="mb-6 flex gap-4 border-b border-[#1A1A1A]">
           <button
             onClick={() => switchMode("login")}
-            className={`pb-2 text-sm font-semibold transition-colors ${mode === "login" ? "text-white" : "text-[#666]"}`}
+            className={`relative pb-2 text-sm font-semibold transition-colors ${mode === "login" ? "text-white" : "text-[#666]"}`}
           >
             登录
-            {/* jamony 1018: 删蓝色指示线——按钮漏 relative 致其错位渲染到卡片底边(欢哥:碍眼删除) */}
+            {/* jamony 1018: 指示线重上——补 relative 修原错位到卡底边的bug,与注册tab同款贴线 */}
+            {mode === "login" && <span className="absolute -bottom-px left-0 right-0 h-0.5 rounded-full" style={{ background: "#00AAFF" }} />}
           </button>
           <button
             onClick={() => switchMode("register")}
