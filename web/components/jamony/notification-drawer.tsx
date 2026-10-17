@@ -210,7 +210,12 @@ export function NotificationDrawer({ open, onClose, onOpenNotice }: { open: bool
               <div key={n.id} onClick={() => handleClick(n)}
                 className="group flex cursor-pointer items-start gap-3 border-b px-4 py-3 transition-colors hover:bg-white/5"
                 style={{ borderColor: "#1A1A1A", background: n.read_at ? "transparent" : "rgba(153,51,255,0.06)" }}>
-                <Avatar nickname={n.actor_nickname || "U"} size={32} avatarUrl={n.actor_avatar_url || undefined} />
+                {/* jamony 1018: 系统通知无 actor——用 jamony logo 替字母兜底头像(欢哥拍板);其余用户照旧真人头像 */}
+                {n.type === "system" ? (
+                  <img src="/jamony_logo.png" alt="jamony" className="h-[32px] w-[32px] flex-shrink-0 rounded-full object-cover" />
+                ) : (
+                  <Avatar nickname={n.actor_nickname || "U"} size={32} avatarUrl={n.actor_avatar_url || undefined} />
+                )}
                 <div className="min-w-0 flex-1">
                   <p className="text-sm text-white">
                     {n.type === "system" ? (n.message || "系统通知")
