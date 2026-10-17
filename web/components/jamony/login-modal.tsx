@@ -286,7 +286,6 @@ export function LoginModal() {
                   value={regInstrument}
                   onChange={(v) => { setRegInstrument(v); setRegOtherInstrument("") }}
                   options={INSTRUMENTS.map((ins) => ({ value: ins, label: ins }))}
-                  className="!py-1.5"  /* jamony 1018: 登录卡专属压高(field变体全站共享不动能本体) */
                 />
                 {INSTRUMENT_NEEDS_INPUT.includes(regInstrument) && (
                   <input

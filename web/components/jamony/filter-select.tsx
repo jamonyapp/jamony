@@ -9,7 +9,7 @@ import { ChevronDown } from "lucide-react"
 //
 // variant：按钮外观跟所在容器走，弹层全站统一（#0D0D0D 暗色浮层）
 //   filter  = 一级页筛选行（34px，#0D0D0D/#1A1A1A，激活亮蓝边）
-//   field   = 弹窗/设置页表单（py-2.5，#141414/#2A2A2A，打开亮紫边，占位灰字）
+//   field   = 弹窗/设置页表单（py-1.5=34px，1018欢哥定标：全站下拉统一大厅/作品库标准；#141414/#2A2A2A，打开亮紫边）
 //   compact = 合奏页小控件（text-xs，#141414/#2A2A2A）
 // 弹层用 fixed 定位（打开时量按钮坐标）：不被弹窗/滚动容器 overflow 裁剪；
 // 滚动/缩放窗口时自动收起（fixed 层不跟随滚动，收起是最简正确行为）。
@@ -17,7 +17,7 @@ export type FilterOption = { value: string; label: string }
 
 const VARIANT_BTN: Record<string, string> = {
   filter: "rounded-lg bg-[#0D0D0D] py-1.5 pl-3 pr-8 text-sm",
-  field: "rounded-[10px] bg-[#141414] pl-4 pr-8 py-2.5 text-sm",
+  field: "rounded-[10px] bg-[#141414] pl-4 pr-8 py-1.5 text-sm",
   compact: "rounded-lg bg-[#141414] pl-3 pr-8 py-1.5 text-xs",
 }
 const VARIANT_IDLE: Record<string, string> = {
