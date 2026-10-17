@@ -36,8 +36,9 @@ export function RoomCard({ room, onSelect }: { room: Room; onSelect?: () => void
           )}
           <ProficiencyBadge proficiency={room.proficiency} />
         </div>
-        <span className="flex shrink-0 items-center gap-2 whitespace-nowrap text-sm font-semibold tabular-nums">
-          {isFull ? <span className="rounded-md bg-destructive/15 px-1.5 py-0.5 text-xs text-destructive">已满</span> : null}
+        {/* jamony 1017: 满员态右组瘦身(px-1+text-[10px]+gap-1.5,省~20px)——4列卡~250px下 首行内容245px贴脸,光nowrap会溢出,须同时收窄 */}
+        <span className="flex shrink-0 items-center gap-1.5 whitespace-nowrap text-sm font-semibold tabular-nums">
+          {isFull ? <span className="rounded-md bg-destructive/15 px-1 py-0.5 text-[10px] text-destructive">已满</span> : null}
           <span className={`flex items-center gap-1 ${isFull ? "text-destructive" : isNearFull ? "text-[#ffb84d]" : "text-foreground"}`}>
             <User className="h-3.5 w-3.5" style={{ color: "#9933FF" }} />{room.current}/{room.capacity}
           </span>
