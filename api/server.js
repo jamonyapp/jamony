@@ -4838,6 +4838,38 @@ async function cleanupOrphanProcesses() {
 cleanupOrphanProcesses()  // 启动时立即跑一次（pm2 重启后清上次残留）
 setInterval(cleanupOrphanProcesses, 600000)  // 每 10 分钟复核一次
 
+// ========== jamony 1018: 幽灵房收割者（挂房威胁主刀，欢哥拍板） ==========
+// 威胁: 正常注册 + POST /api/rooms 后直接走人(fire-and-forget)——房间无 TTL，L2 只认"连过又断"的人，
+// 从未连过的脚本成员永不触发清理 → 房间永生(每房 jamsoul+幽灵+ffmpeg ≈150-300MB，3-5 空房即 OOM)。
+// 刀法: 定时扫描——全员(任何身份,听众也算人) last_active_at 全部静止超 60 分钟 → 逐成员走标准
+// removeMemberAndCheckDissolve(解散清理全复用:杀进程/清物料/广播/归档)。心跳是唯一判据，不查 jamsoul
+// 通道(jamsoul 由 web 端调起驱动，无心跳即无人)；录音中房间跳过(录音 5min 上限自带终点，不可被"占房永生")。
+async function reapGhostRooms() {
+  try {
+    const stale = await pool.query(
+      `SELECT r.id, r.room_code, r.name FROM rooms r
+       WHERE r.status NOT IN ('closed','archived')
+         AND r.recording_active = false
+         AND r.created_at < NOW() - INTERVAL '60 minutes'
+         AND NOT EXISTS (
+           SELECT 1 FROM room_members rm
+           WHERE rm.room_id = r.id AND rm.last_active_at > NOW() - INTERVAL '60 minutes'
+         )`
+    )
+    for (const room of stale.rows) {
+      const members = await pool.query('SELECT user_id FROM room_members WHERE room_id = $1', [room.id])
+      console.log(`[reaper] 收割幽灵房「${room.name}」(${room.room_code})——全员${members.rows.length}人静止超60分钟`)
+      for (const m of members.rows) {
+        const still = await pool.query("SELECT id FROM rooms WHERE id=$1 AND status NOT IN ('closed','archived')", [room.id])
+        if (still.rows.length === 0) break  // 已被首笔 leave 触发标准解散，余下成员行随房清
+        try { await removeMemberAndCheckDissolve(m.user_id, room.id, room.room_code) } catch (e) { console.error('[reaper] leave错误:', e.message) }
+      }
+    }
+  } catch (e) { console.error('[reaper] 扫描错误:', e) }
+}
+setInterval(reapGhostRooms, 10 * 60000)   // 常规巡扫: 每 10 分钟
+setTimeout(reapGhostRooms, 30 * 1000)     // 启动 30 秒首扫(重启后即清存量)
+
 // jamony: 聊天记录证据保全 — 每 6 小时清理 180 天前的记录
 async function cleanupOldChatMessages() {
   try {
