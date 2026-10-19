@@ -93,7 +93,10 @@ export function PlayingPage() {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [audioConnected, setAudioConnected] = useState(false)
   const [roomGone, setRoomGone] = useState(false)
-  const [myRole, setMyRole] = useState<"musician" | "listener">("musician")
+  // 10-19 三态角色：null=身份未定（详情 fetch 落地前）——首帧不渲染任何角色视角，
+  // 根治"听众进房闪现合奏者左栏再消失"；旧默认 "musician" 还有一个更重的伴生问题：
+  // 直连 playing URL 的非成员被当合奏者自动调起 jamsoul（成员表无记录=不可见/名额不计/房主踢不掉）
+  const [myRole, setMyRole] = useState<"musician" | "listener" | null>(null)
   const [refreshTrigger, setRefreshTrigger] = useState(0) // v2 - listenerActive cleanup
   const [confirmTarget, setConfirmTarget] = useState<"stay" | "home" | "lobby">("stay")
   const pendingSwitchRef = useRef(false) // v3 — 监听→合奏切换：Icecast 停干净后再启动 jamsoul
@@ -179,9 +182,15 @@ export function PlayingPage() {
             return
           }
           setRoom(roomData)
-          // 检测当前用户在房间的角色
+          // 检测当前用户在房间的角色（10-19：非成员不再默认合奏者——一律回详情页走正规加入，
+          // 堵"音频层直入但成员表无记录"的窟窿；强刷保房不受影响，60s L2 窗口内成员行健在 me 必命中）
           const me = (data.members || []).find((m: any) => m.user_id === user.id)
-          const role = me?.role || "musician"
+          if (!me) {
+            window.jamonyAPI?.killJamsoul?.()  // 防孤儿 jamsoul 挂在进不去的房间端口上
+            router.replace(`/room/${roomId}`)
+            return
+          }
+          const role = me.role === "musician" ? "musician" : "listener"
           setMyRole(role)
           // 10-06 漫游改造：进房确认 → 通知全局 Provider（启动全局心跳）
           roomSession.refresh()
@@ -441,6 +450,10 @@ export function PlayingPage() {
         backLinks={[{ label: "返回大厅", href: "/lobby" }]}
       />
 
+      {/* 10-19：身份未定（fetch 前）不渲染任何角色视角——中性空态占位，根治首帧错视角闪烁 */}
+      {myRole === null || !room ? (
+        <div className="min-h-0 flex-1" />
+      ) : (
       <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[22%_minmax(0,1fr)_30%]">
         <div className="min-h-0 border-b lg:border-b-0 lg:border-r" style={{ borderColor: "#1A1A1A" }}>
           <LeftColumn
@@ -501,6 +514,7 @@ export function PlayingPage() {
           <RightColumn roomId={params?.code as string} room={room} refreshTrigger={refreshTrigger} realtimeMembers={realtimeMembers} currentUserId={user?.id} hostId={effectiveHostId} onKick={(m) => { setKickTarget({ user_id: m.user_id, nickname: m.nickname }); setKickOpen(true) }} />
         </div>
       </div>
+      )}
 
       {/* program 背景轨混音器（1015 建，1016 改）：全屏弹层，轨被清空自动消失；常驻走带条在左栏 */}
       <ProgramStage
