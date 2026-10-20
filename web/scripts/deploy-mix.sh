@@ -3,7 +3,7 @@
 # 全程绝对路径（cwd护栏时代）；.next 外科换（先rm再整体rsync，禁--delete）
 set -e
 W=/Users/rainbowtube/Ventures/jamony/web
-SRV=root@39.96.30.128
+SRV=root@123.57.33.130  # 1020 迁移后指向 ECS 新机（旧轻量已冻结仅作回退）
 
 rsync -a $W/lib/jam-data.ts $W/lib/chat-socket.ts $SRV:/root/jamony/web/lib/
 rsync -a $W/components/playing/playing-page.tsx $W/components/playing/center-column.tsx $SRV:/root/jamony/web/components/playing/
