@@ -23,7 +23,8 @@ function migrateJamsoulAudioQuality() {
 }
 
 // 云端页面地址
-const WEB_URL = process.env.JAMONY_WEB_URL || 'http://39.96.30.128'
+// 1021 起正式壳指向 ECS 新机（旧轻量已退居回退/staging；将来域名包日再切 app.jamonyapp.com）
+const WEB_URL = process.env.JAMONY_WEB_URL || 'http://123.57.33.130'
 
 // jamony 10-02: Mac 帮助菜单外链（欢哥后续做官网/FAQ页后改这里即可）
 const HELP_SITE_URL = 'https://jamonyapp.com'

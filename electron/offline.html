@@ -33,7 +33,7 @@
   <button class="retry" onclick="retry()">重试连接</button>
   <script>
     // 自动检测网络恢复，恢复后跳转云端
-    const WEB_URL = 'http://39.96.30.128'
+    const WEB_URL = 'http://123.57.33.130' // 1021 切新机
     function retry() {
       fetch(WEB_URL + '/api/works?limit=1', { mode: 'no-cors' })
         .then(() => { location.href = WEB_URL })
