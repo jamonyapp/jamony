@@ -50,7 +50,7 @@ let isLastMusician = false  // jamony: 当前用户是否房间唯一合奏者�
 
 function createWindow() {
   // #3 安全白名单：只允许白名单域加载，防注入恶意页面（file: 本地页 + 内测IP + 公测域名）
-  const ALLOWED_HOSTS = ['39.96.30.128', 'jamonyapp.com', 'localhost', '127.0.0.1']
+  const ALLOWED_HOSTS = ['39.96.30.128', '123.57.33.130', 'jamonyapp.com', 'localhost', '127.0.0.1']
   session.defaultSession.webRequest.onBeforeRequest((details, callback) => {
     try {
       const u = new URL(details.url)
