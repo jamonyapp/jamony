@@ -124,7 +124,8 @@ export function PlayingPage() {
   // v3: 提取 launchJamsoul 为可复用的回调，供 useEffect 和 handleReconnect 共用
   const launchJamsoul = useCallback(() => {
     if (!room) return
-    const payload = { serverIp: room.stored_server_ip || "39.96.30.128", port: room.server_port, nickname: user?.nickname }
+    // 1020: jamsoul 连接地址改为跟随页面 origin（与 icecast/聊天同款）——页面由哪台服务器提供就连哪台，双机/域名切换零改动
+    const payload = { serverIp: window.location.hostname, port: room.server_port, nickname: user?.nickname }
     if (window.jamonyAPI) { window.jamonyAPI.joinRoom(payload) }
     else { window.postMessage({ type: "JOIN_ROOM", payload }, "*") }
     setAudioConnected(true)
@@ -174,7 +175,7 @@ export function PlayingPage() {
         if (data.ok) {
           const roomData = {
             ...data.room,
-            stored_server_ip: "39.96.30.128",
+            stored_server_ip: window.location.hostname,
           }
           // 加密房非成员（GET 返回 server_port=null）→ 回详情页输密码
           if (roomData.is_private && !roomData.server_port) {
@@ -217,7 +218,7 @@ export function PlayingPage() {
           // 仅合奏者自动调起 jamsoul
           if (role === "musician") {
             setTimeout(() => {
-              const payload = { serverIp: "39.96.30.128", port: roomData.server_port, nickname: user?.nickname }
+              const payload = { serverIp: window.location.hostname, port: roomData.server_port, nickname: user?.nickname }
               if (window.jamonyAPI) {
                 window.jamonyAPI.joinRoom(payload)
               } else {
