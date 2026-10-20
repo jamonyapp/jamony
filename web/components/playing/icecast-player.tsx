@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react"
 
 function getStreamUrl(port: number): string {
-  const host = typeof window !== "undefined" ? window.location.hostname : "39.96.30.128"
+  const host = typeof window !== "undefined" ? window.location.hostname : "127.0.0.1"
   return `${typeof window !== "undefined" ? window.location.protocol : "http:"}//${host}/stream/room-${port}`
 }
 

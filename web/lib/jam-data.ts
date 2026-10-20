@@ -16,7 +16,7 @@ export const ROOM = {
   online: 5,
   capacity: 8,
   latencyMs: 28,
-  serverIp: "39.96.30.128",
+  serverIp: "127.0.0.1",
   port: 22124,
 }
 

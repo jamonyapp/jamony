@@ -60,7 +60,7 @@ export const rooms: Room[] = [
     description: '周六晚8点，吉他贝斯鼓都来，主打经典摇滚翻唱和原创即兴。新手老手都欢迎！',
     createdAt: '创建于 2026年6月10日', owner: { name: '小明', color: 'purple' }, ownerOnline: true,
     instruments: ['🎸', '🥁', '🎤'], current: 3, capacity: 6, latency: 28, isPrivate: false,
-    serverIp: '39.96.30.128', port: 22124,
+    serverIp: '127.0.0.1', port: 22124,
     members: [
       { id: 'm1', name: '小明', instrument: '吉他', instrumentEmoji: '🎸', status: 'owner', color: 'purple' },
       { id: 'm2', name: '阿豪', instrument: '鼓', instrumentEmoji: '🥁', status: 'ready', color: 'blue' },
@@ -72,7 +72,7 @@ export const rooms: Room[] = [
     description: '标准爵士曲目即兴，欢迎各种乐器加入。',
     createdAt: '创建于 2026年6月9日', owner: { name: '老王', color: 'blue' }, ownerOnline: true,
     instruments: ['🎷', '🎹', '🥁'], current: 4, capacity: 6, latency: 30, isPrivate: false,
-    serverIp: '39.96.30.128', port: 22124,
+    serverIp: '127.0.0.1', port: 22124,
     members: [
       { id: 'm2-1', name: '老王', instrument: '萨克斯', instrumentEmoji: '🎷', status: 'owner', color: 'blue' },
       { id: 'm2-2', name: '小林', instrument: '钢琴', instrumentEmoji: '🎹', status: 'ready', color: 'purple' },
@@ -85,7 +85,7 @@ export const rooms: Room[] = [
     description: '本周曲目《起风了》，一起来排练。',
     createdAt: '创建于 2026年6月8日', owner: { name: '小美', color: 'pink' }, ownerOnline: false,
     instruments: ['🎤', '🎸'], current: 2, capacity: 6, latency: 26, isPrivate: false,
-    serverIp: '39.96.30.128', port: 22124,
+    serverIp: '127.0.0.1', port: 22124,
     members: [
       { id: 'm3-1', name: '小美', instrument: '主唱', instrumentEmoji: '🎤', status: 'owner', color: 'pink' },
       { id: 'm3-2', name: '阿杰', instrument: '吉他', instrumentEmoji: '🎸', status: 'ready', color: 'blue' },
@@ -96,7 +96,7 @@ export const rooms: Room[] = [
     description: '双吉他鼓贝斯，缺主唱！',
     createdAt: '创建于 2026年6月7日', owner: { name: '阿强', color: 'purple' }, ownerOnline: true,
     instruments: ['🎸', '🎸', '🥁', '🎸'], current: 4, capacity: 6, latency: 32, isPrivate: false,
-    serverIp: '39.96.30.128', port: 22124,
+    serverIp: '127.0.0.1', port: 22124,
     members: [
       { id: 'm4-1', name: '阿强', instrument: '主音吉他', instrumentEmoji: '🎸', status: 'owner', color: 'purple' },
       { id: 'm4-2', name: '铁柱', instrument: '节奏吉他', instrumentEmoji: '🎸', status: 'ready', color: 'blue' },
@@ -109,7 +109,7 @@ export const rooms: Room[] = [
     description: '木吉他+口琴，轻松弹唱夜晚。',
     createdAt: '创建于 2026年6月6日', owner: { name: '小李', color: 'lime' }, ownerOnline: true,
     instruments: ['🎸', '🎤'], current: 2, capacity: 6, latency: 27, isPrivate: false,
-    serverIp: '39.96.30.128', port: 22124,
+    serverIp: '127.0.0.1', port: 22124,
     members: [
       { id: 'm5-1', name: '小李', instrument: '吉他', instrumentEmoji: '🎸', status: 'owner', color: 'lime' },
       { id: 'm5-2', name: '小芳', instrument: '主唱', instrumentEmoji: '🎤', status: 'ready', color: 'pink' },
@@ -120,7 +120,7 @@ export const rooms: Room[] = [
     description: 'Groove is everything!',
     createdAt: '创建于 2026年6月5日', owner: { name: '贝斯手老张', color: 'blue' }, ownerOnline: true,
     instruments: ['🎸', '🥁', '🎤'], current: 3, capacity: 6, latency: 25, isPrivate: false,
-    serverIp: '39.96.30.128', port: 22124,
+    serverIp: '127.0.0.1', port: 22124,
     members: [
       { id: 'm6-1', name: '贝斯手老张', instrument: '贝斯', instrumentEmoji: '🎸', status: 'owner', color: 'blue' },
       { id: 'm6-2', name: '鼓手阿华', instrument: '鼓', instrumentEmoji: '🥁', status: 'ready', color: 'purple' },
@@ -132,7 +132,7 @@ export const rooms: Room[] = [
     description: '鬼灭/咒术/巨人OP从头翻到尾。',
     createdAt: '创建于 2026年6月4日', owner: { name: '阿宅', color: 'pink' }, ownerOnline: true,
     instruments: ['🎸', '🎹', '🥁'], current: 3, capacity: 6, latency: 26, isPrivate: false,
-    serverIp: '39.96.30.128', port: 22124,
+    serverIp: '127.0.0.1', port: 22124,
     members: [
       { id: 'm7-1', name: '阿宅', instrument: '键盘', instrumentEmoji: '🎹', status: 'owner', color: 'pink' },
       { id: 'm7-2', name: '小新', instrument: '吉他', instrumentEmoji: '🎸', status: 'ready', color: 'blue' },
@@ -144,7 +144,7 @@ export const rooms: Room[] = [
     description: '下午茶时间，轻柔的Bossa Nova。',
     createdAt: '创建于 2026年6月3日', owner: { name: 'Nina', color: 'lime' }, ownerOnline: false,
     instruments: ['🎸', '🎤', '🎹'], current: 3, capacity: 6, latency: 30, isPrivate: false,
-    serverIp: '39.96.30.128', port: 22124,
+    serverIp: '127.0.0.1', port: 22124,
     members: [
       { id: 'm8-1', name: 'Nina', instrument: '主唱', instrumentEmoji: '🎤', status: 'owner', color: 'lime' },
       { id: 'm8-2', name: 'Carlos', instrument: '吉他', instrumentEmoji: '🎸', status: 'ready', color: 'purple' },
@@ -156,7 +156,7 @@ export const rooms: Room[] = [
     description: '古筝+笛子+吉他改编古风曲目。',
     createdAt: '创建于 2026年6月2日', owner: { name: '小月', color: 'pink' }, ownerOnline: true,
     instruments: ['🎹', '🎻'], current: 2, capacity: 6, latency: 29, isPrivate: false,
-    serverIp: '39.96.30.128', port: 22124,
+    serverIp: '127.0.0.1', port: 22124,
     members: [
       { id: 'm9-1', name: '小月', instrument: '古筝', instrumentEmoji: '🎹', status: 'owner', color: 'pink' },
       { id: 'm9-2', name: '阿竹', instrument: '笛子', instrumentEmoji: '🎻', status: 'ready', color: 'blue' },
@@ -167,7 +167,7 @@ export const rooms: Room[] = [
     description: '仅限乐队成员内部排练。',
     createdAt: '创建于 2026年6月1日', owner: { name: '张队', color: 'purple' }, ownerOnline: true,
     instruments: ['🎸', '🥁', '🎤', '🎹'], current: 4, capacity: 4, latency: 24, isPrivate: true,
-    serverIp: '39.96.30.128', port: 22124,
+    serverIp: '127.0.0.1', port: 22124,
     members: [
       { id: 'm10-1', name: '张队', instrument: '吉他', instrumentEmoji: '🎸', status: 'owner', color: 'purple' },
       { id: 'm10-2', name: '阿猛', instrument: '鼓', instrumentEmoji: '🥁', status: 'ready', color: 'blue' },
