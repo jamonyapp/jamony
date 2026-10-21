@@ -5020,6 +5020,54 @@ app.post('/api/admin-internal/rooms/:id/dissolve', requireAdminInternal, async (
   }
 })
 
+// 内容下架/恢复（1022 后台运营通道）：works/notices 状态位翻转
+// taken_down=运营下架（区别于用户自删 deleted）；产品端列表/详情全是白名单过滤
+// （works=published / notices=active），taken_down 自动不可见——产品查询零改动
+// 守卫：只在 published⇄taken_down 之间翻转，绝不复活用户自删的 deleted 内容
+async function setTakedownStatus(kind, id, action) {
+  const table = kind === 'works' ? 'works' : 'notices'
+  const liveStatus = kind === 'works' ? 'published' : 'active'
+  if (action === 'take_down') {
+    const r = await pool.query(
+      `UPDATE ${table} SET status='taken_down' WHERE id=$1 AND status='${liveStatus}' RETURNING id`,
+      [id]
+    )
+    return r.rows.length > 0
+      ? { ok: true }
+      : { ok: false, msg: '内容不存在或当前状态不可下架' }
+  }
+  if (action === 'restore') {
+    const r = await pool.query(
+      `UPDATE ${table} SET status='${liveStatus}' WHERE id=$1 AND status='taken_down' RETURNING id`,
+      [id]
+    )
+    return r.rows.length > 0
+      ? { ok: true }
+      : { ok: false, msg: '内容不存在或未被下架' }
+  }
+  return { ok: false, msg: '未知操作' }
+}
+
+app.post('/api/admin-internal/works/:id/status', requireAdminInternal, async (req, res) => {
+  try {
+    const r = await setTakedownStatus('works', parseInt(req.params.id), req.body?.action)
+    res.status(r.ok ? 200 : 409).json(r)
+  } catch (err) {
+    console.error('admin-internal works status error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+app.post('/api/admin-internal/notices/:id/status', requireAdminInternal, async (req, res) => {
+  try {
+    const r = await setTakedownStatus('notices', parseInt(req.params.id), req.body?.action)
+    res.status(r.ok ? 200 : 409).json(r)
+  } catch (err) {
+    console.error('admin-internal notices status error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
 server.listen(PORT, '127.0.0.1', () => {
   console.log('jamony API running on http://127.0.0.1:' + PORT)
   console.log('Socket.IO ready')
