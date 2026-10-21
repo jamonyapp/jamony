@@ -447,6 +447,18 @@ function setAuthCookie(res, user) {
 }
 
 // 鉴权中间件：验 cookie JWT → req.userId；滑动续期（剩余<1天重签 cookie）
+// 在线维度（1022）：认证通过即"在线"，节流更新 users.last_seen_at（每用户每分钟至多一次 UPDATE）
+const lastSeenMap = new Map() // userId -> 上次写库 ts
+function touchLastSeen(userId) {
+  const now = Date.now()
+  if (now - (lastSeenMap.get(userId) || 0) < 60000) return
+  lastSeenMap.set(userId, now)
+  pool.query('UPDATE users SET last_seen_at = NOW() WHERE id = $1', [userId]).catch(() => {})
+  if (lastSeenMap.size > 5000) { // 顺手清扫过期项，防长跑膨胀
+    for (const [uid, ts] of lastSeenMap) if (now - ts > 10 * 60000) lastSeenMap.delete(uid)
+  }
+}
+
 function requireAuth(req, res, next) {
   const token = parseCookies(req)[COOKIE_NAME]
   if (!token) return res.status(401).json({ ok: false, msg: '未登录' })
@@ -454,6 +466,7 @@ function requireAuth(req, res, next) {
     const decoded = jwt.verify(token, JWT_SECRET)
     req.userId = decoded.id
     req.nickname = decoded.nickname
+    touchLastSeen(decoded.id)
     const remaining = decoded.exp * 1000 - Date.now()
     if (remaining < 24 * 3600 * 1000) {
       const newToken = jwt.sign({ id: decoded.id, nickname: decoded.nickname }, JWT_SECRET, { expiresIn: '7d' })
@@ -466,6 +479,7 @@ function requireAuth(req, res, next) {
 }
 
 // 可选鉴权：解析 cookie JWT → req.userId；未登录/失败不拦截（req.userId=null），保持端点公开
+// 持有效登录逛大厅也是"在线"（口径：任意已认证请求）——验证成功即 touch
 function optionalAuth(req, res, next) {
   const token = parseCookies(req)[COOKIE_NAME]
   if (!token) { req.userId = null; req.nickname = null; return next() }
@@ -473,6 +487,7 @@ function optionalAuth(req, res, next) {
     const decoded = jwt.verify(token, JWT_SECRET)
     req.userId = decoded.id
     req.nickname = decoded.nickname
+    touchLastSeen(decoded.id)
   } catch (e) {
     req.userId = null
     req.nickname = null
