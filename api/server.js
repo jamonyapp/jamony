@@ -4928,6 +4928,83 @@ async function archiveOldMusicianSessions() {
 archiveOldMusicianSessions()  // 启动时立即跑一次
 setInterval(archiveOldMusicianSessions, 24 * 3600000)
 
+// ========== 后台运营内部通道（1022）：jamony-admin 应急解散房间 ==========
+// 鉴权三层：共享密钥恒时比较 + 请求方必须本机 + 拒绝经 nginx 穿透进来的外部请求
+// （X-Real-IP 是 nginx 反代时才注入的头——admin 后端直连 3001 不带它）
+function requireAdminInternal(req, res, next) {
+  const key = process.env.ADMIN_INTERNAL_KEY
+  if (!key) return res.status(503).json({ ok: false, msg: '内部通道未配置' })
+  const rip = req.headers['x-real-ip']
+  if (rip && rip !== '127.0.0.1') return res.status(403).json({ ok: false, msg: 'forbidden' })
+  if (req.ip !== '127.0.0.1' && req.ip !== '::1' && req.ip !== '::ffff:127.0.0.1') {
+    return res.status(403).json({ ok: false, msg: 'forbidden' })
+  }
+  const given = Buffer.from(String(req.headers['x-admin-key'] || ''))
+  const expect = Buffer.from(key)
+  if (given.length !== expect.length || !crypto.timingSafeEqual(given, expect)) {
+    return res.status(403).json({ ok: false, msg: 'forbidden' })
+  }
+  next()
+}
+
+// 应急解散（与 removeMemberAndCheckDissolve 的清理链同款，逐字复用）
+// 区别：不依赖"成员逐个离开才触发"——后台对整个房间直接执行杀进程+清物料+广播+清表
+async function forceDissolveRoom(roomId, actor) {
+  const roomInfo = await pool.query(
+    'SELECT id, name, room_code, server_port, status FROM rooms WHERE id = $1', [roomId]
+  )
+  const room = roomInfo.rows[0]
+  if (!room) return { ok: false, msg: '房间不存在' }
+  if (room.status === 'closed' || room.status === 'archived') {
+    return { ok: false, msg: '房间已是终态(' + room.status + ')，无需解散' }
+  }
+  const closePort = room.server_port
+  const roomCode = String(room.room_code).trim()
+  const members = await pool.query('SELECT user_id FROM room_members WHERE room_id = $1', [roomId])
+  if (closePort) {
+    try { execSync(`node /var/www/jamony/api/manage-jamsoul.js drums-stop ${closePort}`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve drums-stop ' + closePort + ':', e.message) }
+    try { execSync(`node /var/www/jamony/api/manage-jamsoul.js stop ${closePort}`, { timeout: 10000, stdio: 'pipe' }) } catch (e) { console.error('dissolve stop ' + closePort + ':', e.message) }
+    try { execSync(`node /var/www/jamony/api/manage-jamsoul.js stop-ghost ${closePort}`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve stop-ghost ' + closePort + ':', e.message) }
+    try { execSync(`pkill -f "jm-stream-${closePort}"`, { timeout: 3000, stdio: 'pipe' }) } catch (e) { /* 无进程时 pkill 返回非 0，正常，忽略 */ }
+    try { execSync(`rm -rf /var/jamony/recordings/room-${closePort}-records/`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve rm recordings ' + closePort + ':', e.message) }
+    try { execSync(`rm -rf "/var/jamony/scores/${roomCode}"`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve rm scores ' + roomCode + ':', e.message) }
+    try { await pool.query('DELETE FROM room_scores WHERE room_code = $1', [roomCode]) } catch (e) { console.error('dissolve rm score shelf ' + roomCode + ':', e.message) }
+    try { execSync(`rm -rf "/var/jamony/programs/${roomCode}"`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve rm programs ' + roomCode + ':', e.message) }
+    await stopGpByCode(roomCode)
+    await stopProgramByCode(roomCode, false)
+    try {
+      const ghostState = JSON.parse(fs.readFileSync('/var/lib/jamony/ghost.json', 'utf8').toString() || '{}')
+      const entry = ghostState[String(closePort)]
+      if (entry && entry.ffmpegPid) { try { process.kill(entry.ffmpegPid) } catch (e) { console.error('dissolve kill ffmpeg ' + entry.ffmpegPid + ':', e.message) } }
+      delete ghostState[String(closePort)]
+      fs.writeFileSync('/var/lib/jamony/ghost.json', JSON.stringify(ghostState, null, 2))
+    } catch (e) { console.error('dissolve ghost cleanup ' + closePort + ':', e.message) }
+  }
+  io.to(roomCode).emit('room-dissolved', { roomCode })
+  await closeRoomMusicianSessions(roomId)
+  await pool.query('DELETE FROM room_members WHERE room_id = $1', [roomId])
+  const pubCount = await pool.query('SELECT COUNT(*) AS c FROM works WHERE room_id = $1', [roomId])
+  let archived = false
+  if (parseInt(pubCount.rows[0].c) > 0) {
+    await pool.query("UPDATE rooms SET status='archived' WHERE id=$1", [roomId])
+    archived = true
+  } else {
+    await pool.query('DELETE FROM rooms WHERE id = $1', [roomId])
+  }
+  console.log(`[admin-internal] force dissolve 「${room.name}」(${roomCode}) by ${actor}: 清出${members.rows.length}人`)
+  return { ok: true, removed: members.rows.length, archived }
+}
+
+app.post('/api/admin-internal/rooms/:id/dissolve', requireAdminInternal, async (req, res) => {
+  try {
+    const r = await forceDissolveRoom(parseInt(req.params.id), String(req.headers['x-admin-actor'] || 'admin-panel').slice(0, 40))
+    res.status(r.ok ? 200 : 409).json(r)
+  } catch (err) {
+    console.error('admin-internal dissolve error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
 server.listen(PORT, '127.0.0.1', () => {
   console.log('jamony API running on http://127.0.0.1:' + PORT)
   console.log('Socket.IO ready')
