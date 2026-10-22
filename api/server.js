@@ -3885,6 +3885,31 @@ app.get('/api/official-update', async (req, res) => {
   }
 })
 
+// 用户反馈（配置中心三单之二：公开提交，匿名可发；同 IP 60s 限 1 条；jamony_api 仅 INSERT 无读权限）
+const feedbackRate = new Map() // ip → 上次提交时间戳
+app.post('/api/feedback', optionalAuth, async (req, res) => {
+  const content = String(req.body?.content ?? '').trim()
+  const clientVersion = String(req.body?.client_version ?? '').slice(0, 20)
+  if (content.length < 5) return res.status(400).json({ ok: false, msg: '写点具体内容吧（至少 5 个字）' })
+  if (content.length > 1000) return res.status(400).json({ ok: false, msg: '内容过长（≤1000 字）' })
+  const ip = req.ip || ''
+  if (Date.now() - (feedbackRate.get(ip) || 0) < 60000) {
+    return res.status(429).json({ ok: false, msg: '操作太频繁，请稍后再试' })
+  }
+  try {
+    await pool.query(
+      'INSERT INTO feedbacks (user_id, nickname, content, client_version, ip) VALUES ($1,$2,$3,$4,$5)',
+      [req.userId ?? null, req.nickname ?? null, content, clientVersion, ip || null]
+    )
+    feedbackRate.set(ip, Date.now())
+    if (feedbackRate.size > 5000) feedbackRate.clear() // 防 Map 膨胀（1003 OOM 教训）
+    res.json({ ok: true })
+  } catch (e) {
+    console.error('feedback error:', e.message)
+    res.status(500).json({ ok: false, msg: '提交失败，稍后再试' })
+  }
+})
+
 // 校验用户是否某房间的合奏者（room_members.role === 'musician'），按 room_code 查
 async function isRoomMusician(userId, roomCode) {
   const r = await pool.query("SELECT rm.role FROM room_members rm JOIN rooms r ON r.id=rm.room_id WHERE r.room_code=$1 AND rm.user_id=$2", [roomCode, userId])

@@ -1,7 +1,11 @@
 const { contextBridge, ipcRenderer, clipboard } = require('electron')
 
+// jamony 10-23: 客户端版本号（main 经 additionalArguments 注入）——反馈收集等场景随请求上报
+const versionArg = process.argv.find((a) => a.startsWith('--jamony-version='))
+
 // 安全地暴露给渲染进程（网页）的 API
 contextBridge.exposeInMainWorld('jamonyAPI', {
+  version: versionArg ? versionArg.split('=')[1] : '',
   // 写入系统剪贴板（Electron clipboard，比 navigator.clipboard 在非 secure context 更可靠）
   writeClipboard: (text) => {
     try { clipboard.writeText(text); return true } catch { return false }

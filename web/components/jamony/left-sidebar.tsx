@@ -2,7 +2,7 @@
 
 import { Disc3, Home, MessageSquare, Music, Plus, Radio, ScrollText, X } from "lucide-react"
 import { usePathname, useRouter } from "next/navigation"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { CreateRoomModal } from "@/components/create-room-modal"
 import { PublishNoticeModal } from "@/components/jamony/publish-notice-modal"
 import type { Notice } from "@/lib/jamony-data"
@@ -152,6 +152,11 @@ export function LeftSidebar() {
 function FeedbackModal({ onClose }: { onClose: () => void }) {
   const [value, setValue] = useState("")
   const [sent, setSent] = useState(false)
+  const [sending, setSending] = useState(false)
+  const [error, setError] = useState("")
+  // 10-23 欢哥报障：弹窗内按下→拖到遮罩上松开，click 派发到公共祖先(遮罩)误判关闭。
+  // 修法=只有「按下+松开都在遮罩本身」才算点外关闭（click 的 target=公共祖先，不可单独信任）
+  const downOnOverlay = useRef(false)
 
   useEffect(() => {
     document.body.style.overflow = "hidden"
@@ -160,19 +165,39 @@ function FeedbackModal({ onClose }: { onClose: () => void }) {
     }
   }, [])
 
+  // 10-23 反馈收集：真提交（原 v0 只 console.log）；带客户端版本号（壳 preload 注入，公测散版本排查用）
   function handleSend() {
-    if (sent) return
-    console.log("[v0] feedback submitted:", value)
-    setValue("")
-    setSent(true)
-    setTimeout(onClose, 1500)
+    if (sent || sending) return
+    const content = value.trim()
+    if (content.length < 5) { setError("写点具体内容吧（至少 5 个字）"); return }
+    setSending(true)
+    setError("")
+    const ja = (window as unknown as { jamonyAPI?: { version?: string } }).jamonyAPI
+    fetch("/api/feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content, client_version: ja?.version ?? "" }),
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.ok) {
+          setValue("")
+          setSent(true)
+          setTimeout(onClose, 1500)
+        } else {
+          setError(d.msg || "提交失败，稍后再试")
+        }
+      })
+      .catch(() => setError("网络异常，稍后再试"))
+      .finally(() => setSending(false))
   }
 
   return (
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center p-6"
       style={{ background: "rgba(0,0,0,0.6)" }}
-      onClick={onClose}
+      onMouseDown={(e) => { downOnOverlay.current = e.target === e.currentTarget }}
+      onClick={(e) => { if (e.target === e.currentTarget && downOnOverlay.current) onClose() }}
     >
       <div
         className="jamony-modal-enter relative w-full max-w-md rounded-2xl border p-6"
@@ -203,14 +228,19 @@ function FeedbackModal({ onClose }: { onClose: () => void }) {
             ✓ 感谢你的反馈！
           </p>
         )}
+        {error && !sent && (
+          <p className="mt-3 text-[13px] font-medium" style={{ color: "#FF6B6B" }}>
+            {error}
+          </p>
+        )}
 
         <button
           className="mt-4 w-full rounded-[10px] py-2.5 text-[14px] font-bold text-white transition-transform active:scale-[0.98] disabled:opacity-80"
           style={{ background: "linear-gradient(90deg, #9933FF, #FF33AA)" }}
           onClick={handleSend}
-          disabled={sent}
+          disabled={sent || sending}
         >
-          {sent ? "已发送" : "发送"}
+          {sent ? "已发送" : sending ? "发送中…" : "发送"}
         </button>
       </div>
     </div>

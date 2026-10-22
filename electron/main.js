@@ -72,6 +72,8 @@ function createWindow() {
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
+      // jamony 10-23: 版本号喂给 preload（反馈收集随请求上报——公测散版本排查的第一道过滤，欢哥拍板提前做）
+      additionalArguments: [`--jamony-version=${app.getVersion()}`],
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
