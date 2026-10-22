@@ -22,6 +22,16 @@ export function LeftSidebar() {
   const [createRoomOpen, setCreateRoomOpen] = useState(false)
   const [publishOpen, setPublishOpen] = useState(false)
   const { loggedIn, setShowLoginModal } = useAuth()
+  // 官方动态 — 后台配置中心可改（site_config）；初始=旧文案兜底，挂载拉取一次（下次进入后更新，不轮询——欢哥 10-22 拍板）
+  const [officialUpdate, setOfficialUpdate] = useState({ content: "我们可能不够好，但我们一直在努力。", signature: "——jamony" })
+  useEffect(() => {
+    fetch("/api/official-update")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.ok && d.content) setOfficialUpdate({ content: d.content, signature: d.signature || "——jamony" })
+      })
+      .catch(() => {}) // 失败保旧文案
+  }, [])
 
   const requireAuth = (fn: () => void) => {
     if (!loggedIn) { setShowLoginModal(true); return }
@@ -115,11 +125,11 @@ export function LeftSidebar() {
               官方动态
             </span>
           </div>
-          <p className="mt-2 text-[11px] leading-relaxed" style={{ color: "#C8C8C8" }}>
-            我们可能不够好，但我们一直在努力。
+          <p className="mt-2 text-[11px] leading-relaxed whitespace-pre-wrap" style={{ color: "#C8C8C8" }}>
+            {officialUpdate.content}
           </p>
           <p className="mt-2 text-right text-[11px]" style={{ color: "#8A8A8A" }}>
-            ——jamony
+            {officialUpdate.signature}
           </p>
         </div>
         <button

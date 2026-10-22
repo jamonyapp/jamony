@@ -3855,24 +3855,34 @@ app.post('/api/rooms/:code/drums/stop', requireAuth, async (req, res) => {
   }
 })
 
-// ========== 每日主题 ==========
-const THEMES = [
-  { title: "布鲁斯 · Key of E", emoji: "🎸" },
-  { title: "即兴 Funk Groove", emoji: "🎹" },
-  { title: "慢摇民谣弹唱", emoji: "🪕" },
-  { title: "爵士标准曲即兴", emoji: "🎷" },
-  { title: "电子氛围实验", emoji: "🎛️" },
-  { title: "雷鬼阳光午后", emoji: "☀️" },
-  { title: "午夜蓝调电台", emoji: "🎵" },
-]
+// ========== 每日主题（daily_themes 日程表，后台排期；一天一行 0 点自然换主题，查无/异常兜底） ==========
 // 轻量 ping：测纯网络延迟（不查 DB），前端房间卡片延迟用它而非 /api/rooms（后者含 DB 查询会虚高）
 app.get('/api/ping', (req, res) => { res.json({ ok: true }) })
 
-app.get('/api/daily-theme', (req, res) => {
-  const today = new Date()
-  const dayOfYear = Math.floor((today - new Date(today.getFullYear(), 0, 0)) / 86400000)
-  const theme = THEMES[dayOfYear % THEMES.length]
-  res.json({ ok: true, theme })
+app.get('/api/daily-theme', async (req, res) => {
+  try {
+    // 按北京 0 点换天，不依赖服务器时区设置
+    const r = await pool.query("SELECT title, emoji FROM daily_themes WHERE date = (now() AT TIME ZONE 'Asia/Shanghai')::date")
+    if (r.rows[0]) return res.json({ ok: true, theme: { title: r.rows[0].title, emoji: r.rows[0].emoji } })
+  } catch (e) {
+    console.error('daily-theme error:', e.message)
+  }
+  res.json({ ok: true, theme: { title: '自由即兴', emoji: '🎶' } })
+})
+
+// 官方动态（后台配置中心写 site_config；此处公开读，空/失败由前端兜底旧文案）
+app.get('/api/official-update', async (req, res) => {
+  try {
+    const r = await pool.query(`SELECT value FROM site_config WHERE key = 'official_update'`)
+    const v = r.rows[0]?.value
+    if (!v || !v.content) {
+      return res.json({ ok: true, content: '', signature: '' })
+    }
+    res.json({ ok: true, content: v.content, signature: v.signature || '——jamony' })
+  } catch (e) {
+    console.error('official-update error:', e.message)
+    res.status(500).json({ ok: false })
+  }
 })
 
 // 校验用户是否某房间的合奏者（room_members.role === 'musician'），按 room_code 查
