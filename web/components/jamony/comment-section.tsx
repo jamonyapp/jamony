@@ -6,6 +6,9 @@ import { useAuth } from "@/lib/auth-context"
 import { Avatar } from "@/components/jamony/avatar"
 import { UserPopover } from "@/components/jamony/user-popover"
 
+// 10-23 欢哥定稿：遮罩点外关闭须「按下+松开都在遮罩」——click 派发到公共祖先，单判 target 会被拖出松开误关
+const downOnOverlay = { current: false }
+
 // 通用评论区组件：subjectType 切 API（work→/api/works, notice→/api/notices）
 // 从 work-detail-page 评论逻辑提取，自管 comments state，不用 comments-context
 
@@ -267,7 +270,7 @@ export function CommentSection({
 
       {/* 删除确认弹窗 */}
       {pendingDelete && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-6" style={{ background: "rgba(0,0,0,0.6)" }} onClick={() => setPendingDelete(null)}>
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-6" style={{ background: "rgba(0,0,0,0.6)" }} onMouseDown={(e) => { downOnOverlay.current = e.target === e.currentTarget }} onClick={(e) => { if (e.target === e.currentTarget && downOnOverlay.current) setPendingDelete(null) }}>
           <div className="w-full max-w-sm rounded-2xl border p-5" style={{ background: "#0D0D0D", borderColor: "#1A1A1A" }} onClick={(e) => e.stopPropagation()}>
             <p className="text-sm text-white">确认删除这条评论吗？</p>
             <p className="mt-1 text-xs text-[#8A8A8A] line-clamp-2">{pendingDelete.content}</p>
@@ -281,7 +284,7 @@ export function CommentSection({
 
       {/* 举报弹窗 */}
       {pendingReport && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-6" style={{ background: "rgba(0,0,0,0.6)" }} onClick={() => { setPendingReport(null); setReportReason(""); setReportCustom("") }}>
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-6" style={{ background: "rgba(0,0,0,0.6)" }} onMouseDown={(e) => { downOnOverlay.current = e.target === e.currentTarget }} onClick={(e) => { if (e.target === e.currentTarget && downOnOverlay.current) { setPendingReport(null); setReportReason(""); setReportCustom("") } }}>
           <div className="w-full max-w-sm rounded-2xl border p-5" style={{ background: "#0D0D0D", borderColor: "#1A1A1A" }} onClick={(e) => e.stopPropagation()}>
             <p className="text-sm text-white">举报这条评论</p>
             <p className="mt-1 text-xs text-[#8A8A8A] line-clamp-2">{pendingReport.content}</p>

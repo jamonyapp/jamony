@@ -53,6 +53,9 @@ interface PlayerContextValue {
 import { useRoomSession } from "@/lib/room-session"
 import { AlertTriangle } from "lucide-react"
 
+// 10-23 欢哥定稿：遮罩点外关闭须「按下+松开都在遮罩」——click 派发到公共祖先，单判 target 会被拖出松开误关
+const downOnOverlay = { current: false }
+
 const PlayerContext = createContext<PlayerContextValue | null>(null)
 
 export function PlayerProvider({ children }: { children: ReactNode }) {
@@ -335,7 +338,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       {children}
       {/* 合奏者播放确认（守卫下沉后由 Provider 统一渲染，全站生效） */}
       {playGuardOpen && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" onClick={() => { setPlayGuardOpen(false); pendingPlayRef.current = null }}>
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" onMouseDown={(e) => { downOnOverlay.current = e.target === e.currentTarget }} onClick={(e) => { if (e.target === e.currentTarget && downOnOverlay.current) { setPlayGuardOpen(false); pendingPlayRef.current = null } }}>
           <div className="w-full max-w-sm rounded-[10px] border p-6 text-center" style={{ borderColor: "#1A1A1A", background: "#0D0D0D" }} onClick={(e) => e.stopPropagation()}>
             <div className="mx-auto grid size-12 place-items-center rounded-full" style={{ background: "rgba(255,184,77,0.15)" }}>
               <AlertTriangle className="size-6" style={{ color: "#ffb84d" }} />

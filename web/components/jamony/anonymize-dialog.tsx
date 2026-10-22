@@ -3,6 +3,9 @@
 import { useState } from "react"
 import { AlertTriangle } from "lucide-react"
 
+// 10-23 欢哥定稿：遮罩点外关闭须「按下+松开都在遮罩」——click 派发到公共祖先，单判 target 会被拖出松开误关
+const downOnOverlay = { current: false }
+
 // 取消署名确认弹窗（主页 + 列表页共用）
 // 不可撤销操作：把当前用户在某个作品中的署名改为匿名
 export function AnonymizeDialog({
@@ -40,7 +43,7 @@ export function AnonymizeDialog({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
-      onClick={onClose}
+      onMouseDown={(e) => { downOnOverlay.current = e.target === e.currentTarget }} onClick={(e) => { if (e.target === e.currentTarget && downOnOverlay.current) onClose() }}
       role="dialog"
       aria-modal="true"
     >

@@ -7,6 +7,9 @@ import { useAuth } from "@/lib/auth-context"
 import { UserPopover } from "@/components/jamony/user-popover"
 import { CommentSection } from "@/components/jamony/comment-section"
 
+// 10-23 欢哥定稿：遮罩点外关闭须「按下+松开都在遮罩」——click 派发到公共祖先，单判 target 会被拖出松开误关
+const downOnOverlay = { current: false }
+
 const REPORT_REASONS = ["垃圾广告", "违规内容", "色情低俗", "诈骗信息", "其他"]
 
 // 公告详情弹窗（统一组件）：board-page / board-screen / top-nav 全局三处复用
@@ -59,7 +62,7 @@ export function NoticeDetailModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: "rgba(0,0,0,0.6)", animation: "jamony-fade-in 200ms ease-out" }} onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: "rgba(0,0,0,0.6)", animation: "jamony-fade-in 200ms ease-out" }} onMouseDown={(e) => { downOnOverlay.current = e.target === e.currentTarget }} onClick={(e) => { if (e.target === e.currentTarget && downOnOverlay.current) onClose() }}>
       <div className="jamony-modal-enter w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl border" style={{ backgroundColor: "#0D0D0D", borderColor: "#1A1A1A" }} onClick={(e) => e.stopPropagation()}>
         <div className="relative h-44 w-full bg-cover bg-center" style={{ backgroundImage: `url('${notice.imageUrl || `/images/jamony-board-bg-${String(notice.bgIndex).padStart(2, "0")}.webp`}')` }}>
           <span className="absolute inset-0 bg-gradient-to-t from-[#0D0D0D] to-transparent" />
@@ -118,7 +121,7 @@ export function NoticeDetailModal({
           </div>
 
           {reportOpen && (
-            <div className="fixed inset-0 z-[70] flex items-center justify-center p-6" style={{ background: "rgba(0,0,0,0.6)" }} onClick={() => { setReportOpen(false); setReportReason(""); setReportCustom("") }}>
+            <div className="fixed inset-0 z-[70] flex items-center justify-center p-6" style={{ background: "rgba(0,0,0,0.6)" }} onMouseDown={(e) => { downOnOverlay.current = e.target === e.currentTarget }} onClick={(e) => { if (e.target === e.currentTarget && downOnOverlay.current) { setReportOpen(false); setReportReason(""); setReportCustom("") } }}>
               <div className="w-full max-w-sm rounded-2xl border p-5" style={{ background: "#0D0D0D", borderColor: "#1A1A1A" }} onClick={(e) => e.stopPropagation()}>
                 <p className="text-sm text-white">举报这条公告</p>
                 <div className="mt-3 flex flex-wrap gap-2">

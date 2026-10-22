@@ -5,6 +5,9 @@ import { X, Loader2 } from "lucide-react"
 import { FilterSelect } from "@/components/jamony/filter-select"
 import { useAuth } from "@/lib/auth-context"
 
+// 10-23 欢哥定稿：遮罩点外关闭须「按下+松开都在遮罩」——click 派发到公共祖先，单判 target 会被拖出松开误关
+const downOnOverlay = { current: false }
+
 const INSTRUMENTS = [
   "原声吉他", "电吉他", "贝斯", "打击乐器", "键盘乐器",
   "主唱", "弦乐", "管乐", "民乐",
@@ -124,7 +127,7 @@ export function LoginModal() {
     <div
       className="fixed inset-0 z-[70] flex items-center justify-center p-4"
       style={{ background: "rgba(0,0,0,0.6)" }}
-      onClick={() => { reset(); setShowLoginModal(false) }}
+      onMouseDown={(e) => { downOnOverlay.current = e.target === e.currentTarget }} onClick={(e) => { if (e.target === e.currentTarget && downOnOverlay.current) { reset(); setShowLoginModal(false) } }}
     >
       <div
         className="relative w-full max-w-sm rounded-2xl border p-6 shadow-2xl"

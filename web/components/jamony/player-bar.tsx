@@ -20,6 +20,9 @@ import { formatCount } from "@/lib/jamony-data"
 import { useRoomSession } from "@/lib/room-session"
 import { Headphones } from "lucide-react"
 
+// 10-23 欢哥定稿：遮罩点外关闭须「按下+松开都在遮罩」——click 派发到公共祖先，单判 target 会被拖出松开误关
+const downOnOverlay = { current: false }
+
 function RepeatIcon({ mode }: { mode: RepeatMode }) {
   if (mode === "repeat-one") return <Repeat1 className="h-4 w-4" />
   if (mode === "repeat-all") return <Repeat className="h-4 w-4" />
@@ -125,7 +128,7 @@ export function PlayerBar() {
       {listOpen && (
         <div
           className="fixed inset-0 z-50 flex items-end justify-center sm:items-center"
-          onClick={() => setListOpen(false)}
+          onMouseDown={(e) => { downOnOverlay.current = e.target === e.currentTarget }} onClick={(e) => { if (e.target === e.currentTarget && downOnOverlay.current) setListOpen(false) }}
         >
           <div className="absolute inset-0 bg-black/70" aria-hidden />
           <div

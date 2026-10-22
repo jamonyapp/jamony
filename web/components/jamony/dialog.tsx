@@ -2,6 +2,9 @@
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react"
 
+// 10-23 欢哥定稿：遮罩点外关闭须「按下+松开都在遮罩」——click 派发到公共祖先，单判 target 会被拖出松开误关
+const downOnOverlay = { current: false }
+
 // jamony 品牌制式对话框（1018 欢哥拍板：替掉全部原生 confirm/alert——系统弹窗圆角突兀不符品牌）
 // 制式：rounded-[10px] + 深色卡 + 品牌渐变确认键（删除类红色 danger）；Promise 化，调用处 await 即可
 // 用法：const dialog = useJamonyDialog(); if (!(await dialog.confirm("删吗？", { danger: true }))) return
@@ -39,7 +42,7 @@ export function DialogProvider({ children }: { children: React.ReactNode }) {
     <DialogCtx.Provider value={{ confirm, alert }}>
       {children}
       {req && (
-        <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/60" onClick={() => req.mode === "confirm" && close(false)}>
+        <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/60" onMouseDown={(e) => { downOnOverlay.current = e.target === e.currentTarget }} onClick={(e) => { if (e.target === e.currentTarget && downOnOverlay.current) req.mode === "confirm" && close(false) }}>
           <div className="w-[360px] max-w-[90vw] rounded-[10px] border p-5" style={{ background: "#0D0D0D", borderColor: "#1A1A1A" }} onClick={(e) => e.stopPropagation()}>
             <p className="text-[15px] font-semibold text-white">{req.options?.title || (req.mode === "confirm" ? "确认操作" : "提示")}</p>
             <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed" style={{ color: "#C8C8C8" }}>{req.message}</p>

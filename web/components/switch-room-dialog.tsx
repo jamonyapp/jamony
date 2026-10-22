@@ -2,6 +2,9 @@
 
 import { AlertTriangle } from "lucide-react"
 
+// 10-23 欢哥定稿：遮罩点外关闭须「按下+松开都在遮罩」——click 派发到公共祖先，单判 target 会被拖出松开误关
+const downOnOverlay = { current: false }
+
 // 切换房间确认弹窗（10-06 漫游改造）——视觉照抄 DisconnectDialog，文案可配置：
 // 加入其他房间 / 创建新房间 两个场景共用（欢哥定稿文案：断开原房间 + 唯一合奏者解散提示）
 export function SwitchRoomDialog({
@@ -28,7 +31,7 @@ export function SwitchRoomDialog({
   return (
     <div
       className="fixed inset-0 z-[90] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
-      onClick={onCancel}
+      onMouseDown={(e) => { downOnOverlay.current = e.target === e.currentTarget }} onClick={(e) => { if (e.target === e.currentTarget && downOnOverlay.current) onCancel() }}
       role="dialog"
       aria-modal="true"
     >

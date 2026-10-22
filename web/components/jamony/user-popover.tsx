@@ -8,6 +8,9 @@ import { Avatar } from "@/components/jamony/avatar"
 import { useDM } from "@/lib/dm-context"
 import { useAuth } from "@/lib/auth-context"
 
+// 10-23 欢哥定稿：遮罩点外关闭须「按下+松开都在遮罩」——click 派发到公共祖先，单判 target 会被拖出松开误关
+const downOnOverlay = { current: false }
+
 type PopoverUser = {
   id: number
   nickname: string
@@ -152,7 +155,7 @@ export function UserPopover({
         <div
           className="fixed inset-0 z-[90] flex items-center justify-center"
           style={{ background: "rgba(0,0,0,0.7)" }}
-          onClick={() => setImgOpen(false)}
+          onMouseDown={(e) => { downOnOverlay.current = e.target === e.currentTarget }} onClick={(e) => { if (e.target === e.currentTarget && downOnOverlay.current) setImgOpen(false) }}
         >
           <div onClick={(e) => e.stopPropagation()}>
             <Avatar nickname={user.nickname} avatarUrl={user.avatar_url} size={120} className="shadow-2xl" />

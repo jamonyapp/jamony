@@ -11,6 +11,9 @@ import { RoomPasswordModal } from "@/components/room-password-modal"
 import { SwitchRoomDialog } from "@/components/switch-room-dialog"
 import { useJamonyDialog } from "@/components/jamony/dialog"
 
+// 10-23 欢哥定稿：遮罩点外关闭须「按下+松开都在遮罩」——click 派发到公共祖先，单判 target 会被拖出松开误关
+const downOnOverlay = { current: false }
+
 type Member = {
   id: number
   user_id: number
@@ -197,7 +200,7 @@ export function RoomDetailModal({
   return (
     <div className="fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto p-4 pt-16"
       style={{ background: "rgba(0,0,0,0.7)" }}
-      onClick={onClose}>
+      onMouseDown={(e) => { downOnOverlay.current = e.target === e.currentTarget }} onClick={(e) => { if (e.target === e.currentTarget && downOnOverlay.current) onClose() }}>
       <div className="jamony-modal-enter relative w-full max-w-lg overflow-hidden rounded-2xl border"
         style={{ backgroundColor: "#0D0D0D", borderColor: "#1A1A1A" }}
         onClick={(e) => e.stopPropagation()}>

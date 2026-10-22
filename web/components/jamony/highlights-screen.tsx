@@ -10,6 +10,9 @@ import { LikeButton } from "@/components/jamony/like-button"
 import { CommentCount } from "@/components/jamony/comment-count"
 import type { Track } from "@/lib/jamony-data"
 
+// 10-23 欢哥定稿：遮罩点外关闭须「按下+松开都在遮罩」——click 派发到公共祖先，单判 target 会被拖出松开误关
+const downOnOverlay = { current: false }
+
 type Highlight = {
   id: string
   title: string
@@ -227,7 +230,7 @@ function DetailModal({ item, onClose }: { item: Highlight; onClose: () => void }
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center p-6"
       style={{ background: "rgba(0,0,0,0.6)" }}
-      onClick={onClose}
+      onMouseDown={(e) => { downOnOverlay.current = e.target === e.currentTarget }} onClick={(e) => { if (e.target === e.currentTarget && downOnOverlay.current) onClose() }}
     >
       <div
         className="jamony-modal-enter relative w-full max-w-2xl rounded-2xl border p-5"

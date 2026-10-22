@@ -2,6 +2,9 @@
 
 import { UserX } from "lucide-react"
 
+// 10-23 欢哥定稿：遮罩点外关闭须「按下+松开都在遮罩」——click 派发到公共祖先，单判 target 会被拖出松开误关
+const downOnOverlay = { current: false }
+
 export function KickConfirmDialog({
   open,
   nickname,
@@ -18,7 +21,7 @@ export function KickConfirmDialog({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
-      onClick={onCancel}
+      onMouseDown={(e) => { downOnOverlay.current = e.target === e.currentTarget }} onClick={(e) => { if (e.target === e.currentTarget && downOnOverlay.current) onCancel() }}
       role="dialog"
       aria-modal="true"
     >
