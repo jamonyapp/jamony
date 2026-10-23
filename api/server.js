@@ -805,11 +805,11 @@ app.get('/api/my-appeals', requireAuthAllowBanned, async (req, res) => {
     )
     let punishment = null
     const cfg = await getModerationConfig()
-    const u = await pool.query('SELECT restriction, restricted_at FROM users WHERE id=$1', [req.userId])
+    const u = await pool.query('SELECT restriction, restricted_at, restricted_until FROM users WHERE id=$1', [req.userId])
     const row = u.rows[0]
     if (row && ['restricted', 'demoted', 'banned'].includes(row.restriction) && row.restricted_at) {
       const deadline = new Date(new Date(row.restricted_at).getTime() + cfg.appealDays * 24 * 3600 * 1000)
-      punishment = { restriction: row.restriction, appeal_deadline: deadline.toISOString(), appeal_days: cfg.appealDays }
+      punishment = { restriction: row.restriction, restricted_until: row.restricted_until, appeal_deadline: deadline.toISOString(), appeal_days: cfg.appealDays }
     }
     res.json({ ok: true, appeals: r.rows, punishment })
   } catch (e) {
