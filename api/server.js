@@ -606,6 +606,11 @@ app.post('/api/register', async (req, res) => {
       return res.status(409).json({ ok: false, msg: '该昵称已被注册' })
     }
 
+    // 机审：注册昵称过词库闸（1023 内容安全；拒绝级直接拒，疑似级放行+标记）
+    if (!(await moderatePublishText('profile', null, null, nickname, nickname))) {
+      return res.status(400).json({ ok: false, msg: '昵称包含违规信息，请更换' })
+    }
+
     // 查重
     const exist = await pool.query('SELECT id FROM users WHERE nickname = $1', [nickname])
     if (exist.rows.length > 0) {
@@ -1063,6 +1068,13 @@ app.patch('/api/users/:id', requireAuth, async (req, res) => {
 
     if (sets.length === 0) {
       return res.status(400).json({ ok: false, msg: '没有要更新的字段' })
+    }
+
+    // 机审：个人资料自由文本全量过闸（昵称/介绍/签名/城市/乐器/类别/风格/邮箱，1023 内容安全）
+    const profileText = [nickname, bio, signature, city, primaryInstrument, instrumentCategory, email, ...(Array.isArray(styles) ? styles : [])]
+      .filter(v => typeof v === 'string' && v.trim()).join('\n')
+    if (profileText && !(await moderatePublishText('profile', req.userId, req.userId, req.nickname, profileText))) {
+      return res.status(400).json({ ok: false, msg: '资料包含违规信息，请修改后重发' })
     }
 
     sets.push(`updated_at = NOW()`)
