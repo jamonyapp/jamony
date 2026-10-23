@@ -649,7 +649,7 @@ async function checkSuspectEscalation(userId) {
       // ①处罚站内信: restricted 档, 文案与 403 同源+申诉提示(日期取 DB RETURNING, 单一事实源)
       const until = new Date(upd.rows[0].restricted_until)
       const dateStr = `${until.getMonth() + 1}月${until.getDate()}日`
-      await createNotification({ recipientId: userId, type: 'restriction', message: `因发布内容违规频繁，系统已限制您的部分功能，将于${dateStr}自动解除。如您认为有误，可在发布时提交申诉。请您注意在jamony的行为规范。` })
+      await createNotification({ recipientId: userId, type: 'restriction', message: `因发布内容违规频繁，系统已限制您的部分功能，将于${dateStr}自动解除。您可以到个人主页-申诉进行申诉。请您注意在jamony的行为规范。` })
     }
   } catch (e) {
     console.error('[moderation] 升级检查失败(不影响发布):', e.message)
@@ -680,7 +680,7 @@ async function checkRejectEscalation(userId) {
     restrictionCache.set(userId, { v: 'restricted', at: Date.now() })
     const until = new Date(upd.rows[0].restricted_until)
     const dateStr = `${until.getMonth() + 1}月${until.getDate()}日`
-    await createNotification({ recipientId: userId, type: 'restriction', message: `因多次尝试发布严重违规内容，系统已限制您的部分功能，将于${dateStr}自动解除。如您认为有误，可在发布时提交申诉。请您注意在jamony的行为规范。` })
+    await createNotification({ recipientId: userId, type: 'restriction', message: `因多次尝试发布严重违规内容，系统已限制您的部分功能，将于${dateStr}自动解除。您可以到个人主页-申诉进行申诉。请您注意在jamony的行为规范。` })
   } catch (e) {
     console.error('[moderation] 拒绝升级检查失败(不影响拦截):', e.message)
   }
@@ -950,7 +950,7 @@ app.get('/api/my-active-room', requireAuth, async (req, res) => {
 app.get('/api/me', requireAuth, async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT id, nickname, avatar_index, avatar_url, bio, signature, styles, city, primary_instrument, instrument_category, secondary_instrument, level, points FROM users WHERE id=$1',
+      'SELECT id, nickname, avatar_index, avatar_url, bio, signature, styles, city, primary_instrument, instrument_category, secondary_instrument, level, points, restriction FROM users WHERE id=$1',
       [req.userId]
     )
     if (result.rows.length === 0) return res.status(401).json({ ok: false, msg: '用户不存在' })
@@ -971,6 +971,7 @@ app.get('/api/me', requireAuth, async (req, res) => {
         secondaryInstrument: u.secondary_instrument || '',
         level: u.level,
         points: u.points,
+        restriction: u.restriction || 'normal', // 1024: 申诉tab据此显示提交表单
       }
     })
   } catch (err) {
@@ -2250,7 +2251,7 @@ app.post('/api/rooms/:code/join', requireAuth, async (req, res) => {
     // 1024 欢哥验收抓漏补齐: ③降级(降为听众)的房间层执行——demoted 不可再以乐手身份进房/切房内身份
     // (定稿: ②拿发言权/③拿演奏权/④拿账号; 进房+身份切换全走本端点, 一处卡点全拦; 已在房中让其演完本场)
     if (acceptedRole === 'musician' && (await getUserRestriction(userId)) === 'demoted') {
-      return res.status(403).json({ ok: false, code: 'DEMOTE_LISTENER', msg: '因为违规，您已被降级为听众，只能以听众身份进入房间。如您认为有误，可在发布内容时提交申诉。' })
+      return res.status(403).json({ ok: false, code: 'DEMOTE_LISTENER', msg: '因为违规，您已被降级为听众，只能以听众身份进入房间。您可以到个人主页-申诉进行申诉。' })
     }
 
     // 按 room_code 查房间
@@ -5529,7 +5530,7 @@ app.post('/api/admin-internal/users/:id/restriction', requireAdminInternal, asyn
       if (cur === 'demoted') return res.status(409).json({ ok: false, msg: '该用户已是降级状态' })
       await pool.query(`UPDATE users SET restriction='demoted', restricted_until=NULL, restricted_at=NOW() WHERE id=$1`, [userId])
       restrictionCache.set(userId, { v: 'demoted', at: Date.now() })
-      await createNotification({ recipientId: userId, type: 'restriction', message: '因为违规，您已被降级为听众，只能以听众身份进入房间，发布功能已被限制。如您认为有误，可在发布内容时提交申诉。请您注意在jamony的行为规范。' })
+      await createNotification({ recipientId: userId, type: 'restriction', message: '因为违规，您已被降级为听众，只能以听众身份进入房间，发布功能已被限制。您可以到个人主页-申诉进行申诉。请您注意在jamony的行为规范。' })
     } else if (action === 'ban') {
       if (cur === 'banned') return res.status(409).json({ ok: false, msg: '该用户已被封禁' })
       await pool.query(`UPDATE users SET restriction='banned', restricted_until=NULL, restricted_at=NOW() WHERE id=$1`, [userId])

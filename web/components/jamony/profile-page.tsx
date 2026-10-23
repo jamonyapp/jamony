@@ -4,6 +4,7 @@ import { use, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { ChevronLeft, Settings, Mail } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
+import { AppealForm } from "@/components/jamony/appeal-form"
 import { useDM } from "@/lib/dm-context"
 import { TrackCard } from "@/components/jamony/track-card"
 import { AnonymizeDialog } from "@/components/jamony/anonymize-dialog"
@@ -417,15 +418,35 @@ export function ProfilePage({ nickname }: { nickname: string }) {
               </div>
             )}
 
-            {/* 1023 七件套④: 我的申诉——状态机进度 + 驳回理由（仅本人可见） */}
+            {/* 1023 七件套④: 我的申诉——提交表单(受限/降级态)+状态机进度+驳回理由（仅本人可见）
+                1024 欢哥定稿: 此处是申诉常设正门, 403/站内信文案均指路到这里, 不让用户绕道发布找入口 */}
             {tab === 'appeals' && isSelf && (
-              <div className="flex flex-col gap-2">
-                {myAppeals === null ? (
-                  <p className="text-sm" style={{ color: '#8A8A8A' }}>加载中…</p>
-                ) : myAppeals.length === 0 ? (
-                  <p className="text-sm" style={{ color: '#8A8A8A' }}>暂无申诉记录</p>
+              <div className="flex flex-col gap-4">
+                {(currentUser?.restriction === 'restricted' || currentUser?.restriction === 'demoted') ? (
+                  <div>
+                    <h3 className="mb-3 text-[13px]" style={{ color: '#8A8A8A' }}>提交申诉</h3>
+                    <AppealForm onSuccess={() => {
+                      fetch('/api/my-appeals', { credentials: 'include' })
+                        .then(r => r.json())
+                        .then(d => setMyAppeals(d.ok ? (d.appeals || []) : []))
+                        .catch(() => {})
+                    }} />
+                  </div>
                 ) : (
-                  myAppeals.map((a) => (
+                  // 1024 欢哥: 正常态用户闲逛进来也给个明确交代, 不留空白
+                  <p className="rounded-[10px] border px-4 py-3 text-sm" style={{ color: '#8A8A8A', borderColor: '#1A1A1A' }}>
+                    您当前的账号状态不支持申诉。若账号受到处罚，可在此提交申诉。
+                  </p>
+                )}
+                <div>
+                  <h3 className="mb-3 text-[13px]" style={{ color: '#8A8A8A' }}>申诉记录</h3>
+                  {myAppeals === null ? (
+                    <p className="text-sm" style={{ color: '#8A8A8A' }}>加载中…</p>
+                  ) : myAppeals.length === 0 ? (
+                    <p className="text-sm" style={{ color: '#8A8A8A' }}>暂无申诉记录</p>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                    {myAppeals.map((a) => (
                     <div key={a.id} className="rounded-[10px] border px-4 py-3" style={{ borderColor: '#1A1A1A' }}>
                       <div className="flex items-center justify-between">
                         <span className="rounded-full px-2.5 py-0.5 text-xs font-medium"
@@ -451,8 +472,10 @@ export function ProfilePage({ nickname }: { nickname: string }) {
                         <p className="mt-2 text-xs" style={{ color: '#7BE495' }}>处理时间 {new Date(a.handled_at).toLocaleString('zh-CN')}，相关限制已解除</p>
                       )}
                     </div>
-                  ))
-                )}
+                    ))}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 

@@ -16,6 +16,7 @@ export type UserInfo = {
   secondaryInstrument: string
   level: number
   points: number
+  restriction?: string // 1024: normal|watch|restricted|demoted|banned——申诉tab据此显示提交表单
 }
 
 type AuthContextType = {
