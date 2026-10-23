@@ -273,16 +273,17 @@ export function ProfilePage({ nickname }: { nickname: string }) {
             {([
               { key: 'works', label: '作品' },
               { key: 'notices', label: '公告' },
-              ...(isSelf ? [{ key: 'favorites', label: '收藏' }, { key: 'appeals', label: '申诉' }] : []),
+              ...(isSelf ? [{ key: 'favorites', label: '收藏' }] : []),
               { key: 'following', label: '关注' },
               { key: 'followers', label: '粉丝' },
+              ...(isSelf ? [{ key: 'appeals', label: '申诉' }] : []), // 1024 欢哥: 申诉置末位+品牌黄(#F5C518 与审核中徽章同源)
             ] as const).map((t) => (
               <button
                 key={t.key}
                 type="button"
                 onClick={() => setTab(t.key as 'works' | 'notices' | 'favorites' | 'appeals' | 'following' | 'followers')}
-                className="relative px-4 py-2.5 text-[14px] transition-colors"
-                style={{ color: tab === t.key ? '#fff' : '#8A8A8A', fontWeight: tab === t.key ? 600 : 400 }}
+                className={`relative px-4 py-2.5 text-[14px] transition-colors${t.key === 'appeals' ? ' ml-auto' : ''}`}
+                style={{ color: t.key === 'appeals' ? '#F5C518' : (tab === t.key ? '#fff' : '#8A8A8A'), fontWeight: tab === t.key ? 600 : 400 }}
               >
                 {t.label}
                 {tab === t.key && <span className="absolute inset-x-3 -bottom-px h-0.5" style={{ background: '#00AAFF' }} />}
