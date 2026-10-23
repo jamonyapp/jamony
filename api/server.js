@@ -560,7 +560,19 @@ async function moderatePublishText(kind, targetId, userId, nickname, text) {
     return true
   }
   if (verdict === 'reject') {
-    console.log(`[moderation] 拒绝发布 kind=${kind} user=${userId}(${nickname}) hits=${hits.length}`)
+    // 1024 欢哥拍板: 拒绝尝试也入库——试门锁的人(不管换词还是换内容)频繁尝试就是心怀不轨,
+    // 防的罚的就是这种人; 否则对只发广告词留案底的人不公平。全文取证仅存服务端私密表。
+    try {
+      await pool.query(
+        `INSERT INTO moderation_logs (kind, target_id, user_id, nickname, content, verdict, hits)
+         VALUES ($1,$2,$3,$4,$5,'reject',$6)`,
+        [kind, String(targetId == null ? '' : targetId), userId || null, nickname || '', String(text || ''), JSON.stringify(hits)]
+      )
+      console.log(`[moderation] 拒绝发布(已留痕) kind=${kind} user=${userId}(${nickname}) hits=${hits.length}`)
+    } catch (e) {
+      console.error('[moderation] 拒绝日志写入失败(仍拦截):', e.message)
+    }
+    await checkRejectEscalation(userId) // 拒绝计数升级: 高危词试锁累计→直接限发(跳过watch)
     return false
   }
   if (verdict === 'suspect') {
@@ -582,7 +594,7 @@ async function moderatePublishText(kind, targetId, userId, nickname, text) {
 /* ===== 累计升级 + 限发守卫（1023 内容安全 A 阶段 Step3）=====
    滑窗计数: normal 疑似累计≥阈值→watch(观察); watch 期间再犯→restricted(限发 N 天, 到期自动恢复)
    阈值全部来自 site_config 'moderation_config'(jsonb: {threshold,window_days,restrict_days}), 5分钟缓存, 无配置用默认 */
-const MODERATION_DEFAULTS = { threshold: 5, windowDays: 90, restrictDays: 7, appealDays: 3 }
+const MODERATION_DEFAULTS = { threshold: 5, windowDays: 90, restrictDays: 7, appealDays: 3, rejectThreshold: 5 }
 let moderationCfgCache = { data: MODERATION_DEFAULTS, at: 0 }
 
 async function getModerationConfig() {
@@ -597,6 +609,7 @@ async function getModerationConfig() {
         windowDays: Number(v.window_days) || MODERATION_DEFAULTS.windowDays,
         restrictDays: Number(v.restrict_days) || MODERATION_DEFAULTS.restrictDays,
         appealDays: Number(v.appeal_days) || MODERATION_DEFAULTS.appealDays, // 1023 欢哥拍板: 申诉期 3 天(锚定处罚生效时刻, 与惩罚时长解耦)
+        rejectThreshold: Number(v.reject_threshold) || MODERATION_DEFAULTS.rejectThreshold, // 1024 欢哥拍板: 高危词试锁累计阈值, 达标直接限发
       }
     } else {
       moderationCfgCache.data = MODERATION_DEFAULTS
@@ -627,11 +640,12 @@ async function checkSuspectEscalation(userId) {
       await createNotification({ recipientId: userId, type: 'restriction', message: `系统注意到您近期发布的内容多次触发疑似标记。请您留意在jamony的行为规范，若继续违规，发布功能将被限制。` })
     } else if (restriction === 'watch' && cnt.rows[0].c > cfg.threshold) {
       const upd = await pool.query(
-        `UPDATE users SET restriction='restricted', restricted_until=NOW() + ($2 || ' days')::interval, restricted_at=NOW()
+        `UPDATE users SET restriction='restricted', restricted_until=NOW() + ($2 || ' days')::interval, restricted_at=NOW(), restricted_count=restricted_count+1
          WHERE id=$1 AND restriction='watch' RETURNING restricted_until`,
         [userId, String(cfg.restrictDays)]
       )
       console.log(`[moderation] 用户${userId}限发${cfg.restrictDays}天(观察名单内再犯, 滑窗累计${cnt.rows[0].c}次)`)
+      restrictionCache.set(userId, { v: 'restricted', at: Date.now() }) // 进程内缓存即时同步
       // ①处罚站内信: restricted 档, 文案与 403 同源+申诉提示(日期取 DB RETURNING, 单一事实源)
       const until = new Date(upd.rows[0].restricted_until)
       const dateStr = `${until.getMonth() + 1}月${until.getDate()}日`
@@ -639,6 +653,36 @@ async function checkSuspectEscalation(userId) {
     }
   } catch (e) {
     console.error('[moderation] 升级检查失败(不影响发布):', e.message)
+  }
+}
+
+// 拒绝尝试入库后调用(1024 欢哥拍板): 高危词试锁独立计数, 累计≥阈值 → 直接限发(跳过watch档,
+// 发广告词的还有观察缓冲, 碰核心词的不配); 误伤由申诉兜底。与疑似计数分开——混算后"3广告+2涉政"该判哪档说不清
+async function checkRejectEscalation(userId) {
+  if (!userId) return
+  try {
+    const cfg = await getModerationConfig()
+    const cnt = await pool.query(
+      `SELECT COUNT(*)::int AS c FROM moderation_logs
+       WHERE user_id=$1 AND verdict='reject' AND created_at > NOW() - ($2 || ' days')::interval`,
+      [userId, String(cfg.windowDays)]
+    )
+    if (cnt.rows[0].c < cfg.rejectThreshold) return
+    const cur = await pool.query('SELECT restriction FROM users WHERE id=$1', [userId])
+    const restriction = cur.rows[0] ? cur.rows[0].restriction : 'normal'
+    if (restriction === 'restricted' || restriction === 'demoted' || restriction === 'banned') return // 已在处罚态, 不重置计时
+    const upd = await pool.query(
+      `UPDATE users SET restriction='restricted', restricted_until=NOW() + ($2 || ' days')::interval, restricted_at=NOW(), restricted_count=restricted_count+1
+       WHERE id=$1 RETURNING restricted_until`,
+      [userId, String(cfg.restrictDays)]
+    )
+    console.log(`[moderation] 用户${userId}限发${cfg.restrictDays}天(高危词试锁累计${cnt.rows[0].c}次/阈值${cfg.rejectThreshold}, 直接跳档)`)
+    restrictionCache.set(userId, { v: 'restricted', at: Date.now() })
+    const until = new Date(upd.rows[0].restricted_until)
+    const dateStr = `${until.getMonth() + 1}月${until.getDate()}日`
+    await createNotification({ recipientId: userId, type: 'restriction', message: `因多次尝试发布严重违规内容，系统已限制您的部分功能，将于${dateStr}自动解除。如您认为有误，可在发布时提交申诉。请您注意在jamony的行为规范。` })
+  } catch (e) {
+    console.error('[moderation] 拒绝升级检查失败(不影响拦截):', e.message)
   }
 }
 
@@ -5416,6 +5460,85 @@ app.post('/api/admin-internal/notices/:id/status', requireAdminInternal, async (
     res.status(r.ok ? 200 : 409).json(r)
   } catch (err) {
     console.error('admin-internal notices status error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// ========== 申诉处理 + 用户处置（1024 七件套⑤⑥ + 四档处置③④按钮） ==========
+// 语义约定: 通过=解除"当前 restricted"(自动处罚); 若已升为 demoted/banned(人工更重处罚), 旧申诉通过不翻案人工决定
+
+// 申诉处理: approve=解除限制+appeal_result回执 / reject=填理由+回执; 仅 pending 可处理(防二次)
+app.post('/api/admin-internal/appeals/:id/resolve', requireAdminInternal, async (req, res) => {
+  const appealId = parseInt(req.params.id)
+  const action = req.body?.action
+  const rejectReason = String(req.body?.reject_reason || '').trim().slice(0, 500)
+  const actor = req.headers['x-admin-actor'] || 'admin'
+  if (!Number.isInteger(appealId) || (action !== 'approve' && action !== 'reject')) {
+    return res.status(400).json({ ok: false, msg: '参数不合法' })
+  }
+  if (action === 'reject' && !rejectReason) {
+    return res.status(400).json({ ok: false, msg: '驳回必须填理由' })
+  }
+  try {
+    const ap = await pool.query('SELECT id, user_id, status FROM appeals WHERE id=$1', [appealId])
+    if (!ap.rows[0]) return res.status(404).json({ ok: false, msg: '申诉不存在' })
+    if (ap.rows[0].status !== 'pending') return res.status(409).json({ ok: false, msg: '该申诉已处理过' })
+    const userId = ap.rows[0].user_id
+    if (action === 'approve') {
+      await pool.query(`UPDATE appeals SET status='approved', handled_at=NOW() WHERE id=$1`, [appealId])
+      // 只解除自动处罚态(restricted); demoted/banned 是人工更重决定, 不被旧申诉翻案
+      const rel = await pool.query(
+        `UPDATE users SET restriction='normal', restricted_until=NULL, restricted_at=NULL
+         WHERE id=$1 AND restriction='restricted' RETURNING id`,
+        [userId]
+      )
+      if (rel.rows[0]) restrictionCache.set(userId, { v: 'normal', at: Date.now() })
+      await createNotification({ recipientId: userId, type: 'appeal_result', message: '您的申诉已通过，相关限制已解除。请您继续遵守jamony的行为规范。' })
+    } else {
+      await pool.query(`UPDATE appeals SET status='rejected', reject_reason=$2, handled_at=NOW() WHERE id=$1`, [appealId, rejectReason])
+      await createNotification({ recipientId: userId, type: 'appeal_result', message: `您的申诉未通过。理由：${rejectReason}。请您注意在jamony的行为规范。` })
+    }
+    console.log(`[admin-internal] 申诉#${appealId} ${action === 'approve' ? '通过' : '驳回'} by ${actor}${action === 'reject' ? ` 理由:${rejectReason}` : ''}`)
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('admin-internal appeal resolve error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// 用户处置: demote(③降级)/ban(④封号)/release(解除, 从任何处罚态回 normal)
+app.post('/api/admin-internal/users/:id/restriction', requireAdminInternal, async (req, res) => {
+  const userId = parseInt(req.params.id)
+  const action = req.body?.action
+  const reason = String(req.body?.reason || '').trim().slice(0, 500)
+  const actor = req.headers['x-admin-actor'] || 'admin'
+  if (!Number.isInteger(userId) || !['demote', 'ban', 'release'].includes(action)) {
+    return res.status(400).json({ ok: false, msg: '参数不合法' })
+  }
+  try {
+    const u = await pool.query('SELECT id, nickname, restriction FROM users WHERE id=$1', [userId])
+    if (!u.rows[0]) return res.status(404).json({ ok: false, msg: '用户不存在' })
+    const cur = u.rows[0].restriction
+    if (action === 'demote') {
+      if (cur === 'demoted') return res.status(409).json({ ok: false, msg: '该用户已是降级状态' })
+      await pool.query(`UPDATE users SET restriction='demoted', restricted_until=NULL, restricted_at=NOW() WHERE id=$1`, [userId])
+      restrictionCache.set(userId, { v: 'demoted', at: Date.now() })
+      await createNotification({ recipientId: userId, type: 'restriction', message: '因发布违规内容，您已被降级为听众，发布功能已被限制。如您认为有误，可在发布时提交申诉。请您注意在jamony的行为规范。' })
+    } else if (action === 'ban') {
+      if (cur === 'banned') return res.status(409).json({ ok: false, msg: '该用户已被封禁' })
+      await pool.query(`UPDATE users SET restriction='banned', restricted_until=NULL, restricted_at=NOW() WHERE id=$1`, [userId])
+      restrictionCache.set(userId, { v: 'banned', at: Date.now() })
+      await createNotification({ recipientId: userId, type: 'restriction', message: `该账号已被封禁，相关功能已被冻结。${reason ? '原因：' + reason + '。' : ''}您仍可提交申诉。` })
+    } else { // release
+      if (cur === 'normal') return res.status(409).json({ ok: false, msg: '该用户当前无处罚' })
+      await pool.query(`UPDATE users SET restriction='normal', restricted_until=NULL, restricted_at=NULL WHERE id=$1`, [userId])
+      restrictionCache.set(userId, { v: 'normal', at: Date.now() })
+      await createNotification({ recipientId: userId, type: 'appeal_result', message: '您的账号限制已被解除。请您继续遵守jamony的行为规范。' })
+    }
+    console.log(`[admin-internal] 用户${userId}(${u.rows[0].nickname}) ${action} by ${actor}${reason ? ` 理由:${reason}` : ''} (原状态:${cur})`)
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('admin-internal user restriction error:', err)
     res.status(500).json({ ok: false, msg: '服务器错误' })
   }
 })
