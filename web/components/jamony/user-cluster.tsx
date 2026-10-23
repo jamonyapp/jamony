@@ -56,8 +56,7 @@ export function UserCluster({ onRefresh }: { onRefresh?: () => void }) {
     if (action === "none") return
     await disconnectRoom()  // 先 leave（需要登录 cookie），后动登录态
     if (action === "logout") {
-      logout()
-      router.push("/lobby")
+      logout() // 1024: 跳转已内聚在 logout()——整页回首页(会话边界全量重置)
     }
   }
 

@@ -120,6 +120,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (uId) {
       fetch(`/api/users/${uId}/leave-all-rooms`, { method: "POST", credentials: "include" }).catch(() => {})
     }
+    // 1024 欢哥抓漏: 登出=会话边界, 整页跳回首页——全量重置 React 状态/Query缓存/socket,
+    // 杜绝切账号后停留在旧账号页面(个人主页以URL?nickname=为准, 刷新也"没用"的根因)
+    window.location.href = "/"
   }, [user])
 
   return (
