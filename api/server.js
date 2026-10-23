@@ -528,9 +528,88 @@ async function moderatePublishText(kind, targetId, userId, nickname, text) {
     } catch (e) {
       console.error('[moderation] 疑似日志写入失败(不阻塞发布):', e.message)
     }
+    await checkSuspectEscalation(userId) // 滑窗计数+自动升级(normal→watch→restricted)
   }
   return true
 }
+
+/* ===== 累计升级 + 限发守卫（1023 内容安全 A 阶段 Step3）=====
+   滑窗计数: normal 疑似累计≥阈值→watch(观察); watch 期间再犯→restricted(限发 N 天, 到期自动恢复)
+   阈值全部来自 site_config 'moderation_config'(jsonb: {threshold,window_days,restrict_days}), 5分钟缓存, 无配置用默认 */
+const MODERATION_DEFAULTS = { threshold: 5, windowDays: 90, restrictDays: 7 }
+let moderationCfgCache = { data: MODERATION_DEFAULTS, at: 0 }
+
+async function getModerationConfig() {
+  if (Date.now() - moderationCfgCache.at < 5 * 60 * 1000) return moderationCfgCache.data
+  try {
+    const r = await pool.query(`SELECT value FROM site_config WHERE key = 'moderation_config'`)
+    let v = r.rows[0] && r.rows[0].value
+    if (typeof v === 'string') v = JSON.parse(v) // 兼容 text 写入
+    if (v && typeof v === 'object') {
+      moderationCfgCache.data = {
+        threshold: Number(v.threshold) || MODERATION_DEFAULTS.threshold,
+        windowDays: Number(v.window_days) || MODERATION_DEFAULTS.windowDays,
+        restrictDays: Number(v.restrict_days) || MODERATION_DEFAULTS.restrictDays,
+      }
+    } else {
+      moderationCfgCache.data = MODERATION_DEFAULTS
+    }
+  } catch (e) {
+    moderationCfgCache.data = MODERATION_DEFAULTS
+  }
+  moderationCfgCache.at = Date.now()
+  return moderationCfgCache.data
+}
+
+// 疑似入库后调用: 滑窗计数 + 自动升级(normal→watch→restricted)
+async function checkSuspectEscalation(userId) {
+  if (!userId) return
+  try {
+    const cfg = await getModerationConfig()
+    const cnt = await pool.query(
+      `SELECT COUNT(*)::int AS c FROM moderation_logs
+       WHERE user_id=$1 AND verdict='suspect' AND created_at > NOW() - ($2 || ' days')::interval`,
+      [userId, String(cfg.windowDays)]
+    )
+    const cur = await pool.query('SELECT restriction FROM users WHERE id=$1', [userId])
+    const restriction = cur.rows[0] ? cur.rows[0].restriction : 'normal'
+    if (restriction === 'normal' && cnt.rows[0].c >= cfg.threshold) {
+      await pool.query(`UPDATE users SET restriction='watch' WHERE id=$1 AND restriction='normal'`, [userId])
+      console.log(`[moderation] 用户${userId}进入观察名单(疑似滑窗累计${cnt.rows[0].c}次/阈值${cfg.threshold})`)
+    } else if (restriction === 'watch' && cnt.rows[0].c > cfg.threshold) {
+      await pool.query(
+        `UPDATE users SET restriction='restricted', restricted_until=NOW() + ($2 || ' days')::interval
+         WHERE id=$1 AND restriction='watch'`,
+        [userId, String(cfg.restrictDays)]
+      )
+      console.log(`[moderation] 用户${userId}限发${cfg.restrictDays}天(观察名单内再犯, 滑窗累计${cnt.rows[0].c}次)`)
+    }
+  } catch (e) {
+    console.error('[moderation] 升级检查失败(不影响发布):', e.message)
+  }
+}
+
+// 限发守卫: restricted(未过期)/demoted/banned 不可发布; restricted 过期顺手自动恢复正常
+// 返回 true=可发布
+async function guardCanPublish(userId) {
+  if (!userId) return true
+  try {
+    await pool.query(
+      `UPDATE users SET restriction='normal', restricted_until=NULL
+       WHERE id=$1 AND restriction='restricted' AND restricted_until IS NOT NULL AND restricted_until <= NOW()`,
+      [userId]
+    )
+    const r = await pool.query(
+      `SELECT 1 FROM users WHERE id=$1 AND restriction IN ('restricted','demoted','banned')
+       AND (restricted_until IS NULL OR restricted_until > NOW())`,
+      [userId]
+    )
+    return r.rows.length === 0
+  } catch (e) {
+    return true // fail-open: 守卫查询异常不拦发布
+  }
+}
+const MODERATION_RESTRICTED_MSG = '账号功能受限，如有疑问请联系我们'
 
 // ========== 登录 ==========
 app.post('/api/login', async (req, res) => {
@@ -1647,6 +1726,7 @@ app.post('/api/rooms', requireAuth, async (req, res) => {
     if (!name) {
       return res.status(400).json({ ok: false, msg: '请填写房间名' })
     }
+    if (!(await guardCanPublish(req.userId))) return res.status(403).json({ ok: false, msg: MODERATION_RESTRICTED_MSG })
     const roomText = [name, description, style].filter(v => typeof v === 'string' && v.trim()).join('\n')
     if (!(await moderatePublishText('room', null, hostId, req.nickname, roomText))) {
       return res.status(400).json({ ok: false, msg: MODERATION_REJECT_MSG })
@@ -2680,6 +2760,7 @@ app.post('/api/rooms/:code/sessions/:sid/publish', requireAuth, upload.fields([{
     if (!title || !style || !copyright) {
       return res.status(400).json({ ok: false, msg: '缺少必填字段' })
     }
+    if (!(await guardCanPublish(publisher_user_id))) return res.status(403).json({ ok: false, msg: MODERATION_RESTRICTED_MSG })
     const publishText = [title, description, cover_song, cover_author, source].filter(v => typeof v === 'string' && v.trim()).join('\n')
     if (!(await moderatePublishText('work', null, publisher_user_id, req.nickname, publishText))) {
       return res.status(400).json({ ok: false, msg: MODERATION_REJECT_MSG })
@@ -3035,6 +3116,7 @@ app.post('/api/works/:id/comments', requireAuth, async (req, res) => {
     const avatarUrl = userRow.rows[0].avatar_url
       ? userRow.rows[0].avatar_url.replace('/var/jamony/avatars', '/avatars')
       : ''
+    if (!(await guardCanPublish(userId))) return res.status(403).json({ ok: false, msg: MODERATION_RESTRICTED_MSG })
     if (!(await moderatePublishText('work_comment', id, userId, nickname, content.trim()))) {
       return res.status(400).json({ ok: false, msg: MODERATION_REJECT_MSG })
     }
@@ -3192,6 +3274,7 @@ app.post('/api/notices', requireAuth, async (req, res) => {
     if (!['offline', 'online'].includes(type)) return res.status(400).json({ ok: false, msg: '公告类型无效' })
     if (!title || !String(title).trim()) return res.status(400).json({ ok: false, msg: '请填写标题' })
     if (!body || !String(body).trim()) return res.status(400).json({ ok: false, msg: '请填写正文' })
+    if (!(await guardCanPublish(req.userId))) return res.status(403).json({ ok: false, msg: MODERATION_RESTRICTED_MSG })
     const noticeText = [String(title).trim(), String(body).trim(), city, style].filter(v => typeof v === 'string' && v.trim()).join('\n')
     if (!(await moderatePublishText('notice', null, req.userId, req.nickname, noticeText))) {
       return res.status(400).json({ ok: false, msg: MODERATION_REJECT_MSG })
@@ -3297,6 +3380,7 @@ app.patch('/api/notices/:id', requireAuth, async (req, res) => {
     add('image_url', image_url === undefined ? undefined : (image_url || null))
     if (sets.length === 0) return res.status(400).json({ ok: false, msg: '没有要更新的字段' })
     // 机审：编辑同样过闸（堵"发正常帖再编辑塞违规词"的口子），只审用户提交的文本字段
+    if (!(await guardCanPublish(req.userId))) return res.status(403).json({ ok: false, msg: MODERATION_RESTRICTED_MSG })
     const patchText = [title, body, city, style].filter(v => typeof v === 'string' && v.trim()).join('\n')
     if (patchText && !(await moderatePublishText('notice', id, req.userId, req.nickname, patchText))) {
       return res.status(400).json({ ok: false, msg: MODERATION_REJECT_MSG })
@@ -3406,6 +3490,7 @@ app.post('/api/notices/:id/comments', requireAuth, async (req, res) => {
     const avatarUrl = userRow.rows[0].avatar_url
       ? userRow.rows[0].avatar_url.replace('/var/jamony/avatars', '/avatars')
       : ''
+    if (!(await guardCanPublish(userId))) return res.status(403).json({ ok: false, msg: MODERATION_RESTRICTED_MSG })
     if (!(await moderatePublishText('notice_comment', id, userId, nickname, content.trim()))) {
       return res.status(400).json({ ok: false, msg: MODERATION_REJECT_MSG })
     }
