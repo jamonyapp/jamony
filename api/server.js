@@ -745,10 +745,18 @@ app.post('/api/appeals', requireAuthAllowBanned, appealUpload.single('screenshot
       return res.status(403).json({ ok: false, msg: `申诉期为处罚生效后${cfg.appealDays}天内，您的申诉期已过` })
     }
 
-    // 防滥用: 同时只允许一条在审 + 每天限 1 次（DB 判定, 比内存 Map 抗重启可靠）
-    const pend = await pool.query("SELECT id FROM appeals WHERE user_id=$1 AND status='pending'", [req.userId])
-    if (pend.rows.length > 0) return res.status(429).json({ ok: false, msg: '您已有一条申诉在审核中，请耐心等待处理' })
-    const recent = await pool.query("SELECT id FROM appeals WHERE user_id=$1 AND created_at > NOW() - INTERVAL '1 day'", [req.userId])
+    // 防滥用按"处罚周期"计(1024 欢哥抓漏): 只数本轮处罚(restricted_at)之后的申诉——
+    // 解禁后再犯=新周期=新申诉权, 旧周期的申诉不占额度; restricted_at 为空(历史数据)退化为全局判定
+    const since = user.restricted_at || null
+    const pend = await pool.query(
+      `SELECT id FROM appeals WHERE user_id=$1 AND status='pending' AND (created_at > $2 OR $2 IS NULL)`,
+      [req.userId, since]
+    )
+    if (pend.rows.length > 0) return res.status(429).json({ ok: false, msg: '本轮处罚您已有一条申诉在审核中，请耐心等待处理' })
+    const recent = await pool.query(
+      `SELECT id FROM appeals WHERE user_id=$1 AND created_at > NOW() - INTERVAL '1 day' AND (created_at > $2 OR $2 IS NULL)`,
+      [req.userId, since]
+    )
     if (recent.rows.length > 0) return res.status(429).json({ ok: false, msg: '每天仅可提交一次申诉，请明天再试' })
 
     // 截图(可选): 仅收图片; multer 随机名+补扩展名; 机密目录不公开静态服务
@@ -5540,7 +5548,14 @@ app.post('/api/admin-internal/users/:id/restriction', requireAdminInternal, asyn
       if (cur === 'normal') return res.status(409).json({ ok: false, msg: '该用户当前无处罚' })
       await pool.query(`UPDATE users SET restriction='normal', restricted_until=NULL, restricted_at=NULL WHERE id=$1`, [userId])
       restrictionCache.set(userId, { v: 'normal', at: Date.now() })
-      await createNotification({ recipientId: userId, type: 'appeal_result', message: '您的账号限制已被解除。请您继续遵守jamony的行为规范。' })
+      // 顺手清账(1024): 解除时在审申诉视为已通过(诉求已达成), 工作台不残留死单; 有清账时只发一条回执避免重复通知
+      const stale = await pool.query(
+        `UPDATE appeals SET status='approved', handled_at=NOW() WHERE user_id=$1 AND status='pending' RETURNING id`,
+        [userId]
+      )
+      await createNotification({ recipientId: userId, type: 'appeal_result', message: stale.rows.length > 0
+        ? '您的申诉已通过，相关限制已解除。请您继续遵守jamony的行为规范。'
+        : '您的账号限制已被解除。请您继续遵守jamony的行为规范。' })
     }
     console.log(`[admin-internal] 用户${userId}(${u.rows[0].nickname}) ${action} by ${actor}${reason ? ` 理由:${reason}` : ''} (原状态:${cur})`)
     res.json({ ok: true })
