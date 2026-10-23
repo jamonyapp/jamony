@@ -1052,7 +1052,13 @@ app.patch('/api/users/:id', requireAuth, async (req, res) => {
     const params = []
     let idx = 1
 
-    if (nickname !== undefined) { sets.push(`nickname = $${idx++}`); params.push(nickname) }
+    if (nickname !== undefined) {
+      // 品牌保护与注册同规(1018): 改名同样拦截 jamony 保留字(此前仅注册检查, 改名可绕过——1023 补)
+      if (String(nickname).toLowerCase().includes('jamony')) {
+        return res.status(409).json({ ok: false, msg: '该昵称已被注册' })
+      }
+      sets.push(`nickname = $${idx++}`); params.push(nickname)
+    }
     if (bio !== undefined) { sets.push(`bio = $${idx++}`); params.push(bio) }
     if (signature !== undefined) { sets.push(`signature = $${idx++}`); params.push(signature) }
     if (city !== undefined) { sets.push(`city = $${idx++}`); params.push(city) }
