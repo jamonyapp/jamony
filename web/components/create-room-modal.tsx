@@ -8,6 +8,7 @@ import { useRoomSession } from "@/lib/room-session"
 import { waitJamsoulDead } from "@/lib/jamsoul-wait"
 import { FilterSelect } from "@/components/jamony/filter-select"
 import { SwitchRoomDialog } from "@/components/switch-room-dialog"
+import { useRestrictedDialog } from "@/components/jamony/restricted-dialog"
 import { PROFICIENCY_ORDER, PROFICIENCY_MAP } from "@/lib/proficiency"
 
 const STYLES = ["摇滚","民谣","爵士","布鲁斯","放克","雷鬼","电子","古典","流行","嘻哈","R&B","国风","金属","ACG","实验"]
@@ -21,6 +22,7 @@ export function CreateRoomModal({
 }) {
   const { user } = useAuth()
   const { session, disconnectRoom } = useRoomSession()
+  const { openRestricted } = useRestrictedDialog()
   const router = useRouter()
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
@@ -56,7 +58,11 @@ export function CreateRoomModal({
         }),
       })
       const data = await res.json()
-      if (!data.ok) { setError(data.msg || "创建失败"); setLoading(false); return }
+      if (!data.ok) {
+        // 1023 七件套②: 限发 403 → 受限专用 Dialog（文案+申诉入口）
+        if (data.code === "RESTRICTED") { setLoading(false); openRestricted(data.msg); return }
+        setError(data.msg || "创建失败"); setLoading(false); return
+      }
       setLoading(false)
       onClose()
       router.push(`/room/${data.room.room_code}/playing?new=1`)

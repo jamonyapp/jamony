@@ -44,7 +44,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (saved) setUser(JSON.parse(saved))
     } catch { /* ignore */ }
     fetch("/api/me", { credentials: "include" })
-      .then(r => r.ok ? r.json() : null)
+      .then(async r => {
+        // ⑧banned 拦截(1023): 会话仍有效但账号被封 → 跳拦截页(申诉入口在那); 已在拦截页则不再跳(防刷新死循环)
+        if (!r.ok && r.status === 401) {
+          try { const d = await r.json(); if (d.code === "BANNED") { if (!window.location.pathname.startsWith("/banned")) window.location.href = "/banned"; return null } } catch { /* ignore */ }
+        }
+        return r.ok ? r.json() : null
+      })
       .then(data => {
         if (data && data.ok) {
           setUser(data.user)
@@ -68,6 +74,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
       const data = await res.json()
       if (!data.ok) return data.msg || "登录失败"
+      // ⑦封号申诉权(1023): 封号用户登录→跳拦截页(会话仅供申诉两端点使用)
+      if (data.banned) { window.location.href = "/banned"; return null }
       setUser(data.user)
       localStorage.setItem("jamony_user", JSON.stringify(data.user))
       return null // null = 成功

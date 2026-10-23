@@ -44,8 +44,17 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   const refreshUnread = useCallback(() => {
     if (!loggedIn) { setUnreadCount(0); return }
     fetch("/api/notifications/unread-count", { credentials: "include" })
-      .then((r) => r.json())
-      .then((data) => { if (data.ok) setUnreadCount(data.count) })
+      .then((r) => Promise.all([r, r.ok ? null : r.json().catch(() => null)]))
+      .then(([r, err]) => {
+        // ⑧banned 拦截(1023): 会话中途被封→30s 轮询兜底跳拦截页(已在拦截页则不跳, 防刷新死循环)
+        if (!r.ok && err && err.code === "BANNED" && !window.location.pathname.startsWith("/banned")) {
+          window.location.href = "/banned"
+          return
+        }
+        if (r.ok) return r.json()
+        return null
+      })
+      .then((data) => { if (data && data.ok) setUnreadCount(data.count) })
       .catch(() => {})
   }, [loggedIn])
 

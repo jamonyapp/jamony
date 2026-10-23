@@ -37,6 +37,11 @@ const avatarsDir = '/var/jamony/avatars'
 try { if (!fs.existsSync(avatarsDir)) fs.mkdirSync(avatarsDir, { recursive: true }) } catch (e) { console.error('Avatars dir error:', e) }
 const avatarUpload = multer({ dest: avatarsDir, limits: { fileSize: 10 * 1024 * 1024 } })
 
+/* multer — 申诉截图上传（1023 七件套③: 可选单图; 机密取证目录, 不挂公开静态路由, admin 工作台 4b 经鉴权端点取） */
+const appealsDir = '/var/jamony/appeals'
+try { if (!fs.existsSync(appealsDir)) fs.mkdirSync(appealsDir, { recursive: true }) } catch (e) { console.error('Appeals dir error:', e) }
+const appealUpload = multer({ dest: appealsDir, limits: { fileSize: 10 * 1024 * 1024 } })
+
 /* multer — 公告牌图片上传（不裁剪，直接存原图，前端 CSS object-fit 适配卡片） */
 const noticesDir = '/var/jamony/notices'
 try { if (!fs.existsSync(noticesDir)) fs.mkdirSync(noticesDir, { recursive: true }) } catch (e) { console.error('Notices dir error:', e) }
@@ -459,40 +464,81 @@ function touchLastSeen(userId) {
   }
 }
 
-function requireAuth(req, res, next) {
+// banned 拦截缓存: userId → {v, at}; 60s TTL(封/解封最迟 1 分钟生效), 防膨胀同 touchLastSeen 清扫
+// requireAuth/optionalAuth 每请求查一次 restriction, 缓存兜住 DB 压力
+const restrictionCache = new Map()
+async function getUserRestriction(userId) {
+  const hit = restrictionCache.get(userId)
+  if (hit && Date.now() - hit.at < 60000) return hit.v
+  const r = await pool.query('SELECT restriction FROM users WHERE id=$1', [userId])
+  const v = r.rows[0] ? r.rows[0].restriction : 'normal'
+  restrictionCache.set(userId, { v, at: Date.now() })
+  if (restrictionCache.size > 5000) {
+    const now = Date.now()
+    for (const [uid, e] of restrictionCache) if (now - e.at > 60000) restrictionCache.delete(uid)
+  }
+  return v
+}
+
+// 会话解析共用体: 验签 JWT → req.userId/nickname + 滑续期 cookie; 返回 decoded, 失败返 null(已回 401)
+function parseSession(req, res) {
   const token = parseCookies(req)[COOKIE_NAME]
-  if (!token) return res.status(401).json({ ok: false, msg: '未登录' })
+  if (!token) { res.status(401).json({ ok: false, msg: '未登录' }); return null }
   try {
     const decoded = jwt.verify(token, JWT_SECRET)
     req.userId = decoded.id
     req.nickname = decoded.nickname
-    touchLastSeen(decoded.id)
     const remaining = decoded.exp * 1000 - Date.now()
     if (remaining < 24 * 3600 * 1000) {
       const newToken = jwt.sign({ id: decoded.id, nickname: decoded.nickname }, JWT_SECRET, { expiresIn: '7d' })
       res.cookie(COOKIE_NAME, newToken, { httpOnly: true, maxAge: TOKEN_MAX_AGE, sameSite: 'lax' })
     }
-    next()
+    return decoded
   } catch (e) {
-    return res.status(401).json({ ok: false, msg: '登录已过期' })
+    res.status(401).json({ ok: false, msg: '登录已过期' })
+    return null
   }
+}
+
+// 1023 七件套⑧: 封号拦截——requireAuth 对 banned 一律 401{code:'BANNED'}, web 据此跳拦截页(含申诉表单)
+function requireAuth(req, res, next) {
+  const decoded = parseSession(req, res)
+  if (!decoded) return
+  getUserRestriction(decoded.id).then((restriction) => {
+    if (restriction === 'banned') return res.status(401).json({ ok: false, code: 'BANNED', msg: '该账号已被封禁' })
+    touchLastSeen(decoded.id)
+    next()
+  }).catch(() => res.status(401).json({ ok: false, msg: '登录已过期' }))
+}
+
+// 申诉专用鉴权(⑦封号申诉权): 与 requireAuth 同, 唯一区别=banned 放行——封号用户的会话只够提交/查看申诉, 其余端点全被上面拦死
+function requireAuthAllowBanned(req, res, next) {
+  const decoded = parseSession(req, res)
+  if (!decoded) return
+  touchLastSeen(decoded.id)
+  next()
 }
 
 // 可选鉴权：解析 cookie JWT → req.userId；未登录/失败不拦截（req.userId=null），保持端点公开
 // 持有效登录逛大厅也是"在线"（口径：任意已认证请求）——验证成功即 touch
+// banned 例外(1023): 401{code:'BANNED'}——封号用户不得出现在"在线"口径里, web 拦截页接走
 function optionalAuth(req, res, next) {
   const token = parseCookies(req)[COOKIE_NAME]
   if (!token) { req.userId = null; req.nickname = null; return next() }
   try {
     const decoded = jwt.verify(token, JWT_SECRET)
-    req.userId = decoded.id
-    req.nickname = decoded.nickname
-    touchLastSeen(decoded.id)
+    getUserRestriction(decoded.id).then((restriction) => {
+      if (restriction === 'banned') return res.status(401).json({ ok: false, code: 'BANNED', msg: '该账号已被封禁' })
+      req.userId = decoded.id
+      req.nickname = decoded.nickname
+      touchLastSeen(decoded.id)
+      next()
+    }).catch(() => { req.userId = null; req.nickname = null; next() })
   } catch (e) {
     req.userId = null
     req.nickname = null
+    next()
   }
-  next()
 }
 
 /* ========== 内容机审（1023 内容安全 A 阶段，lib/moderation.js 引擎）==========
@@ -536,7 +582,7 @@ async function moderatePublishText(kind, targetId, userId, nickname, text) {
 /* ===== 累计升级 + 限发守卫（1023 内容安全 A 阶段 Step3）=====
    滑窗计数: normal 疑似累计≥阈值→watch(观察); watch 期间再犯→restricted(限发 N 天, 到期自动恢复)
    阈值全部来自 site_config 'moderation_config'(jsonb: {threshold,window_days,restrict_days}), 5分钟缓存, 无配置用默认 */
-const MODERATION_DEFAULTS = { threshold: 5, windowDays: 90, restrictDays: 7 }
+const MODERATION_DEFAULTS = { threshold: 5, windowDays: 90, restrictDays: 7, appealDays: 3 }
 let moderationCfgCache = { data: MODERATION_DEFAULTS, at: 0 }
 
 async function getModerationConfig() {
@@ -550,6 +596,7 @@ async function getModerationConfig() {
         threshold: Number(v.threshold) || MODERATION_DEFAULTS.threshold,
         windowDays: Number(v.window_days) || MODERATION_DEFAULTS.windowDays,
         restrictDays: Number(v.restrict_days) || MODERATION_DEFAULTS.restrictDays,
+        appealDays: Number(v.appeal_days) || MODERATION_DEFAULTS.appealDays, // 1023 欢哥拍板: 申诉期 3 天(锚定处罚生效时刻, 与惩罚时长解耦)
       }
     } else {
       moderationCfgCache.data = MODERATION_DEFAULTS
@@ -576,13 +623,19 @@ async function checkSuspectEscalation(userId) {
     if (restriction === 'normal' && cnt.rows[0].c >= cfg.threshold) {
       await pool.query(`UPDATE users SET restriction='watch' WHERE id=$1 AND restriction='normal'`, [userId])
       console.log(`[moderation] 用户${userId}进入观察名单(疑似滑窗累计${cnt.rows[0].c}次/阈值${cfg.threshold})`)
+      // ①处罚站内信: watch 档=预警(无功能限制), 提醒规范+预告再犯后果
+      await createNotification({ recipientId: userId, type: 'restriction', message: `系统注意到您近期发布的内容多次触发疑似标记。请您留意在jamony的行为规范，若继续违规，发布功能将被限制。` })
     } else if (restriction === 'watch' && cnt.rows[0].c > cfg.threshold) {
-      await pool.query(
-        `UPDATE users SET restriction='restricted', restricted_until=NOW() + ($2 || ' days')::interval
-         WHERE id=$1 AND restriction='watch'`,
+      const upd = await pool.query(
+        `UPDATE users SET restriction='restricted', restricted_until=NOW() + ($2 || ' days')::interval, restricted_at=NOW()
+         WHERE id=$1 AND restriction='watch' RETURNING restricted_until`,
         [userId, String(cfg.restrictDays)]
       )
       console.log(`[moderation] 用户${userId}限发${cfg.restrictDays}天(观察名单内再犯, 滑窗累计${cnt.rows[0].c}次)`)
+      // ①处罚站内信: restricted 档, 文案与 403 同源+申诉提示(日期取 DB RETURNING, 单一事实源)
+      const until = new Date(upd.rows[0].restricted_until)
+      const dateStr = `${until.getMonth() + 1}月${until.getDate()}日`
+      await createNotification({ recipientId: userId, type: 'restriction', message: `因发布内容违规频繁，系统已限制您的部分功能，将于${dateStr}自动解除。如您认为有误，可在发布时提交申诉。请您注意在jamony的行为规范。` })
     }
   } catch (e) {
     console.error('[moderation] 升级检查失败(不影响发布):', e.message)
@@ -591,11 +644,19 @@ async function checkSuspectEscalation(userId) {
 
 // 限发守卫: restricted(未过期)/demoted/banned 不可发布; restricted 过期顺手自动恢复正常
 // 受限时直接以此处文案回 403(带具体解封日期, 欢哥 1023 定稿文案), 返回 true=可发布
+// 1023 七件套②: 403 带 code:'RESTRICTED', web 错误层据此弹受限专用 Dialog(文案+申诉入口)
 async function guardCanPublish(userId, res) {
   if (!userId) return true
   try {
+    // watch 30天回归(定稿"定了没做全"补齐): 观察名单 30 天无新疑似 → 恢复正常(惰性, 发布时顺手判)
     await pool.query(
-      `UPDATE users SET restriction='normal', restricted_until=NULL
+      `UPDATE users SET restriction='normal'
+       WHERE id=$1 AND restriction='watch'
+       AND NOT EXISTS (SELECT 1 FROM moderation_logs WHERE user_id=$1 AND verdict='suspect' AND created_at > NOW() - INTERVAL '30 days')`,
+      [userId]
+    )
+    await pool.query(
+      `UPDATE users SET restriction='normal', restricted_until=NULL, restricted_at=NULL
        WHERE id=$1 AND restriction='restricted' AND restricted_until IS NOT NULL AND restricted_until <= NOW()`,
       [userId]
     )
@@ -609,15 +670,89 @@ async function guardCanPublish(userId, res) {
     if (row.restriction === 'restricted' && row.restricted_until) {
       const d = new Date(row.restricted_until)
       const dateStr = `${d.getMonth() + 1}月${d.getDate()}日`
-      res.status(403).json({ ok: false, msg: `因发布内容违规频繁，系统已限制您的部分功能，将于${dateStr}自动解除。请您注意在jamony的行为规范。` })
+      res.status(403).json({ ok: false, code: 'RESTRICTED', msg: `因发布内容违规频繁，系统已限制您的部分功能，将于${dateStr}自动解除。请您注意在jamony的行为规范。` })
     } else {
-      res.status(403).json({ ok: false, msg: '因发布违规内容，您的部分功能已被限制。请您注意在jamony的行为规范。' })
+      res.status(403).json({ ok: false, code: 'RESTRICTED', msg: '因发布违规内容，您的部分功能已被限制。请您注意在jamony的行为规范。' })
     }
     return false
   } catch (e) {
     return true // fail-open: 守卫查询异常不拦发布
   }
 }
+
+// ========== 申诉（1023 七件套③④⑦: 理由必填+截图可选; 3天时限锚定处罚生效; banned 豁免放行） ==========
+app.post('/api/appeals', requireAuthAllowBanned, appealUpload.single('screenshot'), async (req, res) => {
+  try {
+    const reason = String(req.body?.reason ?? '').trim()
+    if (reason.length < 10) return res.status(400).json({ ok: false, msg: '请写清申诉理由（至少 10 个字）' })
+    if (reason.length > 1000) return res.status(400).json({ ok: false, msg: '申诉理由过长（≤1000 字）' })
+
+    // 可申诉态: restricted/demoted/banned(watch 无功能限制, 无可申诉之实)
+    const u = await pool.query('SELECT nickname, restriction, restricted_at, restricted_until FROM users WHERE id=$1', [req.userId])
+    if (u.rows.length === 0) return res.status(400).json({ ok: false, msg: '用户不存在' })
+    const user = u.rows[0]
+    if (!['restricted', 'demoted', 'banned'].includes(user.restriction)) {
+      return res.status(400).json({ ok: false, msg: '当前账号状态正常，无需申诉' })
+    }
+
+    // 申诉期 = 处罚生效时刻起 appeal_days 天(默认3, 欢哥 1023 拍板: 与惩罚时长解耦); restricted_at 为空(历史处置)从宽放行
+    const cfg = await getModerationConfig()
+    if (user.restricted_at && new Date(user.restricted_at).getTime() < Date.now() - cfg.appealDays * 24 * 3600 * 1000) {
+      return res.status(403).json({ ok: false, msg: `申诉期为处罚生效后${cfg.appealDays}天内，您的申诉期已过` })
+    }
+
+    // 防滥用: 同时只允许一条在审 + 每天限 1 次（DB 判定, 比内存 Map 抗重启可靠）
+    const pend = await pool.query("SELECT id FROM appeals WHERE user_id=$1 AND status='pending'", [req.userId])
+    if (pend.rows.length > 0) return res.status(429).json({ ok: false, msg: '您已有一条申诉在审核中，请耐心等待处理' })
+    const recent = await pool.query("SELECT id FROM appeals WHERE user_id=$1 AND created_at > NOW() - INTERVAL '1 day'", [req.userId])
+    if (recent.rows.length > 0) return res.status(429).json({ ok: false, msg: '每天仅可提交一次申诉，请明天再试' })
+
+    // 截图(可选): 仅收图片; multer 随机名+补扩展名; 机密目录不公开静态服务
+    let screenshotPath = null
+    if (req.file) {
+      if (!/^image\//.test(req.file.mimetype || '')) {
+        try { fs.unlinkSync(req.file.path) } catch (e) {}
+        return res.status(400).json({ ok: false, msg: '截图仅支持图片文件' })
+      }
+      const m = (req.file.originalname || '').toLowerCase().match(/\.(png|jpe?g|webp|gif)$/)
+      const ext = m ? m[1].replace('jpeg', 'jpg') : 'png'
+      const finalPath = `${req.file.path}.${ext}`
+      try { fs.renameSync(req.file.path, finalPath) } catch (e) {}
+      screenshotPath = finalPath
+    }
+
+    // 处罚快照(防事后争议): 处置状态+生效/到期时刻+滑窗疑似计数
+    const cnt = await pool.query(
+      `SELECT COUNT(*)::int AS c FROM moderation_logs WHERE user_id=$1 AND verdict='suspect' AND created_at > NOW() - ($2 || ' days')::interval`,
+      [req.userId, String(cfg.windowDays)]
+    )
+    const snapshot = { restriction: user.restriction, restricted_at: user.restricted_at, restricted_until: user.restricted_until, suspect_count: cnt.rows[0].c }
+
+    const ins = await pool.query(
+      `INSERT INTO appeals (user_id, nickname, reason, screenshot_path, snapshot) VALUES ($1,$2,$3,$4,$5) RETURNING id, created_at`,
+      [req.userId, user.nickname, reason, screenshotPath, JSON.stringify(snapshot)]
+    )
+    res.json({ ok: true, appeal: ins.rows[0] })
+  } catch (e) {
+    console.error('appeal submit error:', e.message)
+    res.status(500).json({ ok: false, msg: '提交失败，稍后再试' })
+  }
+})
+
+// 我的申诉列表(④进度页数据源; banned 会话可达=封号用户看得见处理结果, ⑤回执在 banned 场景的唯一通道)
+app.get('/api/my-appeals', requireAuthAllowBanned, async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT id, status, reason, (screenshot_path IS NOT NULL) AS has_screenshot, reject_reason, created_at, handled_at
+       FROM appeals WHERE user_id=$1 ORDER BY created_at DESC LIMIT 20`,
+      [req.userId]
+    )
+    res.json({ ok: true, appeals: r.rows })
+  } catch (e) {
+    console.error('my-appeals error:', e.message)
+    res.status(500).json({ ok: false, msg: '加载失败' })
+  }
+})
 
 // ========== 登录 ==========
 app.post('/api/login', async (req, res) => {
@@ -648,6 +783,12 @@ app.post('/api/login', async (req, res) => {
     }
 
     clearLoginFail(nickname)
+    // ⑦封号申诉权(1023): banned 照发会话(申诉端点放行), 响应带 banned 标记 → web 跳拦截页(其余端点已被 requireAuth 拦死)
+    const banRow = await pool.query('SELECT restriction FROM users WHERE id=$1', [user.id])
+    if (banRow.rows[0] && banRow.rows[0].restriction === 'banned') {
+      setAuthCookie(res, { id: user.id, nickname: user.nickname })
+      return res.json({ ok: true, banned: true, msg: '该账号已被封禁，相关功能已被冻结。您仍可提交申诉。' })
+    }
     const userPayload = {
       id: user.id,
       nickname: user.nickname,

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { ThumbsUp, Trash2 } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
+import { useRestrictedDialog } from "@/components/jamony/restricted-dialog"
 import { Avatar } from "@/components/jamony/avatar"
 import { UserPopover } from "@/components/jamony/user-popover"
 
@@ -50,6 +51,7 @@ export function CommentSection({
   fallbackCount?: number
 }) {
   const { loggedIn, setShowLoginModal, user } = useAuth()
+  const { openRestricted } = useRestrictedDialog()
   const [comments, setComments] = useState<Comment[]>([])
   const [commentText, setCommentText] = useState("")
   const [replyTo, setReplyTo] = useState<{ parentId: number; nickname: string } | null>(null)
@@ -91,6 +93,9 @@ export function CommentSection({
         } else {
           setComments((cs) => [nc, ...cs])
         }
+      } else if ((data as any).code === "RESTRICTED") {
+        // 1023 七件套②: 限发 403 → 受限专用 Dialog（此前静默失败, 用户不知所以）
+        openRestricted((data as any).msg)
       }
     } catch {}
   }

@@ -63,7 +63,11 @@ export function ProfilePage({ nickname }: { nickname: string }) {
   const [myFavorites, setMyFavorites] = useState<Notice[]>([])
   const [myFavWorks, setMyFavWorks] = useState<any[]>([])
   const [favDetail, setFavDetail] = useState<Notice | null>(null)
-  const [tab, setTab] = useState<'works' | 'notices' | 'favorites' | 'following' | 'followers'>('works')
+  const [tab, setTab] = useState<'works' | 'notices' | 'favorites' | 'appeals' | 'following' | 'followers'>(() => {
+    // 1023 七件套④: 申诉进度页; 通知回执深链 ?tab=appeals 直达
+    try { return new URLSearchParams(window.location.search).get('tab') === 'appeals' ? 'appeals' : 'works' } catch { return 'works' }
+  })
+  const [myAppeals, setMyAppeals] = useState<any[] | null>(null)
   const [followingList, setFollowingList] = useState<any[] | null>(null)
   const [followersList, setFollowersList] = useState<any[] | null>(null)
   const [followPrivateMsg, setFollowPrivateMsg] = useState<string | null>(null)
@@ -129,6 +133,9 @@ export function ProfilePage({ nickname }: { nickname: string }) {
       fetch(`/api/users/${pid}/notices`, { credentials: 'include' }).then(r => r.json()).then(d => { if (d.ok) setMyNotices((d.notices || []).map(mapNotice)) }).catch(() => {})
     } else if (tab === 'favorites' && self) {
       fetch(`/api/users/${pid}/favorites`, { credentials: 'include' }).then(r => r.json()).then(d => { if (d.ok) { setMyFavorites((d.notices || []).map(mapNotice)); setMyFavWorks(d.works || []) } }).catch(() => {})
+    } else if (tab === 'appeals' && self) {
+      setMyAppeals(null)
+      fetch(`/api/my-appeals`, { credentials: 'include' }).then(r => r.json()).then(d => { setMyAppeals(d.ok ? (d.appeals || []) : []) }).catch(() => setMyAppeals([]))
     } else if (tab === 'following') {
       setFollowPrivateMsg(null)
       fetch(`/api/users/${pid}/following`, { credentials: 'include' }).then(r => r.json()).then(d => { if (d.ok) setFollowingList(d.users || []); else if (d.msg) { setFollowingList([]); setFollowPrivateMsg(d.msg) } }).catch(() => {})
@@ -266,14 +273,14 @@ export function ProfilePage({ nickname }: { nickname: string }) {
             {([
               { key: 'works', label: '作品' },
               { key: 'notices', label: '公告' },
-              ...(isSelf ? [{ key: 'favorites', label: '收藏' }] : []),
+              ...(isSelf ? [{ key: 'favorites', label: '收藏' }, { key: 'appeals', label: '申诉' }] : []),
               { key: 'following', label: '关注' },
               { key: 'followers', label: '粉丝' },
             ] as const).map((t) => (
               <button
                 key={t.key}
                 type="button"
-                onClick={() => setTab(t.key as 'works' | 'notices' | 'favorites' | 'following' | 'followers')}
+                onClick={() => setTab(t.key as 'works' | 'notices' | 'favorites' | 'appeals' | 'following' | 'followers')}
                 className="relative px-4 py-2.5 text-[14px] transition-colors"
                 style={{ color: tab === t.key ? '#fff' : '#8A8A8A', fontWeight: tab === t.key ? 600 : 400 }}
               >
@@ -406,6 +413,45 @@ export function ProfilePage({ nickname }: { nickname: string }) {
                     </div>
                   )}
                 </div>
+              </div>
+            )}
+
+            {/* 1023 七件套④: 我的申诉——状态机进度 + 驳回理由（仅本人可见） */}
+            {tab === 'appeals' && isSelf && (
+              <div className="flex flex-col gap-2">
+                {myAppeals === null ? (
+                  <p className="text-sm" style={{ color: '#8A8A8A' }}>加载中…</p>
+                ) : myAppeals.length === 0 ? (
+                  <p className="text-sm" style={{ color: '#8A8A8A' }}>暂无申诉记录</p>
+                ) : (
+                  myAppeals.map((a) => (
+                    <div key={a.id} className="rounded-[10px] border px-4 py-3" style={{ borderColor: '#1A1A1A' }}>
+                      <div className="flex items-center justify-between">
+                        <span className="rounded-full px-2.5 py-0.5 text-xs font-medium"
+                          style={{
+                            color: a.status === 'approved' ? '#7BE495' : a.status === 'rejected' ? '#FF5C5C' : '#F5C518',
+                            background: a.status === 'approved' ? 'rgba(123,228,149,0.10)' : a.status === 'rejected' ? 'rgba(255,92,92,0.10)' : 'rgba(245,197,24,0.10)',
+                          }}>
+                          {a.status === 'approved' ? '已通过' : a.status === 'rejected' ? '已驳回' : '审核中'}
+                        </span>
+                        <span className="text-xs" style={{ color: '#8A8A8A' }}>
+                          提交于 {new Date(a.created_at).toLocaleString('zh-CN')}
+                          {a.has_screenshot ? ' · 含截图' : ''}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-sm leading-relaxed" style={{ color: '#C8C8C8' }}>{a.reason}</p>
+                      {a.status === 'rejected' && a.reject_reason && (
+                        <p className="mt-2 rounded-lg border-l-2 px-3 py-2 text-xs leading-relaxed"
+                          style={{ color: '#FF9A9A', borderColor: '#FF5C5C', background: 'rgba(255,92,92,0.05)' }}>
+                          驳回理由：{a.reject_reason}
+                        </p>
+                      )}
+                      {a.status === 'approved' && (
+                        <p className="mt-2 text-xs" style={{ color: '#7BE495' }}>处理时间 {new Date(a.handled_at).toLocaleString('zh-CN')}，相关限制已解除</p>
+                      )}
+                    </div>
+                  ))
+                )}
               </div>
             )}
 

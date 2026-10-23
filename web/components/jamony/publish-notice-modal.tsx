@@ -16,6 +16,7 @@ import {
   STYLE_OPTIONS,
 } from "@/lib/jamony-data"
 import { useAuth } from "@/lib/auth-context"
+import { useRestrictedDialog } from "@/components/jamony/restricted-dialog"
 import { mapNotice } from "@/lib/notice-mappers"
 
 const LEVEL_OPTIONS = ["不限", "新手", "进阶", "熟练", "老炮", "大神"]
@@ -30,6 +31,7 @@ type PublishNoticeModalProps = {
 export function PublishNoticeModal({ open, onClose, onPublished, initialNotice }: PublishNoticeModalProps) {
   const { user } = useAuth()
   const router = useRouter()
+  const { openRestricted } = useRestrictedDialog()
   const isEdit = !!initialNotice
 
   const [type, setType] = useState<NoticeType | null>(null)
@@ -144,6 +146,12 @@ export function PublishNoticeModal({ open, onClose, onPublished, initialNotice }
       })
       const data = await res.json()
       if (!data.ok) {
+        // 1023 七件套②: 限发 403 → 受限专用 Dialog（文案+申诉入口），不走普通红字
+        if (data.code === "RESTRICTED") {
+          setSubmitting(false)
+          openRestricted(data.msg)
+          return
+        }
         // 限频（msg 含"活跃"）→ 弹窗提醒引导去公告牌；其他错误 → 红字
         if (data.msg && data.msg.includes("活跃")) setLimitTip(data.msg)
         else setError(data.msg || "发布失败")

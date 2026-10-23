@@ -13,6 +13,7 @@ import { NotificationsProvider } from '@/lib/notifications-context'
 import { DMProvider } from '@/lib/dm-context'
 import { ElectronGate } from '@/components/jamony/electron-gate'
 import { DialogProvider } from '@/components/jamony/dialog'
+import { RestrictedProvider } from '@/components/jamony/restricted-dialog'
 
 // 字体本地化：脱离 next/font/google 的 build 时联网依赖（国内服务器拉不到 Google Fonts）
 // Geist Sans + Geist Mono 的 latin 子集 variable woff2，含 100-900 全权重
@@ -88,10 +89,13 @@ export default function RootLayout({
                 <FollowProvider>
                   <NotificationsProvider>
                     <DMProvider>
+                    {/* 1023 七件套②: 受限专用 Dialog——403 RESTRICTED 全局弹出（文案+申诉入口） */}
+                    <RestrictedProvider>
                     <ElectronGate>
                       {children}
                       <PlayerBar />
                     </ElectronGate>
+                    </RestrictedProvider>
                     </DMProvider>
                   </NotificationsProvider>
                 </FollowProvider>

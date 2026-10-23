@@ -20,6 +20,7 @@ import {
 } from "lucide-react"
 import { autoMix, type MixTrackInfo } from "@/lib/auto-mix"
 import { FilterSelect } from "@/components/jamony/filter-select"
+import { useRestrictedDialog } from "@/components/jamony/restricted-dialog"
 
 /* ============ 类型 ============ */
 interface Author {
@@ -150,6 +151,7 @@ export default function PublishWorkModal({
   forceLockLost,
   livePublisherUserId,
 }: PublishWorkModalProps) {
+  const { openRestricted } = useRestrictedDialog()
   const [state, setState] = useState<State>("mixing")
   const [mixDone, setMixDone] = useState(false)
   const [mixError, setMixError] = useState(false)
@@ -574,6 +576,18 @@ export default function PublishWorkModal({
         })
         if (!res.ok) {
           const errBody = await res.text().catch(() => '')
+          // 1023 七件套②: 限发 403 → 受限专用 Dialog（文案+申诉入口），不进通用失败态文案
+          if (res.status === 403) {
+            try {
+              const d = JSON.parse(errBody)
+              if (d.code === "RESTRICTED") {
+                setState("failure")
+                setPublishErrorMessage(d.msg || "发布受限")
+                openRestricted(d.msg)
+                return
+              }
+            } catch { /* 非 JSON 走通用 */ }
+          }
           throw new Error(`发表失败: ${res.status} ${errBody}`)
         }
 

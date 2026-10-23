@@ -10,7 +10,7 @@ import { Avatar } from "@/components/jamony/avatar"
 
 const TABS = [
   { key: "comment", label: "评论", types: ["comment_reply", "work_comment", "work_comment_reply"] as string[] },
-  { key: "notice", label: "通知", types: ["like", "follow", "system"] as string[] },
+  { key: "notice", label: "通知", types: ["like", "follow", "system", "restriction", "appeal_result"] as string[] },
   { key: "message", label: "私信", types: ["message"] as string[] },
 ] as const
 
@@ -89,6 +89,8 @@ export function NotificationDrawer({ open, onClose, onOpenNotice }: { open: bool
     if (n.type === "comment_reply" && n.notice_id) onOpenNotice?.(n.notice_id)
     else if ((n.type === "like" || n.type === "work_comment" || n.type === "work_comment_reply") && n.work_id) { onClose(); router.push(`/library/${n.work_id}`) }
     else if (n.type === "follow" && n.actor_nickname) { onClose(); router.push(`/profile?nickname=${encodeURIComponent(n.actor_nickname)}`) }
+    // 1023 七件套⑤: 申诉回执点击 → 直达个人主页申诉 tab 看进度/驳回理由
+    else if (n.type === "appeal_result" && user?.nickname) { onClose(); router.push(`/profile?nickname=${encodeURIComponent(user.nickname)}&tab=appeals`) }
     else if (n.type === "message") setTab("message")
   }
 
@@ -210,15 +212,16 @@ export function NotificationDrawer({ open, onClose, onOpenNotice }: { open: bool
               <div key={n.id} onClick={() => handleClick(n)}
                 className="group flex cursor-pointer items-start gap-3 border-b px-4 py-3 transition-colors hover:bg-white/5"
                 style={{ borderColor: "#1A1A1A", background: n.read_at ? "transparent" : "rgba(153,51,255,0.06)" }}>
-                {/* jamony 1018: 系统通知无 actor——用 jamony logo 替字母兜底头像(欢哥拍板);其余用户照旧真人头像 */}
-                {n.type === "system" ? (
+                {/* jamony 1018: 系统通知无 actor——用 jamony logo 替字母兜底头像(欢哥拍板);其余用户照旧真人头像
+                    1023: restriction(处罚)/appeal_result(申诉回执)同属系统通知, 同款渲染 */}
+                {(n.type === "system" || n.type === "restriction" || n.type === "appeal_result") ? (
                   <img src="/jamony_logo.png" alt="jamony" className="h-[32px] w-[32px] flex-shrink-0 rounded-full object-cover" />
                 ) : (
                   <Avatar nickname={n.actor_nickname || "U"} size={32} avatarUrl={n.actor_avatar_url || undefined} />
                 )}
                 <div className="min-w-0 flex-1">
                   <p className="text-sm text-white">
-                    {n.type === "system" ? (n.message || "系统通知")
+                    {(n.type === "system" || n.type === "restriction" || n.type === "appeal_result") ? (n.message || "系统通知")
                       : n.type === "like" ? `${n.actor_nickname}${n.count > 1 ? ` 等${n.count}人` : ""} 赞了你的作品「${n.work_title || ""}」`
                       : n.type === "follow" ? `${n.actor_nickname}${n.count > 1 ? ` 等${n.count}人` : ""} 关注了你`
                       : n.type === "work_comment" ? `${n.actor_nickname}${n.count > 1 ? ` 等${n.count}人` : ""} 评论了你的作品「${n.work_title || ""}」`
