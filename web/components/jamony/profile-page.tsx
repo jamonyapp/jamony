@@ -437,7 +437,7 @@ export function ProfilePage({ nickname }: { nickname: string }) {
                           <p className="mb-3 text-xs leading-relaxed" style={{ color: '#F5C518' }}>
                             您的账号异常：{appealPunishment.restriction === 'restricted'
                               ? `发布功能被限制${appealPunishment.restricted_until ? `，将于${new Date(appealPunishment.restricted_until).getMonth() + 1}月${new Date(appealPunishment.restricted_until).getDate()}日自动解除` : ''}`
-                              : '因违规被降级为听众'}。
+                              : `因违规被降级为听众${appealPunishment.restricted_until ? `，将于${new Date(appealPunishment.restricted_until).getMonth() + 1}月${new Date(appealPunishment.restricted_until).getDate()}日自动解除` : ''}`}。
                             申诉有效期至 {new Date(appealPunishment.appeal_deadline).getMonth() + 1}月{new Date(appealPunishment.appeal_deadline).getDate()}日。
                           </p>
                         )}

@@ -466,12 +466,22 @@ function touchLastSeen(userId) {
 
 // banned 拦截缓存: userId → {v, at}; 60s TTL(封/解封最迟 1 分钟生效), 防膨胀同 touchLastSeen 清扫
 // requireAuth/optionalAuth 每请求查一次 restriction, 缓存兜住 DB 压力
+// 1024: 到期惰性恢复集中地——restricted(限发N天)/demoted(降级N天) 过期顺手回 normal。
+// 原先恢复只埋在发布守卫, 降级用户到期后第一件事是进房弹琴, 那条路没有恢复逻辑; 集中到此后全路径统一
 const restrictionCache = new Map()
 async function getUserRestriction(userId) {
   const hit = restrictionCache.get(userId)
   if (hit && Date.now() - hit.at < 60000) return hit.v
-  const r = await pool.query('SELECT restriction FROM users WHERE id=$1', [userId])
-  const v = r.rows[0] ? r.rows[0].restriction : 'normal'
+  const r = await pool.query('SELECT restriction, restricted_until FROM users WHERE id=$1', [userId])
+  let v = r.rows[0] ? r.rows[0].restriction : 'normal'
+  if ((v === 'restricted' || v === 'demoted') && r.rows[0].restricted_until
+      && new Date(r.rows[0].restricted_until).getTime() <= Date.now()) {
+    await pool.query(
+      `UPDATE users SET restriction='normal', restricted_until=NULL, restricted_at=NULL WHERE id=$1 AND restriction=$2`,
+      [userId, v]
+    ).catch(() => {})
+    v = 'normal'
+  }
   restrictionCache.set(userId, { v, at: Date.now() })
   if (restrictionCache.size > 5000) {
     const now = Date.now()
@@ -5521,7 +5531,7 @@ app.post('/api/admin-internal/appeals/:id/resolve', requireAdminInternal, async 
         [userId]
       )
       if (rel.rows[0]) restrictionCache.set(userId, { v: 'normal', at: Date.now() })
-      await createNotification({ recipientId: userId, type: 'appeal_result', message: '您的申诉已通过，相关限制已解除。请您继续遵守jamony的行为规范。' })
+      await createNotification({ recipientId: userId, type: 'appeal_result', message: '您的申诉已通过，相关限制已解除，刷新页面即时生效。请您继续遵守jamony的行为规范。' })
     } else {
       await pool.query(`UPDATE appeals SET status='rejected', reject_reason=$2, handled_at=NOW() WHERE id=$1`, [appealId, rejectReason])
       await createNotification({ recipientId: userId, type: 'appeal_result', message: `您的申诉未通过。理由：${rejectReason}。请您注意在jamony的行为规范。` })
@@ -5550,9 +5560,23 @@ app.post('/api/admin-internal/users/:id/restriction', requireAdminInternal, asyn
     const cfg = await getModerationConfig()
     if (action === 'demote') {
       if (cur === 'demoted') return res.status(409).json({ ok: false, msg: '该用户已是降级状态' })
-      await pool.query(`UPDATE users SET restriction='demoted', restricted_until=NULL, restricted_at=NOW() WHERE id=$1`, [userId])
+      // 1024 欢哥拍板: 降级默认15天自动解除(定时), 可选7/15/30/无期限——操作者不用记着回来解封
+      let days = req.body?.days
+      if (days === undefined) days = 15
+      if (days !== null) {
+        days = parseInt(days)
+        if (!(days >= 1 && days <= 365)) return res.status(400).json({ ok: false, msg: '期限不合法' })
+      }
+      const upd = await pool.query(
+        `UPDATE users SET restriction='demoted', restricted_until=${days ? `NOW() + ($2 || ' days')::interval` : 'NULL'}, restricted_at=NOW(), demoted_count=demoted_count+1
+         WHERE id=$1 RETURNING restricted_until, demoted_count`,
+        days ? [userId, String(days)] : [userId]
+      )
       restrictionCache.set(userId, { v: 'demoted', at: Date.now() })
-      await createNotification({ recipientId: userId, type: 'restriction', message: `因为违规，您已被降级为听众，只能以听众身份进入房间，发布功能已被限制。您可以到个人主页-申诉进行申诉（处罚生效后${cfg.appealDays}天内有效）。请您注意在jamony的行为规范。` })
+      const until = upd.rows[0].restricted_until ? new Date(upd.rows[0].restricted_until) : null
+      const dateStr = until ? `${until.getMonth() + 1}月${until.getDate()}日` : ''
+      await createNotification({ recipientId: userId, type: 'restriction', message: `因为违规，您已被降级为听众，只能以听众身份进入房间，发布功能已被限制${until ? `，将于${dateStr}自动解除` : ''}。您可以到个人主页-申诉进行申诉（处罚生效后${cfg.appealDays}天内有效）。请您注意在jamony的行为规范。` })
+      return res.json({ ok: true, demoted_count: upd.rows[0].demoted_count, restricted_until: upd.rows[0].restricted_until })
     } else if (action === 'ban') {
       if (cur === 'banned') return res.status(409).json({ ok: false, msg: '该用户已被封禁' })
       await pool.query(`UPDATE users SET restriction='banned', restricted_until=NULL, restricted_at=NOW() WHERE id=$1`, [userId])
@@ -5568,8 +5592,8 @@ app.post('/api/admin-internal/users/:id/restriction', requireAdminInternal, asyn
         [userId]
       )
       await createNotification({ recipientId: userId, type: 'appeal_result', message: stale.rows.length > 0
-        ? '您的申诉已通过，相关限制已解除。请您继续遵守jamony的行为规范。'
-        : '您的账号限制已被解除。请您继续遵守jamony的行为规范。' })
+        ? '您的申诉已通过，相关限制已解除，刷新页面即时生效。请您继续遵守jamony的行为规范。'
+        : '您的账号限制已被解除，刷新页面即时生效。请您继续遵守jamony的行为规范。' })
     }
     console.log(`[admin-internal] 用户${userId}(${u.rows[0].nickname}) ${action} by ${actor}${reason ? ` 理由:${reason}` : ''} (原状态:${cur})`)
     res.json({ ok: true })
