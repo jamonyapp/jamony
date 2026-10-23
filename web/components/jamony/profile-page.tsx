@@ -69,6 +69,8 @@ export function ProfilePage({ nickname }: { nickname: string }) {
     try { return new URLSearchParams(window.location.search).get('tab') === 'appeals' ? 'appeals' : 'works' } catch { return 'works' }
   })
   const [myAppeals, setMyAppeals] = useState<any[] | null>(null)
+  // 1024: 处罚上下文(截止日期+N天)——申诉表单上方显示有效期, 过期则不显示表单
+  const [appealPunishment, setAppealPunishment] = useState<{ restriction: string; appeal_deadline: string; appeal_days: number } | null>(null)
   const [followingList, setFollowingList] = useState<any[] | null>(null)
   const [followersList, setFollowersList] = useState<any[] | null>(null)
   const [followPrivateMsg, setFollowPrivateMsg] = useState<string | null>(null)
@@ -136,7 +138,7 @@ export function ProfilePage({ nickname }: { nickname: string }) {
       fetch(`/api/users/${pid}/favorites`, { credentials: 'include' }).then(r => r.json()).then(d => { if (d.ok) { setMyFavorites((d.notices || []).map(mapNotice)); setMyFavWorks(d.works || []) } }).catch(() => {})
     } else if (tab === 'appeals' && self) {
       setMyAppeals(null)
-      fetch(`/api/my-appeals`, { credentials: 'include' }).then(r => r.json()).then(d => { setMyAppeals(d.ok ? (d.appeals || []) : []) }).catch(() => setMyAppeals([]))
+      fetch(`/api/my-appeals`, { credentials: 'include' }).then(r => r.json()).then(d => { setMyAppeals(d.ok ? (d.appeals || []) : []); setAppealPunishment(d.punishment || null) }).catch(() => setMyAppeals([]))
     } else if (tab === 'following') {
       setFollowPrivateMsg(null)
       fetch(`/api/users/${pid}/following`, { credentials: 'include' }).then(r => r.json()).then(d => { if (d.ok) setFollowingList(d.users || []); else if (d.msg) { setFollowingList([]); setFollowPrivateMsg(d.msg) } }).catch(() => {})
@@ -425,12 +427,25 @@ export function ProfilePage({ nickname }: { nickname: string }) {
                 {(currentUser?.restriction === 'restricted' || currentUser?.restriction === 'demoted') ? (
                   <div>
                     <h3 className="mb-3 text-[13px]" style={{ color: '#8A8A8A' }}>提交申诉</h3>
-                    <AppealForm onSuccess={() => {
-                      fetch('/api/my-appeals', { credentials: 'include' })
-                        .then(r => r.json())
-                        .then(d => setMyAppeals(d.ok ? (d.appeals || []) : []))
-                        .catch(() => {})
-                    }} />
+                    {appealPunishment && new Date(appealPunishment.appeal_deadline).getTime() < Date.now() ? (
+                      <p className="rounded-[10px] border px-4 py-3 text-sm" style={{ color: '#FF9A9A', borderColor: '#FF5C5C', background: 'rgba(255,92,92,0.05)' }}>
+                        申诉期已过（处罚生效后{appealPunishment.appeal_days}天内可申诉）。
+                      </p>
+                    ) : (
+                      <>
+                        {appealPunishment && (
+                          <p className="mb-3 text-xs" style={{ color: '#F5C518' }}>
+                            申诉有效期至 {new Date(appealPunishment.appeal_deadline).getMonth() + 1}月{new Date(appealPunishment.appeal_deadline).getDate()}日
+                          </p>
+                        )}
+                        <AppealForm onSuccess={() => {
+                          fetch('/api/my-appeals', { credentials: 'include' })
+                            .then(r => r.json())
+                            .then(d => { setMyAppeals(d.ok ? (d.appeals || []) : []); setAppealPunishment(d.punishment || null) })
+                            .catch(() => {})
+                        }} />
+                      </>
+                    )}
                   </div>
                 ) : (
                   // 1024 欢哥: 正常态用户闲逛进来也给个明确交代, 不留空白

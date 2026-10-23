@@ -18,11 +18,13 @@ interface AppealRow {
 
 export default function BannedPage() {
   const [appeals, setAppeals] = useState<AppealRow[] | null>(null)
+  // 1024: 处罚上下文——申诉有效期截止日期/过期态(与个人主页申诉tab同款)
+  const [punishment, setPunishment] = useState<{ restriction: string; appeal_deadline: string; appeal_days: number } | null>(null)
 
   const loadAppeals = () => {
     fetch("/api/my-appeals", { credentials: "include" })
       .then((r) => r.json())
-      .then((d) => setAppeals(d.ok ? d.appeals || [] : []))
+      .then((d) => { setAppeals(d.ok ? d.appeals || [] : []); setPunishment(d.punishment || null) })
       .catch(() => setAppeals([]))
   }
 
@@ -48,7 +50,20 @@ export default function BannedPage() {
           </p>
 
           <div className="mt-5 border-t pt-4" style={{ borderColor: "#1A1A1A" }}>
-            <AppealForm onSuccess={loadAppeals} />
+            {punishment && new Date(punishment.appeal_deadline).getTime() < Date.now() ? (
+              <p className="rounded-[10px] border px-4 py-3 text-sm" style={{ color: "#FF9A9A", borderColor: "#FF5C5C", background: "rgba(255,92,92,0.05)" }}>
+                申诉期已过（处罚生效后{punishment.appeal_days}天内可申诉）。
+              </p>
+            ) : (
+              <>
+                {punishment && (
+                  <p className="mb-3 text-xs" style={{ color: "#F5C518" }}>
+                    申诉有效期至 {new Date(punishment.appeal_deadline).getMonth() + 1}月{new Date(punishment.appeal_deadline).getDate()}日
+                  </p>
+                )}
+                <AppealForm onSuccess={loadAppeals} />
+              </>
+            )}
           </div>
         </div>
 
