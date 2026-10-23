@@ -590,8 +590,8 @@ async function checkSuspectEscalation(userId) {
 }
 
 // 限发守卫: restricted(未过期)/demoted/banned 不可发布; restricted 过期顺手自动恢复正常
-// 返回 true=可发布
-async function guardCanPublish(userId) {
+// 受限时直接以此处文案回 403(带具体解封日期, 欢哥 1023 定稿文案), 返回 true=可发布
+async function guardCanPublish(userId, res) {
   if (!userId) return true
   try {
     await pool.query(
@@ -600,16 +600,24 @@ async function guardCanPublish(userId) {
       [userId]
     )
     const r = await pool.query(
-      `SELECT 1 FROM users WHERE id=$1 AND restriction IN ('restricted','demoted','banned')
+      `SELECT restriction, restricted_until FROM users WHERE id=$1 AND restriction IN ('restricted','demoted','banned')
        AND (restricted_until IS NULL OR restricted_until > NOW())`,
       [userId]
     )
-    return r.rows.length === 0
+    if (r.rows.length === 0) return true
+    const row = r.rows[0]
+    if (row.restriction === 'restricted' && row.restricted_until) {
+      const d = new Date(row.restricted_until)
+      const dateStr = `${d.getMonth() + 1}月${d.getDate()}日`
+      res.status(403).json({ ok: false, msg: `因发布内容违规频繁，系统已限制您的部分功能，将于${dateStr}自动解除。请您注意在jamony的行为规范。` })
+    } else {
+      res.status(403).json({ ok: false, msg: '因发布违规内容，您的部分功能已被限制。请您注意在jamony的行为规范。' })
+    }
+    return false
   } catch (e) {
     return true // fail-open: 守卫查询异常不拦发布
   }
 }
-const MODERATION_RESTRICTED_MSG = '账号功能受限，如有疑问请联系我们'
 
 // ========== 登录 ==========
 app.post('/api/login', async (req, res) => {
@@ -1726,7 +1734,7 @@ app.post('/api/rooms', requireAuth, async (req, res) => {
     if (!name) {
       return res.status(400).json({ ok: false, msg: '请填写房间名' })
     }
-    if (!(await guardCanPublish(req.userId))) return res.status(403).json({ ok: false, msg: MODERATION_RESTRICTED_MSG })
+    if (!(await guardCanPublish(req.userId, res))) return
     const roomText = [name, description, style].filter(v => typeof v === 'string' && v.trim()).join('\n')
     if (!(await moderatePublishText('room', null, hostId, req.nickname, roomText))) {
       return res.status(400).json({ ok: false, msg: MODERATION_REJECT_MSG })
@@ -2760,7 +2768,7 @@ app.post('/api/rooms/:code/sessions/:sid/publish', requireAuth, upload.fields([{
     if (!title || !style || !copyright) {
       return res.status(400).json({ ok: false, msg: '缺少必填字段' })
     }
-    if (!(await guardCanPublish(publisher_user_id))) return res.status(403).json({ ok: false, msg: MODERATION_RESTRICTED_MSG })
+    if (!(await guardCanPublish(publisher_user_id, res))) return
     const publishText = [title, description, cover_song, cover_author, source].filter(v => typeof v === 'string' && v.trim()).join('\n')
     if (!(await moderatePublishText('work', null, publisher_user_id, req.nickname, publishText))) {
       return res.status(400).json({ ok: false, msg: MODERATION_REJECT_MSG })
@@ -3116,7 +3124,7 @@ app.post('/api/works/:id/comments', requireAuth, async (req, res) => {
     const avatarUrl = userRow.rows[0].avatar_url
       ? userRow.rows[0].avatar_url.replace('/var/jamony/avatars', '/avatars')
       : ''
-    if (!(await guardCanPublish(userId))) return res.status(403).json({ ok: false, msg: MODERATION_RESTRICTED_MSG })
+    if (!(await guardCanPublish(userId, res))) return
     if (!(await moderatePublishText('work_comment', id, userId, nickname, content.trim()))) {
       return res.status(400).json({ ok: false, msg: MODERATION_REJECT_MSG })
     }
@@ -3274,7 +3282,7 @@ app.post('/api/notices', requireAuth, async (req, res) => {
     if (!['offline', 'online'].includes(type)) return res.status(400).json({ ok: false, msg: '公告类型无效' })
     if (!title || !String(title).trim()) return res.status(400).json({ ok: false, msg: '请填写标题' })
     if (!body || !String(body).trim()) return res.status(400).json({ ok: false, msg: '请填写正文' })
-    if (!(await guardCanPublish(req.userId))) return res.status(403).json({ ok: false, msg: MODERATION_RESTRICTED_MSG })
+    if (!(await guardCanPublish(req.userId, res))) return
     const noticeText = [String(title).trim(), String(body).trim(), city, style].filter(v => typeof v === 'string' && v.trim()).join('\n')
     if (!(await moderatePublishText('notice', null, req.userId, req.nickname, noticeText))) {
       return res.status(400).json({ ok: false, msg: MODERATION_REJECT_MSG })
@@ -3380,7 +3388,7 @@ app.patch('/api/notices/:id', requireAuth, async (req, res) => {
     add('image_url', image_url === undefined ? undefined : (image_url || null))
     if (sets.length === 0) return res.status(400).json({ ok: false, msg: '没有要更新的字段' })
     // 机审：编辑同样过闸（堵"发正常帖再编辑塞违规词"的口子），只审用户提交的文本字段
-    if (!(await guardCanPublish(req.userId))) return res.status(403).json({ ok: false, msg: MODERATION_RESTRICTED_MSG })
+    if (!(await guardCanPublish(req.userId, res))) return
     const patchText = [title, body, city, style].filter(v => typeof v === 'string' && v.trim()).join('\n')
     if (patchText && !(await moderatePublishText('notice', id, req.userId, req.nickname, patchText))) {
       return res.status(400).json({ ok: false, msg: MODERATION_REJECT_MSG })
@@ -3490,7 +3498,7 @@ app.post('/api/notices/:id/comments', requireAuth, async (req, res) => {
     const avatarUrl = userRow.rows[0].avatar_url
       ? userRow.rows[0].avatar_url.replace('/var/jamony/avatars', '/avatars')
       : ''
-    if (!(await guardCanPublish(userId))) return res.status(403).json({ ok: false, msg: MODERATION_RESTRICTED_MSG })
+    if (!(await guardCanPublish(userId, res))) return
     if (!(await moderatePublishText('notice_comment', id, userId, nickname, content.trim()))) {
       return res.status(400).json({ ok: false, msg: MODERATION_REJECT_MSG })
     }
