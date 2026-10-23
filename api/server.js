@@ -495,6 +495,43 @@ function optionalAuth(req, res, next) {
   next()
 }
 
+/* ========== 内容机审（1023 内容安全 A 阶段，lib/moderation.js 引擎）==========
+   三态语义: reject=硬拦不放行(不写内容库) / suspect=放行+写 moderation_logs 供 admin 疑似流巡查(零人工) / pass=放行
+   fail-open: 引擎异常或日志写入失败一律放行, 绝不阻塞业务发布链路 */
+const { moderateText } = require('./lib/moderation')
+const MODERATION_REJECT_MSG = '内容包含违规信息，请修改后重发'
+
+// 返回 true=放行, false=拒绝; kind: notice|notice_comment|work|work_comment|room
+async function moderatePublishText(kind, targetId, userId, nickname, text) {
+  let verdict = 'pass'
+  let hits = []
+  try {
+    const r = moderateText(text)
+    verdict = r.verdict
+    hits = r.hits
+  } catch (e) {
+    console.error('[moderation] 引擎异常, fail-open 放行:', e.message)
+    return true
+  }
+  if (verdict === 'reject') {
+    console.log(`[moderation] 拒绝发布 kind=${kind} user=${userId}(${nickname}) hits=${hits.length}`)
+    return false
+  }
+  if (verdict === 'suspect') {
+    try {
+      await pool.query(
+        `INSERT INTO moderation_logs (kind, target_id, user_id, nickname, content, verdict, hits)
+         VALUES ($1,$2,$3,$4,$5,'suspect',$6)`,
+        [kind, String(targetId == null ? '' : targetId), userId || null, nickname || '', String(text || ''), JSON.stringify(hits)]
+      )
+      console.log(`[moderation] 疑似标记 kind=${kind} user=${userId}(${nickname}) hits=${hits.length}`)
+    } catch (e) {
+      console.error('[moderation] 疑似日志写入失败(不阻塞发布):', e.message)
+    }
+  }
+  return true
+}
+
 // ========== 登录 ==========
 app.post('/api/login', async (req, res) => {
   try {
@@ -1592,6 +1629,10 @@ app.post('/api/rooms', requireAuth, async (req, res) => {
     if (!name) {
       return res.status(400).json({ ok: false, msg: '请填写房间名' })
     }
+    const roomText = [name, description].filter(v => typeof v === 'string' && v.trim()).join('\n')
+    if (!(await moderatePublishText('room', null, hostId, req.nickname, roomText))) {
+      return res.status(400).json({ ok: false, msg: MODERATION_REJECT_MSG })
+    }
 
     // 查用户
     const userResult = await pool.query('SELECT nickname FROM users WHERE id = $1', [hostId])
@@ -2621,6 +2662,10 @@ app.post('/api/rooms/:code/sessions/:sid/publish', requireAuth, upload.fields([{
     if (!title || !style || !copyright) {
       return res.status(400).json({ ok: false, msg: '缺少必填字段' })
     }
+    const publishText = [title, description, cover_song, cover_author].filter(v => typeof v === 'string' && v.trim()).join('\n')
+    if (!(await moderatePublishText('work', null, publisher_user_id, req.nickname, publishText))) {
+      return res.status(400).json({ ok: false, msg: MODERATION_REJECT_MSG })
+    }
 
     // 先插入 works 获取 workId
     const work = await pool.query(
@@ -2972,6 +3017,9 @@ app.post('/api/works/:id/comments', requireAuth, async (req, res) => {
     const avatarUrl = userRow.rows[0].avatar_url
       ? userRow.rows[0].avatar_url.replace('/var/jamony/avatars', '/avatars')
       : ''
+    if (!(await moderatePublishText('work_comment', id, userId, nickname, content.trim()))) {
+      return res.status(400).json({ ok: false, msg: MODERATION_REJECT_MSG })
+    }
     const ins = await pool.query(
       `INSERT INTO work_comments (work_id, user_id, nickname, content, parent_id, reply_to_nickname)
        VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, created_at`,
@@ -3126,6 +3174,9 @@ app.post('/api/notices', requireAuth, async (req, res) => {
     if (!['offline', 'online'].includes(type)) return res.status(400).json({ ok: false, msg: '公告类型无效' })
     if (!title || !String(title).trim()) return res.status(400).json({ ok: false, msg: '请填写标题' })
     if (!body || !String(body).trim()) return res.status(400).json({ ok: false, msg: '请填写正文' })
+    if (!(await moderatePublishText('notice', null, req.userId, req.nickname, `${String(title).trim()}\n${String(body).trim()}`))) {
+      return res.status(400).json({ ok: false, msg: MODERATION_REJECT_MSG })
+    }
 
     // 限频：线上 active 未过期 ≤1（每天1条）；线下 active 未过期 ≤3
     if (type === 'online') {
@@ -3226,6 +3277,11 @@ app.patch('/api/notices/:id', requireAuth, async (req, res) => {
     add('needed_count', needed_count === undefined ? undefined : (parseInt(needed_count) || null))
     add('image_url', image_url === undefined ? undefined : (image_url || null))
     if (sets.length === 0) return res.status(400).json({ ok: false, msg: '没有要更新的字段' })
+    // 机审：编辑同样过闸（堵"发正常帖再编辑塞违规词"的口子），只审用户提交的文本字段
+    const patchText = [title, body].filter(v => typeof v === 'string' && v.trim()).join('\n')
+    if (patchText && !(await moderatePublishText('notice', id, req.userId, req.nickname, patchText))) {
+      return res.status(400).json({ ok: false, msg: MODERATION_REJECT_MSG })
+    }
 
     params.push(id)
     const result = await pool.query(`UPDATE notices SET ${sets.join(', ')} WHERE id=$${params.length} RETURNING *`, params)
@@ -3331,6 +3387,9 @@ app.post('/api/notices/:id/comments', requireAuth, async (req, res) => {
     const avatarUrl = userRow.rows[0].avatar_url
       ? userRow.rows[0].avatar_url.replace('/var/jamony/avatars', '/avatars')
       : ''
+    if (!(await moderatePublishText('notice_comment', id, userId, nickname, content.trim()))) {
+      return res.status(400).json({ ok: false, msg: MODERATION_REJECT_MSG })
+    }
     const ins = await pool.query(
       `INSERT INTO notice_comments (notice_id, user_id, nickname, content, parent_id, reply_to_nickname)
        VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, created_at`,
