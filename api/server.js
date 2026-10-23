@@ -1629,7 +1629,7 @@ app.post('/api/rooms', requireAuth, async (req, res) => {
     if (!name) {
       return res.status(400).json({ ok: false, msg: '请填写房间名' })
     }
-    const roomText = [name, description].filter(v => typeof v === 'string' && v.trim()).join('\n')
+    const roomText = [name, description, style].filter(v => typeof v === 'string' && v.trim()).join('\n')
     if (!(await moderatePublishText('room', null, hostId, req.nickname, roomText))) {
       return res.status(400).json({ ok: false, msg: MODERATION_REJECT_MSG })
     }
@@ -2662,7 +2662,7 @@ app.post('/api/rooms/:code/sessions/:sid/publish', requireAuth, upload.fields([{
     if (!title || !style || !copyright) {
       return res.status(400).json({ ok: false, msg: '缺少必填字段' })
     }
-    const publishText = [title, description, cover_song, cover_author].filter(v => typeof v === 'string' && v.trim()).join('\n')
+    const publishText = [title, description, cover_song, cover_author, source].filter(v => typeof v === 'string' && v.trim()).join('\n')
     if (!(await moderatePublishText('work', null, publisher_user_id, req.nickname, publishText))) {
       return res.status(400).json({ ok: false, msg: MODERATION_REJECT_MSG })
     }
@@ -3174,7 +3174,8 @@ app.post('/api/notices', requireAuth, async (req, res) => {
     if (!['offline', 'online'].includes(type)) return res.status(400).json({ ok: false, msg: '公告类型无效' })
     if (!title || !String(title).trim()) return res.status(400).json({ ok: false, msg: '请填写标题' })
     if (!body || !String(body).trim()) return res.status(400).json({ ok: false, msg: '请填写正文' })
-    if (!(await moderatePublishText('notice', null, req.userId, req.nickname, `${String(title).trim()}\n${String(body).trim()}`))) {
+    const noticeText = [String(title).trim(), String(body).trim(), city, style].filter(v => typeof v === 'string' && v.trim()).join('\n')
+    if (!(await moderatePublishText('notice', null, req.userId, req.nickname, noticeText))) {
       return res.status(400).json({ ok: false, msg: MODERATION_REJECT_MSG })
     }
 
@@ -3278,7 +3279,7 @@ app.patch('/api/notices/:id', requireAuth, async (req, res) => {
     add('image_url', image_url === undefined ? undefined : (image_url || null))
     if (sets.length === 0) return res.status(400).json({ ok: false, msg: '没有要更新的字段' })
     // 机审：编辑同样过闸（堵"发正常帖再编辑塞违规词"的口子），只审用户提交的文本字段
-    const patchText = [title, body].filter(v => typeof v === 'string' && v.trim()).join('\n')
+    const patchText = [title, body, city, style].filter(v => typeof v === 'string' && v.trim()).join('\n')
     if (patchText && !(await moderatePublishText('notice', id, req.userId, req.nickname, patchText))) {
       return res.status(400).json({ ok: false, msg: MODERATION_REJECT_MSG })
     }
