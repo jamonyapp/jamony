@@ -3566,24 +3566,29 @@ app.delete('/api/notices/:id', requireAuth, async (req, res) => {
 })
 
 // 通知生成（写时聚合：同 recipient+type+entity+未读+1h内 → count+1 合并，否则新建；不通知自己）
+// 例外(1023 七件套①⑤): restriction(处罚)/appeal_result(申诉回执)不聚合——每次都是独立事件且文案各异,
+// 合并会保留旧文案吞掉新事件(watch→restricted 连续升级时解封日期文案曾因此丢失, 实测抓到)
+const NO_AGGREGATE_TYPES = new Set(['restriction', 'appeal_result'])
 async function createNotification({ recipientId, type, noticeId, commentId, workId, workCommentId, actorId, actorNickname, message }) {
   if (!recipientId || recipientId === actorId) return
   try {
-    const existing = await pool.query(
-      "SELECT id FROM notifications WHERE recipient_user_id=$1 AND type=$2 AND notice_id IS NOT DISTINCT FROM $3 AND work_id IS NOT DISTINCT FROM $4 AND work_comment_id IS NOT DISTINCT FROM $5 AND read_at IS NULL AND updated_at > NOW() - INTERVAL '1 hour'",
-      [recipientId, type, noticeId || null, workId || null, workCommentId || null]
-    )
-    if (existing.rows.length > 0) {
-      await pool.query(
-        "UPDATE notifications SET count = count + 1, actor_user_id = $1, actor_nickname = $2, comment_id = $3, work_comment_id = $4, updated_at = NOW() WHERE id = $5",
-        [actorId, actorNickname, commentId || null, workCommentId || null, existing.rows[0].id]
+    if (!NO_AGGREGATE_TYPES.has(type)) {
+      const existing = await pool.query(
+        "SELECT id FROM notifications WHERE recipient_user_id=$1 AND type=$2 AND notice_id IS NOT DISTINCT FROM $3 AND work_id IS NOT DISTINCT FROM $4 AND work_comment_id IS NOT DISTINCT FROM $5 AND read_at IS NULL AND updated_at > NOW() - INTERVAL '1 hour'",
+        [recipientId, type, noticeId || null, workId || null, workCommentId || null]
       )
-    } else {
-      await pool.query(
-        "INSERT INTO notifications (recipient_user_id, type, notice_id, comment_id, work_id, work_comment_id, actor_user_id, actor_nickname, message) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
-        [recipientId, type, noticeId || null, commentId || null, workId || null, workCommentId || null, actorId, actorNickname, message || null]
-      )
+      if (existing.rows.length > 0) {
+        await pool.query(
+          "UPDATE notifications SET count = count + 1, actor_user_id = $1, actor_nickname = $2, comment_id = $3, work_comment_id = $4, updated_at = NOW() WHERE id = $5",
+          [actorId, actorNickname, commentId || null, workCommentId || null, existing.rows[0].id]
+        )
+        return
+      }
     }
+    await pool.query(
+      "INSERT INTO notifications (recipient_user_id, type, notice_id, comment_id, work_id, work_comment_id, actor_user_id, actor_nickname, message) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+      [recipientId, type, noticeId || null, commentId || null, workId || null, workCommentId || null, actorId, actorNickname, message || null]
+    )
   } catch (e) { console.error('createNotification error:', e) }
 }
 
