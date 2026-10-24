@@ -5557,6 +5557,7 @@ app.post('/api/admin-internal/users/:id/restriction', requireAdminInternal, asyn
     const u = await pool.query('SELECT id, nickname, restriction FROM users WHERE id=$1', [userId])
     if (!u.rows[0]) return res.status(404).json({ ok: false, msg: '用户不存在' })
     const cur = u.rows[0].restriction
+    let resetRounds = false // release 分支内赋值(重置自动轮次); 提升作用域——尾部日志/响应要引用, 块内 const 会 ReferenceError(1024 E2E 抓获)
     const cfg = await getModerationConfig()
     if (action === 'demote') {
       if (cur === 'demoted') return res.status(409).json({ ok: false, msg: '该用户已是降级状态' })
@@ -5568,10 +5569,28 @@ app.post('/api/admin-internal/users/:id/restriction', requireAdminInternal, asyn
         if (!(days >= 1 && days <= 365)) return res.status(400).json({ ok: false, msg: '期限不合法' })
       }
       const upd = await pool.query(
-        `UPDATE users SET restriction='demoted', restricted_until=${days ? `NOW() + ($2 || ' days')::interval` : 'NULL'}, restricted_at=NOW(), demoted_count=demoted_count+1
-         WHERE id=$1 RETURNING restricted_until, demoted_count`,
+        `UPDATE users SET restriction='demoted', restricted_until=${days ? `NOW() + ($2 || ' days')::interval` : 'NULL'}, restricted_at=NOW(), demoted_count=demoted_count+1, demote_cycle_count=demote_cycle_count+1
+         WHERE id=$1 RETURNING restricted_until, demoted_count, demote_cycle_count, auto_ban_rounds`,
         days ? [userId, String(days)] : [userId]
       )
+      // 1024 欢哥定稿: 累犯自动封号——本轮第3次降级落地即升级, 封号覆盖降级只发一条通知
+      // 第一/二轮=7天(两轮机会), 第三轮起=无期限(终审); 手动封号不打断循环计数
+      if (upd.rows[0].demote_cycle_count >= 3) {
+        const permanent = upd.rows[0].auto_ban_rounds >= 2
+        const banUpd = await pool.query(
+          `UPDATE users SET restriction='banned', restricted_until=${permanent ? 'NULL' : `NOW() + ($2 || ' days')::interval`}, restricted_at=NOW(), banned_count=banned_count+1, demote_cycle_count=0, auto_ban_rounds=auto_ban_rounds+1
+           WHERE id=$1 RETURNING restricted_until, auto_ban_rounds`,
+          permanent ? [userId] : [userId, '7']
+        )
+        restrictionCache.set(userId, { v: 'banned', at: Date.now() })
+        const bu = banUpd.rows[0].restricted_until ? new Date(banUpd.rows[0].restricted_until) : null
+        const bDate = bu ? `${bu.getMonth() + 1}月${bu.getDate()}日` : ''
+        await createNotification({ recipientId: userId, type: 'restriction', message: bu
+          ? `您已多次被降级（累计3次），系统已自动封禁该账号，将于${bDate}自动解封。您仍可提交申诉（处罚生效后${cfg.appealDays}天内有效）。请您注意在jamony的行为规范。`
+          : `您已多次被降级（累计3次），系统已自动永久封禁该账号，此处罚不会自动解除，您仍可提交申诉（处罚生效后${cfg.appealDays}天内有效）。请您注意在jamony的行为规范。` })
+        console.log(`[moderation] 用户${userId}三轮降级累犯→自动封号(第${banUpd.rows[0].auto_ban_rounds}轮, ${permanent ? '无期限' : '7天'}) by ${actor}`)
+        return res.json({ ok: true, auto_banned: true, auto_ban_rounds: banUpd.rows[0].auto_ban_rounds, restricted_until: banUpd.rows[0].restricted_until })
+      }
       restrictionCache.set(userId, { v: 'demoted', at: Date.now() })
       const until = upd.rows[0].restricted_until ? new Date(upd.rows[0].restricted_until) : null
       const dateStr = until ? `${until.getMonth() + 1}月${until.getDate()}日` : ''
@@ -5606,7 +5625,12 @@ app.post('/api/admin-internal/users/:id/restriction', requireAdminInternal, asyn
       return res.json({ ok: true, banned_count: upd.rows[0].banned_count, restricted_until: upd.rows[0].restricted_until })
     } else { // release
       if (cur === 'normal') return res.status(409).json({ ok: false, msg: '该用户当前无处罚' })
-      await pool.query(`UPDATE users SET restriction='normal', restricted_until=NULL, restricted_at=NULL WHERE id=$1`, [userId])
+      // 1024 欢哥: 重置自动处罚轮次——确认系统性误判循环(反复永封+翻案)时用, 词库质量信号; 常规解除不动轮次
+      resetRounds = req.body?.reset_rounds === true
+      await pool.query(
+        `UPDATE users SET restriction='normal', restricted_until=NULL, restricted_at=NULL${resetRounds ? ', demote_cycle_count=0, auto_ban_rounds=0' : ''} WHERE id=$1`,
+        [userId]
+      )
       restrictionCache.set(userId, { v: 'normal', at: Date.now() })
       // 顺手清账(1024): 解除时在审申诉视为已通过(诉求已达成), 工作台不残留死单; 有清账时只发一条回执避免重复通知
       const stale = await pool.query(
@@ -5617,8 +5641,8 @@ app.post('/api/admin-internal/users/:id/restriction', requireAdminInternal, asyn
         ? '您的申诉已通过，相关限制已解除，刷新页面即时生效。请您继续遵守jamony的行为规范。'
         : '您的账号限制已被解除，刷新页面即时生效。请您继续遵守jamony的行为规范。' })
     }
-    console.log(`[admin-internal] 用户${userId}(${u.rows[0].nickname}) ${action} by ${actor}${reason ? ` 理由:${reason}` : ''} (原状态:${cur})`)
-    res.json({ ok: true })
+    console.log(`[admin-internal] 用户${userId}(${u.rows[0].nickname}) ${action} by ${actor}${reason ? ` 理由:${reason}` : ''}${resetRounds ? ' [重置自动轮次]' : ''} (原状态:${cur})`)
+    res.json({ ok: true, reset_rounds: resetRounds })
   } catch (err) {
     console.error('admin-internal user restriction error:', err)
     res.status(500).json({ ok: false, msg: '服务器错误' })
