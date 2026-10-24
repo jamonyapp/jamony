@@ -88,9 +88,11 @@ function loadDict(file) {
 // ---- 启动加载(fail-open) ----
 let REJECT_TRIE = null;
 let SUSPECT_TRIE = null;
+let REJECT_PY_TRIE = null; // 1024 词库二版: 核心词拼音 trie(抗"wei xie"式变体, 仅 reject 类开——同音误伤只在最重档可接受)
 let loadError = null;
 let rejectCount = 0;
 let suspectCount = 0;
+let pinyinFn = null;
 
 try {
   const rej = loadDict('reject.txt');
@@ -99,6 +101,24 @@ try {
   SUSPECT_TRIE = buildTrie(sus);
   rejectCount = rej.length;
   suspectCount = sus.length;
+  // 拼音折叠: 拒绝级词预转无声调拼音串建 trie(纯 a-z; buildTrie 会再 normalize 但纯字母恒等, 手工内联清晰)
+  try {
+    pinyinFn = require('pinyin-pro').pinyin;
+    REJECT_PY_TRIE = new Map();
+    for (const e of rej) {
+      const py = pinyinFn(normalize(e.word), { toneType: 'none', type: 'array' }).join('');
+      if (!py) continue;
+      let node = REJECT_PY_TRIE;
+      for (const ch of py) {
+        if (!node.has(ch)) node.set(ch, new Map());
+        node = node.get(ch);
+      }
+      node.set(END_KEY, { word: e.word + '(拼音变体)', category: e.category, len: py.length });
+    }
+  } catch (pe) {
+    REJECT_PY_TRIE = null;
+    console.error('[moderation] 拼音折叠不可用(不影响其余判定):', pe.message);
+  }
 } catch (e) {
   loadError = e;
   REJECT_TRIE = null;
@@ -106,8 +126,22 @@ try {
   console.error('[moderation] 词库加载失败, fail-open 放行模式:', e.message);
 }
 
+// ---- 1024 词库二版: 外链模式规则(公告牌防外链本意——正经内容不该带外链, 比 URL 黑名单更全覆盖零维护) ----
+// 自家域名/IP 白名单(小写; 命中先剔除再检测)
+const BRAND_URL_WHITELIST = ['jamonyapp.com', 'jamony.live', 'jamony.cc', 'jamony.net', '123.57.33.130'];
+// 外链特征: 协议头 / www. / 常见域名后缀(词边界防误伤普通英文单词如 "app.chat" 不算——按需调)
+const URL_PATTERN = /(https?:\/\/|www\.)|[a-z0-9-]{2,}\.(com|cn|net|org|xyz|top|vip|cc|io|app|live|info|biz|club|site|online|shop|store)([^a-z0-9-]|$)/i;
+
+/** 外链检测: 返回命中串或 null(白名单域名先剔除) */
+function detectExternalUrl(rawText) {
+  let s = String(rawText == null ? '' : rawText).toLowerCase();
+  for (const d of BRAND_URL_WHITELIST) s = s.split(d).join(' ');
+  const m = s.match(URL_PATTERN);
+  return m ? (m[0] || '外链') : null;
+}
+
 /**
- * 三态判定
+ * 三态判定(1024 二版: +拼音折叠抗变体 +外链模式规则防广告)
  * @returns {{verdict:'pass'|'suspect'|'reject', hits:Array<{word:string,category:string}>}}
  */
 function moderateText(text) {
@@ -117,8 +151,16 @@ function moderateText(text) {
   if (!n) return { verdict: 'pass', hits: [] };
   const rejectHits = scanTrie(n, REJECT_TRIE);
   if (rejectHits.length > 0) return { verdict: 'reject', hits: rejectHits.slice(0, 20) };
+  // 拼音折叠(仅 reject 类): 文本归一化串转拼音——汉字变拼音、字母原样, "wei xie"与原词殊途同归
+  if (REJECT_PY_TRIE && pinyinFn) {
+    const pyHits = scanTrie(pinyinFn(n, { toneType: 'none', type: 'array' }).join(''), REJECT_PY_TRIE);
+    if (pyHits.length > 0) return { verdict: 'reject', hits: pyHits.slice(0, 20) };
+  }
   const suspectHits = scanTrie(n, SUSPECT_TRIE);
   if (suspectHits.length > 0) return { verdict: 'suspect', hits: suspectHits.slice(0, 20) };
+  // 外链模式规则(suspect 级): 白名单域名先剔除, 任意外链特征=放行+标记(累计照常升档)
+  const url = detectExternalUrl(text);
+  if (url) return { verdict: 'suspect', hits: [{ word: '外链:' + url, category: '外链' }] };
   return { verdict: 'pass', hits: [] };
 }
 
