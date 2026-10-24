@@ -787,7 +787,7 @@ setInterval(async () => {
 // 1024 Step6: 渠道分组(欢哥定稿)——门面(publish)=公告牌/作品/房间名简介/推送主题, 流动(interact)=评论/聊天/私信(预留)
 // 分组按内容性质不按传输通道(推送主题走socket但属门面); 判定参数与计数分渠道独立可配, 处罚阶梯共享(封的是人不是渠道)
 const MODERATION_DEFAULTS = { threshold: 5, windowDays: 90, restrictDays: 7, appealDays: 3, rejectThreshold: 5, watchReturnDays: 30, autoDemoteDays: 7, demoteCycleThreshold: 3, autoBanDays: 7, autoBanPermanentRound: 3, interactThreshold: 5, interactWindowDays: 90, interactRejectThreshold: 5, streamSampleIntervalMin: 30, streamSampleSeconds: 60, streamDissolveThreshold: 3 }
-const CHANNEL_OF_KIND = { notice: 'publish', work: 'publish', room: 'publish', theme: 'publish', notice_image: 'publish', avatar: 'publish', work_cover: 'publish', work_audio: 'publish', notice_comment: 'interact', work_comment: 'interact', chat: 'interact', message: 'interact' }
+const CHANNEL_OF_KIND = { notice: 'publish', work: 'publish', room: 'publish', theme: 'publish', notice_image: 'publish', avatar: 'publish', work_cover: 'publish', work_audio: 'publish', score_image: 'publish', notice_comment: 'interact', work_comment: 'interact', chat: 'interact', message: 'interact' }
 let moderationCfgCache = { data: MODERATION_DEFAULTS, at: 0 }
 
 async function getModerationConfig() {
@@ -1854,6 +1854,17 @@ app.post('/api/rooms/:code/score/upload', requireAuth, scoreUpload.array('files'
     if (!(await isRoomMusician(req.userId, req.params.code))) {
       req.files.forEach(f => { try { fs.unlinkSync(f.path) } catch (e) {} })
       return res.status(403).json({ ok: false, msg: '仅合奏者可投谱' })
+    }
+    // 1024 欢哥定稿: 投谱图片=门面(publish, 与房间名/大屏主题同级)——投上大屏前双管审核(OCR+图像)
+    // 只审图片文件(PDF/GP=文档型乐谱跳过); 多文件并行审, 任一拒绝=整批拒全删
+    const SCORE_IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.webp']
+    const imgFiles = (req.files).filter(f => SCORE_IMAGE_EXTS.includes(path.extname(f.originalname || '').toLowerCase()))
+    if (imgFiles.length > 0) {
+      const verdicts = await Promise.all(imgFiles.map(f => moderateImage('score_image', f.path, req.userId, req.nickname)))
+      if (verdicts.includes(false)) {
+        req.files.forEach(f => { try { fs.unlinkSync(f.path) } catch (e) {} })
+        return res.status(400).json({ ok: false, msg: MODERATION_REJECT_MSG })
+      }
     }
     // 1013 修：multer/busboy 把 originalname 按 latin1 解码 UTF-8 字节=中文名全乱码（æˆéƒ½=成都实测定罪）
     // ——标准修法 Buffer latin1→utf8（纯英文名原样不变，业界 multer #775 同款）
