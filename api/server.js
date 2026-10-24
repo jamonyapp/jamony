@@ -786,7 +786,7 @@ setInterval(async () => {
 // 1024 Step5: 全套量刑参数进配置中心(admin 只授权超级管理员); watchReturn/autoDemote/autoBan/cycle/round 五键为同日去硬编码升格
 // 1024 Step6: 渠道分组(欢哥定稿)——门面(publish)=公告牌/作品/房间名简介/推送主题, 流动(interact)=评论/聊天/私信(预留)
 // 分组按内容性质不按传输通道(推送主题走socket但属门面); 判定参数与计数分渠道独立可配, 处罚阶梯共享(封的是人不是渠道)
-const MODERATION_DEFAULTS = { threshold: 5, windowDays: 90, restrictDays: 7, appealDays: 3, rejectThreshold: 5, watchReturnDays: 30, autoDemoteDays: 7, demoteCycleThreshold: 3, autoBanDays: 7, autoBanPermanentRound: 3, interactThreshold: 5, interactWindowDays: 90, interactRejectThreshold: 5, streamSampleIntervalMin: 30, streamSampleSeconds: 60, streamDissolveThreshold: 3 }
+const MODERATION_DEFAULTS = { threshold: 5, windowDays: 90, restrictDays: 7, appealDays: 3, rejectThreshold: 5, watchReturnDays: 30, autoDemoteDays: 7, demoteCycleThreshold: 3, autoBanDays: 7, autoBanPermanentRound: 3, interactThreshold: 5, interactWindowDays: 90, interactRejectThreshold: 5, streamSampleIntervalMin: 30, streamSampleSeconds: 60, streamDissolveThreshold: 3, maxActiveRooms: 15 }
 const CHANNEL_OF_KIND = { notice: 'publish', work: 'publish', room: 'publish', theme: 'publish', notice_image: 'publish', avatar: 'publish', work_cover: 'publish', work_audio: 'publish', score_image: 'publish', notice_comment: 'interact', work_comment: 'interact', chat: 'interact', message: 'interact' }
 let moderationCfgCache = { data: MODERATION_DEFAULTS, at: 0 }
 
@@ -814,6 +814,7 @@ async function getModerationConfig() {
         streamSampleIntervalMin: Number(v.stream_sample_interval_min) || MODERATION_DEFAULTS.streamSampleIntervalMin, // 房间推流抽检间隔(分)
         streamSampleSeconds: Number(v.stream_sample_seconds) || MODERATION_DEFAULTS.streamSampleSeconds, // 每次采样时长(秒)
         streamDissolveThreshold: Number(v.stream_dissolve_threshold) || MODERATION_DEFAULTS.streamDissolveThreshold, // 熔断阈值(采样不过审次数)
+        maxActiveRooms: Number(v.max_active_rooms) || MODERATION_DEFAULTS.maxActiveRooms, // 运营闸门(暂混居此配置,参数多了再拆): 并发活跃房上限=收割者搭档, 防每房150-300MB资源耗尽OOM; 默认15=升配扳机(12-15房)之下留余量
       }
     } else {
       moderationCfgCache.data = MODERATION_DEFAULTS
@@ -2215,6 +2216,12 @@ app.post('/api/rooms', requireAuth, async (req, res) => {
       return res.status(400).json({ ok: false, msg: '请填写房间名' })
     }
     if (!(await guardCanPublish(req.userId, res))) return
+    // 1024 B闸(运营闸门, 配置中心可调): 并发活跃房上限——收割者搭档, 防资源耗尽; 满员时引导加入现有房
+    const cfg0 = await getModerationConfig()
+    const activeRooms = await pool.query("SELECT COUNT(*)::int AS c FROM rooms WHERE status NOT IN ('closed','archived')")
+    if (activeRooms.rows[0].c >= cfg0.maxActiveRooms) {
+      return res.status(400).json({ ok: false, msg: '当前在线房间较多，请稍后再试，或去大厅加入现有房间一起玩' })
+    }
     const roomText = [name, description, style].filter(v => typeof v === 'string' && v.trim()).join('\n')
     if (!(await moderatePublishText('room', null, hostId, req.nickname, roomText))) {
       return res.status(400).json({ ok: false, msg: MODERATION_REJECT_MSG })
