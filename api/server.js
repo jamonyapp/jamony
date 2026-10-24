@@ -5741,25 +5741,39 @@ app.post('/api/admin-internal/rooms/:id/dissolve', requireAdminInternal, async (
 async function setTakedownStatus(kind, id, action) {
   const table = kind === 'works' ? 'works' : 'notices'
   const liveStatus = kind === 'works' ? 'published' : 'active'
+  const noun = kind === 'works' ? '作品' : '公告'
   if (action === 'take_down') {
     const r = await pool.query(
       `UPDATE ${table} SET status='taken_down' WHERE id=$1 AND status='${liveStatus}' RETURNING id`,
       [id]
     )
-    return r.rows.length > 0
-      ? { ok: true }
-      : { ok: false, msg: '内容不存在或当前状态不可下架' }
+    if (r.rows.length === 0) return { ok: false, msg: '内容不存在或当前状态不可下架' }
+    // 1024 欢哥: 人工下架不再静默——用户必须知情+有救济通道(纯内容下架无处罚态, 申诉tab不开放, 指路意见反馈)
+    notifyContentOwner(kind, id, `您的${noun}已被下架。如有异议，请通过左侧「意见反馈」联系我们，我们会尽快处理。`)
+    return { ok: true }
   }
   if (action === 'restore') {
     const r = await pool.query(
       `UPDATE ${table} SET status='${liveStatus}' WHERE id=$1 AND status='taken_down' RETURNING id`,
       [id]
     )
-    return r.rows.length > 0
-      ? { ok: true }
-      : { ok: false, msg: '内容不存在或未被下架' }
+    if (r.rows.length === 0) return { ok: false, msg: '内容不存在或未被下架' }
+    notifyContentOwner(kind, id, `您的${noun}已恢复展示。`)
+    return { ok: true }
   }
   return { ok: false, msg: '未知操作' }
+}
+
+async function notifyContentOwner(kind, id, message) {
+  try {
+    const q = kind === 'works'
+      ? 'SELECT publisher_user_id AS uid FROM works WHERE id=$1'
+      : 'SELECT user_id AS uid FROM notices WHERE id=$1'
+    const r = await pool.query(q, [id])
+    if (r.rows[0] && r.rows[0].uid) {
+      await createNotification({ recipientId: r.rows[0].uid, type: 'restriction', message })
+    }
+  } catch (e) { console.error('[moderation] 下架通知发送失败:', e.message) }
 }
 
 app.post('/api/admin-internal/works/:id/status', requireAdminInternal, async (req, res) => {
