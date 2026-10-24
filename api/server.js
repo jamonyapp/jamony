@@ -4109,6 +4109,11 @@ app.post('/api/messages/conversations/:id', requireAuth, async (req, res) => {
     const c = await pool.query('SELECT * FROM conversations WHERE id=$1 AND (user_a_id=$2 OR user_b_id=$2)', [cid, req.userId])
     if (c.rows.length === 0) return res.status(403).json({ ok: false, msg: '无权访问' })
     const otherId = c.rows[0].user_a_id === req.userId ? c.rows[0].user_b_id : c.rows[0].user_a_id
+    // 1024 收尾: 私信事前审(欢哥定稿: 私信更不能是法外之地, 违规骚扰重灾区)——
+    // 拒级发不出发件人收提示, 疑似放行+interact渠道计数(channel=message 预留转正)
+    if (!(await moderatePublishText('message', null, req.userId, req.nickname, content.trim().slice(0, 1000)))) {
+      return res.status(400).json({ ok: false, msg: MODERATION_REJECT_MSG })
+    }
     const ins = await pool.query(
       'INSERT INTO messages (conversation_id, sender_id, content) VALUES ($1, $2, $3) RETURNING id, created_at',
       [cid, req.userId, content.trim().slice(0, 1000)]
