@@ -696,7 +696,7 @@ async function checkRejectEscalation(userId) {
   }
 }
 
-// 限发守卫: restricted(未过期)/demoted/banned 不可发布; restricted 过期顺手自动恢复正常
+// 限发守卫: restricted(未过期)/demoted/banned 不可发布(restricted/demoted 到期恢复已集中到 getUserRestriction)
 // 受限时直接以此处文案回 403(带具体解封日期, 欢哥 1023 定稿文案), 返回 true=可发布
 // 1023 七件套②: 403 带 code:'RESTRICTED', web 错误层据此弹受限专用 Dialog(文案+申诉入口)
 async function guardCanPublish(userId, res) {
@@ -707,11 +707,6 @@ async function guardCanPublish(userId, res) {
       `UPDATE users SET restriction='normal'
        WHERE id=$1 AND restriction='watch'
        AND NOT EXISTS (SELECT 1 FROM moderation_logs WHERE user_id=$1 AND verdict='suspect' AND created_at > NOW() - INTERVAL '30 days')`,
-      [userId]
-    )
-    await pool.query(
-      `UPDATE users SET restriction='normal', restricted_until=NULL, restricted_at=NULL
-       WHERE id=$1 AND restriction='restricted' AND restricted_until IS NOT NULL AND restricted_until <= NOW()`,
       [userId]
     )
     const r = await pool.query(
@@ -728,6 +723,10 @@ async function guardCanPublish(userId, res) {
       const d = new Date(row.restricted_until)
       const dateStr = `${d.getMonth() + 1}月${d.getDate()}日`
       res.status(403).json({ ok: false, code: 'RESTRICTED', msg: `因发布内容违规频繁，系统已限制您的部分功能，将于${dateStr}自动解除。${appealHint}请您注意在jamony的行为规范。` })
+    } else if (!row.restricted_until) {
+      // 1024 欢哥: 无期限处罚必须明示"不会自动解除", 不让用户误以为有期限只是没告知
+      const noAutoHint = `此处罚不会自动解除，如有异议请前往个人主页-申诉进行申诉（处罚生效后${cfg.appealDays}天内有效）。`
+      res.status(403).json({ ok: false, code: 'RESTRICTED', msg: `因发布违规内容，您的部分功能已被限制。${noAutoHint}请您注意在jamony的行为规范。` })
     } else {
       res.status(403).json({ ok: false, code: 'RESTRICTED', msg: `因发布违规内容，您的部分功能已被限制。${appealHint}请您注意在jamony的行为规范。` })
     }
@@ -5575,7 +5574,11 @@ app.post('/api/admin-internal/users/:id/restriction', requireAdminInternal, asyn
       restrictionCache.set(userId, { v: 'demoted', at: Date.now() })
       const until = upd.rows[0].restricted_until ? new Date(upd.rows[0].restricted_until) : null
       const dateStr = until ? `${until.getMonth() + 1}月${until.getDate()}日` : ''
-      await createNotification({ recipientId: userId, type: 'restriction', message: `因为违规，您已被降级为听众，只能以听众身份进入房间，发布功能已被限制${until ? `，将于${dateStr}自动解除` : ''}。您可以到个人主页-申诉进行申诉（处罚生效后${cfg.appealDays}天内有效）。请您注意在jamony的行为规范。` })
+      // 1024 欢哥: 无期限明示"不会自动解除, 如有异议请前往个人主页-申诉"
+      const appealTail = until
+        ? `，将于${dateStr}自动解除。您可以到个人主页-申诉进行申诉（处罚生效后${cfg.appealDays}天内有效）`
+        : `。此处罚不会自动解除，如有异议请前往个人主页-申诉进行申诉（处罚生效后${cfg.appealDays}天内有效）`
+      await createNotification({ recipientId: userId, type: 'restriction', message: `因为违规，您已被降级为听众，只能以听众身份进入房间，发布功能已被限制${appealTail}。请您注意在jamony的行为规范。` })
       return res.json({ ok: true, demoted_count: upd.rows[0].demoted_count, restricted_until: upd.rows[0].restricted_until })
     } else if (action === 'ban') {
       if (cur === 'banned') return res.status(409).json({ ok: false, msg: '该用户已被封禁' })

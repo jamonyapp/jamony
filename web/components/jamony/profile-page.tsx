@@ -71,6 +71,10 @@ export function ProfilePage({ nickname }: { nickname: string }) {
   const [myAppeals, setMyAppeals] = useState<any[] | null>(null)
   // 1024: 处罚上下文(状态+截止日期+N天)——申诉表单上方先说账号怎么了再说期限, 过期则不显示表单
   const [appealPunishment, setAppealPunishment] = useState<{ restriction: string; restricted_until: string | null; appeal_deadline: string; appeal_days: number } | null>(null)
+  // 1024 欢哥: 无期限处罚明示"不会自动解除"(有期限=带解除日期)——不让人误以为有期限只是没告知
+  const appealUntilStr = appealPunishment?.restricted_until
+    ? `，将于${new Date(appealPunishment.restricted_until).getMonth() + 1}月${new Date(appealPunishment.restricted_until).getDate()}日自动解除`
+    : '，此处罚不会自动解除，您可在下方提交申诉'
   const [followingList, setFollowingList] = useState<any[] | null>(null)
   const [followersList, setFollowersList] = useState<any[] | null>(null)
   const [followPrivateMsg, setFollowPrivateMsg] = useState<string | null>(null)
@@ -436,8 +440,8 @@ export function ProfilePage({ nickname }: { nickname: string }) {
                         {appealPunishment && (
                           <p className="mb-3 text-xs leading-relaxed" style={{ color: '#F5C518' }}>
                             您的账号异常：{appealPunishment.restriction === 'restricted'
-                              ? `发布功能被限制${appealPunishment.restricted_until ? `，将于${new Date(appealPunishment.restricted_until).getMonth() + 1}月${new Date(appealPunishment.restricted_until).getDate()}日自动解除` : ''}`
-                              : `因违规被降级为听众${appealPunishment.restricted_until ? `，将于${new Date(appealPunishment.restricted_until).getMonth() + 1}月${new Date(appealPunishment.restricted_until).getDate()}日自动解除` : ''}`}。
+                              ? `发布功能被限制${appealUntilStr}`
+                              : `因违规被降级为听众${appealUntilStr}`}。
                             申诉有效期至 {new Date(appealPunishment.appeal_deadline).getMonth() + 1}月{new Date(appealPunishment.appeal_deadline).getDate()}日。
                           </p>
                         )}
