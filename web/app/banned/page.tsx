@@ -18,8 +18,8 @@ interface AppealRow {
 
 export default function BannedPage() {
   const [appeals, setAppeals] = useState<AppealRow[] | null>(null)
-  // 1024: 处罚上下文——申诉有效期截止日期/过期态(与个人主页申诉tab同款)
-  const [punishment, setPunishment] = useState<{ restriction: string; appeal_deadline: string; appeal_days: number } | null>(null)
+  // 1024: 处罚上下文——申诉有效期截止日期/过期态(与个人主页申诉tab同款); restricted_until=定时封号的解封日期(无期限=null)
+  const [punishment, setPunishment] = useState<{ restriction: string; restricted_until: string | null; appeal_deadline: string; appeal_days: number } | null>(null)
 
   const loadAppeals = () => {
     fetch("/api/my-appeals", { credentials: "include" })
@@ -45,7 +45,10 @@ export default function BannedPage() {
             <p className="text-[17px] font-semibold text-white">账号已被封禁</p>
           </div>
           <p className="mt-3 text-sm leading-relaxed" style={{ color: "#C8C8C8" }}>
-            该账号因违反jamony行为规范已被封禁，合奏、发布与社交功能均已冻结。
+            该账号因违反jamony行为规范已被封禁，合奏、发布与社交功能均已冻结
+            {punishment?.restricted_until
+              ? `，将于${new Date(punishment.restricted_until).getMonth() + 1}月${new Date(punishment.restricted_until).getDate()}日自动解封。`
+              : "，此处罚不会自动解除。"}
             如果您认为这是误判，可以在下方提交申诉，我们会尽快处理并通过站内信告知结果。
           </p>
 

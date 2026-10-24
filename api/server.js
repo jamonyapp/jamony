@@ -466,15 +466,16 @@ function touchLastSeen(userId) {
 
 // banned 拦截缓存: userId → {v, at}; 60s TTL(封/解封最迟 1 分钟生效), 防膨胀同 touchLastSeen 清扫
 // requireAuth/optionalAuth 每请求查一次 restriction, 缓存兜住 DB 压力
-// 1024: 到期惰性恢复集中地——restricted(限发N天)/demoted(降级N天) 过期顺手回 normal。
+// 1024: 到期惰性恢复集中地——restricted(限发N天)/demoted(降级N天)/banned(定时封号N天) 过期顺手回 normal。
 // 原先恢复只埋在发布守卫, 降级用户到期后第一件事是进房弹琴, 那条路没有恢复逻辑; 集中到此后全路径统一
+// (无期限封号 restricted_until=NULL, 天然不进恢复条件, 零误伤)
 const restrictionCache = new Map()
 async function getUserRestriction(userId) {
   const hit = restrictionCache.get(userId)
   if (hit && Date.now() - hit.at < 60000) return hit.v
   const r = await pool.query('SELECT restriction, restricted_until FROM users WHERE id=$1', [userId])
   let v = r.rows[0] ? r.rows[0].restriction : 'normal'
-  if ((v === 'restricted' || v === 'demoted') && r.rows[0].restricted_until
+  if ((v === 'restricted' || v === 'demoted' || v === 'banned') && r.rows[0].restricted_until
       && new Date(r.rows[0].restricted_until).getTime() <= Date.now()) {
     await pool.query(
       `UPDATE users SET restriction='normal', restricted_until=NULL, restricted_at=NULL WHERE id=$1 AND restriction=$2`,
@@ -5559,9 +5560,9 @@ app.post('/api/admin-internal/users/:id/restriction', requireAdminInternal, asyn
     const cfg = await getModerationConfig()
     if (action === 'demote') {
       if (cur === 'demoted') return res.status(409).json({ ok: false, msg: '该用户已是降级状态' })
-      // 1024 欢哥拍板: 降级默认15天自动解除(定时), 可选7/15/30/无期限——操作者不用记着回来解封
+      // 1024 欢哥定稿: 触发纪律默认7天自动解除(定时), 可选7/15/30/无期限——操作者不用记着回来解封(原默认15, 同日改7)
       let days = req.body?.days
-      if (days === undefined) days = 15
+      if (days === undefined) days = 7
       if (days !== null) {
         days = parseInt(days)
         if (!(days >= 1 && days <= 365)) return res.status(400).json({ ok: false, msg: '期限不合法' })
@@ -5582,9 +5583,27 @@ app.post('/api/admin-internal/users/:id/restriction', requireAdminInternal, asyn
       return res.json({ ok: true, demoted_count: upd.rows[0].demoted_count, restricted_until: upd.rows[0].restricted_until })
     } else if (action === 'ban') {
       if (cur === 'banned') return res.status(409).json({ ok: false, msg: '该用户已被封禁' })
-      await pool.query(`UPDATE users SET restriction='banned', restricted_until=NULL, restricted_at=NOW() WHERE id=$1`, [userId])
+      // 1024 欢哥定稿: 封号对齐降级全套机制——触发纪律默认7天定时自动解封, 无期限留给罪大恶极; banned_count 惯犯计数
+      let days = req.body?.days
+      if (days === undefined) days = 7
+      if (days !== null) {
+        days = parseInt(days)
+        if (!(days >= 1 && days <= 365)) return res.status(400).json({ ok: false, msg: '期限不合法' })
+      }
+      const upd = await pool.query(
+        `UPDATE users SET restriction='banned', restricted_until=${days ? `NOW() + ($2 || ' days')::interval` : 'NULL'}, restricted_at=NOW(), banned_count=banned_count+1
+         WHERE id=$1 RETURNING restricted_until, banned_count`,
+        days ? [userId, String(days)] : [userId]
+      )
       restrictionCache.set(userId, { v: 'banned', at: Date.now() })
-      await createNotification({ recipientId: userId, type: 'restriction', message: `该账号已被封禁，相关功能已被冻结。${reason ? '原因：' + reason + '。' : ''}您仍可提交申诉（处罚生效后${cfg.appealDays}天内有效）。` })
+      const until = upd.rows[0].restricted_until ? new Date(upd.rows[0].restricted_until) : null
+      const dateStr = until ? `${until.getMonth() + 1}月${until.getDate()}日` : ''
+      // 封号用户进不了个人主页, 申诉只在 /banned 拦截页——文案指向"仍可提交申诉"而非"前往个人主页"
+      const banTail = until
+        ? `，将于${dateStr}自动解封。您仍可提交申诉（处罚生效后${cfg.appealDays}天内有效）`
+        : `。此处罚不会自动解除，您仍可提交申诉（处罚生效后${cfg.appealDays}天内有效）`
+      await createNotification({ recipientId: userId, type: 'restriction', message: `该账号已被封禁，合奏、发布与社交功能均已冻结${banTail}。${reason ? `原因：${reason}。` : ''}请您注意在jamony的行为规范。` })
+      return res.json({ ok: true, banned_count: upd.rows[0].banned_count, restricted_until: upd.rows[0].restricted_until })
     } else { // release
       if (cur === 'normal') return res.status(409).json({ ok: false, msg: '该用户当前无处罚' })
       await pool.query(`UPDATE users SET restriction='normal', restricted_until=NULL, restricted_at=NULL WHERE id=$1`, [userId])
