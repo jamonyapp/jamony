@@ -786,7 +786,7 @@ setInterval(async () => {
 // 1024 Step5: 全套量刑参数进配置中心(admin 只授权超级管理员); watchReturn/autoDemote/autoBan/cycle/round 五键为同日去硬编码升格
 // 1024 Step6: 渠道分组(欢哥定稿)——门面(publish)=公告牌/作品/房间名简介/推送主题, 流动(interact)=评论/聊天/私信(预留)
 // 分组按内容性质不按传输通道(推送主题走socket但属门面); 判定参数与计数分渠道独立可配, 处罚阶梯共享(封的是人不是渠道)
-const MODERATION_DEFAULTS = { threshold: 5, windowDays: 90, restrictDays: 7, appealDays: 3, rejectThreshold: 5, watchReturnDays: 30, autoDemoteDays: 7, demoteCycleThreshold: 3, autoBanDays: 7, autoBanPermanentRound: 3, interactThreshold: 5, interactWindowDays: 90, interactRejectThreshold: 5 }
+const MODERATION_DEFAULTS = { threshold: 5, windowDays: 90, restrictDays: 7, appealDays: 3, rejectThreshold: 5, watchReturnDays: 30, autoDemoteDays: 7, demoteCycleThreshold: 3, autoBanDays: 7, autoBanPermanentRound: 3, interactThreshold: 5, interactWindowDays: 90, interactRejectThreshold: 5, streamSampleIntervalMin: 30, streamSampleSeconds: 60, streamDissolveThreshold: 3 }
 const CHANNEL_OF_KIND = { notice: 'publish', work: 'publish', room: 'publish', theme: 'publish', notice_image: 'publish', avatar: 'publish', work_cover: 'publish', work_audio: 'publish', notice_comment: 'interact', work_comment: 'interact', chat: 'interact', message: 'interact' }
 let moderationCfgCache = { data: MODERATION_DEFAULTS, at: 0 }
 
@@ -811,6 +811,9 @@ async function getModerationConfig() {
         interactThreshold: Number(v.interact_threshold) || MODERATION_DEFAULTS.interactThreshold, // 流动渠道(评论/聊天)疑似阈值
         interactWindowDays: Number(v.interact_window_days) || MODERATION_DEFAULTS.interactWindowDays,
         interactRejectThreshold: Number(v.interact_reject_threshold) || MODERATION_DEFAULTS.interactRejectThreshold,
+        streamSampleIntervalMin: Number(v.stream_sample_interval_min) || MODERATION_DEFAULTS.streamSampleIntervalMin, // 房间推流抽检间隔(分)
+        streamSampleSeconds: Number(v.stream_sample_seconds) || MODERATION_DEFAULTS.streamSampleSeconds, // 每次采样时长(秒)
+        streamDissolveThreshold: Number(v.stream_dissolve_threshold) || MODERATION_DEFAULTS.streamDissolveThreshold, // 熔断阈值(采样不过审次数)
       }
     } else {
       moderationCfgCache.data = MODERATION_DEFAULTS
@@ -5619,6 +5622,150 @@ async function reapGhostRooms() {
 }
 setInterval(reapGhostRooms, 5 * 60000)    // 常规巡扫: 每 5 分钟(1019 调参,原 10 分钟)
 setTimeout(reapGhostRooms, 30 * 1000)     // 启动 30 秒首扫(重启后即清存量)
+
+/* ========== 房间推流抽检(1024 定稿: 30min×60s / 核心词only / 房间熔断 / 在场并集统计) ==========
+   密度: 少量多次(欢哥: 2小时活跃房生命周期, 30min×60s 覆盖率最优, 成本≈0.1元/房/2h闲时版)
+   不过审定义: 仅核心词reject(欢哥拍板); suspect只进疑似流零打扰
+   处罚对象=房间(混音不可归因): 第N次(默认3)采样命中→收割者式强行解散; 房间计数从建立起算无重置
+   在场统计: musician_sessions与采样时间窗有交集的合奏者(一条SQL精确并集, 欢哥修正免轮询),
+             终生计数纯档案不指引代码——长期统计自然稀释误伤、沉淀惯犯画像(系统号排除, looper恒在场) */
+const streamSamplingNow = new Set()
+
+async function streamTranscribe(fileUrl, keys) {
+  const NLSClient = require('@alicloud/nls-filetrans-2018-08-17')
+  const nls = new NLSClient({ accessKeyId: keys.id, accessKeySecret: keys.secret, endpoint: 'https://filetrans.cn-beijing.aliyuncs.com' })
+  const sub = await nls.submitTask({ Task: JSON.stringify({ appkey: keys.nlsAppKey, file_link: fileUrl, version: '4.0' }) })
+  if (sub.StatusText !== 'SUCCESS') throw new Error('ASR提交失败:' + sub.StatusText)
+  for (let i = 0; i < 60; i++) {
+    await new Promise((r) => setTimeout(r, 3000))
+    const q = await nls.getTaskResult({ TaskId: sub.TaskId })
+    if (q.StatusText === 'SUCCESS') return ((q.Result && q.Result.sentences) || []).map((s) => s.text).join(' ').slice(0, 500)
+    if (q.StatusText === 'SUCCESS_WITH_NO_VALID_FRAGMENT') return ''
+    if (q.StatusText !== 'RUNNING' && q.StatusText !== 'QUEUED' && q.StatusText !== 'QUEUEING') throw new Error('ASR异常态:' + q.StatusText)
+  }
+  throw new Error('ASR轮询超时')
+}
+
+async function handleStreamViolation(room, sampleId, presentIds, text, hits) {
+  const cfg = await getModerationConfig()
+  try {
+    await pool.query(`INSERT INTO moderation_logs (kind, target_id, user_id, nickname, content, verdict, hits, channel) VALUES ('stream_audio',$1,NULL,'',$2,'reject',$3,'room')`,
+      [String(sampleId), `[房间${room.name}]音频转写:${text.slice(0, 180)}`, JSON.stringify(hits)])
+  } catch (e) { console.error('[stream-sample] 留痕失败:', e.message) }
+  const upd = await pool.query(`UPDATE rooms SET stream_violation_count = stream_violation_count + 1 WHERE id=$1 RETURNING stream_violation_count, status`, [room.id])
+  const count = (upd.rows[0] && upd.rows[0].stream_violation_count) || 1
+  const dissolved = count >= cfg.streamDissolveThreshold
+  // 在场合奏者终生+1(纯档案; presentIds已排除系统号)
+  if (presentIds && presentIds.length > 0) {
+    try { await pool.query('UPDATE users SET room_violation_present_count = room_violation_present_count + 1 WHERE id = ANY($1::int[])', [presentIds]) } catch (e) { console.error('[stream-sample] 在场统计失败:', e.message) }
+  }
+  // 用户视角全房弹窗(欢哥定稿: 告知是义务也是权利)——先弹窗后动作, 保送达
+  const warnMsg = `该房间涉嫌触碰违规，请注意jamony行为规范，达到${cfg.streamDissolveThreshold}次违规将被强行解散，此行为将影响合奏用户系统评价。`
+  const finalMsg = `该房间因累计违规次数达到${cfg.streamDissolveThreshold}次，被强行解散。请注意jamony行为规范。`
+  io.to(room.room_code).emit('room-violation', { msg: dissolved ? finalMsg : warnMsg, count, final: dissolved })
+  console.log(`[stream-sample] 房间${room.id}「${room.name}」命中核心词 第${count}/${cfg.streamDissolveThreshold}次`)
+  // 后台视角: admin 站内信(rainbowtube)
+  try {
+    const admin = await pool.query("SELECT id FROM users WHERE nickname='rainbowtube' AND is_system = FALSE LIMIT 1")
+    if (admin.rows[0]) await createNotification({ recipientId: admin.rows[0].id, type: 'restriction', message: `[房间违规预警]「${room.name}」(${room.room_code})抽检命中核心词 ${count}/${cfg.streamDissolveThreshold}${dissolved ? '——已触发强行解散' : ''}。转写:「${String(text).slice(0, 60)}」` })
+  } catch (e) {}
+  // 熔断: 等弹窗送达 → 收割者式逐成员标准解散(杀jamsoul/清物料/广播/归档全复用)
+  if (dissolved && upd.rows[0] && upd.rows[0].status !== 'closed') {
+    await new Promise((r) => setTimeout(r, 2500))
+    const members = await pool.query('SELECT user_id FROM room_members WHERE room_id=$1', [room.id])
+    console.log(`[stream-sample] 房间${room.id}达熔断阈值——强行解散, 成员${members.rows.length}人`)
+    for (const m of members.rows) {
+      const still = await pool.query("SELECT id FROM rooms WHERE id=$1 AND status NOT IN ('closed','archived')", [room.id])
+      if (still.rows.length === 0) break
+      try { await removeMemberAndCheckDissolve(m.user_id, room.id, room.room_code) } catch (e) { console.error('[stream-sample] 解散错误:', e.message) }
+    }
+  }
+}
+
+async function sampleRoomStream(room) {
+  if (streamSamplingNow.has(room.id)) return
+  streamSamplingNow.add(room.id)
+  const startedAt = new Date()
+  let sampleId = null, filePath = ''
+  try {
+    const cfg = await getModerationConfig()
+    const keys = getAliyunKeys()
+    if (!keys || !keys.nlsAppKey) { console.error('[stream-sample] NLS未配置, 跳过'); return }
+    filePath = `/var/jamony/stream-samples/s-${require('crypto').randomBytes(10).toString('hex')}.mp3` // 随机不可猜名: ASR需公网URL, 取证内容靠不可枚举保护(知道URL才能取, URL只存DB)
+    await new Promise((resolve, reject) => {
+      require('child_process').exec(`ffmpeg -y -i http://127.0.0.1:8000/room-${room.server_port} -t ${cfg.streamSampleSeconds} -ar 16000 -ac 1 -b:a 48k "${filePath}" -loglevel error`, { timeout: (cfg.streamSampleSeconds + 30) * 1000 }, (e) => (e ? reject(e) : resolve()))
+    })
+    const endedAt = new Date()
+    // 在场并集: 与采样时间窗有交集的合奏会话(精确数学并集, 一条SQL)
+    const present = await pool.query(
+      `SELECT DISTINCT ms.user_id FROM musician_sessions ms JOIN users u ON u.id = ms.user_id
+       WHERE ms.room_id = $1 AND u.is_system = FALSE
+         AND ms.started_at <= $2 AND (ms.ended_at IS NULL OR ms.ended_at >= $3)`,
+      [room.id, endedAt, startedAt]
+    )
+    const presentIds = present.rows.map((x) => x.user_id)
+    const ins = await pool.query(
+      `INSERT INTO stream_samples (room_id, room_code, present_user_ids, file_path) VALUES ($1,$2,$3,$4) RETURNING id`,
+      [room.id, room.room_code || '', JSON.stringify(presentIds), filePath]
+    )
+    sampleId = ins.rows[0].id
+    const text = await streamTranscribe('http://123.57.33.130/stream-samples/' + filePath.split('/').pop(), keys)
+    let verdict = 'pass', hits = []
+    if (text) { const r = moderateText(text); verdict = r.verdict; hits = r.hits }
+    await pool.query('UPDATE stream_samples SET verdict=$2, transcript=$3 WHERE id=$1', [sampleId, verdict, String(text).slice(0, 400)])
+    if (verdict === 'reject') {
+      await handleStreamViolation(room, sampleId, presentIds, text, hits)
+    } else if (verdict === 'suspect') {
+      try {
+        await pool.query(`INSERT INTO moderation_logs (kind, target_id, user_id, nickname, content, verdict, hits, channel) VALUES ('stream_audio',$1,NULL,'',$2,'suspect',$3,'room')`,
+          [String(sampleId), `[房间${room.name}]音频转写:${String(text).slice(0, 150)}`, JSON.stringify(hits)])
+      } catch (e) {}
+      console.log(`[stream-sample] 房间${room.id}「${room.name}」抽检疑似——留痕不弹窗`)
+    } else {
+      console.log(`[stream-sample] 房间${room.id}「${room.name}」抽检通过`)
+    }
+  } catch (e) {
+    console.error(`[stream-sample] 房间${room.id}采样失败(切片保留pending, 间隔后自动重试):`, e.message)
+    if (sampleId === null && filePath) { try { fs.unlinkSync(filePath) } catch (e2) {} }
+  } finally {
+    streamSamplingNow.delete(room.id)
+  }
+}
+
+// 调度: 每60s扫一次——活跃房(有在席乐手会话)距上次采样≥间隔即采; 每房独立错峰(自然由各自上次采样时刻决定)
+async function streamSampleScheduler() {
+  try {
+    const cfg = await getModerationConfig()
+    const r = await pool.query(
+      `SELECT DISTINCT r.id, r.room_code, r.name, r.server_port FROM rooms r
+       JOIN musician_sessions ms ON ms.room_id = r.id AND ms.ended_at IS NULL
+       WHERE r.status NOT IN ('closed','archived')
+         AND NOT EXISTS (SELECT 1 FROM stream_samples s WHERE s.room_id = r.id AND s.created_at > NOW() - ($1 * INTERVAL '1 minute'))`,
+      [cfg.streamSampleIntervalMin]
+    )
+    for (const room of r.rows) sampleRoomStream(room).catch(() => {})
+  } catch (e) { /* 下轮再试 */ }
+}
+setInterval(streamSampleScheduler, 60 * 1000).unref()
+setTimeout(streamSampleScheduler, 90 * 1000) // 启动90s首扫(避开启动高峰)
+
+// 手动触发采样(运维/E2E; 正常调度自动跑)
+app.post('/api/admin-internal/rooms/:id/stream-sample', requireAdminInternal, async (req, res) => {
+  const r = await pool.query("SELECT id, room_code, name, server_port FROM rooms WHERE id=$1 AND status NOT IN ('closed','archived')", [parseInt(req.params.id)])
+  if (!r.rows[0]) return res.status(404).json({ ok: false, msg: '房间不存在' })
+  sampleRoomStream(r.rows[0]).catch(() => {})
+  res.json({ ok: true, msg: '采样任务已启动' })
+})
+
+// 模拟命中(运维演练/E2E——走完整命中链: 弹窗/计数/在场统计/熔断)
+app.post('/api/admin-internal/rooms/:id/stream-violation-test', requireAdminInternal, async (req, res) => {
+  const r = await pool.query("SELECT id, room_code, name FROM rooms WHERE id=$1 AND status NOT IN ('closed','archived')", [parseInt(req.params.id)])
+  if (!r.rows[0]) return res.status(404).json({ ok: false, msg: '房间不存在' })
+  const present = await pool.query(
+    `SELECT DISTINCT ms.user_id FROM musician_sessions ms JOIN users u ON u.id = ms.user_id WHERE ms.room_id=$1 AND u.is_system=FALSE AND ms.ended_at IS NULL`, [r.rows[0].id])
+  handleStreamViolation(r.rows[0], 0, present.rows.map((x) => x.user_id), '(运维演练模拟转写)', []).catch(() => {})
+  res.json({ ok: true, msg: '模拟命中已触发' })
+})
 
 // jamony: 聊天记录证据保全 — 每 6 小时清理 180 天前的记录
 async function cleanupOldChatMessages() {
