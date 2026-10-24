@@ -357,7 +357,7 @@ function DetailModal({ item, onClose }: { item: Highlight; onClose: () => void }
                 className="flex items-center gap-1 rounded-lg border border-[#1A1A1A] px-2.5 py-1 text-[11px] text-white transition-colors hover:bg-white/5 sm:text-[12px]"
               >
                 <MessageCircle className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
-                反馈
+                举报
               </button>
             </div>
           </div>
@@ -416,14 +416,14 @@ function DetailModal({ item, onClose }: { item: Highlight; onClose: () => void }
           </div>
         </div>
 
-        {/* 反馈输入框 */}
+        {/* 举报输入框(1024: v0假反馈转正为举报作品) */}
         {feedbackOpen && !feedbackSent && (
           <div className="mt-3 flex flex-col gap-2 rounded-lg border border-[#1A1A1A] p-3">
             <textarea
               autoFocus
               value={feedbackText}
               onChange={(e) => setFeedbackText(e.target.value)}
-              placeholder="请输入需要反馈的内容…"
+              placeholder="请输入举报理由…"
               rows={2}
               className="w-full resize-none rounded-md border border-[#1A1A1A] bg-black px-2.5 py-1.5 text-[12px] text-white outline-none placeholder:text-[#666] focus:border-[#00AAFF]"
             />
@@ -439,7 +439,14 @@ function DetailModal({ item, onClose }: { item: Highlight; onClose: () => void }
                 type="button"
                 disabled={!feedbackText.trim()}
                 onClick={() => {
-                  console.log("[highlights] feedback:", feedbackText, "-", item.title)
+                  if (item.trackId) {
+                    fetch(`/api/works/${item.trackId}/report`, {
+                      method: "POST",
+                      credentials: "include",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ reason: feedbackText.trim() })
+                    }).catch(() => {})
+                  }
                   setFeedbackSent(true)
                   setTimeout(() => { setFeedbackSent(false); setFeedbackOpen(false); setFeedbackText("") }, 1500)
                 }}
@@ -453,7 +460,7 @@ function DetailModal({ item, onClose }: { item: Highlight; onClose: () => void }
         )}
         {feedbackSent && (
           <div className="mt-3 text-center text-[12px]" style={{ color: "#BBEE00" }}>
-            ✓ 感谢你的反馈！
+            ✓ 举报已提交，感谢反馈
           </div>
         )}
       </div>

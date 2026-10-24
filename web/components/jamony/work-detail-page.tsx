@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Play, Pause, ThumbsUp, MessageCircle, Check, ListMusic, Trash2 } from "lucide-react"
+import { Play, Pause, ThumbsUp, MessageCircle, Check, ListMusic, Trash2, Flag } from "lucide-react"
 import { usePlayer } from "@/components/jamony/player-context"
 import { LikeButton } from "@/components/jamony/like-button"
 import { CommentCount } from "@/components/jamony/comment-count"
@@ -118,6 +118,7 @@ function WorkDetailInner() {
   const [pendingDelete, setPendingDelete] = useState<Comment | null>(null)
   const [replyTo, setReplyTo] = useState<{ parentId: number; nickname: string } | null>(null)
   const [pendingReport, setPendingReport] = useState<Comment | null>(null)
+  const [workReportOpen, setWorkReportOpen] = useState(false)
   const [reportReason, setReportReason] = useState("")
   const [reportCustom, setReportCustom] = useState("")
   const [reportSent, setReportSent] = useState(false)
@@ -219,6 +220,26 @@ function WorkDetailInner() {
         body: JSON.stringify({ userId: user.id, reason }),
       })
       setPendingReport(null)
+      setReportReason("")
+      setReportCustom("")
+      setReportSent(true)
+      setTimeout(() => setReportSent(false), 2000)
+    } catch {}
+  }
+
+  // 举报作品本体(1024 举报系统: 详情页此前零通道——评论能举报而作品不能)
+  const handleReportWork = async () => {
+    if (!user || !track) return
+    const reason = reportReason === "其他" ? reportCustom.trim() : reportReason
+    if (!reason) return
+    try {
+      await fetch(`/api/works/${track.id}/report`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+      })
+      setWorkReportOpen(false)
       setReportReason("")
       setReportCustom("")
       setReportSent(true)
@@ -429,6 +450,15 @@ function WorkDetailInner() {
                     iconClass="h-4 w-4"
                     onClick={() => document.getElementById('comments')?.scrollIntoView({ behavior: 'smooth' })}
                   />
+                  <button
+                    type="button"
+                    onClick={() => { if (!user) { router.push('/login'); return } setWorkReportOpen(true) }}
+                    className="flex items-center gap-1.5 text-sm text-white/70 transition-colors hover:text-white"
+                    title="举报该作品"
+                  >
+                    <Flag className="h-4 w-4" />
+                    举报
+                  </button>
                   <button
                     type="button"
                     onClick={() => addToPlaylist(track)}
@@ -671,6 +701,67 @@ function WorkDetailInner() {
             </div>
           )}
         </section>
+
+        {/* 举报作品弹窗(1024 举报系统; 理由组与评论举报共享 REPORT_REASONS) */}
+        {workReportOpen && (
+          <div
+            className="fixed inset-0 z-[60] flex items-center justify-center p-6"
+            style={{ background: "rgba(0,0,0,0.6)" }}
+            onMouseDown={(e) => { downOnOverlay.current = e.target === e.currentTarget }} onClick={(e) => { if (e.target === e.currentTarget && downOnOverlay.current) setWorkReportOpen(false) }}
+          >
+            <div
+              className="w-full max-w-sm rounded-2xl border p-5"
+              style={{ background: "#0D0D0D", borderColor: "#1A1A1A" }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-2 text-sm text-white">
+                <Flag className="h-4 w-4" style={{ color: "#FF33AA" }} />
+                举报这个作品
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {REPORT_REASONS.map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setReportReason(r)}
+                    className="rounded-full px-3 py-1 text-xs transition-colors"
+                    style={reportReason === r
+                      ? { background: "linear-gradient(135deg, #FF33AA, #9933FF)", color: "#FFF" }
+                      : { border: "1px solid #2A2A2A", color: "#9A9A9A" }}
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+              {reportReason === "其他" && (
+                <input
+                  value={reportCustom}
+                  onChange={(e) => setReportCustom(e.target.value)}
+                  placeholder="请说明举报理由"
+                  className="mt-3 w-full rounded-lg border border-[#2A2A2A] bg-black px-3 py-2 text-xs text-white outline-none placeholder:text-[#666] focus:border-[#00AAFF]"
+                />
+              )}
+              <div className="mt-4 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setWorkReportOpen(false); setReportReason(""); setReportCustom("") }}
+                  className="px-4 py-1.5 text-xs text-[#9A9A9A] transition-colors hover:text-white"
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  disabled={!reportReason || (reportReason === "其他" && !reportCustom.trim())}
+                  onClick={handleReportWork}
+                  className="rounded-full px-4 py-1.5 text-xs font-medium text-white disabled:opacity-30"
+                  style={{ background: "linear-gradient(135deg, #FF33AA, #9933FF)" }}
+                >
+                  提交举报
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* 删除评论确认弹窗 */}
         {pendingDelete && (

@@ -4113,6 +4113,22 @@ app.post('/api/notices/:id/report', requireAuth, async (req, res) => {
   }
 })
 
+// 举报作品(1024 举报系统: 作品本体此前零举报通道——评论能举报而作品不能)
+app.post('/api/works/:id/report', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params
+    const { reason } = req.body
+    await pool.query(
+      'INSERT INTO work_reports (work_id, reporter_user_id, reason) VALUES ($1, $2, $3)',
+      [id, req.userId, (reason || '').slice(0, 100)]
+    )
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('Work report error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
 // 收藏公告
 app.post('/api/notices/:id/favorite', requireAuth, async (req, res) => {
   try {

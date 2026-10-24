@@ -105,7 +105,13 @@ export function TrackCard({
   }
 
   function sendFeedback() {
-    console.log("[v0] 反馈内容:", feedbackText, "-", track.title)
+    // 1024 举报系统: v0假按钮转正——反馈给作者是从未实现的占位, 按欢哥定稿改为举报作品(写work_reports)
+    fetch(`/api/works/${track.id}/report`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason: feedbackText.trim() })
+    }).catch(() => {})
     setFeedbackSent(true)
     setTimeout(() => {
       setFeedbackSent(false)
@@ -241,7 +247,7 @@ export function TrackCard({
                   onClick={() => handleMenuItem("feedback")}
                   className="block w-full px-3 py-2 text-left text-[13px] text-white transition-colors hover:bg-white/5"
                 >
-                  反馈
+                  举报
                 </button>
                 {extraMenuItems?.map((item, i) => (
                   <button
@@ -257,16 +263,16 @@ export function TrackCard({
               </>
             ) : feedbackSent ? (
               <div className="px-4 py-6 text-center text-[13px]" style={{ color: "#BBEE00" }}>
-                ✓ 感谢你的反馈！
+                ✓ 举报已提交，感谢反馈
               </div>
             ) : (
               <div className="flex flex-col gap-3 p-3">
-                <p className="text-[12px] text-[#9A9A9A]">反馈给作品作者</p>
+                <p className="text-[12px] text-[#9A9A9A]">举报该作品</p>
                 <textarea
                   autoFocus
                   value={feedbackText}
                   onChange={(e) => setFeedbackText(e.target.value)}
-                  placeholder="请输入需要反馈的内容…"
+                  placeholder="请输入举报理由…"
                   rows={3}
                   className="w-full resize-none rounded-lg border border-[#1A1A1A] bg-black px-3 py-2 text-[13px] text-white outline-none placeholder:text-[#666] transition-colors focus:border-[#00AAFF]"
                 />
