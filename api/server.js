@@ -632,6 +632,43 @@ async function getModerationConfig() {
   return moderationCfgCache.data
 }
 
+// 降级落地+三轮累犯自动封号(1024 自动化闭环: 人工demote与二进宫自动降级共用同一条通道, 第三次落地自动封号)
+async function applyDemoteEscalation(userId, days, cfg, actor, isAuto) {
+  const upd = await pool.query(
+    `UPDATE users SET restriction='demoted', restricted_until=${days ? `NOW() + ($2 || ' days')::interval` : 'NULL'}, restricted_at=NOW(), demoted_count=demoted_count+1, demote_cycle_count=demote_cycle_count+1
+     WHERE id=$1 RETURNING restricted_until, demoted_count, demote_cycle_count, auto_ban_rounds`,
+    days ? [userId, String(days)] : [userId]
+  )
+  const row = upd.rows[0]
+  // 本轮第3次降级落地即升级封号(覆盖降级只发一条通知); 第一/二轮=7天, 第三轮起=无期限(终审)
+  if (row.demote_cycle_count >= 3) {
+    const permanent = row.auto_ban_rounds >= 2
+    const banUpd = await pool.query(
+      `UPDATE users SET restriction='banned', restricted_until=${permanent ? 'NULL' : `NOW() + ($2 || ' days')::interval`}, restricted_at=NOW(), banned_count=banned_count+1, demote_cycle_count=0, auto_ban_rounds=auto_ban_rounds+1
+       WHERE id=$1 RETURNING restricted_until, auto_ban_rounds`,
+      permanent ? [userId] : [userId, '7']
+    )
+    restrictionCache.set(userId, { v: 'banned', at: Date.now() })
+    const bu = banUpd.rows[0].restricted_until ? new Date(banUpd.rows[0].restricted_until) : null
+    const bDate = bu ? `${bu.getMonth() + 1}月${bu.getDate()}日` : ''
+    await createNotification({ recipientId: userId, type: 'restriction', message: bu
+      ? `您已多次被降级（累计3次），系统已自动封禁该账号，将于${bDate}自动解封。您仍可提交申诉（处罚生效后${cfg.appealDays}天内有效）。请您注意在jamony的行为规范。`
+      : `您已多次被降级（累计3次），系统已自动永久封禁该账号，此处罚不会自动解除，您仍可提交申诉（处罚生效后${cfg.appealDays}天内有效）。请您注意在jamony的行为规范。` })
+    console.log(`[moderation] 用户${userId}三轮降级累犯→自动封号(第${banUpd.rows[0].auto_ban_rounds}轮, ${permanent ? '无期限' : '7天'}) by ${actor}`)
+    return { autoBanned: true, rounds: banUpd.rows[0].auto_ban_rounds, restrictedUntil: banUpd.rows[0].restricted_until }
+  }
+  restrictionCache.set(userId, { v: 'demoted', at: Date.now() })
+  const until = row.restricted_until ? new Date(row.restricted_until) : null
+  const dateStr = until ? `${until.getMonth() + 1}月${until.getDate()}日` : ''
+  const appealTail = until
+    ? `，将于${dateStr}自动解除。您可以到个人主页-申诉进行申诉（处罚生效后${cfg.appealDays}天内有效）`
+    : `。此处罚不会自动解除，如有异议请前往个人主页-申诉进行申诉（处罚生效后${cfg.appealDays}天内有效）`
+  const prefix = isAuto ? '由于您在发布限制解除后再次违规，' : '因为违规，'
+  await createNotification({ recipientId: userId, type: 'restriction', message: `${prefix}您已被降级为听众，只能以听众身份进入房间，发布功能已被限制${appealTail}。请您注意在jamony的行为规范。` })
+  console.log(`[moderation] 用户${userId}降级(${isAuto ? '二进宫自动' : '人工'}${until ? `, ${days}天` : ', 无期限'}) by ${actor}`)
+  return { autoBanned: false, demotedCount: row.demoted_count, restrictedUntil: row.restricted_until }
+}
+
 // 疑似入库后调用: 滑窗计数 + 自动升级(normal→watch→restricted)
 async function checkSuspectEscalation(userId) {
   if (!userId) return
@@ -650,6 +687,12 @@ async function checkSuspectEscalation(userId) {
       // ①处罚站内信: watch 档=预警(无功能限制), 提醒规范+预告再犯后果
       await createNotification({ recipientId: userId, type: 'restriction', message: `系统注意到您近期发布的内容多次触发疑似标记。请您留意在jamony的行为规范，若继续违规，发布功能将被限制。` })
     } else if (restriction === 'watch' && cnt.rows[0].c > cfg.threshold) {
+      // 1024 欢哥: 二进宫自动降级——限发解禁后再犯(restricted_count≥1)不再给限发, 直接送降级通道(与人工降级同链, 满三轮自动封号)
+      const rc = await pool.query('SELECT restricted_count FROM users WHERE id=$1', [userId])
+      if (rc.rows[0] && rc.rows[0].restricted_count >= 1) {
+        await applyDemoteEscalation(userId, 7, cfg, 'system', true)
+        return
+      }
       const upd = await pool.query(
         `UPDATE users SET restriction='restricted', restricted_until=NOW() + ($2 || ' days')::interval, restricted_at=NOW(), restricted_count=restricted_count+1
          WHERE id=$1 AND restriction='watch' RETURNING restricted_until`,
@@ -5568,38 +5611,9 @@ app.post('/api/admin-internal/users/:id/restriction', requireAdminInternal, asyn
         days = parseInt(days)
         if (!(days >= 1 && days <= 365)) return res.status(400).json({ ok: false, msg: '期限不合法' })
       }
-      const upd = await pool.query(
-        `UPDATE users SET restriction='demoted', restricted_until=${days ? `NOW() + ($2 || ' days')::interval` : 'NULL'}, restricted_at=NOW(), demoted_count=demoted_count+1, demote_cycle_count=demote_cycle_count+1
-         WHERE id=$1 RETURNING restricted_until, demoted_count, demote_cycle_count, auto_ban_rounds`,
-        days ? [userId, String(days)] : [userId]
-      )
-      // 1024 欢哥定稿: 累犯自动封号——本轮第3次降级落地即升级, 封号覆盖降级只发一条通知
-      // 第一/二轮=7天(两轮机会), 第三轮起=无期限(终审); 手动封号不打断循环计数
-      if (upd.rows[0].demote_cycle_count >= 3) {
-        const permanent = upd.rows[0].auto_ban_rounds >= 2
-        const banUpd = await pool.query(
-          `UPDATE users SET restriction='banned', restricted_until=${permanent ? 'NULL' : `NOW() + ($2 || ' days')::interval`}, restricted_at=NOW(), banned_count=banned_count+1, demote_cycle_count=0, auto_ban_rounds=auto_ban_rounds+1
-           WHERE id=$1 RETURNING restricted_until, auto_ban_rounds`,
-          permanent ? [userId] : [userId, '7']
-        )
-        restrictionCache.set(userId, { v: 'banned', at: Date.now() })
-        const bu = banUpd.rows[0].restricted_until ? new Date(banUpd.rows[0].restricted_until) : null
-        const bDate = bu ? `${bu.getMonth() + 1}月${bu.getDate()}日` : ''
-        await createNotification({ recipientId: userId, type: 'restriction', message: bu
-          ? `您已多次被降级（累计3次），系统已自动封禁该账号，将于${bDate}自动解封。您仍可提交申诉（处罚生效后${cfg.appealDays}天内有效）。请您注意在jamony的行为规范。`
-          : `您已多次被降级（累计3次），系统已自动永久封禁该账号，此处罚不会自动解除，您仍可提交申诉（处罚生效后${cfg.appealDays}天内有效）。请您注意在jamony的行为规范。` })
-        console.log(`[moderation] 用户${userId}三轮降级累犯→自动封号(第${banUpd.rows[0].auto_ban_rounds}轮, ${permanent ? '无期限' : '7天'}) by ${actor}`)
-        return res.json({ ok: true, auto_banned: true, auto_ban_rounds: banUpd.rows[0].auto_ban_rounds, restricted_until: banUpd.rows[0].restricted_until })
-      }
-      restrictionCache.set(userId, { v: 'demoted', at: Date.now() })
-      const until = upd.rows[0].restricted_until ? new Date(upd.rows[0].restricted_until) : null
-      const dateStr = until ? `${until.getMonth() + 1}月${until.getDate()}日` : ''
-      // 1024 欢哥: 无期限明示"不会自动解除, 如有异议请前往个人主页-申诉"
-      const appealTail = until
-        ? `，将于${dateStr}自动解除。您可以到个人主页-申诉进行申诉（处罚生效后${cfg.appealDays}天内有效）`
-        : `。此处罚不会自动解除，如有异议请前往个人主页-申诉进行申诉（处罚生效后${cfg.appealDays}天内有效）`
-      await createNotification({ recipientId: userId, type: 'restriction', message: `因为违规，您已被降级为听众，只能以听众身份进入房间，发布功能已被限制${appealTail}。请您注意在jamony的行为规范。` })
-      return res.json({ ok: true, demoted_count: upd.rows[0].demoted_count, restricted_until: upd.rows[0].restricted_until })
+      const r = await applyDemoteEscalation(userId, days, cfg, actor, false)
+      if (r.autoBanned) return res.json({ ok: true, auto_banned: true, auto_ban_rounds: r.rounds, restricted_until: r.restrictedUntil })
+      return res.json({ ok: true, demoted_count: r.demotedCount, restricted_until: r.restrictedUntil })
     } else if (action === 'ban') {
       if (cur === 'banned') return res.status(409).json({ ok: false, msg: '该用户已被封禁' })
       // 1024 欢哥定稿: 封号对齐降级全套机制——触发纪律默认7天定时自动解封, 无期限留给罪大恶极; banned_count 惯犯计数
