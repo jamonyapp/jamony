@@ -5768,6 +5768,47 @@ async function streamSampleScheduler() {
 setInterval(streamSampleScheduler, 60 * 1000).unref()
 setTimeout(streamSampleScheduler, 90 * 1000) // 启动90s首扫(避开启动高峰)
 
+// ===== 流量统计(1024 基建): 每小时重算当日并UPSERT(幂等——重复跑不重复计数) =====
+// 口径: site_pv=官网日志当日非304 GET行数(请求量近似PV); download_hits=主站日志当日 /downloads/ 200请求
+// 历史由轮转前的历次UPSERT固化入库, 当日数据以最后一次重算为准
+async function recountTrafficStats() {
+  try {
+    // ⚠️日期须用服务器本地时区(Asia/Shanghai, 与nginx日志+0800一致); 日志行日期格式=25/Oct/2026
+    const now = new Date()
+    const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    const logDate = `${String(now.getDate()).padStart(2, '0')}/${MON[now.getMonth()]}/${now.getFullYear()}`
+    const dayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+    let sitePv = 0
+    try {
+      const log = fs.readFileSync('/var/log/nginx/site.log', 'utf8')
+      for (const line of log.split('\n')) {
+        if (line.includes(logDate) && /"GET /.test(line) && !/ 304 /.test(line)) sitePv++
+      }
+    } catch (e) { /* 文件不存在=0 */ }
+    let dlHits = 0
+    try {
+      const log = fs.readFileSync('/var/log/nginx/app.log', 'utf8')
+      for (const line of log.split('\n')) {
+        if (line.includes(logDate) && line.includes('/downloads/') && /"GET /.test(line) && / 200 /.test(line)) dlHits++
+      }
+    } catch (e) { /* 文件不存在=0 */ }
+    await pool.query(
+      `INSERT INTO site_stats (day, site_pv, download_hits, updated_at) VALUES ($1,$2,$3,NOW())
+       ON CONFLICT (day) DO UPDATE SET site_pv=$2, download_hits=$3, updated_at=NOW()`,
+      [dayIso, sitePv, dlHits]
+    )
+    console.log(`[stats] 当日重算(${dayIso}): 官网PV=${sitePv} 下载=${dlHits}`)
+  } catch (e) { console.error('[stats] 统计失败:', e.message) }
+}
+setInterval(recountTrafficStats, 60 * 60 * 1000).unref()
+setTimeout(recountTrafficStats, 3 * 60 * 1000) // 启动3分钟首算
+
+// 手动触发统计(运维/E2E)
+app.post('/api/admin-internal/stats/recount', requireAdminInternal, async (req, res) => {
+  await recountTrafficStats()
+  res.json({ ok: true })
+})
+
 // 手动触发采样(运维/E2E; 正常调度自动跑)
 app.post('/api/admin-internal/rooms/:id/stream-sample', requireAdminInternal, async (req, res) => {
   const r = await pool.query("SELECT id, room_code, name, server_port FROM rooms WHERE id=$1 AND status NOT IN ('closed','archived')", [parseInt(req.params.id)])
