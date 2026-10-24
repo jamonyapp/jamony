@@ -64,3 +64,4 @@ jamulus_plugin_import.cpp
 dist/
 electron/jamsoul.app/
 .asar-work/
+web/tsconfig.tsbuildinfo
