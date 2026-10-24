@@ -603,6 +603,98 @@ async function moderatePublishText(kind, targetId, userId, nickname, text) {
   return true
 }
 
+/* ===== 图片双管审核(1024 图片线): OCR文字→现成词库引擎 + 图像本体→内容审核增强版 =====
+   两管并行, 任一拒绝级=拒传; 任一疑似=放行+标记计数; 双管皆故障=fail-open放行(与文本引擎同哲学)
+   verdict 语义/入库/升级链与 moderatePublishText 完全同构, 汇入同一五级阶梯 */
+let aliyunAkCache
+function getAliyunKeys() {
+  if (aliyunAkCache !== undefined) return aliyunAkCache
+  try {
+    const t = fs.readFileSync('/var/jamony/aliyun.env', 'utf8')
+    const id = (t.match(/^ALIYUN_ACCESS_KEY_ID=(.+)$/m) || [])[1]
+    const sec = (t.match(/^ALIYUN_ACCESS_KEY_SECRET=(.+)$/m) || [])[1]
+    aliyunAkCache = (id && sec) ? { id: id.trim(), secret: sec.trim() } : null
+  } catch (e) { aliyunAkCache = null }
+  if (!aliyunAkCache) console.error('[moderation] 阿里云密钥未配置(/var/jamony/aliyun.env), 图片审核 fail-open')
+  return aliyunAkCache
+}
+
+let ALIYUN_SDK
+function getAliyunSDK() {
+  if (ALIYUN_SDK) return ALIYUN_SDK
+  const keys = getAliyunKeys()
+  if (!keys) return null
+  const OCR = require('@alicloud/ocr-api20210707')
+  const Green = require('@alicloud/green20220302')
+  const { Config } = require('@alicloud/openapi-client')
+  ALIYUN_SDK = {
+    ocr: new OCR.default(new Config({ accessKeyId: keys.id, accessKeySecret: keys.secret, endpoint: 'ocr-api.cn-hangzhou.aliyuncs.com' })),
+    OCRReq: OCR.RecognizeAllTextRequest,
+    green: new Green.default(new Config({ accessKeyId: keys.id, accessKeySecret: keys.secret, endpoint: 'green-cip.cn-beijing.aliyuncs.com' })),
+    GreenReq: Green.ImageModerationRequest,
+  }
+  return ALIYUN_SDK
+}
+
+// 返回 true=放行, false=拒绝; kind 走 CHANNEL_OF_KIND 渠道
+async function moderateImage(kind, filePath, userId, nickname) {
+  console.log(`[moderation] 图片审核开始 kind=${kind}`)
+  const channel = CHANNEL_OF_KIND[kind] || 'publish'
+  const sdk = getAliyunSDK()
+  if (!sdk) return true
+  // 双管并行: OCR(本地流) + 图像审核(公网URL, 文件须已落到静态路由可寻址路径)
+  const [ocrR, imgR] = await Promise.allSettled([
+    sdk.ocr.recognizeAllText(new sdk.OCRReq({ body: fs.createReadStream(filePath), type: 'General' })),
+    sdk.green.imageModeration(new sdk.GreenReq({ service: 'baselineCheck', serviceParameters: JSON.stringify({ imageUrl: 'http://123.57.33.130' + filePath.replace('/var/jamony', '') }) })),
+  ])
+  // 管一: OCR 文本 → 词库引擎(词在 data.content 汇总字段, wideBlocks 分块仅兜底——1024 E2E 破案)
+  let ocrVerdict = 'pass', ocrHits = [], ocrText = ''
+  if (ocrR.status === 'fulfilled') {
+    try {
+      const d = (ocrR.value.body && ocrR.value.body.data) || {}
+      const sub = d.subImages || []
+      ocrText = (String(d.content || '') || sub.flatMap((s) => (s.wideBlocks || []).map((b) => b.words)).join(' ')).slice(0, 300)
+      if (ocrText) {
+        const r = moderateText(ocrText)
+        ocrVerdict = r.verdict
+        ocrHits = r.hits
+      }
+    } catch (e) { console.error('[moderation] 图片OCR结果解析失败(该管忽略):', e.message) }
+  } else { console.error('[moderation] 图片OCR调用失败(该管忽略):', String(ocrR.reason).slice(0, 120)) }
+  // 管二: 图像本体 → riskLevel 映射三态
+  let imgVerdict = 'pass', riskLevel = '', imgTips = ''
+  if (imgR.status === 'fulfilled') {
+    try {
+      const d = (imgR.value.body && imgR.value.body.data) || {}
+      riskLevel = d.riskLevel || ''
+      imgTips = JSON.stringify((d.reason && d.reason.riskTips) || []).slice(0, 200)
+      if (riskLevel === 'block') imgVerdict = 'reject'
+      else if (riskLevel === 'review' || riskLevel === 'recognitionLoading') imgVerdict = 'suspect'
+    } catch (e) { console.error('[moderation] 图片审核结果解析失败(该管忽略):', e.message) }
+  } else { console.error('[moderation] 图片审核调用失败(该管忽略):', String(imgR.reason).slice(0, 120)) }
+  // 双管皆故障 → fail-open
+  if (ocrR.status === 'rejected' && imgR.status === 'rejected') {
+    console.error('[moderation] 图片双管全故障, fail-open 放行 kind=' + kind)
+    return true
+  }
+  // 合并判定(拒绝级最重) + 入库 + 升级链(与文本同构)
+  const verdict = ocrVerdict === 'reject' || imgVerdict === 'reject' ? 'reject'
+    : (ocrVerdict === 'suspect' || imgVerdict === 'suspect') ? 'suspect' : 'pass'
+  if (verdict === 'pass') return true
+  const evidence = `[图片] OCR:"${ocrText.slice(0, 150)}" | 图像:${riskLevel}${imgTips}`
+  try {
+    await pool.query(
+      `INSERT INTO moderation_logs (kind, target_id, user_id, nickname, content, verdict, hits, channel)
+       VALUES ($1,'',$2,$3,$4,$5,$6,$7)`,
+      [kind, userId || null, nickname || '', evidence, verdict, JSON.stringify(ocrHits.length ? ocrHits : [riskLevel || 'ocr']), channel]
+    )
+    console.log(`[moderation] 图片${verdict === 'reject' ? '拒传(已留痕)' : '疑似标记'} kind=${kind} ch=${channel} user=${userId}(${nickname})`)
+  } catch (e) { console.error('[moderation] 图片日志写入失败:', e.message) }
+  if (verdict === 'reject') { await checkRejectEscalation(userId, channel); return false }
+  await checkSuspectEscalation(userId, channel)
+  return true
+}
+
 /* ===== 累计升级 + 限发守卫（1023 内容安全 A 阶段 Step3）=====
    滑窗计数: normal 疑似累计≥阈值→watch(观察); watch 期间再犯→restricted(限发 N 天, 到期自动恢复)
    阈值全部来自 site_config 'moderation_config'(jsonb: {threshold,window_days,restrict_days}), 5分钟缓存, 无配置用默认 */
@@ -610,7 +702,7 @@ async function moderatePublishText(kind, targetId, userId, nickname, text) {
 // 1024 Step6: 渠道分组(欢哥定稿)——门面(publish)=公告牌/作品/房间名简介/推送主题, 流动(interact)=评论/聊天/私信(预留)
 // 分组按内容性质不按传输通道(推送主题走socket但属门面); 判定参数与计数分渠道独立可配, 处罚阶梯共享(封的是人不是渠道)
 const MODERATION_DEFAULTS = { threshold: 5, windowDays: 90, restrictDays: 7, appealDays: 3, rejectThreshold: 5, watchReturnDays: 30, autoDemoteDays: 7, demoteCycleThreshold: 3, autoBanDays: 7, autoBanPermanentRound: 3, interactThreshold: 5, interactWindowDays: 90, interactRejectThreshold: 5 }
-const CHANNEL_OF_KIND = { notice: 'publish', work: 'publish', room: 'publish', theme: 'publish', notice_comment: 'interact', work_comment: 'interact', chat: 'interact', message: 'interact' }
+const CHANNEL_OF_KIND = { notice: 'publish', work: 'publish', room: 'publish', theme: 'publish', notice_image: 'publish', avatar: 'publish', work_cover: 'publish', notice_comment: 'interact', work_comment: 'interact', chat: 'interact', message: 'interact' }
 let moderationCfgCache = { data: MODERATION_DEFAULTS, at: 0 }
 
 async function getModerationConfig() {
@@ -1632,6 +1724,11 @@ app.post('/api/users/:id/avatar', requireAuth, avatarUpload.single('avatar'), as
     const ext = path.extname(req.file.originalname) || '.jpg'
     const newPath = path.join(avatarsDir, `user${req.userId}${ext}`)
     fs.renameSync(req.file.path, newPath)
+    // 1024 图片线: 头像双管审核(OCR文字+图像本体)——拒传删文件保留旧头像
+    if (!(await moderateImage('avatar', newPath, req.userId, req.nickname))) {
+      try { fs.unlinkSync(newPath) } catch (e) {}
+      return res.status(400).json({ ok: false, msg: MODERATION_REJECT_MSG })
+    }
     await pool.query('UPDATE users SET avatar_url=$1 WHERE id=$2', [newPath, req.userId])
     res.json({ ok: true, avatarUrl: newPath.replace('/var/jamony/avatars', '/avatars') })
   } catch (err) {
@@ -1647,6 +1744,11 @@ app.post('/api/notices/upload-image', requireAuth, noticeImageUpload.single('ima
     const ext = path.extname(req.file.originalname) || '.jpg'
     const newPath = path.join(noticesDir, `notice_${req.userId}_${Date.now()}${ext}`)
     fs.renameSync(req.file.path, newPath)
+    // 1024 图片线: 公告图双管审核(OCR文字+图像本体)——拒传删文件
+    if (!(await moderateImage('notice_image', newPath, req.userId, req.nickname))) {
+      try { fs.unlinkSync(newPath) } catch (e) {}
+      return res.status(400).json({ ok: false, msg: MODERATION_REJECT_MSG })
+    }
     res.json({ ok: true, imageUrl: newPath.replace('/var/jamony/notices', '/notices') })
   } catch (err) {
     console.error('Notice image upload error:', err)
@@ -3085,13 +3187,17 @@ app.post('/api/rooms/:code/sessions/:sid/publish', requireAuth, upload.fields([{
       fs.renameSync(mp3File.path, mp3Path)
     }
 
-    // 保存封面
+    // 保存封面(1024 图片线: 双管审核——拒传删封面文件, 作品文本部分已过审不受影响, 发布中止)
     let coverImagePath = ''
     const coverFile = req.files?.cover_image?.[0]
     if (coverFile) {
       const ext = path.extname(coverFile.originalname) || '.jpg'
       coverImagePath = path.join(workDir, 'cover' + ext)
       fs.renameSync(coverFile.path, coverImagePath)
+      if (!(await moderateImage('work_cover', coverImagePath, req.userId, req.nickname))) {
+        try { fs.unlinkSync(coverImagePath) } catch (e) {}
+        return res.status(400).json({ ok: false, msg: MODERATION_REJECT_MSG })
+      }
     }
 
     // 回填文件路径
