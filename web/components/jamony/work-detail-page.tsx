@@ -434,35 +434,37 @@ function WorkDetailInner() {
                   <p className="text-xs text-[#8A8A8A]">素材来源：{remixSource}</p>
                 )}
 
-                {/* 1024 欢哥验收: 举报置行尾; 按钮文字不折行, 窄容器时整按钮换行(flex-wrap) */}
-                <div className="flex flex-wrap items-center gap-x-5 gap-y-2 pt-1 text-sm text-white">
-                  <button
-                    type="button"
-                    onClick={handlePlay}
-                    className="flex items-center gap-1.5 whitespace-nowrap"
-                  >
-                    <Play className="h-4 w-4" fill="currentColor" />
-                    {track.plays}
-                  </button>
-                  <LikeButton workId={track.id} isLiked={liked} likes={likeCount} iconClass="h-4 w-4" />
-                  <CommentCount
-                    workId={track.id}
-                    count={track.comments}
-                    iconClass="h-4 w-4"
-                    onClick={() => document.getElementById('comments')?.scrollIntoView({ behavior: 'smooth' })}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => addToPlaylist(track)}
-                    className="flex items-center gap-1.5 whitespace-nowrap text-sm text-white/70 transition-colors hover:text-white"
-                  >
-                    <ListMusic className="h-4 w-4" />
-                    加入播放列表
-                  </button>
+                {/* 1024 欢哥验收二轮: 容器宽度放不下五按钮——左组(gap收紧)不折行, 举报 justify-between 居右; 极限窄时举报整组换行仍右对齐 */}
+                <div className="flex flex-wrap items-center justify-between gap-y-2 pt-1 text-sm text-white">
+                  <div className="flex items-center gap-x-3">
+                    <button
+                      type="button"
+                      onClick={handlePlay}
+                      className="flex items-center gap-1.5 whitespace-nowrap"
+                    >
+                      <Play className="h-4 w-4" fill="currentColor" />
+                      {track.plays}
+                    </button>
+                    <LikeButton workId={track.id} isLiked={liked} likes={likeCount} iconClass="h-4 w-4" />
+                    <CommentCount
+                      workId={track.id}
+                      count={track.comments}
+                      iconClass="h-4 w-4"
+                      onClick={() => document.getElementById('comments')?.scrollIntoView({ behavior: 'smooth' })}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => addToPlaylist(track)}
+                      className="flex items-center gap-1.5 whitespace-nowrap text-sm text-white/70 transition-colors hover:text-white"
+                    >
+                      <ListMusic className="h-4 w-4" />
+                      加入播放列表
+                    </button>
+                  </div>
                   <button
                     type="button"
                     onClick={() => { if (!user) { router.push('/login'); return } setWorkReportOpen(true) }}
-                    className="ml-auto flex items-center gap-1.5 whitespace-nowrap text-sm text-white/70 transition-colors hover:text-white"
+                    className="flex items-center gap-1.5 whitespace-nowrap text-sm text-white/70 transition-colors hover:text-white"
                     title="举报该作品"
                   >
                     <Flag className="h-4 w-4" />
