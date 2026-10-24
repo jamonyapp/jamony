@@ -74,6 +74,12 @@ export function useChatSocket(roomId?: string, nickname?: string) {
       if (data && data.msg) setRoomViolation({ msg: data.msg, count: data.count || 0, final: !!data.final, ts: Date.now() })
     })
 
+    // 1024 BANNED识别: 服务端封号即时踢连——壳内必须杀jamsoul子进程(UDP直连不经api, 不杀则封号后仍在房里出声)+跳拦截页
+    socket.on("force-banned", () => {
+      try { ;(window as unknown as { jamonyAPI?: { killJamsoul?: () => void } }).jamonyAPI?.killJamsoul?.() } catch { /* 浏览器环境无此API */ }
+      if (!window.location.pathname.startsWith("/banned")) window.location.href = "/banned"
+    })
+
     socket.on("chords-update", (data: { chords: string[] }) => {
       setRealtimeChords(data.chords || [])
     })

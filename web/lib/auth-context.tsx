@@ -48,7 +48,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .then(async r => {
         // ⑧banned 拦截(1023): 会话仍有效但账号被封 → 跳拦截页(申诉入口在那); 已在拦截页则不再跳(防刷新死循环)
         if (!r.ok && r.status === 401) {
-          try { const d = await r.json(); if (d.code === "BANNED") { if (!window.location.pathname.startsWith("/banned")) window.location.href = "/banned"; return null } } catch { /* ignore */ }
+          try { const d = await r.json(); if (d.code === "BANNED") {
+            // 1024 BANNED识别: 壳内顺手杀jamsoul(封号后UDP直连仍在房里出声的收口; 浏览器无此API安全跳过)
+            try { ;(window as unknown as { jamonyAPI?: { killJamsoul?: () => void } }).jamonyAPI?.killJamsoul?.() } catch { /* ignore */ }
+            if (!window.location.pathname.startsWith("/banned")) window.location.href = "/banned"; return null
+          } } catch { /* ignore */ }
         }
         return r.ok ? r.json() : null
       })

@@ -843,6 +843,7 @@ async function applyDemoteEscalation(userId, days, cfg, actor, isAuto) {
       permanent ? [userId] : [userId, String(cfg.autoBanDays)]
     )
     restrictionCache.set(userId, { v: 'banned', at: Date.now() })
+    kickUserSockets(userId) // 1024 BANNED识别: 自动封号同样即时断连+客户端杀jamsoul
     const bu = banUpd.rows[0].restricted_until ? new Date(banUpd.rows[0].restricted_until) : null
     const bDate = bu ? `${bu.getMonth() + 1}月${bu.getDate()}日` : ''
     await createNotification({ recipientId: userId, type: 'restriction', message: bu
@@ -6029,6 +6030,19 @@ app.post('/api/admin-internal/works/:id/review-audio', requireAdminInternal, asy
   res.json({ ok: true, msg: '补审任务已提交' })
 })
 
+// 封号即时生效的用户侧收口(1024 BANNED识别): 断该用户全部在线socket并通知——
+// 壳内链: web收force-banned→杀jamsoul子进程(UDP直连不经api, 封号后必须由客户端侧断)+跳拦截页
+function kickUserSockets(userId) {
+  try {
+    for (const [, s] of io.sockets.sockets) {
+      if (s.userId === userId) {
+        try { s.emit('force-banned', { msg: '该账号已被封禁' }) } catch (e) {}
+        setTimeout(() => { try { s.disconnect(true) } catch (e) {} }, 300)
+      }
+    }
+  } catch (e) { console.error('[moderation] 踢socket失败:', e.message) }
+}
+
 // 用户处置: demote(③降级)/ban(④封号)/release(解除, 从任何处罚态回 normal)
 app.post('/api/admin-internal/users/:id/restriction', requireAdminInternal, async (req, res) => {
   const userId = parseInt(req.params.id)
@@ -6071,6 +6085,7 @@ app.post('/api/admin-internal/users/:id/restriction', requireAdminInternal, asyn
         days ? [userId, String(days)] : [userId]
       )
       restrictionCache.set(userId, { v: 'banned', at: Date.now() })
+      kickUserSockets(userId) // 1024 BANNED识别: 断在线连接, 客户端杀jamsoul+跳拦截页
       const until = upd.rows[0].restricted_until ? new Date(upd.rows[0].restricted_until) : null
       const dateStr = until ? `${until.getMonth() + 1}月${until.getDate()}日` : ''
       // 封号用户进不了个人主页, 申诉只在 /banned 拦截页——文案指向"仍可提交申诉"而非"前往个人主页"
