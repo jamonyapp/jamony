@@ -434,11 +434,12 @@ function WorkDetailInner() {
                   <p className="text-xs text-[#8A8A8A]">素材来源：{remixSource}</p>
                 )}
 
-                <div className="flex items-center gap-5 pt-1 text-sm text-white">
+                {/* 1024 欢哥验收: 举报置行尾; 按钮文字不折行, 窄容器时整按钮换行(flex-wrap) */}
+                <div className="flex flex-wrap items-center gap-x-5 gap-y-2 pt-1 text-sm text-white">
                   <button
                     type="button"
                     onClick={handlePlay}
-                    className="flex items-center gap-1.5"
+                    className="flex items-center gap-1.5 whitespace-nowrap"
                   >
                     <Play className="h-4 w-4" fill="currentColor" />
                     {track.plays}
@@ -452,20 +453,20 @@ function WorkDetailInner() {
                   />
                   <button
                     type="button"
+                    onClick={() => addToPlaylist(track)}
+                    className="flex items-center gap-1.5 whitespace-nowrap text-sm text-white/70 transition-colors hover:text-white"
+                  >
+                    <ListMusic className="h-4 w-4" />
+                    加入播放列表
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => { if (!user) { router.push('/login'); return } setWorkReportOpen(true) }}
-                    className="flex items-center gap-1.5 text-sm text-white/70 transition-colors hover:text-white"
+                    className="ml-auto flex items-center gap-1.5 whitespace-nowrap text-sm text-white/70 transition-colors hover:text-white"
                     title="举报该作品"
                   >
                     <Flag className="h-4 w-4" />
                     举报
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => addToPlaylist(track)}
-                    className="flex items-center gap-1.5 text-sm text-white/70 transition-colors hover:text-white"
-                  >
-                    <ListMusic className="h-4 w-4" />
-                    加入播放列表
                   </button>
                 </div>
               </div>
