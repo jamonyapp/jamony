@@ -558,8 +558,9 @@ function optionalAuth(req, res, next) {
 const { moderateText } = require('./lib/moderation')
 const MODERATION_REJECT_MSG = '内容包含违规信息，请修改后重发'
 
-// 返回 true=放行, false=拒绝; kind: notice|notice_comment|work|work_comment|room
+// 返回 true=放行, false=拒绝; kind: notice|notice_comment|work|work_comment|room|theme|chat|message
 async function moderatePublishText(kind, targetId, userId, nickname, text) {
+  const channel = CHANNEL_OF_KIND[kind] || 'publish'
   let verdict = 'pass'
   let hits = []
   try {
@@ -575,29 +576,29 @@ async function moderatePublishText(kind, targetId, userId, nickname, text) {
     // 防的罚的就是这种人; 否则对只发广告词留案底的人不公平。全文取证仅存服务端私密表。
     try {
       await pool.query(
-        `INSERT INTO moderation_logs (kind, target_id, user_id, nickname, content, verdict, hits)
-         VALUES ($1,$2,$3,$4,$5,'reject',$6)`,
-        [kind, String(targetId == null ? '' : targetId), userId || null, nickname || '', String(text || ''), JSON.stringify(hits)]
+        `INSERT INTO moderation_logs (kind, target_id, user_id, nickname, content, verdict, hits, channel)
+         VALUES ($1,$2,$3,$4,$5,'reject',$6,$7)`,
+        [kind, String(targetId == null ? '' : targetId), userId || null, nickname || '', String(text || ''), JSON.stringify(hits), channel]
       )
-      console.log(`[moderation] 拒绝发布(已留痕) kind=${kind} user=${userId}(${nickname}) hits=${hits.length}`)
+      console.log(`[moderation] 拒绝发布(已留痕) kind=${kind} ch=${channel} user=${userId}(${nickname}) hits=${hits.length}`)
     } catch (e) {
       console.error('[moderation] 拒绝日志写入失败(仍拦截):', e.message)
     }
-    await checkRejectEscalation(userId) // 拒绝计数升级: 高危词试锁累计→直接限发(跳过watch)
+    await checkRejectEscalation(userId, channel) // 拒绝计数升级: 高危词试锁累计→直接限发(跳过watch); 各渠道独立计数
     return false
   }
   if (verdict === 'suspect') {
     try {
       await pool.query(
-        `INSERT INTO moderation_logs (kind, target_id, user_id, nickname, content, verdict, hits)
-         VALUES ($1,$2,$3,$4,$5,'suspect',$6)`,
-        [kind, String(targetId == null ? '' : targetId), userId || null, nickname || '', String(text || ''), JSON.stringify(hits)]
+        `INSERT INTO moderation_logs (kind, target_id, user_id, nickname, content, verdict, hits, channel)
+         VALUES ($1,$2,$3,$4,$5,'suspect',$6,$7)`,
+        [kind, String(targetId == null ? '' : targetId), userId || null, nickname || '', String(text || ''), JSON.stringify(hits), channel]
       )
-      console.log(`[moderation] 疑似标记 kind=${kind} user=${userId}(${nickname}) hits=${hits.length}`)
+      console.log(`[moderation] 疑似标记 kind=${kind} ch=${channel} user=${userId}(${nickname}) hits=${hits.length}`)
     } catch (e) {
       console.error('[moderation] 疑似日志写入失败(不阻塞发布):', e.message)
     }
-    await checkSuspectEscalation(userId) // 滑窗计数+自动升级(normal→watch→restricted)
+    await checkSuspectEscalation(userId, channel) // 滑窗计数+自动升级(normal→watch→restricted); 各渠道独立计数
   }
   return true
 }
@@ -606,7 +607,10 @@ async function moderatePublishText(kind, targetId, userId, nickname, text) {
    滑窗计数: normal 疑似累计≥阈值→watch(观察); watch 期间再犯→restricted(限发 N 天, 到期自动恢复)
    阈值全部来自 site_config 'moderation_config'(jsonb: {threshold,window_days,restrict_days}), 5分钟缓存, 无配置用默认 */
 // 1024 Step5: 全套量刑参数进配置中心(admin 只授权超级管理员); watchReturn/autoDemote/autoBan/cycle/round 五键为同日去硬编码升格
-const MODERATION_DEFAULTS = { threshold: 5, windowDays: 90, restrictDays: 7, appealDays: 3, rejectThreshold: 5, watchReturnDays: 30, autoDemoteDays: 7, demoteCycleThreshold: 3, autoBanDays: 7, autoBanPermanentRound: 3 }
+// 1024 Step6: 渠道分组(欢哥定稿)——门面(publish)=公告牌/作品/房间名简介/推送主题, 流动(interact)=评论/聊天/私信(预留)
+// 分组按内容性质不按传输通道(推送主题走socket但属门面); 判定参数与计数分渠道独立可配, 处罚阶梯共享(封的是人不是渠道)
+const MODERATION_DEFAULTS = { threshold: 5, windowDays: 90, restrictDays: 7, appealDays: 3, rejectThreshold: 5, watchReturnDays: 30, autoDemoteDays: 7, demoteCycleThreshold: 3, autoBanDays: 7, autoBanPermanentRound: 3, interactThreshold: 5, interactWindowDays: 90, interactRejectThreshold: 5 }
+const CHANNEL_OF_KIND = { notice: 'publish', work: 'publish', room: 'publish', theme: 'publish', notice_comment: 'interact', work_comment: 'interact', chat: 'interact', message: 'interact' }
 let moderationCfgCache = { data: MODERATION_DEFAULTS, at: 0 }
 
 async function getModerationConfig() {
@@ -627,6 +631,9 @@ async function getModerationConfig() {
         demoteCycleThreshold: Number(v.demote_cycle_threshold) || MODERATION_DEFAULTS.demoteCycleThreshold, // 几次降级触发自动封号
         autoBanDays: Number(v.auto_ban_days) || MODERATION_DEFAULTS.autoBanDays, // 自动封号时长(终审前各轮)
         autoBanPermanentRound: Number(v.auto_ban_permanent_round) || MODERATION_DEFAULTS.autoBanPermanentRound, // 第几轮起无期限
+        interactThreshold: Number(v.interact_threshold) || MODERATION_DEFAULTS.interactThreshold, // 流动渠道(评论/聊天)疑似阈值
+        interactWindowDays: Number(v.interact_window_days) || MODERATION_DEFAULTS.interactWindowDays,
+        interactRejectThreshold: Number(v.interact_reject_threshold) || MODERATION_DEFAULTS.interactRejectThreshold,
       }
     } else {
       moderationCfgCache.data = MODERATION_DEFAULTS
@@ -675,24 +682,26 @@ async function applyDemoteEscalation(userId, days, cfg, actor, isAuto) {
   return { autoBanned: false, demotedCount: row.demoted_count, restrictedUntil: row.restricted_until }
 }
 
-// 疑似入库后调用: 滑窗计数 + 自动升级(normal→watch→restricted)
-async function checkSuspectEscalation(userId) {
+// 疑似入库后调用: 滑窗计数 + 自动升级(normal→watch→restricted); channel 各渠道独立计数与阈值(1024 Step6)
+async function checkSuspectEscalation(userId, channel = 'publish') {
   if (!userId) return
   try {
     const cfg = await getModerationConfig()
+    const th = channel === 'interact' ? cfg.interactThreshold : cfg.threshold
+    const win = channel === 'interact' ? cfg.interactWindowDays : cfg.windowDays
     const cnt = await pool.query(
       `SELECT COUNT(*)::int AS c FROM moderation_logs
-       WHERE user_id=$1 AND verdict='suspect' AND created_at > NOW() - ($2 || ' days')::interval`,
-      [userId, String(cfg.windowDays)]
+       WHERE user_id=$1 AND verdict='suspect' AND channel=$2 AND created_at > NOW() - ($3 || ' days')::interval`,
+      [userId, channel, String(win)]
     )
     const cur = await pool.query('SELECT restriction FROM users WHERE id=$1', [userId])
     const restriction = cur.rows[0] ? cur.rows[0].restriction : 'normal'
-    if (restriction === 'normal' && cnt.rows[0].c >= cfg.threshold) {
+    if (restriction === 'normal' && cnt.rows[0].c >= th) {
       await pool.query(`UPDATE users SET restriction='watch' WHERE id=$1 AND restriction='normal'`, [userId])
       console.log(`[moderation] 用户${userId}进入观察名单(疑似滑窗累计${cnt.rows[0].c}次/阈值${cfg.threshold})`)
       // ①处罚站内信: watch 档=预警(无功能限制), 提醒规范+预告再犯后果
       await createNotification({ recipientId: userId, type: 'restriction', message: `系统注意到您近期发布的内容多次触发疑似标记。请您留意在jamony的行为规范，若继续违规，发布功能将被限制。` })
-    } else if (restriction === 'watch' && cnt.rows[0].c > cfg.threshold) {
+    } else if (restriction === 'watch' && cnt.rows[0].c > th) {
       // 1024 欢哥: 二进宫自动降级——限发解禁后再犯(restricted_count≥1)不再给限发, 直接送降级通道(与人工降级同链, 满三轮自动封号)
       const rc = await pool.query('SELECT restricted_count FROM users WHERE id=$1', [userId])
       if (rc.rows[0] && rc.rows[0].restricted_count >= 1) {
@@ -718,16 +727,18 @@ async function checkSuspectEscalation(userId) {
 
 // 拒绝尝试入库后调用(1024 欢哥拍板): 高危词试锁独立计数, 累计≥阈值 → 直接限发(跳过watch档,
 // 发广告词的还有观察缓冲, 碰核心词的不配); 误伤由申诉兜底。与疑似计数分开——混算后"3广告+2涉政"该判哪档说不清
-async function checkRejectEscalation(userId) {
+async function checkRejectEscalation(userId, channel = 'publish') {
   if (!userId) return
   try {
     const cfg = await getModerationConfig()
+    const rth = channel === 'interact' ? cfg.interactRejectThreshold : cfg.rejectThreshold
+    const rwin = channel === 'interact' ? cfg.interactWindowDays : cfg.windowDays
     const cnt = await pool.query(
       `SELECT COUNT(*)::int AS c FROM moderation_logs
-       WHERE user_id=$1 AND verdict='reject' AND created_at > NOW() - ($2 || ' days')::interval`,
-      [userId, String(cfg.windowDays)]
+       WHERE user_id=$1 AND verdict='reject' AND channel=$2 AND created_at > NOW() - ($3 || ' days')::interval`,
+      [userId, channel, String(rwin)]
     )
-    if (cnt.rows[0].c < cfg.rejectThreshold) return
+    if (cnt.rows[0].c < rth) return
     const cur = await pool.query('SELECT restriction FROM users WHERE id=$1', [userId])
     const restriction = cur.rows[0] ? cur.rows[0].restriction : 'normal'
     if (restriction === 'restricted' || restriction === 'demoted' || restriction === 'banned') return // 已在处罚态, 不重置计时
@@ -736,7 +747,7 @@ async function checkRejectEscalation(userId) {
        WHERE id=$1 RETURNING restricted_until`,
       [userId, String(cfg.restrictDays)]
     )
-    console.log(`[moderation] 用户${userId}限发${cfg.restrictDays}天(高危词试锁累计${cnt.rows[0].c}次/阈值${cfg.rejectThreshold}, 直接跳档)`)
+    console.log(`[moderation] 用户${userId}限发${cfg.restrictDays}天(高危词试锁累计${cnt.rows[0].c}次/阈值${rth} 渠道${channel}, 直接跳档)`)
     restrictionCache.set(userId, { v: 'restricted', at: Date.now() })
     const until = new Date(upd.rows[0].restricted_until)
     const dateStr = `${until.getMonth() + 1}月${until.getDate()}日`
@@ -4762,6 +4773,9 @@ io.use(async (socket, next) => {
   if (!token) return next(new Error('未登录'))
   try {
     const decoded = jwt.verify(token, JWT_SECRET)
+    // 1024 Step6: 封号拦截对齐 HTTP 语义——被封前已挂在房内的 socket 也不得继续聊天
+    const restriction = await getUserRestriction(decoded.id)
+    if (restriction === 'banned') return next(new Error('该账号已被封禁'))
     socket.userId = decoded.id
     socket.nickname = decoded.nickname
     const u = await pool.query('SELECT avatar_url FROM users WHERE id=$1', [decoded.id])
@@ -4820,8 +4834,14 @@ io.on("connection", (socket) => {
     console.log("Socket left room:", roomId)
   })
 
-  socket.on("chat-message", (data) => {
+  socket.on("chat-message", async (data) => {
     const { roomId, message } = data
+    // 1024 Step6 欢哥定稿: 聊天事前审(聊天建在jamony主窗口走api, 可实时监管非事后审)——
+    // 拒绝级不广播不落库仅发送者收提示; 疑似放行+interact渠道计数, 违规同样进五级阶梯
+    if (roomId && socket.userId && message) {
+      const ok = await moderatePublishText('chat', null, socket.userId, socket.nickname, String(message))
+      if (!ok) { socket.emit('chat-rejected', { msg: MODERATION_REJECT_MSG }); return }
+    }
     io.to(roomId).emit("chat-message", {
       id: Date.now().toString(),
       author: socket.nickname,
@@ -4855,6 +4875,9 @@ io.on("connection", (socket) => {
     if (!roomId || !socket.userId) return
     if (!(await isRoomMusician(socket.userId, roomId))) return  // 仅合奏者可推主题
     if (theme) {
+      // 1024 Step6: 推至大屏=房间门面(欢哥归组publish), 事前审同款——拒绝级不广播仅发送者提示
+      const ok = await moderatePublishText('theme', null, socket.userId, socket.nickname, String(theme))
+      if (!ok) { socket.emit('chat-rejected', { msg: MODERATION_REJECT_MSG }); return }
       try {
         await pool.query('UPDATE rooms SET current_theme = $1 WHERE room_code = $2', [theme, roomId])
       } catch (e) { console.error('Theme persist error:', e) }

@@ -236,8 +236,17 @@ export function RightColumn({ roomId, room, refreshTrigger, realtimeMembers, cur
 
 function ChatPanel({ roomId }: { roomId?: string }) {
   const { user } = useAuth()
-  const { messages, sendMessage, connected } = useChatSocket(roomId, user?.nickname)
+  const { messages, sendMessage, connected, chatRejected } = useChatSocket(roomId, user?.nickname)
   const [draft, setDraft] = useState("")
+
+  // 1024 Step6: 事前审被拒提示(4s 自动消失)
+  const [rejectTip, setRejectTip] = useState("")
+  useEffect(() => {
+    if (!chatRejected) return
+    setRejectTip(chatRejected.msg)
+    const t = setTimeout(() => setRejectTip(""), 4000)
+    return () => clearTimeout(t)
+  }, [chatRejected])
 
   function send() {
     const text = draft.trim()
@@ -273,6 +282,9 @@ function ChatPanel({ roomId }: { roomId?: string }) {
           </div>
         ))}
       </div>
+      {rejectTip && (
+        <p className="border-t px-3 py-1.5 text-[11px]" style={{ borderColor: "#1A1A1A", color: "#FF9A9A" }}>{rejectTip}</p>
+      )}
       <div className="flex items-center gap-1.5 border-t p-2" style={{ borderColor: "#1A1A1A" }}>
         <input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") send() }}
           placeholder={"发条消息…"}

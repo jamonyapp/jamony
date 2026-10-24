@@ -33,6 +33,7 @@ export function useChatSocket(roomId?: string, nickname?: string) {
   const [realtimeProgram, setRealtimeProgram] = useState<ProgramData>(null)
   const [realtimeProgramState, setRealtimeProgramState] = useState<ProgramState | null>(null)
   const [programError, setProgramError] = useState<{ msg: string; ts: number } | null>(null)
+  const [chatRejected, setChatRejected] = useState<{ msg: string; ts: number } | null>(null)
   const [realtimeBpm, setRealtimeBpm] = useState<number>(0)
   const [realtimeMembers, setRealtimeMembers] = useState<any[]>([])
   const [realtimeHostId, setRealtimeHostId] = useState<number | null>(null)
@@ -60,6 +61,11 @@ export function useChatSocket(roomId?: string, nickname?: string) {
 
     socket.on("chat-message", (msg: ChatMessage) => {
       setMessages((prev) => [...prev, { ...msg, isSelf: msg.author === nickname }])
+    })
+
+    // 1024 Step6: 聊天事前审被拒(拒绝级不广播)——仅发送者收到提示
+    socket.on("chat-rejected", (data: { msg: string }) => {
+      if (data && data.msg) setChatRejected({ msg: data.msg, ts: Date.now() })
     })
 
     socket.on("chords-update", (data: { chords: string[] }) => {
@@ -253,5 +259,5 @@ export function useChatSocket(roomId?: string, nickname?: string) {
     setRealtimeScore(null)
   }
 
-  return { messages, sendMessage, connected, realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, hydrateScore, realtimeScore, realtimeGpState, playGp, pauseGp, updateGpMix, setGpSpeed, setGpCountin, setGpLoop, setGpRange, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, kickedEvent, dissolvedEvent, realtimeProgram, realtimeProgramState, programError, playProgram, pauseProgram, stopProgram, updateProgramMix, hydrateProgram }
+  return { messages, sendMessage, connected, realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, hydrateScore, realtimeScore, realtimeGpState, playGp, pauseGp, updateGpMix, setGpSpeed, setGpCountin, setGpLoop, setGpRange, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, kickedEvent, dissolvedEvent, realtimeProgram, realtimeProgramState, programError, playProgram, pauseProgram, stopProgram, updateProgramMix, hydrateProgram, chatRejected }
 }
