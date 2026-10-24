@@ -605,7 +605,8 @@ async function moderatePublishText(kind, targetId, userId, nickname, text) {
 /* ===== 累计升级 + 限发守卫（1023 内容安全 A 阶段 Step3）=====
    滑窗计数: normal 疑似累计≥阈值→watch(观察); watch 期间再犯→restricted(限发 N 天, 到期自动恢复)
    阈值全部来自 site_config 'moderation_config'(jsonb: {threshold,window_days,restrict_days}), 5分钟缓存, 无配置用默认 */
-const MODERATION_DEFAULTS = { threshold: 5, windowDays: 90, restrictDays: 7, appealDays: 3, rejectThreshold: 5 }
+// 1024 Step5: 全套量刑参数进配置中心(admin 只授权超级管理员); watchReturn/autoDemote/autoBan/cycle/round 五键为同日去硬编码升格
+const MODERATION_DEFAULTS = { threshold: 5, windowDays: 90, restrictDays: 7, appealDays: 3, rejectThreshold: 5, watchReturnDays: 30, autoDemoteDays: 7, demoteCycleThreshold: 3, autoBanDays: 7, autoBanPermanentRound: 3 }
 let moderationCfgCache = { data: MODERATION_DEFAULTS, at: 0 }
 
 async function getModerationConfig() {
@@ -621,6 +622,11 @@ async function getModerationConfig() {
         restrictDays: Number(v.restrict_days) || MODERATION_DEFAULTS.restrictDays,
         appealDays: Number(v.appeal_days) || MODERATION_DEFAULTS.appealDays, // 1023 欢哥拍板: 申诉期 3 天(锚定处罚生效时刻, 与惩罚时长解耦)
         rejectThreshold: Number(v.reject_threshold) || MODERATION_DEFAULTS.rejectThreshold, // 1024 欢哥拍板: 高危词试锁累计阈值, 达标直接限发
+        watchReturnDays: Number(v.watch_return_days) || MODERATION_DEFAULTS.watchReturnDays, // 观察期无新疑似回归正常
+        autoDemoteDays: Number(v.auto_demote_days) || MODERATION_DEFAULTS.autoDemoteDays, // 二进宫自动降级时长
+        demoteCycleThreshold: Number(v.demote_cycle_threshold) || MODERATION_DEFAULTS.demoteCycleThreshold, // 几次降级触发自动封号
+        autoBanDays: Number(v.auto_ban_days) || MODERATION_DEFAULTS.autoBanDays, // 自动封号时长(终审前各轮)
+        autoBanPermanentRound: Number(v.auto_ban_permanent_round) || MODERATION_DEFAULTS.autoBanPermanentRound, // 第几轮起无期限
       }
     } else {
       moderationCfgCache.data = MODERATION_DEFAULTS
@@ -640,13 +646,13 @@ async function applyDemoteEscalation(userId, days, cfg, actor, isAuto) {
     days ? [userId, String(days)] : [userId]
   )
   const row = upd.rows[0]
-  // 本轮第3次降级落地即升级封号(覆盖降级只发一条通知); 第一/二轮=7天, 第三轮起=无期限(终审)
-  if (row.demote_cycle_count >= 3) {
-    const permanent = row.auto_ban_rounds >= 2
+  // 本轮第3次降级落地即升级封号(覆盖降级只发一条通知); 第1/2轮=定时, 终审轮起=无期限(轮次天数全部走配置)
+  if (row.demote_cycle_count >= cfg.demoteCycleThreshold) {
+    const permanent = row.auto_ban_rounds >= cfg.autoBanPermanentRound - 1
     const banUpd = await pool.query(
       `UPDATE users SET restriction='banned', restricted_until=${permanent ? 'NULL' : `NOW() + ($2 || ' days')::interval`}, restricted_at=NOW(), banned_count=banned_count+1, demote_cycle_count=0, auto_ban_rounds=auto_ban_rounds+1
        WHERE id=$1 RETURNING restricted_until, auto_ban_rounds`,
-      permanent ? [userId] : [userId, '7']
+      permanent ? [userId] : [userId, String(cfg.autoBanDays)]
     )
     restrictionCache.set(userId, { v: 'banned', at: Date.now() })
     const bu = banUpd.rows[0].restricted_until ? new Date(banUpd.rows[0].restricted_until) : null
@@ -690,7 +696,7 @@ async function checkSuspectEscalation(userId) {
       // 1024 欢哥: 二进宫自动降级——限发解禁后再犯(restricted_count≥1)不再给限发, 直接送降级通道(与人工降级同链, 满三轮自动封号)
       const rc = await pool.query('SELECT restricted_count FROM users WHERE id=$1', [userId])
       if (rc.rows[0] && rc.rows[0].restricted_count >= 1) {
-        await applyDemoteEscalation(userId, 7, cfg, 'system', true)
+        await applyDemoteEscalation(userId, cfg.autoDemoteDays, cfg, 'system', true)
         return
       }
       const upd = await pool.query(
@@ -746,12 +752,13 @@ async function checkRejectEscalation(userId) {
 async function guardCanPublish(userId, res) {
   if (!userId) return true
   try {
-    // watch 30天回归(定稿"定了没做全"补齐): 观察名单 30 天无新疑似 → 恢复正常(惰性, 发布时顺手判)
+    // watch 回归(观察名单 N 天无新疑似→恢复正常; 惰性, 发布时顺手判; N=配置 watchReturnDays, 1024 Step5 去硬编码)
+    const cfg = await getModerationConfig()
     await pool.query(
       `UPDATE users SET restriction='normal'
        WHERE id=$1 AND restriction='watch'
-       AND NOT EXISTS (SELECT 1 FROM moderation_logs WHERE user_id=$1 AND verdict='suspect' AND created_at > NOW() - INTERVAL '30 days')`,
-      [userId]
+       AND NOT EXISTS (SELECT 1 FROM moderation_logs WHERE user_id=$1 AND verdict='suspect' AND created_at > NOW() - ($2 || ' days')::interval)`,
+      [userId, String(cfg.watchReturnDays)]
     )
     const r = await pool.query(
       `SELECT restriction, restricted_until FROM users WHERE id=$1 AND restriction IN ('restricted','demoted','banned')
@@ -761,7 +768,6 @@ async function guardCanPublish(userId, res) {
     if (r.rows.length === 0) return true
     const row = r.rows[0]
     // 1024 欢哥: 所有提醒文案带申诉有效期(处罚生效后N天, 配置中心取), 不让用户过期了才知道
-    const cfg = await getModerationConfig()
     const appealHint = `您可以到个人主页-申诉进行申诉（处罚生效后${cfg.appealDays}天内有效）。`
     if (row.restriction === 'restricted' && row.restricted_until) {
       const d = new Date(row.restricted_until)
