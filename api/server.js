@@ -613,7 +613,8 @@ function getAliyunKeys() {
     const t = fs.readFileSync('/var/jamony/aliyun.env', 'utf8')
     const id = (t.match(/^ALIYUN_ACCESS_KEY_ID=(.+)$/m) || [])[1]
     const sec = (t.match(/^ALIYUN_ACCESS_KEY_SECRET=(.+)$/m) || [])[1]
-    aliyunAkCache = (id && sec) ? { id: id.trim(), secret: sec.trim() } : null
+    const nls = (t.match(/^ALIYUN_NLS_APPKEY=(.+)$/m) || [])[1]
+    aliyunAkCache = (id && sec) ? { id: id.trim(), secret: sec.trim(), nlsAppKey: nls ? nls.trim() : null } : null
   } catch (e) { aliyunAkCache = null }
   if (!aliyunAkCache) console.error('[moderation] 阿里云密钥未配置(/var/jamony/aliyun.env), 图片审核 fail-open')
   return aliyunAkCache
@@ -695,6 +696,90 @@ async function moderateImage(kind, filePath, userId, nickname) {
   return true
 }
 
+/* ===== 作品音频审核(1024 音频线, 欢哥定稿A模式) =====
+   发布不阻塞但音频锁定: 卡片仅本人/署名乐手可见挂"审核中"角标, 审毕通过才进公域+解锁试听
+   ASR转写→词库: pass/suspect=解锁(suspect照常计数), reject=自动下架+计数+通知指路申诉
+   ASR故障=fail-hold(保持pending, 兜底扫描每5分钟补审超10分钟的滞留任务) */
+const workAudioInFlight = new Set()
+
+async function submitWorkAudioReview(workId) {
+  if (workAudioInFlight.has(workId)) return
+  workAudioInFlight.add(workId)
+  let reviewMp3 = null
+  try {
+    const w = await pool.query("SELECT id, title, mp3_path, publisher_user_id, audio_review FROM works WHERE id=$1", [workId])
+    const row = w.rows[0]
+    if (!row || !row.mp3_path || row.audio_review !== 'pending') return
+    const keys = getAliyunKeys()
+    if (!keys || !keys.nlsAppKey) { console.error(`[moderation] 作品${workId}音频审核: NLS AppKey未配置, 保持审核中`); return }
+    // ASR 仅支持 16k——转码审核副本(单声道mp3), 审完即删, 原作不动
+    reviewMp3 = row.mp3_path.replace(/\.mp3$/i, '') + '-review16k.mp3'
+    try {
+      require('child_process').execSync(`ffmpeg -y -i "${row.mp3_path}" -ar 16000 -ac 1 -b:a 64k "${reviewMp3}" -loglevel error`, { timeout: 120000 })
+    } catch (e) { console.error(`[moderation] 作品${workId}审核副本转码失败, 保持审核中:`, e.message); return }
+    const fileLink = 'http://123.57.33.130' + reviewMp3.replace('/var/jamony/works', '/works')
+    const NLSClient = require('@alicloud/nls-filetrans-2018-08-17')
+    const nls = new NLSClient({ accessKeyId: keys.id, accessKeySecret: keys.secret, endpoint: 'https://filetrans.cn-beijing.aliyuncs.com' })
+    const sub = await nls.submitTask({ Task: JSON.stringify({ appkey: keys.nlsAppKey, file_link: fileLink, version: '4.0' }) })
+    if (sub.StatusText !== 'SUCCESS') { console.error(`[moderation] 作品${workId}ASR提交失败(${sub.StatusText}), 保持审核中`); return }
+    // 轮询: 3s×60(3分钟上限)
+    let text = '', statusText = ''
+    for (let i = 0; i < 60; i++) {
+      await new Promise((r) => setTimeout(r, 3000))
+      const q = await nls.getTaskResult({ TaskId: sub.TaskId })
+      statusText = q.StatusText
+      if (statusText === 'SUCCESS') { text = ((q.Result && q.Result.sentences) || []).map((s) => s.text).join(' ').slice(0, 500); break }
+      if (statusText === 'SUCCESS_WITH_NO_VALID_FRAGMENT') { text = ''; break } // 纯器乐无人声=正常放行
+      if (statusText !== 'RUNNING' && statusText !== 'QUEUED' && statusText !== 'QUEUEING') break
+    }
+    if (statusText !== 'SUCCESS' && statusText !== 'SUCCESS_WITH_NO_VALID_FRAGMENT') {
+      console.error(`[moderation] 作品${workId}ASR异常态(${statusText}), 保持审核中待兜底补审`)
+      return
+    }
+    // 转写文本→词库(与文本线同引擎)
+    let verdict = 'pass', hits = []
+    if (text) { const r = moderateText(text); verdict = r.verdict; hits = r.hits }
+    const channel = CHANNEL_OF_KIND['work_audio'] || 'publish'
+    if (verdict === 'reject') {
+      await pool.query("UPDATE works SET status='taken_down', audio_review='rejected' WHERE id=$1 AND audio_review='pending'", [workId])
+      try {
+        await pool.query(`INSERT INTO moderation_logs (kind, target_id, user_id, nickname, content, verdict, hits, channel) VALUES ('work_audio',$1,$2,$3,$4,'reject',$5,$6)`,
+          [String(workId), row.publisher_user_id, '', `[音频转写]${text.slice(0, 200)}`, JSON.stringify(hits), channel])
+      } catch (e) { console.error('[moderation] 音频日志写入失败:', e.message) }
+      const u = await pool.query('SELECT nickname FROM users WHERE id=$1', [row.publisher_user_id])
+      const cfg = await getModerationConfig()
+      await createNotification({ recipientId: row.publisher_user_id, type: 'restriction', message: `您的作品《${row.title}》因音频内容违规已被自动下架。如认为误判，您可以到个人主页-申诉进行申诉（处罚生效后${cfg.appealDays}天内有效）。请您注意在jamony的行为规范。` })
+      console.log(`[moderation] 作品${workId}音频审核拒绝→自动下架(发布者${row.publisher_user_id}${u.rows[0] ? '(' + u.rows[0].nickname + ')' : ''})`)
+      await checkRejectEscalation(row.publisher_user_id, channel)
+    } else {
+      await pool.query("UPDATE works SET audio_review='passed' WHERE id=$1 AND audio_review='pending'", [workId])
+      if (verdict === 'suspect') {
+        try {
+          await pool.query(`INSERT INTO moderation_logs (kind, target_id, user_id, nickname, content, verdict, hits, channel) VALUES ('work_audio',$1,$2,$3,$4,'suspect',$5,$6)`,
+            [String(workId), row.publisher_user_id, '', `[音频转写]${text.slice(0, 200)}`, JSON.stringify(hits), channel])
+        } catch (e) { console.error('[moderation] 音频日志写入失败:', e.message) }
+        await checkSuspectEscalation(row.publisher_user_id, channel)
+        console.log(`[moderation] 作品${workId}音频审核疑似→放行+标记`)
+      } else {
+        console.log(`[moderation] 作品${workId}音频审核通过${text ? '(含人声)' : '(纯器乐)'}`)
+      }
+    }
+  } catch (e) {
+    console.error(`[moderation] 作品${workId}音频审核异常, 保持审核中待兜底:`, e.message)
+  } finally {
+    workAudioInFlight.delete(workId)
+    if (reviewMp3) { try { fs.unlinkSync(reviewMp3) } catch (e) {} }
+  }
+}
+
+// 兜底扫描: pending超10分钟重提(进程重启丢任务/ASR故障滞留的都由这里自愈)
+setInterval(async () => {
+  try {
+    const r = await pool.query("SELECT id FROM works WHERE audio_review='pending' AND created_at < NOW() - INTERVAL '10 minutes' AND mp3_path IS NOT NULL AND mp3_path <> '' LIMIT 10")
+    for (const row of r.rows) submitWorkAudioReview(row.id)
+  } catch (e) { /* 静默: 下轮再试 */ }
+}, 5 * 60 * 1000).unref()
+
 /* ===== 累计升级 + 限发守卫（1023 内容安全 A 阶段 Step3）=====
    滑窗计数: normal 疑似累计≥阈值→watch(观察); watch 期间再犯→restricted(限发 N 天, 到期自动恢复)
    阈值全部来自 site_config 'moderation_config'(jsonb: {threshold,window_days,restrict_days}), 5分钟缓存, 无配置用默认 */
@@ -702,7 +787,7 @@ async function moderateImage(kind, filePath, userId, nickname) {
 // 1024 Step6: 渠道分组(欢哥定稿)——门面(publish)=公告牌/作品/房间名简介/推送主题, 流动(interact)=评论/聊天/私信(预留)
 // 分组按内容性质不按传输通道(推送主题走socket但属门面); 判定参数与计数分渠道独立可配, 处罚阶梯共享(封的是人不是渠道)
 const MODERATION_DEFAULTS = { threshold: 5, windowDays: 90, restrictDays: 7, appealDays: 3, rejectThreshold: 5, watchReturnDays: 30, autoDemoteDays: 7, demoteCycleThreshold: 3, autoBanDays: 7, autoBanPermanentRound: 3, interactThreshold: 5, interactWindowDays: 90, interactRejectThreshold: 5 }
-const CHANNEL_OF_KIND = { notice: 'publish', work: 'publish', room: 'publish', theme: 'publish', notice_image: 'publish', avatar: 'publish', work_cover: 'publish', notice_comment: 'interact', work_comment: 'interact', chat: 'interact', message: 'interact' }
+const CHANNEL_OF_KIND = { notice: 'publish', work: 'publish', room: 'publish', theme: 'publish', notice_image: 'publish', avatar: 'publish', work_cover: 'publish', work_audio: 'publish', notice_comment: 'interact', work_comment: 'interact', chat: 'interact', message: 'interact' }
 let moderationCfgCache = { data: MODERATION_DEFAULTS, at: 0 }
 
 async function getModerationConfig() {
@@ -1379,6 +1464,7 @@ app.get('/api/users/:userId/works', optionalAuth, async (req, res) => {
       FROM works w
       WHERE w.status = 'published'
       AND w.id IN (SELECT work_id FROM work_authors wa WHERE wa.user_id = $1 ${anonFilter})
+      ${isSelf ? '' : "AND (w.audio_review = 'passed' OR w.audio_review IS NULL)"}
       ORDER BY ${orderBy}
     `, [userId])
 
@@ -1393,6 +1479,7 @@ app.get('/api/users/:userId/works', optionalAuth, async (req, res) => {
       const mp3Url = row.mp3_path ? row.mp3_path.replace('/var/jamony/works', '/works') : ''
       const coverUrl = row.cover_image_path ? row.cover_image_path.replace('/var/jamony/works', '/works') : ''
       const gradient = row.cover_gradient || 'linear-gradient(135deg, #00AAFF, #9933FF)'
+      const audioReview = row.audio_review || null // 1024: 'pending'本人角标"音频审核中"(公域列表已过滤不出现)
       let author = ''
       if (namedAuthors.length === 0) {
         author = `${realAuthors.length}位匿名乐手`
@@ -1413,6 +1500,7 @@ app.get('/api/users/:userId/works', optionalAuth, async (req, res) => {
         mp3Url, anonymousCount, style: row.style || '',
         copyrightType: row.copyright_type || '', coverGradient: gradient,
         hasDrumTrack: row.has_drum_track || false,
+        audioReview, // 1024 音频线: 本人视角返回, 前端挂"音频审核中"角标+锁播放
         authors,
       }
     })
@@ -3159,10 +3247,10 @@ app.post('/api/rooms/:code/sessions/:sid/publish', requireAuth, upload.fields([{
       return res.status(400).json({ ok: false, msg: MODERATION_REJECT_MSG })
     }
 
-    // 先插入 works 获取 workId
+    // 先插入 works 获取 workId(1024 音频线: audio_review='pending'——公域不可见, 本人可见挂审核中角标, 审毕解锁)
     const work = await pool.query(
-      `INSERT INTO works (room_id, session_id, publisher_user_id, title, style, copyright_type, cover_song, cover_author, source, description, duration, cover_gradient, has_drum_track, agreed, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'published') RETURNING id`,
+      `INSERT INTO works (room_id, session_id, publisher_user_id, title, style, copyright_type, cover_song, cover_author, source, description, duration, cover_gradient, has_drum_track, agreed, status, audio_review)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'published', 'pending') RETURNING id`,
       [roomId, sessionId, publisher_user_id, title, style, copyright, cover_song || '', cover_author || '', source || '', description || '', duration || '', cover_gradient || '', has_drum_track === 'true', agreed === 'true']
     )
     const workId = work.rows[0].id
@@ -3220,6 +3308,9 @@ app.post('/api/rooms/:code/sessions/:sid/publish', requireAuth, upload.fields([{
     // socket 广播 sessions 刷新
     await broadcastSessions(code)
 
+    // 1024 音频线: 发布成功即起异步审核(fail-hold——ASR故障作品保持审核中, 兜底扫描自愈)
+    submitWorkAudioReview(workId).catch(() => {})
+
     res.json({ ok: true, workId })
   } catch (err) {
     console.error('Publish error:', err)
@@ -3240,7 +3331,7 @@ app.get('/api/works', async (req, res) => {
     // 欢哥 08-31 定稿: likes 排序三级权重——点赞>播放>发布时间(新在前)
     if (sort === 'likes') order = 'ORDER BY w.likes DESC, w.plays DESC, w.created_at DESC, w.id DESC'
 
-    const countResult = await pool.query("SELECT COUNT(*) FROM works WHERE status = 'published'")
+    const countResult = await pool.query("SELECT COUNT(*) FROM works WHERE status = 'published' AND (audio_review = 'passed' OR audio_review IS NULL)")
     const total = parseInt(countResult.rows[0].count)
 
     const currentUserId = req.query.userId ? parseInt(req.query.userId) : null
@@ -3255,6 +3346,7 @@ app.get('/api/works', async (req, res) => {
       EXISTS(SELECT 1 FROM works_likes WHERE work_id = w.id AND user_id = $3) AS is_liked
       FROM works w
       WHERE w.status = 'published'
+      AND (w.audio_review = 'passed' OR w.audio_review IS NULL)
       ${order}
       LIMIT $1 OFFSET $2
     `, [limit, offset, currentUserId])
@@ -3414,6 +3506,11 @@ app.get('/api/works/:id', async (req, res) => {
 app.post('/api/works/:id/play', async (req, res) => {
   try {
     const { id } = req.params
+    // 1024 音频线: 审核中锁定试听(后端兜底; 前端角标已禁用播放)
+    const w = await pool.query('SELECT audio_review FROM works WHERE id = $1', [id])
+    if (w.rows[0] && w.rows[0].audio_review === 'pending') {
+      return res.status(403).json({ ok: false, code: 'AUDIO_REVIEWING', msg: '该作品音频审核中，通常几分钟内完成' })
+    }
     await pool.query('UPDATE works SET plays = COALESCE(plays, 0) + 1 WHERE id = $1', [id])
     res.json({ ok: true })
   } catch (err) {
@@ -5725,6 +5822,16 @@ app.post('/api/admin-internal/appeals/:id/resolve', requireAdminInternal, async 
     console.error('admin-internal appeal resolve error:', err)
     res.status(500).json({ ok: false, msg: '服务器错误' })
   }
+})
+
+// 作品音频手动补审(1024 音频线): ASR故障滞留/运维排查用, 与发布链同函数幂等
+app.post('/api/admin-internal/works/:id/review-audio', requireAdminInternal, async (req, res) => {
+  const workId = parseInt(req.params.id)
+  if (!Number.isInteger(workId)) return res.status(400).json({ ok: false, msg: '参数不合法' })
+  const w = await pool.query('SELECT audio_review, mp3_path FROM works WHERE id=$1', [workId])
+  if (!w.rows[0] || !w.rows[0].mp3_path) return res.status(404).json({ ok: false, msg: '作品不存在或无音频' })
+  submitWorkAudioReview(workId).catch(() => {})
+  res.json({ ok: true, msg: '补审任务已提交' })
 })
 
 // 用户处置: demote(③降级)/ban(④封号)/release(解除, 从任何处罚态回 normal)

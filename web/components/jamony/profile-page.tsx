@@ -322,12 +322,16 @@ export function ProfilePage({ nickname }: { nickname: string }) {
                         nature: w.nature, styles: w.styles || [], instruments: w.instruments || [],
                         plays: w.plays, likes: w.likes, comments: w.comments, duration: w.duration,
                         gradient: w.gradient, date: w.date, members: w.members || [],
-                        coverImage: w.coverImage, mp3Url: w.mp3Url, isLiked: w.isLiked ?? false,
+                        coverImage: w.coverImage, mp3Url: w.audioReview === 'pending' ? '' : w.mp3Url, isLiked: w.isLiked ?? false,
                       }
                       return (
                         <TrackCard key={w.id} track={track} size="compact"
                           extraMenuItems={canAnonymize ? [{ label: "取消署名", danger: true, onClick: () => setAnonymizeTarget({ id: w.id, title: w.title }) }] : undefined}
-                          badges={isSelf && me && isAnon ? [{ text: "你已匿名", color: "#9A9A9A" }] : undefined}
+                          badges={[
+                            ...(isSelf && me && isAnon ? [{ text: "你已匿名", color: "#9A9A9A" }] : []),
+                            // 1024 音频线: 审核中角标(公域已过滤, 能看到此卡的必是本人/署名乐手)+锁听(后端play 403兜底)
+                            ...(w.audioReview === 'pending' ? [{ text: "音频审核中", color: "#F5C518" }] : []),
+                          ]}
                         />
                       )
                     })}
