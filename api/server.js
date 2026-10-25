@@ -2532,7 +2532,8 @@ async function applyExpiry(roomId) {
 
 // 读取房间所有 session（已过 applyExpiry），返回带汇总的列表
 async function getRoomSessions(roomId) {
-  const sessions = await pool.query('SELECT * FROM recording_sessions WHERE room_id=$1 ORDER BY index', [roomId])
+  // 1025: hidden=软隐藏(已发表段用户删列表)——行保留溯源(works.session_id),列表不可见
+  const sessions = await pool.query('SELECT * FROM recording_sessions WHERE room_id=$1 AND hidden=FALSE ORDER BY index', [roomId])
   const result = []
   for (const s of sessions.rows) {
     const tr = await pool.query('SELECT * FROM session_tracks WHERE session_id=$1 ORDER BY is_system, created_at', [s.id])
@@ -2935,6 +2936,21 @@ app.post('/api/rooms/:code/recording/start', requireAuth, async (req, res) => {
     const room = await pool.query('SELECT server_port, recording_active FROM rooms WHERE id=$1', [id])
     if (room.rows.length === 0) return res.status(404).json({ ok: false, msg: '房间不存在' })
     if (room.rows[0].recording_active) return res.json({ ok: false, msg: '已在录音中' })
+    // 1025 存储阀(欢哥四点定稿): 每房未发表(authorizing)录音≤5段——advisory lock 事务串行同房并发,判定原子
+    {
+      const client = await pool.connect()
+      try {
+        await client.query('BEGIN')
+        await client.query('SELECT pg_advisory_xact_lock($1)', [id])
+        const cnt = await client.query("SELECT COUNT(*)::int AS c FROM recording_sessions WHERE room_id=$1 AND status='authorizing' AND hidden=FALSE", [id])
+        const full = cnt.rows[0].c >= 5
+        await client.query('COMMIT')
+        if (full) return res.status(400).json({ ok: false, msg: '未发表录音已达上限（5段）。请删除不需要的段落，或将现有段落发表后再试。' })
+      } catch (e) {
+        await client.query('ROLLBACK').catch(() => {})
+        throw e
+      } finally { client.release() }
+    }
     // JSON-RPC 通知 headless 开始录音
     try {
       await jsonRpcCall(room.rows[0].server_port, 'jamsoulserver/startRecording')
@@ -3148,6 +3164,43 @@ app.post('/api/rooms/:code/recording/stop', requireAuth, async (req, res) => {
     return res.status(403).json({ ok: false, msg: '仅合奏者可录音' })
   }
   res.json(await stopRoomRecording(code, id, duration))
+})
+
+// 删除录音 session（1025 欢哥四点定稿）
+// 权限: 合奏者 + 本人在该段有"授权使用"的轨（未授权=自动放弃该段,无处置权——授权即所有权）
+// 未发表=物理删（分轨目录+行,真释放存储）；已发表=软隐藏（作品已入库,行保留溯源 works.session_id）
+app.delete('/api/rooms/:code/sessions/:sid', requireAuth, async (req, res) => {
+  try {
+    const { code, sid } = req.params
+    const id = await getRoomIdByCode(code)
+    if (!id) return res.status(404).json({ ok: false, msg: '房间不存在' })
+    const sessionId = parseInt(sid)
+    const member = await pool.query('SELECT role FROM room_members WHERE room_id=$1 AND user_id=$2', [id, req.userId])
+    if (member.rows.length === 0 || member.rows[0].role !== 'musician') {
+      return res.status(403).json({ ok: false, msg: '仅合奏者可操作' })
+    }
+    const session = await pool.query('SELECT * FROM recording_sessions WHERE id=$1 AND room_id=$2 AND hidden=FALSE', [sessionId, id])
+    if (!session.rows[0]) return res.status(404).json({ ok: false, msg: '录音不存在' })
+    const own = await pool.query('SELECT 1 FROM session_tracks WHERE session_id=$1 AND user_id=$2 AND allow_use=TRUE', [sessionId, req.userId])
+    if (own.rows.length === 0) {
+      return res.status(403).json({ ok: false, msg: '仅授权使用该录音的合奏者可删除——未授权即视为放弃该段' })
+    }
+    if (session.rows[0].status === 'published') {
+      await pool.query('UPDATE recording_sessions SET hidden=TRUE WHERE id=$1', [sessionId])
+    } else {
+      const tracks = await pool.query("SELECT file_path FROM session_tracks WHERE session_id=$1 AND file_path IS NOT NULL AND file_path != ''", [sessionId])
+      let dir = null
+      for (const t of tracks.rows) { const d = require('path').dirname(t.file_path); if (fs.existsSync(d)) { dir = d; break } }
+      if (dir) { try { require('child_process').execSync(`rm -rf "${dir}"`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('[recording] 删除分轨目录失败:', e.message) } }
+      await pool.query('DELETE FROM session_tracks WHERE session_id=$1', [sessionId])
+      await pool.query('DELETE FROM recording_sessions WHERE id=$1', [sessionId])
+    }
+    io.to(code).emit('sessions-update', { sessions: await getRoomSessions(id) })
+    res.json({ ok: true })
+  } catch (e) {
+    console.error('[recording] delete session error:', e.message)
+    res.status(500).json({ ok: false, msg: '删除失败' })
+  }
 })
 // 试听拉流（混音器/发表 fetch 用；他人需 allow_use）——文件下载走下方 /download-file（1014 起两窗各司其职）
 app.get('/api/rooms/:code/sessions/:sid/tracks/:tid/download', requireAuth, async (req, res) => {

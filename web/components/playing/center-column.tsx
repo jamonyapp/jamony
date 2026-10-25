@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { Circle, Square, ChevronDown, ChevronLeft, ChevronRight, Disc3, Headphones, ArrowRight, Download, Ban, Check, X, ChevronUp, SlidersHorizontal, Play, Pause, Printer, Search, Hourglass, Repeat, SkipBack } from "lucide-react"
+import { Circle, Square, ChevronDown, ChevronLeft, ChevronRight, Disc3, Headphones, ArrowRight, Download, Ban, Check, X, ChevronUp, SlidersHorizontal, Play, Pause, Printer, Search, Hourglass, Repeat, SkipBack, Trash2 } from "lucide-react"
 import { instrumentEmoji, type RecordingSession, type Track, type RoomScore, type GpMix } from "@/lib/jam-data"
 import { MixerFullscreen } from "@/components/mixer/mixer-fullscreen"
 import { MixerMini } from "@/components/mixer/mixer-mini"
@@ -983,6 +983,8 @@ function SessionCard({
   const [claimTaken, setClaimTaken] = useState<{ userId: number; nickname: string } | null>(null)
   const [showClaimConfirm, setShowClaimConfirm] = useState(false) // 抢锁成功后确认弹窗
   const publishClaimedRef = useRef(false) // 跟踪当前用户是否抢到锁
+  const dialog = useJamonyDialog()
+  const [delConfirm, setDelConfirm] = useState(false) // 1025 删除确认（欢哥四点定稿：与发表同现,授权=所有权）
   const refusedCount = session.tracks.filter(t => !t.is_system && t.allow_use === false).length
 
   /* PublishWorkModal 数据映射 — useMemo 防止引用变化导致混音无限循环 */
@@ -1065,6 +1067,15 @@ function SessionCard({
             <ChevronDown className={`size-3 transition-transform ${open ? "rotate-180" : ""}`} />
           </button>
           {canPublish && handlePublishButton()}
+          {canPublish && (
+            <button
+              onClick={() => setDelConfirm(true)}
+              title="删除该录音"
+              className="grid size-6 place-items-center rounded-[6px] text-destructive transition-colors hover:bg-destructive/10"
+            >
+              <Trash2 className="size-3.5" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -1197,6 +1208,23 @@ function SessionCard({
             </div>
           </div>
         </div>
+      )}
+      {/* 1025 删除确认（欢哥定稿双文案）：已发表=软隐藏提示 / 未发表=物理删警示 */}
+      {delConfirm && (
+        <ConfirmModal
+          text={session.status === 'published' ? '删除该作品不影响发表效果，只从列表删除，确认吗？' : '删除该录音？该段分轨文件将一并删除，不可恢复。'}
+          confirmLabel="确认删除"
+          onConfirm={async () => {
+            setDelConfirm(false)
+            try {
+              const res = await fetch(`/api/rooms/${roomId}/sessions/${session.id}`, { method: "DELETE" })
+              const data = await res.json()
+              if (!data.ok) dialog.alert(data.msg || "删除失败")
+              // 成功由 sessions-update 广播刷新列表
+            } catch { dialog.alert("网络异常，删除失败") }
+          }}
+          onCancel={() => setDelConfirm(false)}
+        />
       )}
     </div>
   )
