@@ -778,7 +778,7 @@ function RecordingPanel({
     if (showFinalizing && sessions.length > finalizeBaseline.current) {
       setFinalizing(false)
       if (finalizeTimer.current) clearTimeout(finalizeTimer.current)
-      setRecToast('录音已归档，见下方会话列表')
+      setRecToast('录音已归档，见下方列表。')
       setTimeout(() => setRecToast(''), 3500)
     }
   }, [sessions, showFinalizing])
