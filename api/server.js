@@ -3053,11 +3053,11 @@ async function stopRoomRecording(code, id, duration) {
     const cnt = await pool.query('SELECT COUNT(*) AS c FROM recording_sessions WHERE room_id=$1', [id])
     const index = parseInt(cnt.rows[0].c) + 1
 
-    // 创建 session，启动倒计时
+    // 创建 session，启动倒计时（dir_name 记录本段目录名——1025 删除定位根治：空段无分轨 file_path 也能精准删目录）
     const sess = await pool.query(
-      `INSERT INTO recording_sessions (room_id, index, duration, countdown_seconds, expires_at)
-       VALUES ($1, $2, $3, $4, NOW() + ($5 * interval '1 second')) RETURNING *`,
-      [id, index, dur || '0:00', RECORDING_COUNTDOWN_SECONDS, RECORDING_COUNTDOWN_SECONDS]
+      `INSERT INTO recording_sessions (room_id, index, duration, countdown_seconds, expires_at, dir_name)
+       VALUES ($1, $2, $3, $4, NOW() + ($5 * interval '1 second'), $6) RETURNING *`,
+      [id, index, dur || '0:00', RECORDING_COUNTDOWN_SECONDS, RECORDING_COUNTDOWN_SECONDS, require('path').basename(pinnedDir || '')]
     )
     const sessionId = sess.rows[0].id
 
@@ -3188,9 +3188,15 @@ app.delete('/api/rooms/:code/sessions/:sid', requireAuth, async (req, res) => {
     if (session.rows[0].status === 'published') {
       await pool.query('UPDATE recording_sessions SET hidden=TRUE WHERE id=$1', [sessionId])
     } else {
+      // 目录定位双源: ①session.dir_name(根治——空段也有目录) ②分轨 file_path dirname(兜底——历史段无 dir_name)
       const tracks = await pool.query("SELECT file_path FROM session_tracks WHERE session_id=$1 AND file_path IS NOT NULL AND file_path != ''", [sessionId])
       let dir = null
-      for (const t of tracks.rows) { const d = require('path').dirname(t.file_path); if (fs.existsSync(d)) { dir = d; break } }
+      if (session.rows[0].dir_name) {
+        const roomPort = await pool.query('SELECT server_port FROM rooms WHERE id=$1', [id])
+        const byName = `/var/jamony/recordings/room-${roomPort.rows[0].server_port}-records/${session.rows[0].dir_name}`
+        if (fs.existsSync(byName)) dir = byName
+      }
+      if (!dir) for (const t of tracks.rows) { const d = require('path').dirname(t.file_path); if (fs.existsSync(d)) { dir = d; break } }
       if (dir) { try { require('child_process').execSync(`rm -rf "${dir}"`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('[recording] 删除分轨目录失败:', e.message) } }
       await pool.query('DELETE FROM session_tracks WHERE session_id=$1', [sessionId])
       await pool.query('DELETE FROM recording_sessions WHERE id=$1', [sessionId])
