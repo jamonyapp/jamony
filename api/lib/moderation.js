@@ -104,8 +104,11 @@ try {
   // 拼音折叠: 拒绝级词预转无声调拼音串建 trie(纯 a-z; buildTrie 会再 normalize 但纯字母恒等, 手工内联清晰)
   try {
     pinyinFn = require('pinyin-pro').pinyin;
+    // 1025 拼音豁免表: 撞日常词拼音连写的误伤词(如"新房间"xinfang撞"信访"——产品核心词优先)——豁免=只留汉字字面匹配,不做拼音追杀; 误伤举报即加一行,运营化消化
+    const PINYIN_EXEMPT = new Set(loadDict('pinyin-exempt.txt').map((e) => e.word));
     REJECT_PY_TRIE = new Map();
     for (const e of rej) {
+      if (PINYIN_EXEMPT.has(e.word)) continue;
       const py = pinyinFn(normalize(e.word), { toneType: 'none', type: 'array' }).join('');
       if (!py) continue;
       let node = REJECT_PY_TRIE;
