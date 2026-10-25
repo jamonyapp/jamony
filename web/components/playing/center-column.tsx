@@ -1317,7 +1317,7 @@ function TrackRow({
           <div className="flex items-center gap-1">
             <DropdownSelect
               value={track.allow_use}
-              nullLabel="选择授权"
+              nullLabel="使用授权"
               disabled={track.use_locked}
               options={[
                 { label: "可使用", value: true, className: "text-brand-green" },
