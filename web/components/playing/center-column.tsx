@@ -815,15 +815,15 @@ function RecordingPanel({
             </span>
           )}
           <button
-            onClick={() => (recordingMine ? stopRecording() : !recording && !stopping && startRecording())}
-            disabled={(recording && !recordingMine) || stopping || finalizing}
+            onClick={() => (recording ? stopRecording() : !stopping && startRecording())}
+            disabled={stopping || finalizing}
             aria-label={recording ? "停止录音" : "开始录音"}
             className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold text-white transition-transform hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100 ${
               recording ? "bg-destructive" : "bg-brand-pink"
             }`}
           >
             {recording ? <Square className="size-3 fill-current" /> : <Circle className="size-3 fill-current" />}
-            {stopping ? "停止中…" : finalizing ? "归档中…" : recording ? (recordingMine ? "停止" : "录音中") : "录音"}
+            {stopping ? "停止中…" : finalizing ? "归档中…" : recording ? "停止" : "录音"}
           </button>
           {onToggleDrawer && (
             <button
