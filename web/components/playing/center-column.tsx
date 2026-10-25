@@ -846,15 +846,15 @@ function RecordingPanel({
         style={{ gridTemplateRows: drawerOpen ? "1fr" : "0fr" }}
       >
         <div className="min-h-0 overflow-hidden">
+          {/* 1025 归档提示定稿位（欢哥）：滚动区外固定层——标题栏下方贴合,列表滚到哪都可见 */}
+          {recToast && (
+            <div className="flex items-center justify-center gap-2 border-b border-border bg-brand-pink/75 px-3 py-2 text-xs font-medium text-white">
+              <Disc3 className="size-3.5 shrink-0" />
+              {recToast}
+            </div>
+          )}
           {/* 录音记录 —— 可滚动 */}
           <div className="h-full overflow-y-auto scrollbar-thin p-4">
-            {/* 1025 归档完成提示（欢哥定稿位置：列表框内顶部；brand-pink 底与录音按钮同色系） */}
-            {recToast && (
-              <div className="mb-2 flex items-center justify-center gap-2 rounded-md bg-brand-pink/75 px-3 py-2 text-xs font-medium text-white">
-                <Disc3 className="size-3.5 shrink-0" />
-                {recToast}
-              </div>
-            )}
             {sessions.length === 0 ? (
               <div className="grid h-full place-items-center text-sm text-muted-foreground">大家还没有录音</div>
             ) : (
