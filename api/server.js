@@ -5495,6 +5495,10 @@ app.post('/api/rooms/:code/theme', requireAuth, async (req, res) => {
     if (!theme || !theme.trim()) {
       return res.status(400).json({ ok: false, msg: '主题不能为空' })
     }
+    // 1025: 补审核旁路——socket push-theme 有事前审, 此REST孪生端点漏了(同功能双端点判例); 合法主题照常通过
+    if (!(await moderatePublishText('theme', null, req.userId, req.nickname || '', theme.trim()))) {
+      return res.status(400).json({ ok: false, msg: MODERATION_REJECT_MSG })
+    }
     await pool.query('UPDATE rooms SET current_theme = $1 WHERE id = $2', [theme.trim(), roomId])
     res.json({ ok: true, msg: '主题已更新' })
   } catch (err) {
