@@ -845,10 +845,10 @@ function RecordingPanel({
         className="grid min-h-0 flex-1 transition-[grid-template-rows] duration-300 ease-in-out"
         style={{ gridTemplateRows: drawerOpen ? "1fr" : "0fr" }}
       >
-        <div className="min-h-0 overflow-hidden">
-          {/* 1025 归档提示定稿位（欢哥）：滚动区外固定层——标题栏下方贴合,列表滚到哪都可见 */}
+        <div className="relative min-h-0 overflow-hidden">
+          {/* 1025 归档提示终版位（欢哥）：absolute 覆盖层——悬浮于列表之上,不挤占布局不顶列表 */}
           {recToast && (
-            <div className="flex items-center justify-center gap-2 border-b border-border bg-brand-pink/75 px-3 py-2 text-xs font-medium text-white">
+            <div className="absolute inset-x-0 top-0 z-10 flex items-center justify-center gap-2 bg-brand-pink/90 px-3 py-2 text-xs font-medium shadow-md text-white">
               <Disc3 className="size-3.5 shrink-0" />
               {recToast}
             </div>
