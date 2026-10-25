@@ -101,6 +101,12 @@ try {
   SUSPECT_TRIE = buildTrie(sus);
   rejectCount = rej.length;
   suspectCount = sus.length;
+  // 1025 欢哥定稿: 拼音折叠整体关停——音乐语境"音/间/房/和"拼音连写碰撞面结构性高发
+  // (1025 实测: 建房误伤率 40%,全部是正常中文撞敏感词拼音,如"新房间"xinfang撞"信访")
+  // 反变体补偿: 若发现拼音攻击,将该词拼音串(如 yinhe)作字面词条加入 reject.txt——
+  // 字面匹配只命中真打拼音的文本(文本层不做拼音转换),正常中文零误伤,精准反变体两全
+  const PINYIN_FOLD_ENABLED = false
+  if (!PINYIN_FOLD_ENABLED) { pinyinFn = null; } else
   // 拼音折叠: 拒绝级词预转无声调拼音串建 trie(纯 a-z; buildTrie 会再 normalize 但纯字母恒等, 手工内联清晰)
   try {
     pinyinFn = require('pinyin-pro').pinyin;
