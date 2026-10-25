@@ -154,6 +154,7 @@ export function useChatSocket(roomId?: string, nickname?: string) {
 
     socket.on("sessions-update", (data: { sessions: any[] }) => {
       setRealtimeSessions(data.sessions || [])
+      setRealtimeRecordingFinalizing(false) // 1025: 新 session 到达=归档必然完成——确定退出信号,免疫 baseline 时序竞态
     })
 
     socket.on("recording-state", (data: { active: boolean; userId?: number; startedAt?: string; maxSeconds?: number; finalizing?: boolean }) => {

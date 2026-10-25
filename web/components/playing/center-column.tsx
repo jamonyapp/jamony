@@ -772,14 +772,16 @@ function RecordingPanel({
   }
 
   // 1025: 新 session 出现=归档完成——解除归档态+toast 报喜
+  // 双源退出: ①本地 sessions 增量(手动停路径) ②chat-socket 在 sessions-update 时清 realtimeFinalizing(广播路径,免疫时序)
+  const showFinalizing = finalizing || !!realtimeRecordingFinalizing
   useEffect(() => {
-    if (finalizing && sessions.length > finalizeBaseline.current) {
+    if (showFinalizing && sessions.length > finalizeBaseline.current) {
       setFinalizing(false)
       if (finalizeTimer.current) clearTimeout(finalizeTimer.current)
       setRecToast('录音已归档，见下方会话列表')
       setTimeout(() => setRecToast(''), 3500)
     }
-  }, [sessions, finalizing])
+  }, [sessions, showFinalizing])
 
   async function patchTrack(sessionId: number, trackId: number, field: "allow_use" | "allow_attribution" | "allow_download", value: boolean) {
     if (!roomId || !currentUserId) return
@@ -816,14 +818,14 @@ function RecordingPanel({
           )}
           <button
             onClick={() => (recording ? stopRecording() : !stopping && startRecording())}
-            disabled={stopping || finalizing}
+            disabled={stopping || showFinalizing}
             aria-label={recording ? "停止录音" : "开始录音"}
             className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold text-white transition-transform hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100 ${
               recording ? "bg-destructive" : "bg-brand-pink"
             }`}
           >
             {recording ? <Square className="size-3 fill-current" /> : <Circle className="size-3 fill-current" />}
-            {stopping ? "停止中…" : finalizing ? "归档中…" : recording ? "停止" : "录音"}
+            {stopping ? "停止中…" : showFinalizing ? "归档中…" : recording ? "停止" : "录音"}
           </button>
           {onToggleDrawer && (
             <button
