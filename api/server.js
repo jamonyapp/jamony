@@ -2278,8 +2278,8 @@ app.post('/api/rooms', requireAuth, async (req, res) => {
       const roomCode = generateRoomCode()
       try {
         const result = await pool.query(
-          `INSERT INTO rooms (name, description, style, host_id, max_musicians, server_port, is_private, password, room_code, proficiency)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+          `INSERT INTO rooms (name, description, style, host_id, max_musicians, server_port, is_private, password, room_code, proficiency, status)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'active')
            RETURNING *`,
           [name, description || '', style || '', hostId, musicianLimit, port, isPrivate, passwordPlain, roomCode, proficiency || null]
         )
@@ -2649,6 +2649,8 @@ app.post('/api/rooms/:code/join', requireAuth, async (req, res) => {
        VALUES ($1, $2, $3, $4)`,
       [id, userId, userResult.rows[0].nickname, acceptedRole]
     )
+    // 1025 状态机: 首位合奏者进场即活跃(建房即active已覆盖房主; 此处兜听众先进、合奏者后到的场景)
+    if (acceptedRole === 'musician') await pool.query("UPDATE rooms SET status='active' WHERE id = $1 AND status = 'waiting'", [id])
     await openRoomVisit(id, userId, userResult.rows[0].nickname, acceptedRole) // 1025 访问档案
     await touchRoomPeak(id)
 
