@@ -787,7 +787,7 @@ setInterval(async () => {
 // 1024 Step6: 渠道分组(欢哥定稿)——门面(publish)=公告牌/作品/房间名简介/推送主题, 流动(interact)=评论/聊天/私信(预留)
 // 分组按内容性质不按传输通道(推送主题走socket但属门面); 判定参数与计数分渠道独立可配, 处罚阶梯共享(封的是人不是渠道)
 const MODERATION_DEFAULTS = { threshold: 5, windowDays: 90, restrictDays: 7, appealDays: 3, rejectThreshold: 5, watchReturnDays: 30, autoDemoteDays: 7, demoteCycleThreshold: 3, autoBanDays: 7, autoBanPermanentRound: 3, interactThreshold: 5, interactWindowDays: 90, interactRejectThreshold: 5, streamSampleIntervalMin: 30, streamSampleSeconds: 60, streamDissolveThreshold: 3, maxActiveRooms: 15 }
-const CHANNEL_OF_KIND = { notice: 'publish', work: 'publish', room: 'publish', theme: 'publish', notice_image: 'publish', avatar: 'publish', work_cover: 'publish', work_audio: 'publish', score_image: 'publish', notice_comment: 'interact', work_comment: 'interact', chat: 'interact', message: 'interact', chords: 'interact' }
+const CHANNEL_OF_KIND = { notice: 'publish', work: 'publish', room: 'publish', theme: 'publish', notice_image: 'publish', avatar: 'publish', work_cover: 'publish', work_audio: 'publish', score_image: 'publish', score: 'publish', notice_comment: 'interact', work_comment: 'interact', chat: 'interact', message: 'interact', chords: 'interact' }
 let moderationCfgCache = { data: MODERATION_DEFAULTS, at: 0 }
 
 async function getModerationConfig() {
@@ -5155,6 +5155,11 @@ io.on("connection", (socket) => {
       tracks: score.type === 'gp' && Array.isArray(score.tracks)
         ? score.tracks.filter(t => t && typeof t.name === 'string').slice(0, 16).map(t => ({ name: String(t.name).slice(0, 40) }))
         : undefined,
+    }
+    // 1025: 补事前审——谱名(手打)+GP分轨名(文件元数据)都会上屏全房可见; 拒绝级不投谱仅发送者提示
+    const scoreText = [safeScore.name, ...((safeScore.tracks || []).map((t) => t.name))].filter(Boolean).join(' ')
+    if (scoreText && !(await moderatePublishText('score', null, socket.userId, socket.nickname, scoreText))) {
+      socket.emit('chat-rejected', { msg: MODERATION_REJECT_MSG }); return
     }
     try { await pool.query('UPDATE rooms SET current_score = $1 WHERE room_code = $2', [JSON.stringify(safeScore), roomId]) }
     catch (e) { console.error('Score persist error:', e) }
