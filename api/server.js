@@ -746,7 +746,7 @@ async function submitWorkAudioReview(workId) {
     if (text) { const r = moderateText(text); verdict = r.verdict; hits = r.hits }
     const channel = CHANNEL_OF_KIND['work_audio'] || 'publish'
     if (verdict === 'reject') {
-      await pool.query("UPDATE works SET status='taken_down', audio_review='rejected' WHERE id=$1 AND audio_review='pending'", [workId])
+      await pool.query("UPDATE works SET status='taken_down', audio_review='rejected', audio_transcript=$2, audio_reviewed_at=NOW(), asr_task_id=$3 WHERE id=$1 AND audio_review='pending'", [workId, text.slice(0, 400), String(sub.TaskId || '')])
       try {
         await pool.query(`INSERT INTO moderation_logs (kind, target_id, user_id, nickname, content, verdict, hits, channel) VALUES ('work_audio',$1,$2,$3,$4,'reject',$5,$6)`,
           [String(workId), row.publisher_user_id, '', `[音频转写]${text.slice(0, 200)}`, JSON.stringify(hits), channel])
@@ -757,7 +757,8 @@ async function submitWorkAudioReview(workId) {
       console.log(`[moderation] 作品${workId}音频审核拒绝→自动下架(发布者${row.publisher_user_id}${u.rows[0] ? '(' + u.rows[0].nickname + ')' : ''})`)
       await checkRejectEscalation(row.publisher_user_id, channel)
     } else {
-      await pool.query("UPDATE works SET audio_review='passed' WHERE id=$1 AND audio_review='pending'", [workId])
+      // 1025 ASR 审计留痕(欢哥: 监管问"是否审核过"须能自证)——转写文本+审毕时间+云侧TaskId 与作品同行, pass/reject 同档留证
+      await pool.query("UPDATE works SET audio_review='passed', audio_transcript=$2, audio_reviewed_at=NOW(), asr_task_id=$3 WHERE id=$1 AND audio_review='pending'", [workId, text.slice(0, 400), String(sub.TaskId || '')])
       if (verdict === 'suspect') {
         try {
           await pool.query(`INSERT INTO moderation_logs (kind, target_id, user_id, nickname, content, verdict, hits, channel) VALUES ('work_audio',$1,$2,$3,$4,'suspect',$5,$6)`,
