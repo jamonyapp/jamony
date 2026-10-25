@@ -5827,6 +5827,24 @@ app.post('/api/admin-internal/rooms/:id/stream-violation-test', requireAdminInte
   res.json({ ok: true, msg: '模拟命中已触发' })
 })
 
+// jamony: 采样音频留存策略(1025 欢哥定稿) — pass/pending 7天、违规180天(与聊天保全同法规基线), 行永存(转写+违房在场名单随时可回溯)
+async function cleanupStreamSamples() {
+  try {
+    const r = await pool.query(
+      `SELECT id, file_path FROM stream_samples
+       WHERE file_path <> ''
+         AND ( (verdict IN ('pass','pending') AND created_at < NOW() - INTERVAL '7 days')
+            OR (verdict IN ('reject','suspect') AND created_at < NOW() - INTERVAL '180 days') )`)
+    for (const row of r.rows) {
+      try { fs.unlinkSync(row.file_path) } catch (e) {}
+      await pool.query("UPDATE stream_samples SET file_path='' WHERE id=$1", [row.id])
+    }
+    if (r.rowCount > 0) console.log(`[stream-sample] 留存清理: 删${r.rowCount}个过期音频文件(行保留)`)
+  } catch (e) { console.error('[stream-sample] 留存清理失败:', e.message) }
+}
+setTimeout(cleanupStreamSamples, 90 * 1000).unref() // 启动90秒首清(冷启动不抢跑)
+setInterval(cleanupStreamSamples, 6 * 3600 * 1000).unref()
+
 // jamony: 聊天记录证据保全 — 每 6 小时清理 180 天前的记录
 async function cleanupOldChatMessages() {
   try {
