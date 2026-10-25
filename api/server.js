@@ -2692,7 +2692,7 @@ async function removeMemberAndCheckDissolve(userId, roomId, roomCode) {
     // 有作品 → archived，无作品 → 硬删
     const pubCount = await pool.query('SELECT COUNT(*) AS c FROM works WHERE room_id = $1', [roomId])
     if (parseInt(pubCount.rows[0].c) > 0) {
-      await pool.query("UPDATE rooms SET status='archived' WHERE id=$1", [roomId])
+      await pool.query("UPDATE rooms SET status='archived', closed_at=NOW() WHERE id=$1", [roomId])
     } else {
       await pool.query('DELETE FROM rooms WHERE id = $1', [roomId])
     }
@@ -5978,7 +5978,7 @@ async function forceDissolveRoom(roomId, actor) {
   const pubCount = await pool.query('SELECT COUNT(*) AS c FROM works WHERE room_id = $1', [roomId])
   let archived = false
   if (parseInt(pubCount.rows[0].c) > 0) {
-    await pool.query("UPDATE rooms SET status='archived' WHERE id=$1", [roomId])
+    await pool.query("UPDATE rooms SET status='archived', closed_at=NOW() WHERE id=$1", [roomId])
     archived = true
   } else {
     await pool.query('DELETE FROM rooms WHERE id = $1', [roomId])
