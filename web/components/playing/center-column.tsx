@@ -778,7 +778,7 @@ function RecordingPanel({
     if (showFinalizing && sessions.length > finalizeBaseline.current) {
       setFinalizing(false)
       if (finalizeTimer.current) clearTimeout(finalizeTimer.current)
-      setRecToast('录音已生成，见下方列表。请参与合奏者及时点击卡片"授权"按钮完成授权')
+      setRecToast('录音成功！请参与合奏者及时点击录音卡片的"授权"按钮，授权自己的分轨。')
       setTimeout(() => setRecToast(''), 5000)
     }
   }, [sessions, showFinalizing])
