@@ -1047,20 +1047,12 @@ function SessionCard({
           {showCountdown && (
             <span className="font-mono text-[11px] text-brand-pink">{fmt(remaining)} 后默认授权+署名</span>
           )}
-          {/* 发表状态卡片 —— 全员 ①② 锁定后出现 */}
+          {/* 发表状态卡片 —— 全员 ①② 锁定后出现（1025 欢哥终版:已发表段同显授权文案,徽章删除不再占位） */}
           {session.all_locked && (
             <>
-              {session.status === "published" ? (
-                <span className="rounded-full bg-brand-green/20 px-3 py-1 text-[11px] font-bold text-brand-green">
-                  ✓ 已发表
-                </span>
-              ) : (
-                <>
-                  <span className="text-[11px] text-muted-foreground">
-                    <span className="font-semibold text-brand-green">{session.agreed_count}人已授权</span> · {refusedCount}人拒绝
-                  </span>
-                </>
-              )}
+              <span className="text-[11px] text-muted-foreground">
+                <span className="font-semibold text-brand-green">{session.agreed_count}人已授权</span> · {refusedCount}人拒绝
+              </span>
             </>
           )}
           {/* 1025 欢哥定稿: 授权入口显性化——置于发表按钮之前,点击照常弹授权抽屉 */}
