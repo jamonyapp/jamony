@@ -848,6 +848,13 @@ function RecordingPanel({
         <div className="min-h-0 overflow-hidden">
           {/* 录音记录 —— 可滚动 */}
           <div className="h-full overflow-y-auto scrollbar-thin p-4">
+            {/* 1025 归档完成提示（欢哥定稿位置：列表框内顶部，替代右下浮条） */}
+            {recToast && (
+              <div className="mb-2 flex items-center gap-2 rounded-md border border-border bg-accent/60 px-3 py-2 text-xs">
+                <Disc3 className="size-3.5 shrink-0 text-brand-pink" />
+                {recToast}
+              </div>
+            )}
             {sessions.length === 0 ? (
               <div className="grid h-full place-items-center text-sm text-muted-foreground">大家还没有录音</div>
             ) : (
@@ -941,13 +948,6 @@ function RecordingPanel({
       </>)
     })()}
 
-      {/* 1025 录音归档完成 toast（自造轻量浮条） */}
-      {recToast && (
-        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-lg border border-border bg-popover px-4 py-2.5 text-sm shadow-lg">
-          <Disc3 className="size-4 text-brand-pink" />
-          {recToast}
-        </div>
-      )}
   </>
   )
 }
