@@ -1298,7 +1298,7 @@ function SessionCard({
           ${isMine ? "bg-brand-green" : ""}
           ${!isClaimed ? "bg-brand-blue" : ""}`}
       >
-        {claiming ? "抢占中…" : isMine ? "继续发表" : "去发表"}
+        {claiming ? "抢占中…" : isMine ? "发表中" : "去发表"}
       </button>
     )
   }
