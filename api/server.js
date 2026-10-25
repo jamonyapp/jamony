@@ -3102,10 +3102,27 @@ async function stopRoomRecording(code, id, duration) {
       wavIdx++
     }
 
-    // jamony-looper：录音期间只要启动过鼓机，looper 分轨里就必然有鼓声，应展示
-    // （drumsUsedThisRecording 已在 UPDATE 置 FALSE 前捕获，见顶部）
-    if (drumsUsedThisRecording) {
-      const looperWav = wavFiles.find(w => w.filename.startsWith('jamony-looper'))
+    // jamony-looper 分轨拉入判定（1026 欢哥"管子"哲学终版）：
+    // 不再问"哪个工具开过"(鼓机PID探活已过时——GP/program等新推流入口照不到), 直接检测
+    // looper 分轨 wav 的音量电平——wav 无条件被录制(1026实验实证:无推流段也有文件),
+    // 静默=-91dB vs 推流max≥-5dB,阈值-60dB 天地之别永不误判; 未来任何推流工具自动覆盖。
+    // drums_used_this_recording 机制退役(列保留兼容); 检测失败保守回退旧标志。
+    let looperAudible = false
+    const looperWav = wavFiles.find(w => w.filename.startsWith('jamony-looper'))
+    if (looperWav && fs.existsSync(looperWav.fullPath)) {
+      try {
+        const volOut = execSync(`ffmpeg -i "${looperWav.fullPath}" -af volumedetect -f null - 2>&1 | grep max_volume`, { encoding: 'utf8', timeout: 30000, stdio: ['pipe', 'pipe', 'ignore'] }).toString()
+        const vm = volOut.match(/max_volume:\s*(-?[\d.]+)\s*dB/)
+        if (vm) looperAudible = parseFloat(vm[1]) > -60
+      } catch (e) {
+        console.error('[recording] looper能量检测失败, 回退drums标志:', e.message)
+        looperAudible = drumsUsedThisRecording
+      }
+    } else {
+      looperAudible = drumsUsedThisRecording // 无wav文件(异常场景)保守回退
+    }
+    if (!looperAudible) console.log(`[recording] session#${sessionId} looper分轨静默(-60dB阈值内),不拉入`)
+    if (looperAudible) {
       await pool.query(
         `INSERT INTO session_tracks
          (session_id, user_id, is_system, nickname, instrument_category, allow_use, allow_attribution, allow_download, use_locked, attribution_locked, file_path)
