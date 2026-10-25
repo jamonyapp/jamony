@@ -5744,8 +5744,17 @@ async function sampleRoomStream(room) {
       console.log(`[stream-sample] 房间${room.id}「${room.name}」抽检通过`)
     }
   } catch (e) {
-    console.error(`[stream-sample] 房间${room.id}采样失败(切片保留pending, 间隔后自动重试):`, e.message)
-    if (sampleId === null && filePath) { try { fs.unlinkSync(filePath) } catch (e2) {} }
+    // 1025 欢哥定稿: 失败也留痕——既挡住调度对僵尸房的每分钟重试, 采样页也可见失败率(机制健康度)
+    // ffmpeg败(404/超时)=删半件+插failed空行; ASR败=行已在, 改verdict(音频保留可试听)
+    try {
+      if (sampleId === null) {
+        if (filePath) { try { fs.unlinkSync(filePath) } catch (e2) {} }
+        await pool.query(`INSERT INTO stream_samples (room_id, room_code, present_user_ids, verdict) VALUES ($1,$2,'[]','failed')`, [room.id, room.room_code || ''])
+      } else {
+        await pool.query(`UPDATE stream_samples SET verdict='failed' WHERE id=$1`, [sampleId])
+      }
+    } catch (e2) {}
+    console.error(`[stream-sample] 房间${room.id}采样失败(已留痕failed, 间隔后自动重试):`, e.message)
   } finally {
     streamSamplingNow.delete(room.id)
   }
@@ -5827,13 +5836,13 @@ app.post('/api/admin-internal/rooms/:id/stream-violation-test', requireAdminInte
   res.json({ ok: true, msg: '模拟命中已触发' })
 })
 
-// jamony: 采样音频留存策略(1025 欢哥定稿) — pass/pending 7天、违规180天(与聊天保全同法规基线), 行永存(转写+违房在场名单随时可回溯)
+// jamony: 采样音频留存策略(1025 欢哥定稿) — pass/pending/failed 7天、违规180天(与聊天保全同法规基线), 行永存(转写+违房在场名单随时可回溯)
 async function cleanupStreamSamples() {
   try {
     const r = await pool.query(
       `SELECT id, file_path FROM stream_samples
        WHERE file_path <> ''
-         AND ( (verdict IN ('pass','pending') AND created_at < NOW() - INTERVAL '7 days')
+         AND ( (verdict IN ('pass','pending','failed') AND created_at < NOW() - INTERVAL '7 days')
             OR (verdict IN ('reject','suspect') AND created_at < NOW() - INTERVAL '180 days') )`)
     for (const row of r.rows) {
       try { fs.unlinkSync(row.file_path) } catch (e) {}
