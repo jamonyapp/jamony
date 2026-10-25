@@ -635,6 +635,12 @@ function RecordingPanel({
   const [recording, setRecording] = useState(false)
   const [recordingMine, setRecordingMine] = useState(false)
   const [stopping, setStopping] = useState(false) // 停止中过渡态（0923：服务器快停响应回来前按钮显示"停止中…"并禁用，防连点误开新段）
+  // 1025 归档中态（欢哥定稿）：停止快反馈后按钮不直接回"录音"，进入"归档中…"直到新 session 真出现——
+  // 落档耗时随文件大小（混音/转码几秒到几十秒），空窗期用户需知道文件正在生成
+  const [finalizing, setFinalizing] = useState(false)
+  const finalizeBaseline = useRef(0)
+  const finalizeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [recToast, setRecToast] = useState('')
   const [recTime, setRecTime] = useState(0)
   const [now, setNow] = useState(Date.now())
   const fetchingRef = useRef(false)
@@ -744,8 +750,23 @@ function RecordingPanel({
     setStopping(false)
     if (data.ok) {
       setRecording(false); setRecordingMine(false); setRecTime(0)
+      // 1025: 快停完成≠落档完成——进入归档中态，等新 session 出现（60s 兜底防卡死）
+      finalizeBaseline.current = sessions.length
+      setFinalizing(true)
+      if (finalizeTimer.current) clearTimeout(finalizeTimer.current)
+      finalizeTimer.current = setTimeout(() => setFinalizing(false), 60_000)
     }
   }
+
+  // 1025: 新 session 出现=归档完成——解除归档态+toast 报喜
+  useEffect(() => {
+    if (finalizing && sessions.length > finalizeBaseline.current) {
+      setFinalizing(false)
+      if (finalizeTimer.current) clearTimeout(finalizeTimer.current)
+      setRecToast('录音已归档，见下方会话列表')
+      setTimeout(() => setRecToast(''), 3500)
+    }
+  }, [sessions, finalizing])
 
   async function patchTrack(sessionId: number, trackId: number, field: "allow_use" | "allow_attribution" | "allow_download", value: boolean) {
     if (!roomId || !currentUserId) return
@@ -782,14 +803,14 @@ function RecordingPanel({
           )}
           <button
             onClick={() => (recordingMine ? stopRecording() : !recording && !stopping && startRecording())}
-            disabled={(recording && !recordingMine) || stopping}
+            disabled={(recording && !recordingMine) || stopping || finalizing}
             aria-label={recording ? "停止录音" : "开始录音"}
             className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold text-white transition-transform hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100 ${
               recording ? "bg-destructive" : "bg-brand-pink"
             }`}
           >
             {recording ? <Square className="size-3 fill-current" /> : <Circle className="size-3 fill-current" />}
-            {stopping ? "停止中…" : recording ? (recordingMine ? "停止" : "录音中") : "录音"}
+            {stopping ? "停止中…" : finalizing ? "归档中…" : recording ? (recordingMine ? "停止" : "录音中") : "录音"}
           </button>
           {onToggleDrawer && (
             <button
@@ -2293,6 +2314,14 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
           </button>
 
       </div>
+
+      {/* 1025 录音归档完成 toast（自造轻量浮条） */}
+      {recToast && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-lg border border-border bg-popover px-4 py-2.5 text-sm shadow-lg">
+          <Disc3 className="size-4 text-brand-pink" />
+          {recToast}
+        </div>
+      )}
     </div>
   )
 }
