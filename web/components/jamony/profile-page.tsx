@@ -243,6 +243,10 @@ export function ProfilePage({ nickname }: { nickname: string }) {
                     </button>
                   </>
                 )}
+                {/* 1025 仪式感：已来到 jamony N 天（ceil=注册当天即第1天；看他人主页同样显示对方的天数） */}
+                <span className="ml-auto whitespace-nowrap text-xs font-medium text-white">
+                  已来到 jamony {Math.max(1, Math.ceil((Date.now() - new Date(profile.created_at).getTime()) / 86400000))} 天
+                </span>
               </div>
               {profile.signature && <p className="mt-1 text-[14px] text-[#B0B0B0]">{profile.signature}</p>}
               <p className="mt-1 text-[13px] text-[#8A8A8A]">
