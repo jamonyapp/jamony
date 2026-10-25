@@ -77,7 +77,31 @@ export function LeftColumn({
   const [chordText, setChordText] = useState("")
   const [customThemeInput, setCustomThemeInput] = useState("")
   // 同步来自他人的和弦推送
-  useEffect(() => { if (chordTextFromPush) setChordText(chordTextFromPush) }, [chordTextFromPush])
+  useEffect(() => {
+    // 推送回显也走首尾对齐排版（1025 欢哥定稿：每行和弦布满整行）
+    if (chordTextFromPush) setChordText(formatChordRows(taRef.current, chordTextFromPush.split(/[\s,，|｜]+/).filter(Boolean)))
+  }, [chordTextFromPush])
+
+  // 等宽补位排版：按输入框实测宽度算目标字符数，和弦间动态填空格，
+  // 各行总字符数恒等 → mono 字体下右缘严格对齐（textarea 的 text-align:justify 对 \n 行无效，只能文本级补位）
+  const taRef = useRef<HTMLTextAreaElement>(null)
+  function formatChordRows(el: HTMLTextAreaElement | null, chords: string[]): string {
+    const usable = el ? el.clientWidth - 20 : 200 // p-2×2 + border
+    const charW = 7.2 // 12px mono 等宽字符 advance ≈ 0.6em
+    const maxChars = Math.max(16, Math.floor(usable / charW))
+    const rows: string[] = []
+    for (let i = 0; i < chords.length; i += 4) {
+      const row = chords.slice(i, i + 4)
+      const gaps = row.length - 1
+      if (gaps <= 0) { rows.push(row.join('')); continue }
+      const total = row.join('').length
+      const spaces = Math.max(1, Math.floor((maxChars - total) / gaps))
+      const extra = Math.max(0, maxChars - total - spaces * gaps)
+      // 前 extra 个间隙各多 1 空格 → 本行总长恒 = maxChars → 右缘与上下行严格平齐
+      rows.push(row.map((c, j) => c + (j < gaps ? ' '.repeat(spaces + (j < extra ? 1 : 0)) : '')).join(''))
+    }
+    return rows.join('\n')
+  }
   const params = useParams()
   const [dailyTheme, setDailyTheme] = useState(DAILY_THEME)
 
@@ -93,11 +117,7 @@ export function LeftColumn({
 
   const handleGenerate = () => {
     const prog = generateProgression(style, phrases)
-    const rows = []
-    for (let i = 0; i < prog.length; i += 4) {
-      rows.push(prog.slice(i, i + 4).join(' | '))
-    }
-    setChordText(rows.join('\n'))
+    setChordText(formatChordRows(taRef.current, prog))
   }
   const handlePush = () => {
     const chords = chordText.split(/[\s,，|｜]+/).map(c => c.trim()).filter(Boolean)
@@ -183,7 +203,7 @@ export function LeftColumn({
                   </label>
                 </div>
 
-                <textarea value={chordText} onChange={(e) => setChordText(e.target.value)}
+                <textarea ref={taRef} value={chordText} onChange={(e) => setChordText(e.target.value)}
                   placeholder="输入或点击下方随机生成"
                   className="mt-3 min-h-[80px] flex-1 w-full resize-none rounded-[8px] border p-2 font-mono text-xs text-white outline-none scrollbar-thin"
                   style={{ borderColor: "#1A1A1A", background: "#141414" }}
