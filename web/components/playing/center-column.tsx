@@ -978,6 +978,8 @@ function SessionCard({
   const remaining = session.expires_at ? Math.max(0, Math.ceil((new Date(session.expires_at).getTime() - now) / 1000)) : 0
   const showCountdown = !session.all_locked && remaining > 0
   const canPublish = session.all_locked && session.agreed_count > 0
+  // 1025 删除权前置(欢哥): 授权使用=所有权——本人轨未授权(=自动放弃)则按钮灰置,不再走"确认弹窗→403"尴尬链
+  const canDelete = session.tracks.some((t) => t.user_id === currentUserId && t.allow_use === true)
   const [publishOpen, setPublishOpen] = useState(false)
   const [claiming, setClaiming] = useState(false)
   const [claimTaken, setClaimTaken] = useState<{ userId: number; nickname: string } | null>(null)
@@ -1069,9 +1071,10 @@ function SessionCard({
           {canPublish && handlePublishButton()}
           {canPublish && (
             <button
-              onClick={() => setDelConfirm(true)}
-              title="删除该录音"
-              className="grid size-6 place-items-center rounded-[6px] text-destructive transition-colors hover:bg-destructive/10"
+              onClick={() => canDelete && setDelConfirm(true)}
+              disabled={!canDelete}
+              title={canDelete ? '删除该录音' : '未授权使用该录音（视为放弃），无权删除'}
+              className="grid size-6 place-items-center rounded-[6px] text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
             >
               <Trash2 className="size-3.5" />
             </button>
