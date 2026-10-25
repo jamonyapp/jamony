@@ -43,6 +43,7 @@ export function useChatSocket(roomId?: string, nickname?: string) {
   const [realtimeRecordingBy, setRealtimeRecordingBy] = useState<number | null>(null) // 发起者（强刷回来恢复"停止"按钮归属）
   const [realtimeRecordingStartedAt, setRealtimeRecordingStartedAt] = useState<string | null>(null) // 服务端起始时刻（强刷回来秒表校准不归零）
   const [realtimeRecordingMax, setRealtimeRecordingMax] = useState<number | null>(null) // 单段上限秒数（服务器下发，前端双计时显示剩余）
+  const [realtimeRecordingFinalizing, setRealtimeRecordingFinalizing] = useState(false) // 1025: 停止后归档中（房间级事件，全房按钮同步）
   const [kickedEvent, setKickedEvent] = useState<{ userId: number; roomCode: string; ts: number } | null>(null)
   const [dissolvedEvent, setDissolvedEvent] = useState<{ roomCode: string; ts: number } | null>(null)
 
@@ -155,11 +156,12 @@ export function useChatSocket(roomId?: string, nickname?: string) {
       setRealtimeSessions(data.sessions || [])
     })
 
-    socket.on("recording-state", (data: { active: boolean; userId?: number; startedAt?: string; maxSeconds?: number }) => {
+    socket.on("recording-state", (data: { active: boolean; userId?: number; startedAt?: string; maxSeconds?: number; finalizing?: boolean }) => {
       setRealtimeRecordingActive(!!data.active)
       setRealtimeRecordingBy(data.active ? (data.userId ?? null) : null)
       setRealtimeRecordingStartedAt(data.active ? (data.startedAt ?? null) : null)
       setRealtimeRecordingMax(data.active ? (data.maxSeconds ?? null) : null)
+      setRealtimeRecordingFinalizing(!data.active && !!data.finalizing) // 1025: 停止归档中——全房按钮三态同步
     })
 
     socket.on("normalize-done", (data: { sessionId: number; trackId: number }) => {
@@ -271,5 +273,5 @@ export function useChatSocket(roomId?: string, nickname?: string) {
     setRealtimeScore(null)
   }
 
-  return { messages, sendMessage, connected, realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, hydrateScore, realtimeScore, realtimeGpState, playGp, pauseGp, updateGpMix, setGpSpeed, setGpCountin, setGpLoop, setGpRange, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, kickedEvent, dissolvedEvent, realtimeProgram, realtimeProgramState, programError, playProgram, pauseProgram, stopProgram, updateProgramMix, hydrateProgram, chatRejected, roomViolation }
+  return { messages, sendMessage, connected, realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, hydrateScore, realtimeScore, realtimeGpState, playGp, pauseGp, updateGpMix, setGpSpeed, setGpCountin, setGpLoop, setGpRange, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, realtimeRecordingFinalizing, kickedEvent, dissolvedEvent, realtimeProgram, realtimeProgramState, programError, playProgram, pauseProgram, stopProgram, updateProgramMix, hydrateProgram, chatRejected, roomViolation }
 }

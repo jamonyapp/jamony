@@ -3016,7 +3016,7 @@ async function stopRoomRecording(code, id, duration) {
     const rt = recordingTimers.get(String(code))
     if (rt) { clearTimeout(rt); recordingTimers.delete(String(code)) }  // 手动停到点前，撤自动停定时器
     recordingStarters.delete(String(code))
-    io.to(code).emit('recording-state', { roomId: code, active: false })
+    io.to(code).emit('recording-state', { roomId: code, active: false, finalizing: true }) // 1025: 停止广播带归档中标记——全房按钮三态同步(欢哥: 归档是房间级事件)
 
     // ★ 后台落档：等 headless 写完 WAV → 只扫钉死目录 → 建 session/分轨 → 广播 + 标准化
     setTimeout(() => {

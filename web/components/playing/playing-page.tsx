@@ -61,7 +61,7 @@ export function PlayingPage() {
   const roomSession = useRoomSession()
   // 10-07 漫游续听：收听音频上移 Provider 全局常驻，listenerActive 为派生值（漫游不断流）
   const listenerActive = roomSession.listening != null
-  const { realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, hydrateScore, realtimeScore, realtimeGpState, playGp, pauseGp, updateGpMix, setGpSpeed, setGpCountin, setGpLoop, setGpRange, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, kickedEvent, dissolvedEvent, realtimeProgram, realtimeProgramState, programError, playProgram, pauseProgram, stopProgram, updateProgramMix, hydrateProgram, roomViolation } = useChatSocket(params?.code as string, user?.nickname)
+  const { realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, hydrateScore, realtimeScore, realtimeGpState, playGp, pauseGp, updateGpMix, setGpSpeed, setGpCountin, setGpLoop, setGpRange, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, realtimeRecordingFinalizing, kickedEvent, dissolvedEvent, realtimeProgram, realtimeProgramState, programError, playProgram, pauseProgram, stopProgram, updateProgramMix, hydrateProgram, roomViolation } = useChatSocket(params?.code as string, user?.nickname)
 
   // 1024 推流抽检: 房间违规全房弹窗(抽检有延迟, 命中时房间若仍活跃即提醒全员——告知是义务也是权利)
   useEffect(() => {
@@ -506,6 +506,7 @@ export function PlayingPage() {
             realtimeRecordingBy={realtimeRecordingBy}
             realtimeRecordingStartedAt={realtimeRecordingStartedAt}
             realtimeRecordingMax={realtimeRecordingMax}
+            realtimeRecordingFinalizing={realtimeRecordingFinalizing}
             score={score}
             onClearScore={handleClearScore}
             gpState={gpState}

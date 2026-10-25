@@ -194,6 +194,7 @@ export function CenterColumn({
   realtimeRecordingBy,
   realtimeRecordingStartedAt,
   realtimeRecordingMax,
+  realtimeRecordingFinalizing,
   score,
   onClearScore,
   gpState,
@@ -218,6 +219,7 @@ export function CenterColumn({
   realtimeRecordingBy?: number | null
   realtimeRecordingStartedAt?: string | null
   realtimeRecordingMax?: number | null
+  realtimeRecordingFinalizing?: boolean | null
   score?: RoomScore | null
   onClearScore?: () => void
   gpState?: { playing: boolean; startedAt?: string; speed?: number; countInMs?: number; endMs?: number } | null
@@ -294,6 +296,7 @@ export function CenterColumn({
           realtimeRecordingBy={realtimeRecordingBy}
           realtimeRecordingStartedAt={realtimeRecordingStartedAt}
           realtimeRecordingMax={realtimeRecordingMax}
+          realtimeRecordingFinalizing={realtimeRecordingFinalizing}
           drawerOpen={drawerOpen}
           onToggleDrawer={() => setDrawerOpen((o) => !o)}
         />
@@ -610,6 +613,7 @@ function RecordingPanel({
   realtimeRecordingBy,
   realtimeRecordingStartedAt,
   realtimeRecordingMax,
+  realtimeRecordingFinalizing,
   drawerOpen,
   onToggleDrawer,
 }: {
@@ -622,6 +626,7 @@ function RecordingPanel({
   realtimeRecordingBy?: number | null
   realtimeRecordingStartedAt?: string | null
   realtimeRecordingMax?: number | null
+  realtimeRecordingFinalizing?: boolean | null
   drawerOpen?: boolean
   onToggleDrawer?: () => void
 }) {
@@ -695,8 +700,16 @@ function RecordingPanel({
     } else {
       setRecordingMine(false)
       setStopping(false)  // socket 广播"已停"可能先于 HTTP 响应到达，兜底解除停止中
+      // 1025: 全房归档中同步——他人停止的广播带 finalizing 标记，本端也进入归档态
+      //（发起者已在 stopRecording 内自行起态；此处幂等：已 finalizing 则不重置 baseline）
+      if (realtimeRecordingFinalizing && !finalizing) {
+        finalizeBaseline.current = sessions.length
+        setFinalizing(true)
+        if (finalizeTimer.current) clearTimeout(finalizeTimer.current)
+        finalizeTimer.current = setTimeout(() => setFinalizing(false), 60_000)
+      }
     }
-  }, [realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, currentUserId])
+  }, [realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingFinalizing, finalizing, sessions, currentUserId])
 
   // 录音计时
   useEffect(() => {
