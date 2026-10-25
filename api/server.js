@@ -4,7 +4,10 @@ const crypto = require('crypto')
 const http = require("http")
 const { Server } = require("socket.io")
 const { execSync, spawn } = require('child_process')
-const { Pool } = require('pg')
+const { Pool, types: pgTypes } = require('pg')
+// 1025 雪花前置: BIGINT 列默认被驱动解析为 string——jamony 的 bigint 恒 < 2^53(迷你雪花),
+// 全局解析回 number, 旧代码(parseInt 严格比较/JWT number 载荷)零改动
+pgTypes.setTypeParser(20, (v) => parseInt(v, 10))
 const net = require('net')
 const fs = require('fs')
 const path = require('path')
@@ -556,6 +559,8 @@ function optionalAuth(req, res, next) {
    三态语义: reject=硬拦不放行(不写内容库) / suspect=放行+写 moderation_logs 供 admin 疑似流巡查(零人工) / pass=放行
    fail-open: 引擎异常或日志写入失败一律放行, 绝不阻塞业务发布链路 */
 const { moderateText } = require('./lib/moderation')
+// 1025 迷你雪花: 暴露面主实体显式发号(15-16位长数字,JS安全域); 日志类表保留SERIAL
+const { nextId } = require('./lib/snowflake')
 const MODERATION_REJECT_MSG = '内容包含违规信息，请修改后重发'
 
 // 返回 true=放行, false=拒绝; kind: notice|notice_comment|work|work_comment|room|theme|chat|message
@@ -1165,14 +1170,15 @@ app.post('/api/register', async (req, res) => {
     const avatar = Math.floor(Math.random() * 30) + 1
 
     const cat = instrumentCategory || primaryInstrument
+    const newUserId = nextId() // 1025 雪花: 显式发号
     const result = await pool.query(
-      `INSERT INTO users (nickname, password_hash, primary_instrument, instrument_category, avatar_index, bio, city, level, points)
-       VALUES ($1, $2, $3, $5, $4, '', '', 1, 0)
-       RETURNING id, nickname, avatar_index, avatar_url, bio, city, primary_instrument, instrument_category, level, points`,
-      [nickname, hash, primaryInstrument, avatar, cat]
+      `INSERT INTO users (id, nickname, password_hash, primary_instrument, instrument_category, avatar_index, bio, city, level, points)
+       VALUES ($6, $1, $2, $3, $5, $4, '', '', 1, 0)
+       RETURNING nickname, avatar_index, avatar_url, bio, city, primary_instrument, instrument_category, level, points`,
+      [nickname, hash, primaryInstrument, avatar, cat, newUserId]
     )
 
-    const user = result.rows[0]
+    const user = { id: newUserId, ...result.rows[0] }
     const userPayload = {
       id: user.id,
       nickname: user.nickname,
@@ -2273,15 +2279,16 @@ app.post('/api/rooms', requireAuth, async (req, res) => {
     }
 
     // 生成 room_code（8位去易混淆码，unique 冲突重试）
+    const newRoomId = nextId() // 1025 雪花: 循环外发号(重试共用)
     let room = null
     for (let attempt = 0; attempt < 5; attempt++) {
       const roomCode = generateRoomCode()
       try {
         const result = await pool.query(
-          `INSERT INTO rooms (name, description, style, host_id, max_musicians, server_port, is_private, password, room_code, proficiency, status)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'active')
+          `INSERT INTO rooms (id, name, description, style, host_id, max_musicians, server_port, is_private, password, room_code, proficiency, status)
+           VALUES ($11, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'active')
            RETURNING *`,
-          [name, description || '', style || '', hostId, musicianLimit, port, isPrivate, passwordPlain, roomCode, proficiency || null]
+          [name, description || '', style || '', hostId, musicianLimit, port, isPrivate, passwordPlain, roomCode, proficiency || null, newRoomId]
         )
         room = result.rows[0]
         break
@@ -3310,12 +3317,12 @@ app.post('/api/rooms/:code/sessions/:sid/publish', requireAuth, upload.fields([{
     }
 
     // 先插入 works 获取 workId(1024 音频线: audio_review='pending'——公域不可见, 本人可见挂审核中角标, 审毕解锁)
+    const workId = nextId() // 1025 雪花: 显式发号
     const work = await pool.query(
-      `INSERT INTO works (room_id, session_id, publisher_user_id, title, style, copyright_type, cover_song, cover_author, source, description, duration, cover_gradient, has_drum_track, agreed, status, audio_review)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'published', 'pending') RETURNING id`,
-      [roomId, sessionId, publisher_user_id, title, style, copyright, cover_song || '', cover_author || '', source || '', description || '', duration || '', cover_gradient || '', has_drum_track === 'true', agreed === 'true']
+      `INSERT INTO works (id, room_id, session_id, publisher_user_id, title, style, copyright_type, cover_song, cover_author, source, description, duration, cover_gradient, has_drum_track, agreed, status, audio_review)
+       VALUES ($15, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'published', 'pending')`,
+      [roomId, sessionId, publisher_user_id, title, style, copyright, cover_song || '', cover_author || '', source || '', description || '', duration || '', cover_gradient || '', has_drum_track === 'true', agreed === 'true', workId]
     )
-    const workId = work.rows[0].id
 
     // 创建作品专属文件夹 /var/jamony/works/YYYYMMDDHHmm_userId_作品名称_sessionId/
     const now = new Date()
@@ -3676,17 +3683,18 @@ app.post('/api/works/:id/comments', requireAuth, async (req, res) => {
     if (!(await moderatePublishText('work_comment', id, userId, nickname, content.trim()))) {
       return res.status(400).json({ ok: false, msg: MODERATION_REJECT_MSG })
     }
+    const newCommentIdWc = nextId()
     const ins = await pool.query(
-      `INSERT INTO work_comments (work_id, user_id, nickname, content, parent_id, reply_to_nickname)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, created_at`,
-      [id, userId, nickname, content.trim(), parentId || null, replyToNickname || null]
+      `INSERT INTO work_comments (id, work_id, user_id, nickname, content, parent_id, reply_to_nickname)
+       VALUES ($7, $1, $2, $3, $4, $5, $6) RETURNING created_at`,
+      [id, userId, nickname, content.trim(), parentId || null, replyToNickname || null, newCommentIdWc]
     )
     // 一级评论才 +1 works.comments（回复不计入主评论数）
     if (!parentId) {
       await pool.query('UPDATE works SET comments = COALESCE(comments, 0) + 1 WHERE id = $1', [id])
     }
     // 通知：一级评论→作品所有作者；回复→被回复者
-    const newCommentId = ins.rows[0].id
+    const newCommentId = newCommentIdWc
     if (!parentId) {
       const authors = await pool.query('SELECT user_id FROM work_authors WHERE work_id=$1', [id])
       for (const a of authors.rows) {
@@ -3850,12 +3858,12 @@ app.post('/api/notices', requireAuth, async (req, res) => {
     const expireAt = new Date(Date.now() + (type === 'online' ? 24 : 15 * 24) * 3600000).toISOString()
 
     const result = await pool.query(
-      `INSERT INTO notices (user_id, nickname, type, category, title, body, city, style, jam_time, level, needed_count, bg_index, image_url, expire_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+      `INSERT INTO notices (id, user_id, nickname, type, category, title, body, city, style, jam_time, level, needed_count, bg_index, image_url, expire_at)
+       VALUES ($15,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
        RETURNING *`,
       [req.userId, req.nickname, type, category || null, String(title).trim(), String(body).trim(),
        (city || '').trim() || '其他', (style || '').trim() || '未分类', jam_time || null, level || null,
-       needed_count || null, bg, image_url || null, expireAt]
+       needed_count || null, bg, image_url || null, expireAt, nextId()]
     )
     const notice = result.rows[0]
     notice.author_id = req.userId
@@ -4055,17 +4063,18 @@ app.post('/api/notices/:id/comments', requireAuth, async (req, res) => {
     if (!(await moderatePublishText('notice_comment', id, userId, nickname, content.trim()))) {
       return res.status(400).json({ ok: false, msg: MODERATION_REJECT_MSG })
     }
+    const newCommentIdNc = nextId()
     const ins = await pool.query(
-      `INSERT INTO notice_comments (notice_id, user_id, nickname, content, parent_id, reply_to_nickname)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, created_at`,
-      [id, userId, nickname, content.trim(), parentId || null, replyToNickname || null]
+      `INSERT INTO notice_comments (id, notice_id, user_id, nickname, content, parent_id, reply_to_nickname)
+       VALUES ($7, $1, $2, $3, $4, $5, $6) RETURNING created_at`,
+      [id, userId, nickname, content.trim(), parentId || null, replyToNickname || null, newCommentIdNc]
     )
     // 一级评论才 +1 notices.comments（回复不计入）
     if (!parentId) {
       await pool.query('UPDATE notices SET comments = COALESCE(comments, 0) + 1 WHERE id = $1', [id])
     }
     // 生成通知（一级评论→通知公告发布者；回复→通知被回复者；不通知自己，写时聚合）
-    const newCommentId = ins.rows[0].id
+    const newCommentId = newCommentIdNc
     if (parentId) {
       const pr = await pool.query('SELECT user_id FROM notice_comments WHERE id=$1', [parentId])
       if (pr.rows.length > 0) {
@@ -4333,10 +4342,10 @@ app.post('/api/messages/conversations', requireAuth, async (req, res) => {
     const a = Math.min(req.userId, targetUserId)
     const b = Math.max(req.userId, targetUserId)
     const r = await pool.query(
-      `INSERT INTO conversations (user_a_id, user_b_id) VALUES ($1, $2)
+      `INSERT INTO conversations (id, user_a_id, user_b_id) VALUES ($3, $1, $2)
        ON CONFLICT (user_a_id, user_b_id) DO UPDATE SET user_a_id = EXCLUDED.user_a_id
        RETURNING id`,
-      [a, b]
+      [a, b, nextId()]
     )
     res.json({ ok: true, conversationId: r.rows[0].id })
   } catch (err) { console.error('Create conversation error:', err); res.status(500).json({ ok: false, msg: '服务器错误' }) }
@@ -4395,10 +4404,12 @@ app.post('/api/messages/conversations/:id', requireAuth, async (req, res) => {
     if (!(await moderatePublishText('message', null, req.userId, req.nickname, content.trim().slice(0, 1000)))) {
       return res.status(400).json({ ok: false, msg: MODERATION_REJECT_MSG })
     }
+    const newMsgId = nextId()
     const ins = await pool.query(
-      'INSERT INTO messages (conversation_id, sender_id, content) VALUES ($1, $2, $3) RETURNING id, created_at',
-      [cid, req.userId, content.trim().slice(0, 1000)]
+      'INSERT INTO messages (id, conversation_id, sender_id, content) VALUES ($4, $1, $2, $3) RETURNING created_at',
+      [cid, req.userId, content.trim().slice(0, 1000), newMsgId]
     )
+    ins.rows[0].id = newMsgId
     await pool.query('UPDATE conversations SET last_message_at = NOW() WHERE id = $1', [cid])
     const u = await pool.query('SELECT nickname FROM users WHERE id=$1', [req.userId])
     await createNotification({
@@ -5731,7 +5742,7 @@ async function handleStreamViolation(room, sampleId, presentIds, text, hits) {
   const dissolved = count >= cfg.streamDissolveThreshold
   // 在场合奏者终生+1(纯档案; presentIds已排除系统号)
   if (presentIds && presentIds.length > 0) {
-    try { await pool.query('UPDATE users SET room_violation_present_count = room_violation_present_count + 1 WHERE id = ANY($1::int[])', [presentIds]) } catch (e) { console.error('[stream-sample] 在场统计失败:', e.message) }
+    try { await pool.query('UPDATE users SET room_violation_present_count = room_violation_present_count + 1 WHERE id = ANY($1::bigint[])', [presentIds]) } catch (e) { console.error('[stream-sample] 在场统计失败:', e.message) }
   }
   // 用户视角全房弹窗(欢哥定稿: 告知是义务也是权利)——先弹窗后动作, 保送达
   const warnMsg = `该房间涉嫌触碰违规，请注意jamony行为规范，达到${cfg.streamDissolveThreshold}次违规将被强行解散，此行为将影响合奏用户系统评价。`
