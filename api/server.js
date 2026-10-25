@@ -2300,6 +2300,8 @@ app.post('/api/rooms', requireAuth, async (req, res) => {
        VALUES ($1, $2, $3, 'musician')`,
       [room.id, hostId, userResult.rows[0].nickname]
     )
+    await openRoomVisit(room.id, hostId, userResult.rows[0].nickname, 'musician') // 1025 访问档案
+    await touchRoomPeak(room.id)
 
     try {
       execSync(`node /var/www/jamony/api/manage-jamsoul.js start ${port} ${musicianLimit + 1}`, { timeout: 5000, stdio: 'pipe' }); try { spawn('node', ['/var/www/jamony/api/manage-jamsoul.js', 'start-ghost', String(port), String(port)], { stdio: 'ignore', detached: true }).unref() } catch(e) { console.error('Ghost start failed:', e.message) }
@@ -2599,10 +2601,16 @@ app.post('/api/rooms/:code/join', requireAuth, async (req, res) => {
           return res.status(400).json({ ok: false, msg: '合奏名额已满' })
         }
       }
+      const prevMember = await pool.query('SELECT role, nickname FROM room_members WHERE room_id = $1 AND user_id = $2', [id, userId])
       await pool.query(
         'UPDATE room_members SET role = $1, last_active_at = NOW() WHERE room_id = $2 AND user_id = $3',
         [acceptedRole, id, userId]
       )
+      // 1025 访问档案: 切角色=闭旧段开新段(先听后奏各归各位)
+      if (prevMember.rows[0] && prevMember.rows[0].role !== acceptedRole) {
+        await closeRoomVisit(id, userId)
+        await openRoomVisit(id, userId, prevMember.rows[0].nickname, acceptedRole)
+      }
       if (acceptedRole === 'listener') await closeMusicianSession(userId, id)  // 翻回听众即闭会话
       await broadcastMembers(code)
       return res.json({ ok: true, msg: '已更新身份', role: acceptedRole })
@@ -2641,6 +2649,8 @@ app.post('/api/rooms/:code/join', requireAuth, async (req, res) => {
        VALUES ($1, $2, $3, $4)`,
       [id, userId, userResult.rows[0].nickname, acceptedRole]
     )
+    await openRoomVisit(id, userId, userResult.rows[0].nickname, acceptedRole) // 1025 访问档案
+    await touchRoomPeak(id)
 
     await broadcastMembers(code)
     res.json({ ok: true, msg: '已加入房间', role: acceptedRole })
@@ -2650,11 +2660,32 @@ app.post('/api/rooms/:code/join', requireAuth, async (req, res) => {
   }
 })
 
+/* ========== 1025 房间访问档案(room_visits): 三维度UV/PV+双轨停留时长唯一数据源(欢哥口径)
+   段落制: 进房开段; 切角色闭旧段开新段(先听后奏=两段,时长各自归位); 离房/踢人闭段; 解散统一闭账——结束时刻不留人数只结时长账
+   全部 try-catch 不阻塞业务(档案弱依赖) ========== */
+async function openRoomVisit(roomId, userId, nickname, role) {
+  try { await pool.query('INSERT INTO room_visits (room_id, user_id, nickname, role) VALUES ($1,$2,$3,$4)', [roomId, userId, nickname || '', role || 'listener']) }
+  catch (e) { console.error('[visit] 开段失败:', e.message) }
+}
+async function closeRoomVisit(roomId, userId) {
+  try { await pool.query('UPDATE room_visits SET left_at = NOW() WHERE room_id = $1 AND user_id = $2 AND left_at IS NULL', [roomId, userId]) }
+  catch (e) { console.error('[visit] 闭段失败:', e.message) }
+}
+async function closeAllRoomVisits(roomId) {
+  try { await pool.query('UPDATE room_visits SET left_at = NOW() WHERE room_id = $1 AND left_at IS NULL', [roomId]) }
+  catch (e) { console.error('[visit] 闭账失败:', e.message) }
+}
+async function touchRoomPeak(roomId) {
+  try { await pool.query('UPDATE rooms SET peak_members = GREATEST(peak_members, (SELECT COUNT(*) FROM room_members WHERE room_id = $1)) WHERE id = $1', [roomId]) }
+  catch (e) { /* PCU失败无伤 */ }
+}
+
 // 离开房间
 // 移除成员并检查房间是否解散（/leave 和 socket disconnect 共用，L2 兜底也走这个）
 // 返回 true=房间已解散（杀进程+删房间），false=房间还在（房主可能已转移给最久的合奏者）
 async function removeMemberAndCheckDissolve(userId, roomId, roomCode) {
   await closeMusicianSession(userId, roomId)  // 闭会话须在删房前（会话无 FK 依赖房，但逻辑上先结算）
+  await closeRoomVisit(roomId, userId) // 1025: 离房闭访问段(时长结算)
   await pool.query('DELETE FROM room_members WHERE room_id = $1 AND user_id = $2', [roomId, userId])
 
   // 没有合奏者则解散房间（听众不参与房间存亡；jamony 定位是服务合奏者，没合奏者的房间无意义）
@@ -2688,6 +2719,7 @@ async function removeMemberAndCheckDissolve(userId, roomId, roomCode) {
     // 广播房间解散，让听众客户端弹窗"房间已解散"+跳大厅（在踢出 DB 成员前发，确保听众 socket 仍在线收到）
     io.to(roomCode).emit('room-dissolved', { roomCode })
     await closeRoomMusicianSessions(roomId)  // 解散全员闭会话（删房后 room_id 无 FK 但会话须先结算）
+    await closeAllRoomVisits(roomId) // 1025: 解散统一闭访问账(结束时刻不留人数,只结时长账——欢哥口径)
     // 1025 欢哥定稿: 无作品房也归档不硬删+终局成员快照(归档必须在删成员前——快照才能抓到终局在场; 合奏者全程来自musician_sessions档案)
     await pool.query(`UPDATE rooms SET status='archived', closed_at=NOW(),
       members_snapshot = (SELECT jsonb_build_object(
@@ -2757,6 +2789,7 @@ app.post('/api/rooms/:code/kick', requireAuth, async (req, res) => {
     // 删 member + 写黑名单（复合主键去重）
     await closeMusicianSession(targetUserId, id)  // 被踢者闭会话
     await pool.query('DELETE FROM room_members WHERE room_id = $1 AND user_id = $2', [id, targetUserId])
+    await closeRoomVisit(id, targetUserId) // 1025: 被踢也闭段(停留是事实,照算)
     await pool.query(
       `INSERT INTO room_kicked (room_id, user_id, kicked_by) VALUES ($1, $2, $3)
        ON CONFLICT (room_id, user_id) DO NOTHING`,
@@ -2798,10 +2831,16 @@ app.post('/api/rooms/:code/switch-role', requireAuth, async (req, res) => {
       }
     }
 
+    const prevMember2 = await pool.query('SELECT role, nickname FROM room_members WHERE room_id = $1 AND user_id = $2', [id, userId])
     await pool.query(
       'UPDATE room_members SET role = $1, last_active_at = NOW() WHERE room_id = $2 AND user_id = $3',
       [newRole, id, userId]
     )
+    // 1025 访问档案: 切角色=闭旧段开新段
+    if (prevMember2.rows[0] && prevMember2.rows[0].role !== newRole) {
+      await closeRoomVisit(id, userId)
+      await openRoomVisit(id, userId, prevMember2.rows[0].nickname, newRole)
+    }
     if (newRole === 'listener') await closeMusicianSession(userId, id)  // 翻回听众即闭会话
 
     await broadcastMembers(code)
@@ -5523,6 +5562,7 @@ app.post('/api/users/:userId/leave-all-rooms', requireAuth, async (req, res) => 
     for (const row of rooms.rows) {
       await closeMusicianSession(userId, row.room_id)  // 闭会话（此端点是 removeMember 的复制粘贴变体，钩子单独加）
       await pool.query('DELETE FROM room_members WHERE room_id = $1 AND user_id = $2', [row.room_id, userId])
+      await closeRoomVisit(row.room_id, userId) // 1025: L2断线闭段
       const remaining = await pool.query("SELECT COUNT(*) FROM room_members WHERE room_id = $1 AND role = 'musician'", [row.room_id])
       if (parseInt(remaining.rows[0].count) === 0) {
         const portResult = await pool.query('SELECT server_port, room_code FROM rooms WHERE id = $1 AND status != $2', [row.room_id, 'closed'])
@@ -5549,6 +5589,7 @@ app.post('/api/users/:userId/leave-all-rooms', requireAuth, async (req, res) => 
         }
         // 广播房间解散，让听众客户端弹窗+跳大厅
         if (dissolveCode) io.to(String(dissolveCode).trim()).emit('room-dissolved', { roomCode: String(dissolveCode).trim() })
+        await closeAllRoomVisits(row.room_id) // 1025: 此兜底归档路径也闭账
         // 1025 欢哥定稿: 无作品房也归档不硬删(与主解散管线同口径; 此路径成员已被逐个清空,final恒空,合奏者快照仍有值)
         await pool.query(`UPDATE rooms SET status='archived', closed_at=NOW(),
           members_snapshot = (SELECT jsonb_build_object(
@@ -5973,6 +6014,7 @@ async function forceDissolveRoom(roomId, actor) {
   }
   io.to(roomCode).emit('room-dissolved', { roomCode })
   await closeRoomMusicianSessions(roomId)
+  await closeAllRoomVisits(roomId) // 1025: 解散统一闭访问账(同主解散管线)
   // 1025 欢哥定稿: 归档+终局快照在删成员前(同主解散管线)
   await pool.query(`UPDATE rooms SET status='archived', closed_at=NOW(),
     members_snapshot = (SELECT jsonb_build_object(
