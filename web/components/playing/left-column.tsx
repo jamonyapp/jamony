@@ -95,7 +95,7 @@ export function LeftColumn({
     const prog = generateProgression(style, phrases)
     const rows = []
     for (let i = 0; i < prog.length; i += 4) {
-      rows.push(prog.slice(i, i + 4).join('  |  '))
+      rows.push(prog.slice(i, i + 4).join(' | '))
     }
     setChordText(rows.join('\n'))
   }
@@ -185,7 +185,7 @@ export function LeftColumn({
 
                 <textarea value={chordText} onChange={(e) => setChordText(e.target.value)}
                   placeholder="输入或点击下方随机生成"
-                  className="mt-3 min-h-[80px] flex-1 w-full resize-none rounded-[8px] border p-2 font-mono text-sm text-white outline-none scrollbar-thin"
+                  className="mt-3 min-h-[80px] flex-1 w-full resize-none rounded-[8px] border p-2 font-mono text-xs text-white outline-none scrollbar-thin"
                   style={{ borderColor: "#1A1A1A", background: "#141414" }}
                    />
 
