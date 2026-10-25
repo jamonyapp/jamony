@@ -925,6 +925,14 @@ function RecordingPanel({
         )}
       </>)
     })()}
+
+      {/* 1025 录音归档完成 toast（自造轻量浮条） */}
+      {recToast && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-lg border border-border bg-popover px-4 py-2.5 text-sm shadow-lg">
+          <Disc3 className="size-4 text-brand-pink" />
+          {recToast}
+        </div>
+      )}
   </>
   )
 }
@@ -2314,14 +2322,6 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
           </button>
 
       </div>
-
-      {/* 1025 录音归档完成 toast（自造轻量浮条） */}
-      {recToast && (
-        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-lg border border-border bg-popover px-4 py-2.5 text-sm shadow-lg">
-          <Disc3 className="size-4 text-brand-pink" />
-          {recToast}
-        </div>
-      )}
     </div>
   )
 }
