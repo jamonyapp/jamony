@@ -778,7 +778,7 @@ function RecordingPanel({
     if (showFinalizing && sessions.length > finalizeBaseline.current) {
       setFinalizing(false)
       if (finalizeTimer.current) clearTimeout(finalizeTimer.current)
-      setRecToast('录音已归档，见下方列表。')
+      setRecToast('录音已归档，见列表。参与合奏者请及时完成授权')
       setTimeout(() => setRecToast(''), 3500)
     }
   }, [sessions, showFinalizing])
@@ -1060,8 +1060,10 @@ function SessionCard({
               )}
             </>
           )}
-          <button onClick={onToggle} className="text-muted-foreground transition-colors hover:text-foreground">
-            <ChevronDown className={`size-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
+          {/* 1025 欢哥定稿: 授权入口显性化——朋友实测找不到授权位置,箭头改"授权+箭头"按钮,点击照常弹授权抽屉 */}
+          <button onClick={onToggle} className="flex items-center gap-1 rounded-full bg-brand-pink/75 px-2.5 py-1 text-[11px] font-bold text-white transition-transform hover:scale-[1.03]">
+            授权
+            <ChevronDown className={`size-3 transition-transform ${open ? "rotate-180" : ""}`} />
           </button>
         </div>
       </div>
