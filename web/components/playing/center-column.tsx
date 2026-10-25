@@ -778,8 +778,8 @@ function RecordingPanel({
     if (showFinalizing && sessions.length > finalizeBaseline.current) {
       setFinalizing(false)
       if (finalizeTimer.current) clearTimeout(finalizeTimer.current)
-      setRecToast('录音已归档，见列表。参与合奏者请及时完成授权')
-      setTimeout(() => setRecToast(''), 3500)
+      setRecToast('录音已生成，见下方列表。请参与合奏者及时点击卡片"授权"按钮完成授权')
+      setTimeout(() => setRecToast(''), 5000)
     }
   }, [sessions, showFinalizing])
 
@@ -1055,16 +1055,16 @@ function SessionCard({
                   <span className="text-[11px] text-muted-foreground">
                     <span className="font-semibold text-brand-green">{session.agreed_count}人已授权</span> · {refusedCount}人拒绝
                   </span>
-                  {canPublish && handlePublishButton()}
                 </>
               )}
             </>
           )}
-          {/* 1025 欢哥定稿: 授权入口显性化——朋友实测找不到授权位置,箭头改"授权+箭头"按钮,点击照常弹授权抽屉 */}
+          {/* 1025 欢哥定稿: 授权入口显性化——置于发表按钮之前,点击照常弹授权抽屉 */}
           <button onClick={onToggle} className="flex items-center gap-1 rounded-full bg-brand-pink/75 px-2.5 py-1 text-[11px] font-bold text-white transition-transform hover:scale-[1.03]">
             授权
             <ChevronDown className={`size-3 transition-transform ${open ? "rotate-180" : ""}`} />
           </button>
+          {canPublish && handlePublishButton()}
         </div>
       </div>
 
