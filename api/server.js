@@ -2688,9 +2688,13 @@ async function removeMemberAndCheckDissolve(userId, roomId, roomCode) {
     // 广播房间解散，让听众客户端弹窗"房间已解散"+跳大厅（在踢出 DB 成员前发，确保听众 socket 仍在线收到）
     io.to(roomCode).emit('room-dissolved', { roomCode })
     await closeRoomMusicianSessions(roomId)  // 解散全员闭会话（删房后 room_id 无 FK 但会话须先结算）
+    // 1025 欢哥定稿: 无作品房也归档不硬删+终局成员快照(归档必须在删成员前——快照才能抓到终局在场; 合奏者全程来自musician_sessions档案)
+    await pool.query(`UPDATE rooms SET status='archived', closed_at=NOW(),
+      members_snapshot = (SELECT jsonb_build_object(
+        'final', (SELECT COALESCE(jsonb_agg(jsonb_build_object('uid', user_id, 'nick', nickname, 'role', role)), '[]'::jsonb) FROM room_members WHERE room_id = $1),
+        'musicians', (SELECT COALESCE(jsonb_agg(DISTINCT jsonb_build_object('uid', u.id, 'nick', u.nickname)), '[]'::jsonb) FROM musician_sessions ms JOIN users u ON u.id = ms.user_id WHERE ms.room_id = $1)
+      )) WHERE id=$1`, [roomId])
     await pool.query('DELETE FROM room_members WHERE room_id = $1', [roomId])
-    // 1025 欢哥定稿: 无作品房也归档不硬删——运营档案全量保留(结束时间列+存活时长指标全量口径)
-    await pool.query("UPDATE rooms SET status='archived', closed_at=NOW() WHERE id=$1", [roomId])
     return true
   }
 
@@ -5545,8 +5549,12 @@ app.post('/api/users/:userId/leave-all-rooms', requireAuth, async (req, res) => 
         }
         // 广播房间解散，让听众客户端弹窗+跳大厅
         if (dissolveCode) io.to(String(dissolveCode).trim()).emit('room-dissolved', { roomCode: String(dissolveCode).trim() })
-        // 1025 欢哥定稿: 无作品房也归档不硬删(与主解散管线同口径)
-        await pool.query("UPDATE rooms SET status='archived', closed_at=NOW() WHERE id=$1", [row.room_id])
+        // 1025 欢哥定稿: 无作品房也归档不硬删(与主解散管线同口径; 此路径成员已被逐个清空,final恒空,合奏者快照仍有值)
+        await pool.query(`UPDATE rooms SET status='archived', closed_at=NOW(),
+          members_snapshot = (SELECT jsonb_build_object(
+            'final', (SELECT COALESCE(jsonb_agg(jsonb_build_object('uid', user_id, 'nick', nickname, 'role', role)), '[]'::jsonb) FROM room_members WHERE room_id = $1),
+            'musicians', (SELECT COALESCE(jsonb_agg(DISTINCT jsonb_build_object('uid', u.id, 'nick', u.nickname)), '[]'::jsonb) FROM musician_sessions ms JOIN users u ON u.id = ms.user_id WHERE ms.room_id = $1)
+          )) WHERE id=$1`, [row.room_id])
       }
     }
     res.json({ ok: true })
@@ -5965,9 +5973,13 @@ async function forceDissolveRoom(roomId, actor) {
   }
   io.to(roomCode).emit('room-dissolved', { roomCode })
   await closeRoomMusicianSessions(roomId)
+  // 1025 欢哥定稿: 归档+终局快照在删成员前(同主解散管线)
+  await pool.query(`UPDATE rooms SET status='archived', closed_at=NOW(),
+    members_snapshot = (SELECT jsonb_build_object(
+      'final', (SELECT COALESCE(jsonb_agg(jsonb_build_object('uid', user_id, 'nick', nickname, 'role', role)), '[]'::jsonb) FROM room_members WHERE room_id = $1),
+      'musicians', (SELECT COALESCE(jsonb_agg(DISTINCT jsonb_build_object('uid', u.id, 'nick', u.nickname)), '[]'::jsonb) FROM musician_sessions ms JOIN users u ON u.id = ms.user_id WHERE ms.room_id = $1)
+    )) WHERE id=$1`, [roomId])
   await pool.query('DELETE FROM room_members WHERE room_id = $1', [roomId])
-  // 1025 欢哥定稿: 无作品房也归档不硬删——运营档案全量保留(archived 恒真,返回值兼容)
-  await pool.query("UPDATE rooms SET status='archived', closed_at=NOW() WHERE id=$1", [roomId])
   const archived = true
   console.log(`[admin-internal] force dissolve 「${room.name}」(${roomCode}) by ${actor}: 清出${members.rows.length}人`)
   return { ok: true, removed: members.rows.length, archived }
