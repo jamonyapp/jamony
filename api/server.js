@@ -2533,7 +2533,8 @@ async function applyExpiry(roomId) {
 // 读取房间所有 session（已过 applyExpiry），返回带汇总的列表
 async function getRoomSessions(roomId) {
   // 1025: hidden=软隐藏(已发表段用户删列表)——行保留溯源(works.session_id),列表不可见
-  const sessions = await pool.query('SELECT * FROM recording_sessions WHERE room_id=$1 AND hidden=FALSE ORDER BY index', [roomId])
+  // 1025 欢哥定稿: 最新段落置顶(index DESC)——录完立刻在最上方
+  const sessions = await pool.query('SELECT * FROM recording_sessions WHERE room_id=$1 AND hidden=FALSE ORDER BY index DESC', [roomId])
   const result = []
   for (const s of sessions.rows) {
     const tr = await pool.query('SELECT * FROM session_tracks WHERE session_id=$1 ORDER BY is_system, created_at', [s.id])
@@ -3049,9 +3050,9 @@ async function stopRoomRecording(code, id, duration) {
             console.log('WAV files found:', wavFiles.length, 'in', recSessDir)
           }
 
-    // 段落序号 = 房间已有 session 数 + 1
-    const cnt = await pool.query('SELECT COUNT(*) AS c FROM recording_sessions WHERE room_id=$1', [id])
-    const index = parseInt(cnt.rows[0].c) + 1
+    // 段落序号 = MAX(index)+1 持续递增(1025 欢哥定稿:删除不回收序号——COUNT会重用致撞号乱序;hidden行天然参与,永不重名)
+    const mx = await pool.query('SELECT COALESCE(MAX(index),0) AS m FROM recording_sessions WHERE room_id=$1', [id])
+    const index = parseInt(mx.rows[0].m) + 1
 
     // 创建 session，启动倒计时（dir_name 记录本段目录名——1025 删除定位根治：空段无分轨 file_path 也能精准删目录）
     const sess = await pool.query(
