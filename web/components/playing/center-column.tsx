@@ -850,7 +850,7 @@ function RecordingPanel({
           <div className="h-full overflow-y-auto scrollbar-thin p-4">
             {/* 1025 归档完成提示（欢哥定稿位置：列表框内顶部；brand-pink 底与录音按钮同色系） */}
             {recToast && (
-              <div className="mb-2 flex items-center gap-2 rounded-md bg-brand-pink px-3 py-2 text-xs font-medium text-white">
+              <div className="mb-2 flex items-center justify-center gap-2 rounded-md bg-brand-pink/75 px-3 py-2 text-xs font-medium text-white">
                 <Disc3 className="size-3.5 shrink-0" />
                 {recToast}
               </div>
