@@ -5552,7 +5552,7 @@ app.post('/api/users/:userId/leave-all-rooms', requireAuth, async (req, res) => 
         if (dissolveCode) io.to(String(dissolveCode).trim()).emit('room-dissolved', { roomCode: String(dissolveCode).trim() })
         const pubCnt = await pool.query('SELECT COUNT(*) AS c FROM works WHERE room_id = $1', [row.room_id])
         if (parseInt(pubCnt.rows[0].c) > 0) {
-          await pool.query("UPDATE rooms SET status='archived' WHERE id=$1", [row.room_id])
+          await pool.query("UPDATE rooms SET status='archived', closed_at=NOW() WHERE id=$1", [row.room_id])
         } else {
           await pool.query('DELETE FROM rooms WHERE id = $1', [row.room_id])
         }
