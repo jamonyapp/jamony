@@ -2689,13 +2689,8 @@ async function removeMemberAndCheckDissolve(userId, roomId, roomCode) {
     io.to(roomCode).emit('room-dissolved', { roomCode })
     await closeRoomMusicianSessions(roomId)  // 解散全员闭会话（删房后 room_id 无 FK 但会话须先结算）
     await pool.query('DELETE FROM room_members WHERE room_id = $1', [roomId])
-    // 有作品 → archived，无作品 → 硬删
-    const pubCount = await pool.query('SELECT COUNT(*) AS c FROM works WHERE room_id = $1', [roomId])
-    if (parseInt(pubCount.rows[0].c) > 0) {
-      await pool.query("UPDATE rooms SET status='archived', closed_at=NOW() WHERE id=$1", [roomId])
-    } else {
-      await pool.query('DELETE FROM rooms WHERE id = $1', [roomId])
-    }
+    // 1025 欢哥定稿: 无作品房也归档不硬删——运营档案全量保留(结束时间列+存活时长指标全量口径)
+    await pool.query("UPDATE rooms SET status='archived', closed_at=NOW() WHERE id=$1", [roomId])
     return true
   }
 
@@ -5550,12 +5545,8 @@ app.post('/api/users/:userId/leave-all-rooms', requireAuth, async (req, res) => 
         }
         // 广播房间解散，让听众客户端弹窗+跳大厅
         if (dissolveCode) io.to(String(dissolveCode).trim()).emit('room-dissolved', { roomCode: String(dissolveCode).trim() })
-        const pubCnt = await pool.query('SELECT COUNT(*) AS c FROM works WHERE room_id = $1', [row.room_id])
-        if (parseInt(pubCnt.rows[0].c) > 0) {
-          await pool.query("UPDATE rooms SET status='archived', closed_at=NOW() WHERE id=$1", [row.room_id])
-        } else {
-          await pool.query('DELETE FROM rooms WHERE id = $1', [row.room_id])
-        }
+        // 1025 欢哥定稿: 无作品房也归档不硬删(与主解散管线同口径)
+        await pool.query("UPDATE rooms SET status='archived', closed_at=NOW() WHERE id=$1", [row.room_id])
       }
     }
     res.json({ ok: true })
@@ -5975,14 +5966,9 @@ async function forceDissolveRoom(roomId, actor) {
   io.to(roomCode).emit('room-dissolved', { roomCode })
   await closeRoomMusicianSessions(roomId)
   await pool.query('DELETE FROM room_members WHERE room_id = $1', [roomId])
-  const pubCount = await pool.query('SELECT COUNT(*) AS c FROM works WHERE room_id = $1', [roomId])
-  let archived = false
-  if (parseInt(pubCount.rows[0].c) > 0) {
-    await pool.query("UPDATE rooms SET status='archived', closed_at=NOW() WHERE id=$1", [roomId])
-    archived = true
-  } else {
-    await pool.query('DELETE FROM rooms WHERE id = $1', [roomId])
-  }
+  // 1025 欢哥定稿: 无作品房也归档不硬删——运营档案全量保留(archived 恒真,返回值兼容)
+  await pool.query("UPDATE rooms SET status='archived', closed_at=NOW() WHERE id=$1", [roomId])
+  const archived = true
   console.log(`[admin-internal] force dissolve 「${room.name}」(${roomCode}) by ${actor}: 清出${members.rows.length}人`)
   return { ok: true, removed: members.rows.length, archived }
 }
