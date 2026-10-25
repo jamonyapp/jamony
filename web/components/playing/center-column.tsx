@@ -1068,7 +1068,8 @@ function SessionCard({
             授权
             <ChevronDown className={`size-3 transition-transform ${open ? "rotate-180" : ""}`} />
           </button>
-          {canPublish && handlePublishButton()}
+          {/* 1025 欢哥定稿: 已发表段只留"✓已发表"徽章,发表按钮消失(删除钮保留走软隐藏) */}
+          {canPublish && session.status !== 'published' && handlePublishButton()}
           {canPublish && (
             <button
               onClick={() => canDelete && setDelConfirm(true)}
