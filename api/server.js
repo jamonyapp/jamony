@@ -2233,7 +2233,7 @@ async function sweepOrphanJamsoul() {
       const m = line.match(/:(\d+)\s.*pid=(\d+)/)
       if (!m) continue
       const port = parseInt(m[1])
-      if (port < 22124 || port > 40000) continue // 端口段白名单：非分配域绝不碰
+      if (port < 22124 || port > 60000) continue // 端口段白名单：下界=分配起点22124; 上界放宽(实测活跃房已到39005,分配无天花板),误杀由身份复核兜底
       if (!seen.has(port)) seen.set(port, parseInt(m[2]))
     }
     for (const [port, pid] of seen) {
