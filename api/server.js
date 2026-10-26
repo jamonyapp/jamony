@@ -2475,11 +2475,11 @@ async function summarizeSession(session, tracks) {
   const allLocked = realTracks.length > 0 && realTracks.every(t => t.use_locked && t.attribution_locked)
   const agreedCount = realTracks.filter(t => t.allow_use === true).length
 
-  // 自动释放超过5分钟的发表锁
+  // 自动释放超过15分钟的发表锁（1026：5→15分钟——混音调参进入锁窗后5分钟不够用，欢哥拍板）
   if (session.publisher_user_id && session.claimed_at && session.status !== 'published') {
     const claimedAt = new Date(session.claimed_at)
-    const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000)
-    if (claimedAt < fiveMinAgo) {
+    const staleAgo = new Date(Date.now() - 15 * 60 * 1000)
+    if (claimedAt < staleAgo) {
       await pool.query(
         'UPDATE recording_sessions SET publisher_user_id=NULL, claimed_at=NULL WHERE id=$1',
         [session.id]
@@ -3259,10 +3259,9 @@ app.get('/api/rooms/:code/sessions/:sid/tracks/:tid/download', requireAuth, asyn
     )
     if (member.rows.length === 0) return res.status(403).json({ ok: false, msg: '你不是该房间成员' })
 
-    // 验证已授权 allow_use=true，或是鼓机轨（is_system），或自己的轨
-    if (!track.allow_use && !track.is_system && track.user_id !== userId) {
-      return res.status(403).json({ ok: false, msg: '该分轨未授权使用' })
-    }
+    // 1026 排练室回放哲学（欢哥定案）：房间内试听流=大家一起回放录音，房间成员全可听
+    // （线下录完一起听回放天经地义；授权管的是「带出房间」——/download-file 的授权规则零改动）。
+    // 旧规则（他人轨须 allow_use）曾致：授权未齐时一轨 403 → 整个试听混音器打不开，拒绝者一人扣全房人质。
 
     // 文件存在性检查
     if (!track.file_path || !fs.existsSync(track.file_path)) {
@@ -3329,6 +3328,14 @@ app.post('/api/rooms/:code/sessions/:sid/claim-publish', requireAuth, async (req
     const roomId = await getRoomIdByCode(code)
     if (!roomId) return res.status(404).json({ ok: false, msg: '房间不存在' })
 
+    // ⭐ 1026 竞态资格：本 session 的分轨主人（有能量入轨的合奏者）才可抢发表权
+    //   （闸1 后无声者无行=天然无资格；听众/无轨房成员不可竞态）
+    const ownTrack = await pool.query(
+      'SELECT 1 FROM session_tracks WHERE session_id=$1 AND user_id=$2 AND is_system=FALSE LIMIT 1',
+      [sessionId, userId]
+    )
+    if (ownTrack.rows.length === 0) return res.status(403).json({ ok: false, msg: '只有本段落的乐手可以发表' })
+
     // 原子化更新：只有 publisher_user_id 为 NULL 时才能写入
     const result = await pool.query(
       "UPDATE recording_sessions SET publisher_user_id=$1, claimed_at=NOW() WHERE id=$2 AND publisher_user_id IS NULL AND status='authorizing' RETURNING *",
@@ -3392,6 +3399,17 @@ app.post('/api/rooms/:code/sessions/:sid/publish', requireAuth, upload.fields([{
     const sess = await pool.query('SELECT * FROM recording_sessions WHERE id=$1 AND room_id=$2', [sessionId, roomId])
     if (sess.rows.length === 0) return res.status(404).json({ ok: false, msg: 'Session 不存在' })
     if (sess.rows[0].status === 'published') return res.status(400).json({ ok: false, msg: '该段落已发表' })
+
+    // ⭐ 1026 补洞：锁的强制性此前只在前端——服务端校验提交人=持锁人+分轨主人
+    //   （NULL=懒超时已释放；非持锁人直打 API 一律 403）
+    if (!sess.rows[0].publisher_user_id || sess.rows[0].publisher_user_id !== req.userId) {
+      return res.status(403).json({ ok: false, msg: '发表权已被他人持有或已释放，请重新获取' })
+    }
+    const ownTrackPub = await pool.query(
+      'SELECT 1 FROM session_tracks WHERE session_id=$1 AND user_id=$2 AND is_system=FALSE LIMIT 1',
+      [sessionId, req.userId]
+    )
+    if (ownTrackPub.rows.length === 0) return res.status(403).json({ ok: false, msg: '只有本段落的乐手可以发表' })
 
     const { title, style, copyright, cover_song, cover_author, source, description, duration, cover_gradient, has_drum_track, agreed, authors_json } = req.body
     const publisher_user_id = req.userId
