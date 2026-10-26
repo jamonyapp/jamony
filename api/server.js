@@ -561,6 +561,7 @@ function optionalAuth(req, res, next) {
 const { moderateText } = require('./lib/moderation')
 // 1025 迷你雪花: 暴露面主实体显式发号(15-16位长数字,JS安全域); 日志类表保留SERIAL
 const { nextId } = require('./lib/snowflake')
+const { probeMaxVolumeDb } = require('./lib/probe-volume')
 const MODERATION_REJECT_MSG = '内容包含违规信息，请修改后重发'
 
 // 返回 true=放行, false=拒绝; kind: notice|notice_comment|work|work_comment|room|theme|chat|message
@@ -2993,7 +2994,6 @@ async function stopRoomRecording(code, id, duration) {
     const roomPort = room.rows[0].server_port
     // 幂等防重：已在非录音态（另一 tab 已停过/自动停已触发）直接成功返回，不再重复建 session
     if (!room.rows[0].recording_active) return { ok: true }
-    const drumsUsedThisRecording = room.rows[0].drums_used_this_recording  // UPDATE 置 FALSE 前先捕获（后台落档要用）
 
     // 服务端权威时长：客户端秒表跨强刷会重置少算（音频无损仅标签偏短）；无起始时刻（异常）回退客户端上报值
     let dur = duration || '0:00'
@@ -3054,14 +3054,6 @@ async function stopRoomRecording(code, id, duration) {
     const mx = await pool.query('SELECT COALESCE(MAX(index),0) AS m FROM recording_sessions WHERE room_id=$1', [id])
     const index = parseInt(mx.rows[0].m) + 1
 
-    // 创建 session，启动倒计时（dir_name 记录本段目录名——1025 删除定位根治：空段无分轨 file_path 也能精准删目录）
-    const sess = await pool.query(
-      `INSERT INTO recording_sessions (room_id, index, duration, countdown_seconds, expires_at, dir_name)
-       VALUES ($1, $2, $3, $4, NOW() + ($5 * interval '1 second'), $6) RETURNING *`,
-      [id, index, dur || '0:00', RECORDING_COUNTDOWN_SECONDS, RECORDING_COUNTDOWN_SECONDS, require('path').basename(pinnedDir || '')]
-    )
-    const sessionId = sess.rows[0].id
-
     // 快照当前合奏者 → 分轨，按顺序匹配 WAV 文件
     const musicians = await pool.query(
       `SELECT rm.user_id, rm.nickname, u.instrument_category FROM room_members rm
@@ -3090,37 +3082,56 @@ async function stopRoomRecording(code, id, duration) {
       w.filename = newName
       w.fullPath = newPath
     }
-    // 筛选 WAV：排除 looper 轨，按顺序匹配真人成员
+    // ⭐ 闸1·全量能量检测（1026 欢哥定案：「署名跟声音事实走」——昨天只测 looper，今天全部轨）
+    // 并行探测所有 WAV（人+looper）；probe 失败=null=保守按有声（宁放过不误丢，looper 回退哲学同源）。
+    // 静音轨（用户或 looper）一律不进 session——无声者不参与授权/署名/混音，从根上杜绝
+    // 「带着无声轨进 session→署名却无实质声音」的移花接木温床。
+    const audibleMap = new Map() // fullPath -> boolean
+    await Promise.all(wavFiles.map(w =>
+      probeMaxVolumeDb(w.fullPath).then(db => {
+        const audible = db === null ? true : db > -60
+        audibleMap.set(w.fullPath, audible)
+        if (!audible) console.log(`[recording] 分轨静默不拉入: ${w.filename} (max_volume=${db}dB)`)
+      })
+    ))
+    const looperWav = wavFiles.find(w => w.filename.startsWith('jamony-looper'))
+    const looperAudible = looperWav ? audibleMap.get(looperWav.fullPath) !== false : false
     const userWavs = wavFiles.filter(w => !w.filename.startsWith('jamony-looper'))
-    let wavIdx = 0
-    for (const m of musicians.rows) {
-      const filePath = wavIdx < userWavs.length ? userWavs[wavIdx].fullPath : ''
-      await pool.query(
-        'INSERT INTO session_tracks (session_id, user_id, nickname, instrument_category, file_path) VALUES ($1, $2, $3, $4, $5)',
-        [sessionId, m.user_id, m.nickname, m.instrument_category || '', filePath]
-      )
-      wavIdx++
+
+    // ⭐ 无人类有效轨（全员静音或仅 looper 发声）→ 不建 session（欢哥拍板：不落列表+提示，技术最干净）
+    // 段号/存储阀天然不消耗；Jam-* 目录清理杜绝孤儿；socket 通知全房（前端清「归档中」态+品牌弹窗）。
+    const audibleHumans = userWavs.filter(w => audibleMap.get(w.fullPath) !== false)
+    if (audibleHumans.length === 0) {
+      try {
+        if (recSessDir && fs.existsSync(recSessDir)) fs.rmSync(recSessDir, { recursive: true, force: true })
+      } catch (e) { console.error('[recording] 空段目录清理失败:', e.message) }
+      console.log(`[recording] 本次录音无有效用户内容，不生成段落 (人轨可听=0, looper=${looperAudible}): ${recSessDir}`)
+      io.to(code).emit('session-discarded', { roomId: code, reason: 'no_user_audio', dirName: path.basename(recSessDir || ''), ts: new Date().toISOString() })
+      return
     }
 
-    // jamony-looper 分轨拉入判定（1026 欢哥"管子"哲学终版）：
-    // 不再问"哪个工具开过"(鼓机PID探活已过时——GP/program等新推流入口照不到), 直接检测
-    // looper 分轨 wav 的音量电平——wav 无条件被录制(1026实验实证:无推流段也有文件),
-    // 静默=-91dB vs 推流max≥-5dB,阈值-60dB 天地之别永不误判; 未来任何推流工具自动覆盖。
-    // drums_used_this_recording 机制退役(列保留兼容); 检测失败保守回退旧标志。
-    let looperAudible = false
-    const looperWav = wavFiles.find(w => w.filename.startsWith('jamony-looper'))
-    if (looperWav && fs.existsSync(looperWav.fullPath)) {
-      try {
-        const volOut = execSync(`ffmpeg -i "${looperWav.fullPath}" -af volumedetect -f null - 2>&1 | grep max_volume`, { encoding: 'utf8', timeout: 30000, stdio: ['pipe', 'pipe', 'ignore'] }).toString()
-        const vm = volOut.match(/max_volume:\s*(-?[\d.]+)\s*dB/)
-        if (vm) looperAudible = parseFloat(vm[1]) > -60
-      } catch (e) {
-        console.error('[recording] looper能量检测失败, 回退drums标志:', e.message)
-        looperAudible = drumsUsedThisRecording
-      }
-    } else {
-      looperAudible = drumsUsedThisRecording // 无wav文件(异常场景)保守回退
+    // 创建 session（移到能量判定之后——无有效人轨不建行；dir_name 记录本段目录名，1025 删除定位根治沿用）
+    const sess = await pool.query(
+      `INSERT INTO recording_sessions (room_id, index, duration, countdown_seconds, expires_at, dir_name)
+       VALUES ($1, $2, $3, $4, NOW() + ($5 * interval '1 second'), $6) RETURNING *`,
+      [id, index, dur || '0:00', RECORDING_COUNTDOWN_SECONDS, RECORDING_COUNTDOWN_SECONDS, path.basename(pinnedDir || '')]
+    )
+    const sessionId = sess.rows[0].id
+
+    // 人轨插行：joined_at 顺序位置配对（配对先于过滤，保对位不漂移），无 WAV / 静默者不插行
+    // （1026 欢哥定案：取消「缺失补空行」——无声者不该出现在授权列表；空行还会让混音器 every(normalized) 永假打不开）
+    let wavIdx = 0
+    for (const m of musicians.rows) {
+      const matched = wavIdx < userWavs.length ? userWavs[wavIdx] : null
+      wavIdx++
+      if (!matched) continue                                    // 无 WAV（未开麦等）→ 无行
+      if (audibleMap.get(matched.fullPath) === false) continue  // 静默 → 无行
+      await pool.query(
+        'INSERT INTO session_tracks (session_id, user_id, nickname, instrument_category, file_path) VALUES ($1, $2, $3, $4, $5)',
+        [sessionId, m.user_id, m.nickname, m.instrument_category || '', matched.fullPath]
+      )
     }
+
     if (!looperAudible) console.log(`[recording] session#${sessionId} looper分轨静默(-60dB阈值内),不拉入`)
     if (looperAudible) {
       await pool.query(
