@@ -3103,9 +3103,14 @@ async function stopRoomRecording(code, id, duration) {
     // 段号/存储阀天然不消耗；Jam-* 目录清理杜绝孤儿；socket 通知全房（前端清「归档中」态+品牌弹窗）。
     const audibleHumans = userWavs.filter(w => audibleMap.get(w.fullPath) !== false)
     if (audibleHumans.length === 0) {
-      try {
-        if (recSessDir && fs.existsSync(recSessDir)) fs.rmSync(recSessDir, { recursive: true, force: true })
-      } catch (e) { console.error('[recording] 空段目录清理失败:', e.message) }
+      // ⭐ 1026 护栏（/tmp 事故判例同款）：目录清理白名单——只清录音仓内段目录，jamsoul 返回异常路径时宁留勿删
+      if (recSessDir && /^\/var\/jamony\/recordings\/room-\d+-records\/[^/]+$/.test(recSessDir)) {
+        try {
+          if (fs.existsSync(recSessDir)) fs.rmSync(recSessDir, { recursive: true, force: true })
+        } catch (e) { console.error('[recording] 空段目录清理失败:', e.message) }
+      } else if (recSessDir) {
+        console.error('[recording] 空段清理: 拒绝非录音仓目录(白名单外):', recSessDir)
+      }
       console.log(`[recording] 本次录音无有效用户内容，不生成段落 (人轨可听=0, looper=${looperAudible}): ${recSessDir}`)
       io.to(code).emit('session-discarded', { roomId: code, reason: 'no_user_audio', dirName: path.basename(recSessDir || ''), ts: new Date().toISOString() })
       return
@@ -3237,6 +3242,12 @@ app.delete('/api/rooms/:code/sessions/:sid', requireAuth, async (req, res) => {
         if (fs.existsSync(byName)) dir = byName
       }
       if (!dir) for (const t of tracks.rows) { const d = require('path').dirname(t.file_path); if (fs.existsSync(d)) { dir = d; break } }
+      // ⭐ 1026 护栏（/tmp 事故判例）：目录删除白名单——只允许录音仓内的段目录。
+      //    file_path 若被污染/错配（如 E2E 指向 /tmp），绝不能 rm -rf 其任意父目录——今晚生产 /tmp 即被此路径误删后重建。
+      if (dir && !/^\/var\/jamony\/recordings\/room-\d+-records\/[^/]+$/.test(dir)) {
+        console.error('[recording] delete: 拒绝非录音仓目录删除(白名单外):', dir)
+        dir = null
+      }
       if (dir) { try { require('child_process').execSync(`rm -rf "${dir}"`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('[recording] 删除分轨目录失败:', e.message) } }
       await pool.query('DELETE FROM session_tracks WHERE session_id=$1', [sessionId])
       await pool.query('DELETE FROM recording_sessions WHERE id=$1', [sessionId])
