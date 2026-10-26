@@ -793,7 +793,7 @@ setInterval(async () => {
 // 1024 Step5: 全套量刑参数进配置中心(admin 只授权超级管理员); watchReturn/autoDemote/autoBan/cycle/round 五键为同日去硬编码升格
 // 1024 Step6: 渠道分组(欢哥定稿)——门面(publish)=公告牌/作品/房间名简介/推送主题, 流动(interact)=评论/聊天/私信(预留)
 // 分组按内容性质不按传输通道(推送主题走socket但属门面); 判定参数与计数分渠道独立可配, 处罚阶梯共享(封的是人不是渠道)
-const MODERATION_DEFAULTS = { threshold: 5, windowDays: 90, restrictDays: 7, appealDays: 3, rejectThreshold: 5, watchReturnDays: 30, autoDemoteDays: 7, demoteCycleThreshold: 3, autoBanDays: 7, autoBanPermanentRound: 3, interactThreshold: 5, interactWindowDays: 90, interactRejectThreshold: 5, streamSampleIntervalMin: 30, streamSampleSeconds: 60, streamDissolveThreshold: 3, maxActiveRooms: 15 }
+const MODERATION_DEFAULTS = { threshold: 5, windowDays: 90, restrictDays: 7, appealDays: 3, rejectThreshold: 5, watchReturnDays: 30, autoDemoteDays: 7, demoteCycleThreshold: 3, autoBanDays: 7, autoBanPermanentRound: 3, interactThreshold: 5, interactWindowDays: 90, interactRejectThreshold: 5, streamSampleIntervalMin: 30, streamSampleSeconds: 60, streamDissolveThreshold: 3, maxActiveRooms: 15, roomCreateHourlyLimit: 5 }
 const CHANNEL_OF_KIND = { notice: 'publish', work: 'publish', room: 'publish', theme: 'publish', notice_image: 'publish', avatar: 'publish', work_cover: 'publish', work_audio: 'publish', score_image: 'publish', score: 'publish', notice_comment: 'interact', work_comment: 'interact', chat: 'interact', message: 'interact', chords: 'interact' }
 let moderationCfgCache = { data: MODERATION_DEFAULTS, at: 0 }
 
@@ -822,6 +822,7 @@ async function getModerationConfig() {
         streamSampleSeconds: Number(v.stream_sample_seconds) || MODERATION_DEFAULTS.streamSampleSeconds, // 每次采样时长(秒)
         streamDissolveThreshold: Number(v.stream_dissolve_threshold) || MODERATION_DEFAULTS.streamDissolveThreshold, // 熔断阈值(采样不过审次数)
         maxActiveRooms: Number(v.max_active_rooms) || MODERATION_DEFAULTS.maxActiveRooms, // 运营闸门(暂混居此配置,参数多了再拆): 并发活跃房上限=收割者搭档, 防每房150-300MB资源耗尽OOM; 默认15=升配扳机(12-15房)之下留余量
+        roomCreateHourlyLimit: Number(v.room_create_hourly_limit) || MODERATION_DEFAULTS.roomCreateHourlyLimit, // 1026 建房频率闸: 每账号每小时建房间数上限——B闸限并发不限频率, 防「建-散-建」churn 打进程spawn
       }
     } else {
       moderationCfgCache.data = MODERATION_DEFAULTS
@@ -2216,6 +2217,45 @@ async function getAvailablePort() {
   return port
 }
 
+// ========== 1026 孤儿 jamsoul 巡检（killJamsoul杀不死判例的扫帚，欢哥拍板） ==========
+// 散房残留的 headless/ghost/ffmpeg 进程蚕食内存（每只150-300MB，2C4G经不起几只僵尸）。
+// 三重安全（/tmp事故白名单哲学同源）：①端口段白名单(22124-40000=getAvailablePort分配域)
+// ②进程年龄>3分钟才动手（避建房spawn与行插入的时序竞态）③身份复核 cmdline 须含 jamsoul
+// 服务特征。拆卸走 manage-jamsoul stop 完整通道 + ghost/ffmpeg 显式补杀（state 丢失场景 stop 兜不到）。
+const SWEEP_MIN_AGE_SEC = Number(process.env.JAMONY_SWEEP_MIN_AGE_SEC) || 180
+async function sweepOrphanJamsoul() {
+  try {
+    const active = await pool.query("SELECT server_port FROM rooms WHERE status NOT IN ('closed','archived')")
+    const activePorts = new Set(active.rows.map(r => r.server_port))
+    const ss = execSync('ss -ulnp', { encoding: 'utf8', timeout: 10000 })
+    const seen = new Map() // port -> 首个pid（年龄/身份复核样本）
+    for (const line of ss.split('\n')) {
+      const m = line.match(/:(\d+)\s.*pid=(\d+)/)
+      if (!m) continue
+      const port = parseInt(m[1])
+      if (port < 22124 || port > 40000) continue // 端口段白名单：非分配域绝不碰
+      if (!seen.has(port)) seen.set(port, parseInt(m[2]))
+    }
+    for (const [port, pid] of seen) {
+      if (activePorts.has(port)) continue // 活跃房，勿动
+      try {
+        const etime = execSync(`ps -o etimes= -p ${pid}`, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim()
+        if (!Number.isFinite(parseInt(etime)) || parseInt(etime) < SWEEP_MIN_AGE_SEC) continue
+        const cmd = execSync(`cat /proc/${pid}/cmdline`, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).replace(/\0/g, ' ')
+        if (!cmd.includes('--server') || !cmd.includes('--nogui')) continue // 身份复核：非 jamsoul 服务进程绝不碰
+        console.log(`[orphan-sweep] 发现孤儿 jamsoul port=${port} pid=${pid} age=${etime}s → 完整拆卸`)
+        try { execSync(`node ${__dirname}/manage-jamsoul.js stop ${port}`, { timeout: 15000, stdio: 'pipe' }) } catch (e) {}
+        try { execSync(`pkill -f "127.0.0.1:${port}"`, { timeout: 5000, stdio: 'pipe' }) } catch (e) {}      // ghost（--connect 127.0.0.1:PORT）
+        try { execSync(`pkill -f "jm-stream-${port}"`, { timeout: 5000, stdio: 'pipe' }) } catch (e) {}      // 推流 ffmpeg
+      } catch (e) { /* 单个端口失败不阻断整轮巡检 */ }
+    }
+  } catch (e) {
+    console.error('[orphan-sweep] 巡检失败:', e.message)
+  }
+}
+setInterval(sweepOrphanJamsoul, 10 * 60 * 1000)
+sweepOrphanJamsoul() // 启动即扫一次
+
 // 创建房间
 app.post('/api/rooms', requireAuth, async (req, res) => {
   try {
@@ -2230,6 +2270,11 @@ app.post('/api/rooms', requireAuth, async (req, res) => {
     const activeRooms = await pool.query("SELECT COUNT(*)::int AS c FROM rooms WHERE status NOT IN ('closed','archived')")
     if (activeRooms.rows[0].c >= cfg0.maxActiveRooms) {
       return res.status(400).json({ ok: false, msg: '当前在线房间较多，请稍后再试，或去大厅加入现有房间一起玩' })
+    }
+    // 1026 建房频率闸(欢哥拍板, 配置中心可调, 默认5/小时): B闸限并发不限频率——防「建-散-建」churn 循环打 jamsoul spawn(2C4G 实打实的CPU/端口消耗)
+    const hourRooms = await pool.query("SELECT COUNT(*)::int AS c FROM rooms WHERE host_id=$1 AND created_at > NOW() - interval '1 hour'", [hostId])
+    if (hourRooms.rows[0].c >= cfg0.roomCreateHourlyLimit) {
+      return res.status(400).json({ ok: false, msg: '创建房间过于频繁，请稍后再试' })
     }
     const roomText = [name, description, style].filter(v => typeof v === 'string' && v.trim()).join('\n')
     if (!(await moderatePublishText('room', null, hostId, req.nickname, roomText))) {
