@@ -5900,6 +5900,18 @@ async function cleanupOrphanProcesses() {
       headlessPorts = [...ssOut.matchAll(/(\d+\.\d+\.\d+\.\d+):(\d+)\s/g)].map(m => parseInt(m[2])).filter(p => p >= 1024)
     } catch (e) { /* 无 headless 进程，正常 */ }
 
+    // 1b.（1026 补，欢哥问出的漏项）卫星进程枚举：GP 走带 fluidsynth（FluidSynth-GP-<端口>，壳模式可永生）、
+    //     program 走带 jack-stdin（jamony-program-<端口>）、推流 ffmpeg（jm-stream-<端口>）——
+    //     场景=崩溃重启后 headless 已死而卫星还活（不监听UDP，ss 锚点照不到；gpEngines/programEngines
+    //     内存 Map 已随重启蒸发，无人持有句柄）。进程名即端口，5位端口等长无子串误杀。
+    try {
+      const psOut = execSync("ps -eo args= 2>/dev/null | grep -E 'FluidSynth-GP-|jamony-program-|jm-stream-' | grep -v grep", { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).toString()
+      for (const m of psOut.matchAll(/(?:FluidSynth-GP-|jamony-program-|jm-stream-)(\d{5})/g)) {
+        const p = parseInt(m[1])
+        if (p >= 22124 && !headlessPorts.includes(p)) headlessPorts.push(p)
+      }
+    } catch (e) { /* 无卫星进程，正常 */ }
+
     // 2. 查 rooms 表活跃房间的 server_port
     const active = await pool.query("SELECT server_port FROM rooms WHERE status NOT IN ('closed','archived')")
     const activePorts = new Set(active.rows.map(r => r.server_port))
@@ -5915,6 +5927,9 @@ async function cleanupOrphanProcesses() {
       // 残留的 ffmpeg/looper（state 可能没记录），精确按端口匹配兜底 kill
       try { execSync(`pkill -f 'jm-stream-${port}'`, { stdio: 'pipe' }) } catch {}
       try { execSync(`pkill -f '127.0.0.1:${port}'`, { stdio: 'pipe' }) } catch {}
+      // 1026 补：GP 走带 fluidsynth + program 走带 jack-stdin（ffmpeg 随管道 EPIPE 自灭）——崩溃重启后 Map 蒸发的孤儿
+      try { execSync(`pkill -f 'FluidSynth-GP-${port}'`, { timeout: 5000, stdio: 'pipe' }) } catch {}
+      try { execSync(`pkill -f 'jamony-program-${port}'`, { timeout: 5000, stdio: 'pipe' }) } catch {}
     }
     console.log('Orphan check: cleaned ' + orphans.length + ' orphan port(s): ' + orphans.join(','))
   } catch (e) { console.error('Orphan cleanup error:', e) }
