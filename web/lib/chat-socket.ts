@@ -48,6 +48,8 @@ export function useChatSocket(roomId?: string, nickname?: string) {
   const [dissolvedEvent, setDissolvedEvent] = useState<{ roomCode: string; ts: number } | null>(null)
   // 1026 闸1: 本次录音无有效用户内容——session 不生成（无 sessions-update 兜底，须显式清归档态）
   const [discardEvent, setDiscardEvent] = useState<{ reason: string; dirName: string; ts: number } | null>(null)
+  // 1026 混音器使用 presence（删除保护「正在使用的文件不可删除」）：开/关上报，断线重连自动补报
+  const mixerSessionRef = useRef<number | null>(null)
 
   useEffect(() => {
     if (!roomId || !nickname) return
@@ -61,6 +63,10 @@ export function useChatSocket(roomId?: string, nickname?: string) {
     socket.on("connect", () => {
       setConnected(true)
       socket.emit("join-room", roomId)
+      // 1026 断线重连 presence 补报：混音器还开着=仍占用（删除保护不因网络抖动漏报）
+      if (mixerSessionRef.current != null) {
+        socket.emit("mixer-open", { roomId, sessionId: mixerSessionRef.current })
+      }
     })
 
     socket.on("chat-message", (msg: ChatMessage) => {
@@ -204,6 +210,17 @@ export function useChatSocket(roomId?: string, nickname?: string) {
     socketRef.current.emit("chat-message", { roomId, message: msg, author: nickname })
   }
 
+  // 1026 混音器 presence：混音器开=占用该段落（挡删除），关=释放
+  const openMixer = (sessionId: number) => {
+    mixerSessionRef.current = sessionId
+    if (socketRef.current && roomId) socketRef.current.emit("mixer-open", { roomId, sessionId })
+  }
+  const closeMixerPresence = () => {
+    const sid = mixerSessionRef.current
+    mixerSessionRef.current = null
+    if (socketRef.current && roomId && sid != null) socketRef.current.emit("mixer-close", { roomId, sessionId: sid })
+  }
+
   const pushChords = (chords: string[]) => {
     if (!socketRef.current || !roomId) return
     socketRef.current.emit("push-chords", { roomId, chords })
@@ -283,5 +300,5 @@ export function useChatSocket(roomId?: string, nickname?: string) {
     setRealtimeScore(null)
   }
 
-  return { messages, sendMessage, connected, realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, hydrateScore, realtimeScore, realtimeGpState, playGp, pauseGp, updateGpMix, setGpSpeed, setGpCountin, setGpLoop, setGpRange, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, realtimeRecordingFinalizing, kickedEvent, dissolvedEvent, realtimeProgram, realtimeProgramState, programError, playProgram, pauseProgram, stopProgram, updateProgramMix, hydrateProgram, chatRejected, roomViolation, discardEvent }
+  return { messages, sendMessage, connected, realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, hydrateScore, realtimeScore, realtimeGpState, playGp, pauseGp, updateGpMix, setGpSpeed, setGpCountin, setGpLoop, setGpRange, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, realtimeRecordingFinalizing, kickedEvent, dissolvedEvent, realtimeProgram, realtimeProgramState, programError, playProgram, pauseProgram, stopProgram, updateProgramMix, hydrateProgram, chatRejected, roomViolation, discardEvent, openMixer, closeMixerPresence }
 }

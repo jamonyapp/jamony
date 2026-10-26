@@ -2478,7 +2478,7 @@ async function summarizeSession(session, tracks) {
   // 自动释放超过15分钟的发表锁（1026：5→15分钟——混音调参进入锁窗后5分钟不够用，欢哥拍板）
   if (session.publisher_user_id && session.claimed_at && session.status !== 'published') {
     const claimedAt = new Date(session.claimed_at)
-    const staleAgo = new Date(Date.now() - 15 * 60 * 1000)
+    const staleAgo = new Date(Date.now() - PUBLISH_LOCK_MS)
     if (claimedAt < staleAgo) {
       await pool.query(
         'UPDATE recording_sessions SET publisher_user_id=NULL, claimed_at=NULL WHERE id=$1',
@@ -2921,6 +2921,7 @@ app.post('/api/rooms/:code/heartbeat', requireAuth, async (req, res) => {
 
 // ========== 录音 session（录音 → 授权 → 发表 全链路） ==========
 const RECORDING_COUNTDOWN_SECONDS = 60  // 倒计时秒数（测试用 60，后期改 600）
+const PUBLISH_LOCK_MS = 15 * 60 * 1000  // 1026 发表锁窗（欢哥拍板 5→15 分钟：调参进锁窗）——summarizeSession 懒释放与删除使用判定共用
 const RECORDING_MAX_SECONDS = 5 * 60    // 单段录音上限（欢哥 0923：防滥用承压+引导少量多次+控制作品时长；5min 足够支撑排练/jam）
 const recordingTimers = new Map()       // room_code → 5min 到点自动停定时器
 
@@ -3213,6 +3214,16 @@ app.delete('/api/rooms/:code/sessions/:sid', requireAuth, async (req, res) => {
     const own = await pool.query('SELECT 1 FROM session_tracks WHERE session_id=$1 AND user_id=$2 AND allow_use=TRUE', [sessionId, req.userId])
     if (own.rows.length === 0) {
       return res.status(403).json({ ok: false, msg: '仅授权使用该录音的合奏者可删除——未授权即视为放弃该段' })
+    }
+
+    // ⭐ 1026 使用中判定（欢哥定稿：正在使用的文件不可删除——一视同仁含本人）
+    // ①混音器开着（socket presence：试听/发表不分模式，全量可点击者=房间全员角色无关）
+    // ②发表锁未过期（限定 status=authorizing 且 claimed_at 在锁窗内——懒释放未触发也不误挡，已发表不算发表中）
+    const usingCount = (mixerUsage.get(sessionId) || new Set()).size
+    const claimedMs = session.rows[0].claimed_at ? new Date(session.rows[0].claimed_at).getTime() : 0
+    const lockActive = session.rows[0].status === 'authorizing' && !!session.rows[0].publisher_user_id && claimedMs > 0 && (Date.now() - claimedMs < PUBLISH_LOCK_MS)
+    if (usingCount > 0 || lockActive) {
+      return res.status(409).json({ ok: false, msg: '当前段落正在使用中，请稍后再试，或检查自己是否已退出当前段落的试听。' })
     }
     if (session.rows[0].status === 'published') {
       await pool.query('UPDATE recording_sessions SET hidden=TRUE WHERE id=$1', [sessionId])
@@ -5277,6 +5288,12 @@ io.use(async (socket, next) => {
 // 明确退出（叉窗/dock/断开按钮）走 HTTP leave 不经过这里；内存态，pm2 重启丢（服务器重启本就全房报废，既有特性）。
 const pendingL2Cleanup = new Map()
 const L2_GRACE_MS = 60 * 1000
+
+// 1026 混音器使用 presence（删除保护「正在使用的文件不可删除」）：
+// sessionId → 占用中的 socket 集合（试听/发表混音器不分模式不分角色——混音器全员可开）。
+// socket 生命周期=使用生命周期：开=mixer-open 上报，关/断线=清理，无需心跳。
+const mixerUsage = new Map()      // sessionId(Number) → Set<socketId>
+const socketMixers = new Map()    // socketId → Set<sessionId>（断线反查清理用）
 // 录音发起者表（join-room 补发用）：room_code → 发起 userId。强刷回来后发起者才能显示"停止"按钮。
 // 内存态：服务器重启丢 → 降级为只显示"录音中"（同改造前），可接受。
 const recordingStarters = new Map()
@@ -5317,6 +5334,24 @@ io.on("connection", (socket) => {
   socket.on("leave-room", (roomId) => {
     socket.leave(roomId)
     console.log("Socket left room:", roomId)
+  })
+
+  // 1026 混音器使用 presence 上报（删除保护）：开=占用 / 关=释放
+  socket.on("mixer-open", (data) => {
+    const sid = Number(data && data.sessionId)
+    if (!Number.isFinite(sid)) return
+    if (!mixerUsage.has(sid)) mixerUsage.set(sid, new Set())
+    mixerUsage.get(sid).add(socket.id)
+    if (!socketMixers.has(socket.id)) socketMixers.set(socket.id, new Set())
+    socketMixers.get(socket.id).add(sid)
+  })
+  socket.on("mixer-close", (data) => {
+    const sid = Number(data && data.sessionId)
+    if (!Number.isFinite(sid)) return
+    const users = mixerUsage.get(sid)
+    if (users) { users.delete(socket.id); if (users.size === 0) mixerUsage.delete(sid) }
+    const mine = socketMixers.get(socket.id)
+    if (mine) { mine.delete(sid); if (mine.size === 0) socketMixers.delete(socket.id) }
   })
 
   socket.on("chat-message", async (data) => {
@@ -5693,6 +5728,15 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", async () => {
     console.log("Socket disconnected, userId:", socket.userId)
+    // 1026 混音器 presence 随连接蒸发（强刷/断网/杀进程——无需客户端 close 事件）
+    const mine = socketMixers.get(socket.id)
+    if (mine) {
+      for (const sid of mine) {
+        const users = mixerUsage.get(sid)
+        if (users) { users.delete(socket.id); if (users.size === 0) mixerUsage.delete(sid) }
+      }
+      socketMixers.delete(socket.id)
+    }
     if (!socket.userId) return
     // L2 兜底（延迟版）：崩溃/强杀/断网/强刷时客户端没机会发 leave，socket 断开（pingTimeout 后）这里挂 60s 定时再清成员+检查解散。
     // 强刷场景页面秒级重载重连（join-room 取消定时器），房间原地无伤；真崩溃/断电 60s 后照原逻辑清。

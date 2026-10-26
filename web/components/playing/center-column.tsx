@@ -196,6 +196,8 @@ export function CenterColumn({
   realtimeRecordingStartedAt,
   realtimeRecordingMax,
   realtimeRecordingFinalizing,
+  onMixerOpen,
+  onMixerClose,
   score,
   onClearScore,
   gpState,
@@ -221,6 +223,9 @@ export function CenterColumn({
   realtimeRecordingStartedAt?: string | null
   realtimeRecordingMax?: number | null
   realtimeRecordingFinalizing?: boolean | null
+  /** 1026 混音器使用 presence（删除保护）：开=占用 / 关=释放 */
+  onMixerOpen?: (sessionId: number) => void
+  onMixerClose?: () => void
   score?: RoomScore | null
   onClearScore?: () => void
   gpState?: { playing: boolean; startedAt?: string; speed?: number; countInMs?: number; endMs?: number } | null
@@ -298,6 +303,8 @@ export function CenterColumn({
           realtimeRecordingStartedAt={realtimeRecordingStartedAt}
           realtimeRecordingMax={realtimeRecordingMax}
           realtimeRecordingFinalizing={realtimeRecordingFinalizing}
+          onMixerOpen={onMixerOpen}
+          onMixerClose={onMixerClose}
           drawerOpen={drawerOpen}
           onToggleDrawer={() => setDrawerOpen((o) => !o)}
         />
@@ -615,6 +622,8 @@ function RecordingPanel({
   realtimeRecordingStartedAt,
   realtimeRecordingMax,
   realtimeRecordingFinalizing,
+  onMixerOpen,
+  onMixerClose,
   drawerOpen,
   onToggleDrawer,
 }: {
@@ -628,6 +637,8 @@ function RecordingPanel({
   realtimeRecordingStartedAt?: string | null
   realtimeRecordingMax?: number | null
   realtimeRecordingFinalizing?: boolean | null
+  onMixerOpen?: (sessionId: number) => void
+  onMixerClose?: () => void
   drawerOpen?: boolean
   onToggleDrawer?: () => void
 }) {
@@ -951,7 +962,46 @@ function RecordingPanel({
     }
     setMixerSessionId(null); setMixerMode(null); setMixerMinimized(false)
     setPublishModalOpen(false); setInjectedMix(null)
+    onMixerClose?.() // 1026 使用 presence 释放（挡删除解除）
   }
+
+  // 1026 使用 presence 上报：混音器开=占用该段落（挡删除），关/换段=释放；断线重连由 chat-socket 自动补报
+  const prevMixerSessionRef = useRef<number | null>(null)
+  useEffect(() => {
+    const prev = prevMixerSessionRef.current
+    if (prev === mixerSessionId) return
+    if (prev != null) onMixerClose?.()
+    if (mixerSessionId != null) onMixerOpen?.(mixerSessionId)
+    prevMixerSessionRef.current = mixerSessionId
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mixerSessionId])
+
+  // 2026 缝③兜底层：presence 挡常态删除，漏网窗口（断线间隙/事件在途）由「段落消失→优雅退出」兜底
+  const mixerHadSessionRef = useRef(false)
+  useEffect(() => {
+    if (mixerSessionId === null || mixerMode === null) { mixerHadSessionRef.current = false; return }
+    if (sessions.some(s => s.id === mixerSessionId)) { mixerHadSessionRef.current = true; return }
+    if (mixerHadSessionRef.current) {
+      mixerHadSessionRef.current = false
+      closeMixer()
+      try { localStorage.removeItem(draftKey(mixerSessionId)) } catch {}
+      dialog.alert("该段落已被删除。")
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessions, mixerSessionId, mixerMode])
+
+  // 1026 锁窗到点自动拉取：触发服务端懒释放+广播，全员按钮态即时对齐（否则「发表中」挂到下一次任意读取）
+  const lockExpiredFetchedRef = useRef(false)
+  useEffect(() => {
+    if (publishDeadlineMs === null) { lockExpiredFetchedRef.current = false; return }
+    if (Date.now() >= publishDeadlineMs && !lockExpiredFetchedRef.current) {
+      lockExpiredFetchedRef.current = true
+      fetch(`/api/rooms/${roomId}/sessions`)
+        .then(r => r.json())
+        .then(d => { if (d.ok) setSessions(d.sessions || []) })
+        .catch(() => {})
+    }
+  }, [publishDeadlineMs, now, roomId])
 
   async function patchTrack(sessionId: number, trackId: number, field: "allow_use" | "allow_attribution" | "allow_download", value: boolean) {
     if (!roomId || !currentUserId) return
