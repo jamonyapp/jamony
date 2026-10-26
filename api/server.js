@@ -2216,45 +2216,8 @@ async function getAvailablePort() {
   while (usedPorts.has(port)) port++
   return port
 }
-
-// ========== 1026 孤儿 jamsoul 巡检（killJamsoul杀不死判例的扫帚，欢哥拍板） ==========
-// 散房残留的 headless/ghost/ffmpeg 进程蚕食内存（每只150-300MB，2C4G经不起几只僵尸）。
-// 三重安全（/tmp事故白名单哲学同源）：①端口段白名单(22124-40000=getAvailablePort分配域)
-// ②进程年龄>3分钟才动手（避建房spawn与行插入的时序竞态）③身份复核 cmdline 须含 jamsoul
-// 服务特征。拆卸走 manage-jamsoul stop 完整通道 + ghost/ffmpeg 显式补杀（state 丢失场景 stop 兜不到）。
-const SWEEP_MIN_AGE_SEC = Number(process.env.JAMONY_SWEEP_MIN_AGE_SEC) || 180
-async function sweepOrphanJamsoul() {
-  try {
-    const active = await pool.query("SELECT server_port FROM rooms WHERE status NOT IN ('closed','archived')")
-    const activePorts = new Set(active.rows.map(r => r.server_port))
-    const ss = execSync('ss -ulnp', { encoding: 'utf8', timeout: 10000 })
-    const seen = new Map() // port -> 首个pid（年龄/身份复核样本）
-    for (const line of ss.split('\n')) {
-      const m = line.match(/:(\d+)\s.*pid=(\d+)/)
-      if (!m) continue
-      const port = parseInt(m[1])
-      if (port < 22124 || port > 60000) continue // 端口段白名单：下界=分配起点22124; 上界放宽(实测活跃房已到39005,分配无天花板),误杀由身份复核兜底
-      if (!seen.has(port)) seen.set(port, parseInt(m[2]))
-    }
-    for (const [port, pid] of seen) {
-      if (activePorts.has(port)) continue // 活跃房，勿动
-      try {
-        const etime = execSync(`ps -o etimes= -p ${pid}`, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim()
-        if (!Number.isFinite(parseInt(etime)) || parseInt(etime) < SWEEP_MIN_AGE_SEC) continue
-        const cmd = execSync(`cat /proc/${pid}/cmdline`, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).replace(/\0/g, ' ')
-        if (!cmd.includes('--server') || !cmd.includes('--nogui')) continue // 身份复核：非 jamsoul 服务进程绝不碰
-        console.log(`[orphan-sweep] 发现孤儿 jamsoul port=${port} pid=${pid} age=${etime}s → 完整拆卸`)
-        try { execSync(`node ${__dirname}/manage-jamsoul.js stop ${port}`, { timeout: 15000, stdio: 'pipe' }) } catch (e) {}
-        try { execSync(`pkill -f "127.0.0.1:${port}"`, { timeout: 5000, stdio: 'pipe' }) } catch (e) {}      // ghost（--connect 127.0.0.1:PORT）
-        try { execSync(`pkill -f "jm-stream-${port}"`, { timeout: 5000, stdio: 'pipe' }) } catch (e) {}      // 推流 ffmpeg
-      } catch (e) { /* 单个端口失败不阻断整轮巡检 */ }
-    }
-  } catch (e) {
-    console.error('[orphan-sweep] 巡检失败:', e.message)
-  }
-}
-setInterval(sweepOrphanJamsoul, 10 * 60 * 1000)
-sweepOrphanJamsoul() // 启动即扫一次
+// 1026 孤儿巡检说明：存量机制 cleanupOrphanProcesses（下方 ~:5960，进程名枚举+drums-stop/stop/stop-ghost
+// 全套拆卸，启动+每10分钟）已完整覆盖——勿再造轮子（今晚重复造了一个又撤掉，判例：动手前先 grep 存量）。
 
 // 创建房间
 app.post('/api/rooms', requireAuth, async (req, res) => {
