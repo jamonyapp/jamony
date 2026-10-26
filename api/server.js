@@ -3423,12 +3423,90 @@ app.post('/api/rooms/:code/sessions/:sid/publish', requireAuth, upload.fields([{
       return res.status(400).json({ ok: false, msg: MODERATION_REJECT_MSG })
     }
 
+    // ⭐ 闸4·混音快照（1026 定案：所发即所听）：mix_params 必到必验，成品=用户混音参数渲染
+    //   旧客户端缺失 → 400 请升级（与 web 同窗部署）
+    let mixParams = null
+    try { mixParams = req.body.mix_params ? JSON.parse(req.body.mix_params) : null } catch (e) { mixParams = null }
+    if (!mixParams || !Array.isArray(mixParams.tracks) || mixParams.tracks.length === 0) {
+      return res.status(400).json({ ok: false, msg: '缺少混音参数，请升级客户端后重试' })
+    }
+    // 形状钳制：master 0~2；每轨 gain 0~2 / pan -1~1；range 0≤a<b（缺省=全曲）
+    const mpMaster = Math.min(2, Math.max(0, Number(mixParams.master) || 0))
+    const mpTracks = mixParams.tracks
+      .map(t => ({ track_id: Number(t.track_id), gain: Math.min(2, Math.max(0, Number(t.gain) || 0)), pan: Math.min(1, Math.max(-1, Number(t.pan) || 0)) }))
+      .filter(t => Number.isFinite(t.track_id))
+    let mpA = 0, mpB = Infinity
+    if (mixParams.range && Number.isFinite(Number(mixParams.range.a)) && Number.isFinite(Number(mixParams.range.b))) {
+      mpA = Math.max(0, Number(mixParams.range.a))
+      mpB = Math.max(mpA + 1, Number(mixParams.range.b)) // 最小区间 1s，防极短探测窗口
+    }
+    // 护栏：总线静音或全轨静音 → 拒
+    if (mpMaster <= 0) return res.status(400).json({ ok: false, msg: '总线音量为静音，无法发表' })
+    if (mpTracks.every(t => t.gain <= 0)) return res.status(400).json({ ok: false, msg: '所有分轨均为静音，无法发表' })
+
+    // ⭐ 权威集合对齐：mix_params 必须恰好覆盖全部「授权使用的人类轨」
+    //   （防客户端剔除有声轨绕闸）；looper（is_system）跟随客户端、豁免终审——
+    //    系统轨非人类参与，豁免与其授权状态无关（1026 欢哥修正判例：looper 默认全授权）
+    const authRowsAll = await pool.query(
+      'SELECT id, nickname, user_id, is_system, instrument_category, file_path FROM session_tracks WHERE session_id=$1 AND allow_use=TRUE',
+      [sessionId]
+    )
+    const humanRows = authRowsAll.rows.filter(t => !t.is_system)
+    const authIds = new Set(humanRows.map(t => String(t.id)))
+    const sentIds = new Set(mpTracks.map(t => String(t.track_id)))
+    const missingIds = [...authIds].filter(id => !sentIds.has(id))
+    if (missingIds.length > 0 || sentIds.size !== authIds.size) {
+      return res.status(400).json({ ok: false, msg: '混音分轨与已授权分轨不一致，请重新打开发表混音器' })
+    }
+
+    // ⭐ 闸3·区间能量终审：人类轨在发表区间 [a,b) 内峰值须 >-60dB
+    //   防「区间外出声掩人耳目」移花接木变体（欢哥红队推演）；全曲缺省跳过=落版闸1已测；
+    //   探测失败=保守放行（宁放过不误拦，probe 哲学同源）
+    if (mpB !== Infinity) {
+      const silentNames = []
+      await Promise.all(humanRows.map(async t => {
+        if (!t.file_path) return
+        const db = await probeMaxVolumeDb(t.file_path, mpA, Math.max(mpB - mpA, 1))
+        if (db !== null && db <= -60) silentNames.push(t.nickname)
+      }))
+      if (silentNames.length > 0) {
+        return res.status(400).json({ ok: false, code: 'SILENT_RANGE', msg: `以下分轨在所选区间内无声：${silentNames.join('、')}。请调整发表区间，或由该乐手拒绝使用授权` })
+      }
+    }
+
+    // 规范化快照（权威字段以服务端钳制值为准，展示字段 DB 行补全，客户端预检证据原样留档）
+    const rowById = new Map(authRowsAll.rows.map(r => [String(r.id), r]))
+    const mixSnapshot = {
+      version: 1,
+      limiter: 'fixed-v1',
+      engine: 'webaudio-v1',
+      rendered_at: typeof mixParams.rendered_at === 'string' ? mixParams.rendered_at : new Date().toISOString(),
+      master: mpMaster,
+      range: { a: mpA, b: mpB === Infinity ? null : mpB },
+      tracks: mpTracks.map(t => {
+        const row = rowById.get(String(t.track_id))
+        const client = (mixParams.tracks.find(ct => String(ct.track_id) === String(t.track_id)) || {})
+        return {
+          track_id: t.track_id,
+          user_id: row ? row.user_id : null,
+          nickname: row ? row.nickname : (client.nickname || ''),
+          is_system: row ? row.is_system : false,
+          instrument_category: row ? row.instrument_category : (client.instrument_category || ''),
+          gain: t.gain,
+          gain_db: Math.round(20 * Math.log10(Math.max(t.gain, 1e-4)) * 100) / 100,
+          pan: t.pan,
+          in_range: client.in_range !== false,
+        }
+      }),
+      client_audit: mixParams.client_audit || null,
+    }
+
     // 先插入 works 获取 workId(1024 音频线: audio_review='pending'——公域不可见, 本人可见挂审核中角标, 审毕解锁)
     const workId = nextId() // 1025 雪花: 显式发号
     const work = await pool.query(
-      `INSERT INTO works (id, room_id, session_id, publisher_user_id, title, style, copyright_type, cover_song, cover_author, source, description, duration, cover_gradient, has_drum_track, agreed, status, audio_review)
-       VALUES ($15, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'published', 'pending')`,
-      [roomId, sessionId, publisher_user_id, title, style, copyright, cover_song || '', cover_author || '', source || '', description || '', duration || '', cover_gradient || '', has_drum_track === 'true', agreed === 'true', workId]
+      `INSERT INTO works (id, room_id, session_id, publisher_user_id, title, style, copyright_type, cover_song, cover_author, source, description, duration, cover_gradient, has_drum_track, agreed, status, audio_review, mix_params)
+       VALUES ($15, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'published', 'pending', $16)`,
+      [roomId, sessionId, publisher_user_id, title, style, copyright, cover_song || '', cover_author || '', source || '', description || '', duration || '', cover_gradient || '', has_drum_track === 'true', agreed === 'true', workId, JSON.stringify(mixSnapshot)]
     )
 
     // 创建作品专属文件夹 /var/jamony/works/YYYYMMDDHHmm_userId_作品名称_sessionId/
