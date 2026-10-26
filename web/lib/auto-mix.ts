@@ -268,8 +268,9 @@ function assignPans(centroids: number[], isDrum: boolean[]): number[] {
 
 /**
  * 将 AudioBuffer 编码为 MP3 Blob（128kbps CBR）
+ * 1026 起同时供 render-mix.ts（用户混音渲染）复用——编码器单源
  */
-function encodeMp3(audioBuffer: AudioBuffer): Blob {
+export function encodeMp3(audioBuffer: AudioBuffer): Blob {
   const Mp3Encoder = lamejs?.Mp3Encoder
   if (!Mp3Encoder) throw new Error("MP3 编码器未加载（lame.all.js 未注入）")
 

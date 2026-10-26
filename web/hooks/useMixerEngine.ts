@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react"
 import type { MixerTrack } from "@/components/mixer/types"
+import { applyFixedLimiter } from "@/lib/render-mix"
 
 /** 从 AudioBuffer 提取波形峰值，downsample 到 targetCount 点（1015 起 program 背景轨波形共用） */
 export function extractPeaks(buf: AudioBuffer, targetCount: number): number[] {
@@ -21,6 +22,15 @@ export function extractPeaks(buf: AudioBuffer, targetCount: number): number[] {
 }
 
 const DEFAULT_GAIN = 1.0  // 0dB（unity），DAW 标准
+
+/** 草稿参数（1026 按 session 分仓 localStorage；M/S 不入草稿——试听工具不跨会话残留） */
+export interface MixerDraft {
+  volumes?: Record<string, number>
+  pans?: Record<string, number>
+  master?: number
+  locator?: { a: number; b: number | null } | null
+  loop?: boolean
+}
 
 export function useMixerEngine() {
   const audioCtxRef = useRef<AudioContext | null>(null)
@@ -52,6 +62,11 @@ export function useMixerEngine() {
   // master
   const [masterVolume, setMasterVolume] = useState(DEFAULT_GAIN)
 
+  // 定位器（1026 Cubase 式）：{a,b} 秒，b=null=到末尾；整体 null=未启用（全曲）
+  const [locator, setLocator] = useState<{ a: number; b: number | null } | null>(null)
+  // 区间内循环开关
+  const [loop, setLoopState] = useState(false)
+
   // ref（避免闭包 + seek 恢复）
   const volumesRef = useRef<Record<string, number>>({})
   const pansRef = useRef<Record<string, number>>({})
@@ -60,6 +75,10 @@ export function useMixerEngine() {
   const masterVolumeRef = useRef(DEFAULT_GAIN)
   const clipsRef = useRef<Record<string, boolean>>({})
   const masterClipRef = useRef(false)
+  const locatorRef = useRef<{ a: number; b: number | null } | null>(null)
+  const loopRef = useRef(false)
+  // 区间循环重启桥（rafTick 经 ref 调用，避免 useCallback 循环依赖）
+  const restartRef = useRef<(offset: number) => void>(() => {})
 
   // 音频资源
   const buffersRef = useRef<Map<string, AudioBuffer>>(new Map())
@@ -98,7 +117,9 @@ export function useMixerEngine() {
   const rafTick = useCallback(() => {
     if (!isPlayingRef.current) return
     const elapsed = (performance.now() - startTimeRef.current) / 1000
-    const next = Math.min(startOffsetRef.current + elapsed, durationRef.current)
+    // 定位器生效时终点=区间 B（1026）；区间可拖动中实时收窄生效
+    const endAt = locatorRef.current ? (locatorRef.current.b ?? durationRef.current) : durationRef.current
+    const next = Math.min(startOffsetRef.current + elapsed, endAt)
     setCurrentTime(next)
 
     // 电平采样：隔帧 ~30fps（Cubase 等 DAW 主流；60fps 色块跳动过灵敏）。走带位置仍每帧 60fps。
@@ -147,11 +168,16 @@ export function useMixerEngine() {
     }
     }  // end 电平采样 30fps
 
-    if (next >= durationRef.current) {
+    if (next >= endAt) {
+      if (loopRef.current && locatorRef.current) {
+        // 区间循环：回 A 重启（1026 定位器配套）
+        restartRef.current(locatorRef.current.a)
+        return
+      }
       isPlayingRef.current = false
       setIsPlaying(false)
-      startOffsetRef.current = 0
-      setCurrentTime(0)
+      startOffsetRef.current = locatorRef.current ? locatorRef.current.a : 0
+      setCurrentTime(locatorRef.current ? locatorRef.current.a : 0)
       return
     }
     rafRef.current = requestAnimationFrame(rafTickRef.current)
@@ -170,6 +196,12 @@ export function useMixerEngine() {
 
   // 从当前偏移量播放
   const playFromOffset = useCallback((offset: number) => {
+    // 定位器生效时播放约束在区间内（1026）
+    const lc = locatorRef.current
+    if (lc) {
+      const end = lc.b ?? durationRef.current
+      offset = Math.min(Math.max(offset, lc.a), Math.max(lc.a, end - 0.05))
+    }
     const ctx = getCtx()
     const buffers = buffersRef.current
     const gains = gainNodesRef.current
@@ -194,8 +226,14 @@ export function useMixerEngine() {
     rafRef.current = requestAnimationFrame(rafTick)
   }, [getCtx, effectiveGain, rafTick])
 
-  // 加载音轨
-  const loadTracks = useCallback(async (mixerTracks: MixerTrack[]) => {
+  // 区间循环重启桥赋值（rafTick 经 restartRef 调用）
+  restartRef.current = (offset: number) => {
+    stopAllSources()
+    playFromOffset(offset)
+  }
+
+  // 加载音轨（initial=草稿参数覆盖，1026 携带试听调整进发表混音器；M/S 永远全新默认）
+  const loadTracks = useCallback(async (mixerTracks: MixerTrack[], initial?: MixerDraft) => {
     const ctx = getCtx()
     setLoading(true)
     setLoadProgress(0)
@@ -205,13 +243,24 @@ export function useMixerEngine() {
     startOffsetRef.current = 0
     setCurrentTime(0)
 
-    // master 总线节点
+    // 草稿 master/定位器先落 ref（总线节点与播放约束读的是 ref）
+    if (initial && Number.isFinite(initial.master) && (initial.master as number) > 0) {
+      masterVolumeRef.current = initial.master as number
+    }
+    locatorRef.current = (initial && initial.locator) ? { a: initial.locator.a, b: initial.locator.b } : null
+    loopRef.current = !!(initial && initial.loop)
+
+    // master 总线：masterGain → analyser（表头=限幅器前的诚实表头，clip 灯改义「限幅介入指示」）
+    // → limiter(fixed-v1 安全限幅器，与 renderMix 离线链同参同位) → destination
     const masterGain = ctx.createGain()
     masterGain.gain.value = masterVolumeRef.current
     const masterAnalyser = ctx.createAnalyser()
     masterAnalyser.fftSize = 256
+    const limiter = ctx.createDynamicsCompressor()
+    applyFixedLimiter(limiter)
     masterGain.connect(masterAnalyser)
-    masterAnalyser.connect(ctx.destination)
+    masterAnalyser.connect(limiter)
+    limiter.connect(ctx.destination)
     masterGainRef.current = masterGain
     masterAnalyserRef.current = masterAnalyser
 
@@ -264,17 +313,22 @@ export function useMixerEngine() {
     gainNodesRef.current = newGains
     analyserNodesRef.current = newAnalysers
     pannerNodesRef.current = newPanners
-    // 初始化默认值
+    // 初始化默认值 + 草稿覆盖（volumes/pans 按 trackId 对号入座，缺轨键回默认）
     const initVols: Record<string, number> = {}
     const initPans: Record<string, number> = {}
     mixerTracks.forEach(t => {
-      volumesRef.current[t.id] = DEFAULT_GAIN
-      pansRef.current[t.id] = 0
-      initVols[t.id] = DEFAULT_GAIN
-      initPans[t.id] = 0
+      const dv = (initial && Number.isFinite(initial.volumes?.[t.id])) ? (initial.volumes![t.id] as number) : DEFAULT_GAIN
+      const dp = (initial && Number.isFinite(initial.pans?.[t.id])) ? (initial.pans![t.id] as number) : 0
+      volumesRef.current[t.id] = dv
+      pansRef.current[t.id] = dp
+      initVols[t.id] = dv
+      initPans[t.id] = dp
     })
     setVolumes(initVols)
     setPans(initPans)
+    setMasterVolume(masterVolumeRef.current)
+    setLocator(locatorRef.current)
+    setLoopState(loopRef.current)
     clipsRef.current = {}
     masterClipRef.current = false
     setClips({})
@@ -309,14 +363,22 @@ export function useMixerEngine() {
 
   const stop = useCallback(() => {
     stopAllSources()
-    startOffsetRef.current = 0
+    // 定位器生效时停在区间头（DAW 惯例），否则回 0
+    const backTo = locatorRef.current ? locatorRef.current.a : 0
+    startOffsetRef.current = backTo
     isPlayingRef.current = false
     setIsPlaying(false)
-    setCurrentTime(0)
+    setCurrentTime(backTo)
   }, [stopAllSources])
 
   const seek = useCallback((ratio: number) => {
-    const newTime = ratio * duration
+    let newTime = ratio * duration
+    // 定位器生效时 seek 钳制进区间（2026 Cubase 式）
+    const lc = locatorRef.current
+    if (lc) {
+      const end = lc.b ?? duration
+      newTime = Math.min(Math.max(newTime, lc.a), Math.max(lc.a, end - 0.05))
+    }
     startOffsetRef.current = newTime
     setCurrentTime(newTime)
     if (isPlayingRef.current) {
@@ -386,6 +448,70 @@ export function useMixerEngine() {
     setMasterClip(false)
   }, [])
 
+  // ───── 定位器 API（1026 Cubase 式：双三角 A/B，最小间距 0.5s）─────
+  const setLocatorA = useCallback((v: number) => {
+    const cur = locatorRef.current
+    const d = durationRef.current || 0
+    const end = cur?.b ?? d
+    const a = Math.max(0, Math.min(v, Math.max(0, end - 0.5)))
+    locatorRef.current = { a, b: cur?.b ?? null }
+    setLocator(locatorRef.current)
+  }, [])
+
+  const setLocatorB = useCallback((v: number) => {
+    const cur = locatorRef.current
+    const d = durationRef.current || 0
+    const a = cur?.a ?? 0
+    const b = Math.max(a + 0.5, Math.min(v, d)) // B 不超曲长
+    locatorRef.current = { a, b }
+    setLocator(locatorRef.current)
+  }, [])
+
+  const clearLocator = useCallback(() => {
+    locatorRef.current = null
+    loopRef.current = false
+    setLocator(null)
+    setLoopState(false)
+  }, [])
+
+  const setLoop = useCallback((v: boolean) => {
+    loopRef.current = v
+    setLoopState(v)
+  }, [])
+
+  /** 复位所有参数（1026 欢哥定案）：音量1.0/声像0/总线1.0/M/S清/定位器清 */
+  const resetAll = useCallback(() => {
+    const ids = [...buffersRef.current.keys()]
+    const vols: Record<string, number> = {}
+    const pns: Record<string, number> = {}
+    ids.forEach(id => {
+      volumesRef.current[id] = DEFAULT_GAIN
+      pansRef.current[id] = 0
+      vols[id] = DEFAULT_GAIN
+      pns[id] = 0
+      const g = gainNodesRef.current.get(id)
+      if (g) g.gain.value = DEFAULT_GAIN
+      const p = pannerNodesRef.current.get(id)
+      if (p) p.pan.value = 0
+    })
+    mutesRef.current = {}
+    solosRef.current = {}
+    masterVolumeRef.current = DEFAULT_GAIN
+    if (masterGainRef.current) masterGainRef.current.gain.value = DEFAULT_GAIN
+    locatorRef.current = null
+    loopRef.current = false
+    setVolumes(vols)
+    setPans(pns)
+    setMutes({})
+    setSolos({})
+    setMasterVolume(DEFAULT_GAIN)
+    setLocator(null)
+    setLoopState(false)
+  }, [])
+
+  /** 渲染/区间预检数据源：已解码 buffer 快照（免二次下载，1026） */
+  const getBuffers = useCallback(() => new Map(buffersRef.current), [])
+
   // 清理
   useEffect(() => {
     return () => {
@@ -401,8 +527,10 @@ export function useMixerEngine() {
     isPlaying, currentTime, duration, progress,
     tracks, mutes, solos, volumes, pans, levels, clips,
     masterVolume, masterLevel, masterClip,
+    locator, loop,
     loadTracks,
     play, pause, stop, seek,
+    setLocatorA, setLocatorB, clearLocator, setLoop, resetAll, getBuffers,
     togglePlay: isPlaying ? pause : play,
     onVolumeChange: handleVolume,
     onMuteToggle: handleMute,
