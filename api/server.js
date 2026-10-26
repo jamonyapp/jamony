@@ -3453,9 +3453,12 @@ app.post('/api/rooms/:code/sessions/:sid/publish', requireAuth, upload.fields([{
     )
     const humanRows = authRowsAll.rows.filter(t => !t.is_system)
     const authIds = new Set(humanRows.map(t => String(t.id)))
+    const looperIds = new Set(authRowsAll.rows.filter(t => t.is_system).map(t => String(t.id)))
     const sentIds = new Set(mpTracks.map(t => String(t.track_id)))
+    // 对齐只比人类轨（looper 跟随客户端、豁免——与终审豁免同口径）；未知轨 id 一律拒
     const missingIds = [...authIds].filter(id => !sentIds.has(id))
-    if (missingIds.length > 0 || sentIds.size !== authIds.size) {
+    const unknownIds = [...sentIds].filter(id => !authIds.has(id) && !looperIds.has(id))
+    if (missingIds.length > 0 || unknownIds.length > 0) {
       return res.status(400).json({ ok: false, msg: '混音分轨与已授权分轨不一致，请重新打开发表混音器' })
     }
 
