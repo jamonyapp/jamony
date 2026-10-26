@@ -65,6 +65,12 @@ interface PublishWorkModalProps {
   forceLockLost?: boolean
   /** 当前 session 的最新 publisher_user_id（socket 实时更新，用于检测锁丢失） */
   livePublisherUserId?: number | null
+  /** 1026 注入模式：成品已在发表混音器渲染（用户参数+定位器区间），跳过内部 autoMix 直达表单 */
+  injectedMix?: { mp3Blob: Blob; durationSec: number; mixParamsJson: string } | null
+  /** 1026 发表锁 deadline（epoch ms；claimed_at+15min，混音器与卡片共用同一倒计时）；缺省回退旧5分钟 */
+  deadlineMs?: number | null
+  /** 1026 往返保留：关卡调参再点发表作品回来，已填字段不清零（只重注入新成品 blob） */
+  keepFieldsOnReopen?: boolean
 }
 
 type State = "mixing" | "form" | "publishing" | "success" | "failure" | "lockLost"
@@ -150,6 +156,9 @@ export default function PublishWorkModal({
   forcePublishFail,
   forceLockLost,
   livePublisherUserId,
+  injectedMix,
+  deadlineMs,
+  keepFieldsOnReopen,
 }: PublishWorkModalProps) {
   const { openRestricted } = useRestrictedDialog()
   const [state, setState] = useState<State>("mixing")
@@ -180,6 +189,8 @@ export default function PublishWorkModal({
 
   const startLockTimer = useCallback(() => {
     clearLockTimer()
+    // 1026: 锁窗=claimed_at+15min 单一 deadline（发表混音器与发表卡共用）；缺省回退旧5分钟
+    const ms = deadlineMs ? Math.max(1000, deadlineMs - Date.now()) : 5 * 60 * 1000
     lockTimerRef.current = setTimeout(() => {
       if (roomId && sessionId !== undefined && currentUserId) {
         // 释放锁
@@ -189,8 +200,8 @@ export default function PublishWorkModal({
         }).catch(() => {})
       }
       setState("lockLost")
-    }, 5 * 60 * 1000)
-  }, [roomId, sessionId, currentUserId, clearLockTimer])
+    }, ms)
+  }, [roomId, sessionId, currentUserId, clearLockTimer, deadlineMs])
 
   /* 监听 acquired + state → 启动/取消 5分钟计时 */
   useEffect(() => {
@@ -364,11 +375,24 @@ export default function PublishWorkModal({
     }
   }, [roomId, sessionId, currentUserId, authorizedTrackIds, authorizedTrackIsDrums])
 
-  /* 初始化：打开时重置 + 启动混音 */
+  /* 初始化：打开时重置 + 启动混音（1026 注入模式：成品已在混音器渲染，直达表单） */
+  const fieldsInitRef = useRef(false)
   useEffect(() => {
     if (!open) return
     // ⚠️ 防父组件因 socket 更新重渲染导致成功/发表中状态被重置
     if (mixDone && (state === "success" || state === "publishing")) return
+    // 1026 往返保留：已初始化过则字段不清零，只重注入新成品（回混音器调参后重新渲染过）
+    if (keepFieldsOnReopen && fieldsInitRef.current) {
+      if (injectedMix) {
+        mp3BlobRef.current = injectedMix.mp3Blob
+        mixDurationRef.current = injectedMix.durationSec
+        setMixDone(true)
+        setMixProgress("")
+      }
+      setState(forceLockLost ? "lockLost" : "mixing")
+      return
+    }
+    fieldsInitRef.current = true
     setState(forceLockLost ? "lockLost" : "mixing")
     setMixDone(false)
     setMixError(false)
@@ -401,7 +425,12 @@ export default function PublishWorkModal({
 
     if (forceLockLost) return
 
-    if (isRealMix) {
+    if (injectedMix) {
+      // 1026 注入模式：发表混音器已用用户参数渲染成品，直接就绪（卡片只管元数据）
+      mp3BlobRef.current = injectedMix.mp3Blob
+      mixDurationRef.current = injectedMix.durationSec
+      setMixDone(true)
+    } else if (isRealMix) {
       // 真实混音
       startRealMix()
     } else if (forceMixError) {
@@ -414,7 +443,7 @@ export default function PublishWorkModal({
       return () => clearTimeout(t)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, roomName, roomStyle, forceMixError, forceLockLost, isRealMix, startRealMix])
+  }, [open, roomName, roomStyle, forceMixError, forceLockLost, isRealMix, startRealMix, injectedMix, keepFieldsOnReopen])
 
   /* demo：注入发表失败 */
   useEffect(() => {
@@ -535,7 +564,14 @@ export default function PublishWorkModal({
   }
 
   /* 发表（真实 POST 或 mock） */
-  const handlePublish = async () => {
+  /* 1026 发表确认（欢哥定稿）：不可逆性明示——返回/确认 */
+  const [confirmOpen, setConfirmOpen] = useState(false)
+
+  const handlePublish = () => {
+    setConfirmOpen(true)
+  }
+
+  const doPublish = async () => {
     if (isRealMix && mp3BlobRef.current && roomId && sessionId !== undefined) {
       // 真实发表
       setState("publishing")
@@ -553,7 +589,8 @@ export default function PublishWorkModal({
           fd.append("source", remixSource)
         }
         fd.append("description", intro)
-        fd.append("duration", session.duration)
+        // 1026 注入模式：时长=区间裁剪后的成品真实时长
+        fd.append("duration", injectedMix ? fmt(injectedMix.durationSec) : session.duration)
 
         /* 封面 */
         if (coverType === 'image' && coverFileRef.current) {
@@ -569,6 +606,8 @@ export default function PublishWorkModal({
         fd.append("has_drum_track", hasDrumTrack ? "true" : "false")
         fd.append("agreed", "true") // 点到发表必然已勾选
         fd.append("publisher_user_id", String(currentUserId))
+        // 1026 闸4：混音快照随发落档（服务端终审+works.mix_params 溯源）
+        if (injectedMix) fd.append("mix_params", injectedMix.mixParamsJson)
 
         const res = await fetch(`/api/rooms/${roomId}/sessions/${sessionId}/publish`, {
           method: "POST",
@@ -857,8 +896,12 @@ export default function PublishWorkModal({
                   onChange={handleFileSelect}
                 />
 
-                {/* 播放器 */}
-                {!mixDone ? (
+                {/* 播放器（1026 注入模式隐藏：成品已在发表混音器里听过——卡片只管元数据，欢哥定案） */}
+                {injectedMix ? (
+                  <p className="text-xs" style={{ color: "#5A5A5A" }}>
+                    成品时长 {fmt(injectedMix.durationSec)} · 试听请回发表混音器
+                  </p>
+                ) : !mixDone ? (
                   <div
                     className="flex items-center gap-1.5 text-xs"
                     style={{ color: "#5A5A5A" }}
@@ -1159,10 +1202,43 @@ export default function PublishWorkModal({
           mixDone={mixDone}
           onClose={onClose}
           onPublish={handlePublish}
-          onRetry={handlePublish}
+          onRetry={doPublish}
           onBack={() => { setPublishErrorMessage(""); setState("form") }}
           publishErrorMessage={publishErrorMessage}
         />
+
+        {/* 1026 发表确认弹层（不可逆明示：发表后混音不可调整） */}
+        {confirmOpen && (
+          <div
+            className="absolute inset-0 z-40 flex items-center justify-center p-4"
+            style={{ background: "rgba(0,0,0,0.78)", backdropFilter: "blur(4px)" }}
+          >
+            <div
+              className="jamony-modal-enter w-full max-w-xs rounded-2xl border px-5 py-5 text-center"
+              style={{ backgroundColor: "#0D0D0D", borderColor: "#1A1A1A" }}
+            >
+              <p className="text-xs leading-relaxed text-white" style={{ lineHeight: 1.7 }}>
+                确认发表作品吗，发表后混音不可调整。
+              </p>
+              <div className="mt-4 flex items-center justify-center gap-2.5">
+                <button
+                  onClick={() => setConfirmOpen(false)}
+                  className="rounded-lg border px-4 py-1.5 text-xs transition-all duration-200 hover:text-white active:scale-[0.97]"
+                  style={{ borderColor: "#2A2A2A", color: "#8A8A8A" }}
+                >
+                  返回
+                </button>
+                <button
+                  onClick={() => { setConfirmOpen(false); doPublish() }}
+                  className="rounded-[8px] px-5 py-1.5 text-xs font-semibold text-white transition-all duration-200 hover:opacity-90 active:scale-[0.97]"
+                  style={{ background: "linear-gradient(90deg,#9933FF,#FF33AA)" }}
+                >
+                  确认
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

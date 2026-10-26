@@ -101,6 +101,7 @@ export type RecordingSession = {
   agreed_count: number              // 授权人数
   publisher_user_id: number | null  // 当前进入发表流程的人
   publisher_nickname: string | null // 发表人昵称
+  claimed_at: string | null         // 1026 抢锁时刻（15 分钟锁窗倒计时锚点，与发表混音器共用 deadline）
   tracks: Track[]
 }
 

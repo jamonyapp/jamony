@@ -5,7 +5,8 @@ import { Circle, Square, ChevronDown, ChevronLeft, ChevronRight, Disc3, Headphon
 import { instrumentEmoji, type RecordingSession, type Track, type RoomScore, type GpMix } from "@/lib/jam-data"
 import { MixerFullscreen } from "@/components/mixer/mixer-fullscreen"
 import { MixerMini } from "@/components/mixer/mixer-mini"
-import { useMixerEngine } from "@/hooks/useMixerEngine"
+import { useMixerEngine, type MixerDraft } from "@/hooks/useMixerEngine"
+import { renderMix, buildMixParams, rangeAudible, computeRangePeak, peakToDbfs } from "@/lib/render-mix"
 import { TRACK_COLORS, type MixerTrack } from "@/components/mixer/types"
 import PublishWorkModal from "@/components/publishing/publish-work-modal"
 import { useJamonyDialog } from "@/components/jamony/dialog"
@@ -635,8 +636,19 @@ function RecordingPanel({
   const [expanded, setExpanded] = useState<number | null>(null)
   const [mixerSessionId, setMixerSessionId] = useState<number | null>(null)
   const [mixerMinimized, setMixerMinimized] = useState(false)
+  // 1026 双混音器（欢哥方案一）：preview=房间内回放（拉全部能量轨）；publish=抢锁后的创作面（拉授权轨∪looper）
+  // 混音器本体全量统一（定位器/循环/复位两模式同享），差异只在轨道集合与发表权限
+  const [mixerMode, setMixerMode] = useState<"preview" | "publish" | null>(null)
   const mixerEngine = useMixerEngine()
   const mixerTracksLoadedRef = useRef(false)
+  // 发表流状态（自 SessionCard 上移——渲染产物产自混音器，发表卡必须同层）
+  const [claimTaken, setClaimTaken] = useState<{ userId: number; nickname: string } | null>(null)
+  const [claimingId, setClaimingId] = useState<number | null>(null) // 卡片「占位中」瞬态
+  const [rendering, setRendering] = useState(false)
+  const [injectedMix, setInjectedMix] = useState<{ mp3Blob: Blob; durationSec: number; mixParamsJson: string } | null>(null)
+  const [publishModalOpen, setPublishModalOpen] = useState(false)
+  const publishClaimedRef = useRef(false)
+  const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [recording, setRecording] = useState(false)
   const [recordingMine, setRecordingMine] = useState(false)
   const [stopping, setStopping] = useState(false) // 停止中过渡态（0923：服务器快停响应回来前按钮显示"停止中…"并禁用，防连点误开新段）
@@ -664,19 +676,20 @@ function RecordingPanel({
     if (realtimeSessions) setSessions(realtimeSessions)
   }, [realtimeSessions])
 
-  // 混音器：标准化完成后自动加载音轨
+  // 混音器：标准化完成后自动加载音轨（1026 双模式：preview=全部轨[排练室回放，含未决/已拒——房间内大家一起听录音天经地义]；
+  // publish=授权轨∪looper[与服务端发表权威集合天然一致]）。normalize 门槛=本模式加载集合。
+  useEffect(() => { mixerTracksLoadedRef.current = false }, [mixerSessionId, mixerMode])
   useEffect(() => {
-    if (mixerSessionId === null) {
-      mixerTracksLoadedRef.current = false
-      return
-    }
+    if (mixerSessionId === null || mixerMode === null) return
     const mixerSession = sessions.find(s => s.id === mixerSessionId)
     if (!mixerSession) return
-    const allTracks = mixerSession.tracks
-    const allNormalized = allTracks.every(t => t.normalized)
-    if (allNormalized && allTracks.length > 0 && !mixerTracksLoadedRef.current && roomId && currentUserId) {
+    const source = mixerMode === "publish"
+      ? mixerSession.tracks.filter(t => t.allow_use === true || t.is_system)
+      : mixerSession.tracks
+    const allNormalized = source.every(t => t.normalized)
+    if (allNormalized && source.length > 0 && !mixerTracksLoadedRef.current && roomId && currentUserId) {
       mixerTracksLoadedRef.current = true
-      const tracks: MixerTrack[] = allTracks.map((t, i) => ({
+      const tracks: MixerTrack[] = source.map((t, i) => ({
         id: String(t.id),
         name: t.nickname,
         instrument: t.is_system ? "🥁" : instrumentEmoji(t.instrument_category),
@@ -684,9 +697,12 @@ function RecordingPanel({
         duration: 0,
         color: TRACK_COLORS[i % TRACK_COLORS.length],
       }))
-      mixerEngine.loadTracks(tracks)
+      const draft = readMixDraft(mixerSessionId)
+      mixerEngine.loadTracks(tracks, draft ?? undefined)
+      console.debug("[mixer] load", mixerMode, `${tracks.length}轨`, draft ? "恢复草稿" : "默认参数")
     }
-  }, [mixerSessionId, sessions, roomId, currentUserId, mixerEngine])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mixerSessionId, mixerMode, sessions, roomId, currentUserId])
 
   // 录音状态同步（他人开始/停止录音；发起者身份恢复"停止"按钮归属；startedAt 让秒表跨强刷不归零）
   useEffect(() => {
@@ -783,6 +799,160 @@ function RecordingPanel({
     }
   }, [sessions, showFinalizing])
 
+  /* ───── 1026 草稿（按 session 分仓 localStorage；试听调过的参数带进发表混音器；M/S 不入草稿）───── */
+  const draftKey = (sid: number) => `jamony-mix-draft-${sid}`
+  const readMixDraft = (sid: number): MixerDraft | null => {
+    try { const raw = localStorage.getItem(draftKey(sid)); return raw ? (JSON.parse(raw) as MixerDraft) : null } catch { return null }
+  }
+  const currentDraft = (): MixerDraft => ({
+    volumes: mixerEngine.volumes, pans: mixerEngine.pans, master: mixerEngine.masterVolume,
+    locator: mixerEngine.locator, loop: mixerEngine.loop,
+  })
+  const saveDraftNow = (sid: number) => {
+    try { localStorage.setItem(draftKey(sid), JSON.stringify({ ...currentDraft(), savedAt: Date.now() })) } catch {}
+  }
+  // 参数/区间变更 debounce 800ms 写盘
+  useEffect(() => {
+    if (mixerSessionId === null || mixerMode === null) return
+    if (draftTimerRef.current) clearTimeout(draftTimerRef.current)
+    draftTimerRef.current = setTimeout(() => saveDraftNow(mixerSessionId), 800)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mixerSessionId, mixerMode, mixerEngine.volumes, mixerEngine.pans, mixerEngine.masterVolume, mixerEngine.locator, mixerEngine.loop])
+  // 发表完成 → 草稿清空（参数已冻结进作品快照）
+  useEffect(() => {
+    if (mixerSessionId === null) return
+    const s = sessions.find(x => x.id === mixerSessionId)
+    if (s?.status === "published") { try { localStorage.removeItem(draftKey(s.id)) } catch {} }
+  }, [sessions, mixerSessionId])
+
+  /* ───── 1026 发表流（方案一双混音器：抢锁→发表混音器调参→渲染→发表卡）───── */
+  const publishSession = mixerSessionId !== null && mixerMode === "publish"
+    ? (sessions.find(s => s.id === mixerSessionId) ?? null)
+    : null
+
+  // 「去发表」入口（卡片按钮）：竞态抢锁 → 直开发表混音器（原「兵贵神速」确认弹窗退役——混音本就在锁内从容做）
+  const openPublishMixer = async (session: RecordingSession) => {
+    if (!currentUserId || !roomId) return
+    const isClaimed = session.publisher_user_id != null
+    const isMine = isClaimed && session.publisher_user_id === currentUserId
+    if (isMine) {
+      publishClaimedRef.current = true
+      setMixerMode("publish"); setMixerSessionId(session.id); setMixerMinimized(false)
+      return
+    }
+    if (isClaimed) {
+      setClaimTaken({ userId: session.publisher_user_id!, nickname: session.publisher_nickname || "未知用户" })
+      return
+    }
+    setClaimingId(session.id)
+    try {
+      const res = await fetch(`/api/rooms/${roomId}/sessions/${session.id}/claim-publish`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: currentUserId }),
+      })
+      const data = await res.json()
+      if (!res.ok || data.ok === false) { dialog.alert(data.msg || "无法获取发表权"); return }
+      if (!data.claimed) {
+        setClaimTaken({ userId: data.publisher_user_id, nickname: data.publisher_nickname || "未知用户" })
+        return
+      }
+      publishClaimedRef.current = true
+      setMixerMode("publish"); setMixerSessionId(session.id); setMixerMinimized(false)
+    } catch (e) {
+      console.error("抢锁失败:", e)
+      dialog.alert("网络异常，请重试")
+    } finally { setClaimingId(null) }
+  }
+
+  // 混音器内「发表作品」按钮状态机（闸2 / 锁态 / 渲染中 / 已发表）
+  const publishBtnState = (() => {
+    if (!publishSession) return null
+    if (publishSession.status === "published") return { label: "已发表", disabled: true, tone: "gray" as const, reason: "该段落已发表" }
+    const engIds = mixerEngine.tracks.map(t => t.id)
+    const hasSolo = engIds.some(id => mixerEngine.solos[id])
+    const anySilenced = engIds.some(id => (hasSolo ? !mixerEngine.solos[id] : !!mixerEngine.mutes[id]))
+    if (anySilenced) return { label: "发表作品", disabled: true, tone: "gray" as const, reason: "存在静音/独奏轨——发表要求所有分轨参与混音（M/S 仅试听用），点「清除M/S」后重试" }
+    if (rendering) return { label: "生成中…", disabled: true, busy: true, tone: "blue" as const }
+    const mineLock = publishSession.publisher_user_id === currentUserId
+    if (publishSession.publisher_user_id != null && !mineLock) return { label: "发表中", disabled: true, tone: "gray" as const, reason: `${publishSession.publisher_nickname || "其他乐手"} 正在发表` }
+    if (!mineLock) return { label: "去发表", disabled: false, tone: "blue" as const } // 锁懒超时已释放 → 点击重新抢
+    return { label: "发表作品", disabled: false, tone: "green" as const }
+  })()
+
+  // 发表倒计时（与发表卡共用 deadline=claimed_at+15min；发表成功后隐藏）
+  const publishDeadlineMs = publishSession && publishSession.claimed_at && publishSession.publisher_user_id === currentUserId && publishSession.status !== "published"
+    ? new Date(publishSession.claimed_at).getTime() + 15 * 60 * 1000
+    : null
+  const countdownSec = publishDeadlineMs ? Math.max(0, Math.ceil((publishDeadlineMs - now) / 1000)) : undefined
+
+  // 「发表作品」点击：闸3客户端预检 → renderMix（所发即所听）→ 注入发表卡
+  const runPublish = async () => {
+    if (!publishSession || !currentUserId || !roomId || rendering) return
+    const mineLock = publishSession.publisher_user_id === currentUserId
+    if (!mineLock) { await openPublishMixer(publishSession); return } // 锁已懒释放 → 重新抢
+    const buffers = mixerEngine.getBuffers()
+    const lc = mixerEngine.locator
+    const range = lc ? { a: lc.a, b: lc.b ?? mixerEngine.duration } : null
+    // 闸3客户端预检：授权人类轨在区间内须有可感知声音（looper 豁免；服务端另有权威终审）
+    const silent: string[] = []
+    for (const t of publishSession.tracks) {
+      if (t.is_system || t.allow_use !== true) continue
+      const buf = buffers.get(String(t.id))
+      if (!buf) continue
+      const audible = range ? rangeAudible(buf, range.a, range.b) : true // 无定位器=落版闸1已测全曲
+      console.debug("[gate3-precheck]", t.nickname, `${peakToDbfs(computeRangePeak(buf, range ? range.a : 0, range ? range.b : buf.duration)).toFixed(1)}dB`, audible ? "有声" : "无声")
+      if (!audible) silent.push(t.nickname)
+    }
+    if (silent.length > 0) {
+      dialog.alert(`以下分轨在发表区间内无声：${silent.join("、")}。请调整发表区间，或由该乐手拒绝使用授权。`)
+      return
+    }
+    setRendering(true)
+    try {
+      const specs = mixerEngine.tracks
+        .map(mt => ({ key: mt.id, buffer: buffers.get(mt.id), gain: mixerEngine.volumes[mt.id] ?? 1, pan: mixerEngine.pans[mt.id] ?? 0 }))
+        .filter((s): s is { key: string; buffer: AudioBuffer; gain: number; pan: number } => !!s.buffer)
+      const result = await renderMix({ tracks: specs, master: mixerEngine.masterVolume, range, onProgress: m => console.debug("[renderMix]", m) })
+      const params = buildMixParams({
+        tracks: publishSession.tracks.filter(t => t.allow_use === true).map(t => {
+          const id = String(t.id)
+          const buf = buffers.get(id)
+          return {
+            track_id: t.id, user_id: t.user_id, nickname: t.nickname, is_system: t.is_system,
+            instrument_category: t.instrument_category,
+            gain: mixerEngine.volumes[id] ?? 1, pan: mixerEngine.pans[id] ?? 0,
+            in_range: buf ? (range ? rangeAudible(buf, range.a, range.b) : true) : false,
+          }
+        }),
+        master: mixerEngine.masterVolume,
+        // 契约：b 恒为具体值（未设定位器=全曲时长），服务端终审永远有窗口可审
+        range: range ? { a: range.a, b: range.b } : { a: 0, b: mixerEngine.duration },
+        clientAudit: { silent_tracks: silent, checked_at: new Date().toISOString() },
+      })
+      setInjectedMix({ mp3Blob: result.mp3Blob, durationSec: result.duration, mixParamsJson: JSON.stringify(params) })
+      setPublishModalOpen(true)
+    } catch (e) {
+      dialog.alert(`成品渲染失败：${e instanceof Error ? e.message : String(e)}，请重试`)
+    } finally { setRendering(false) }
+  }
+
+  // 关混音器：草稿即刻落盘（防抖尾巴不丢）+ 未发表释放锁 + 发表流收尾
+  const closeMixer = () => {
+    if (mixerSessionId !== null) saveDraftNow(mixerSessionId)
+    if (mixerMode === "publish" && publishClaimedRef.current) {
+      publishClaimedRef.current = false
+      const s = sessions.find(x => x.id === mixerSessionId)
+      if (currentUserId && roomId && s && s.status !== "published") {
+        fetch(`/api/rooms/${roomId}/sessions/${mixerSessionId}/release-claim`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: currentUserId }),
+        }).catch(() => {})
+      }
+    }
+    setMixerSessionId(null); setMixerMode(null); setMixerMinimized(false)
+    setPublishModalOpen(false); setInjectedMix(null)
+  }
+
   async function patchTrack(sessionId: number, trackId: number, field: "allow_use" | "allow_attribution" | "allow_download", value: boolean) {
     if (!roomId || !currentUserId) return
     await fetch(`/api/rooms/${roomId}/sessions/${sessionId}/tracks/${trackId}`, {
@@ -866,12 +1036,12 @@ function RecordingPanel({
                     open={expanded === s.id}
                     now={now}
                     roomId={roomId}
-                    roomName={roomName}
-                    roomStyle={roomStyle}
                     currentUserId={currentUserId}
                     onToggle={() => setExpanded((e) => (e === s.id ? null : s.id))}
                     onPatch={patchTrack}
-                    onPreview={() => { setMixerSessionId(s.id); setMixerMinimized(false) }}
+                    onPreview={() => { setMixerMode("preview"); setMixerSessionId(s.id); setMixerMinimized(false) }}
+                    onPublishEntry={openPublishMixer}
+                    claimingId={claimingId}
                   />
                 ))}
               </div>
@@ -881,26 +1051,25 @@ function RecordingPanel({
       </div>
     </section>
 
-    {/* 试听混音器 */}
+    {/* 混音器（1026 双模式同一组件：试听=房间回放 / 发表=创作面） */}
     {mixerSessionId !== null && (() => {
       const mixerSession = sessions.find(s => s.id === mixerSessionId)
-      const allTracks = mixerSession?.tracks || []
-      const normalizedCount = allTracks.filter(t => t.normalized).length
-      const totalCount = allTracks.length
+      const sourceTracks = mixerMode === "publish"
+        ? (mixerSession?.tracks || []).filter(t => t.allow_use === true || t.is_system)
+        : (mixerSession?.tracks || [])
+      const normalizedCount = sourceTracks.filter(t => t.normalized).length
+      const totalCount = sourceTracks.length
       const loadingProgress = totalCount > 0 ? (normalizedCount / totalCount) * 100 : 100
-      const mixerTracks: MixerTrack[] = allTracks.map((t, i) => ({
-        id: String(t.id),
-        name: t.nickname,
-        instrument: t.is_system ? "🥁" : instrumentEmoji(t.instrument_category),
-        wavUrl: `/api/rooms/${roomId}/sessions/${mixerSessionId}/tracks/${t.id}/download`,
-        duration: 0,
-        color: TRACK_COLORS[i % TRACK_COLORS.length],
-      }))
+      const isPublish = mixerMode === "publish"
 
       return (<>
         {!mixerMinimized && (
           <MixerFullscreen
             sessionLabel={`段落 ${mixerSession?.index}`}
+            titleLabel={isPublish ? "发表混音" : "试听混音"}
+            footerHint={isPublish
+              ? "你的调整与发表区间将随「发表作品」落档为作品成品——所发即所听。"
+              : "排练室回放：调整仅本地生效。拖动定位器可循环试听某一小节，帮助决定是否授权。"}
             tracks={mixerEngine.tracks}
             isOpen={true}
             isPlaying={mixerEngine.isPlaying}
@@ -917,7 +1086,7 @@ function RecordingPanel({
             masterVolume={mixerEngine.masterVolume}
             masterLevel={mixerEngine.masterLevel}
             masterClip={mixerEngine.masterClip}
-            onClose={() => { setMixerSessionId(null); setMixerMinimized(false) }}
+            onClose={closeMixer}
             onMinimize={() => setMixerMinimized(true)}
             onPlayPause={mixerEngine.togglePlay}
             onStop={mixerEngine.stop}
@@ -929,6 +1098,30 @@ function RecordingPanel({
             onResetClip={mixerEngine.resetClip}
             onMasterVolumeChange={mixerEngine.onMasterVolumeChange}
             onResetMasterClip={mixerEngine.resetMasterClip}
+            enableLocator
+            locator={mixerEngine.locator}
+            onLocatorChange={(a, b) => {
+              if (mixerEngine.locator) {
+                mixerEngine.setLocatorA(a)
+                if (b != null) mixerEngine.setLocatorB(b)
+              } else if (b != null) {
+                mixerEngine.setLocatorB(b)
+              } else {
+                mixerEngine.setLocatorA(a)
+              }
+            }}
+            loop={mixerEngine.loop}
+            onLoopToggle={mixerEngine.setLoop}
+            onResetAll={mixerEngine.resetAll}
+            publishButton={isPublish ? (publishBtnState ?? undefined) : undefined}
+            onPublishClick={runPublish}
+            onClearMS={() => {
+              mixerEngine.tracks.forEach(t => {
+                if (mixerEngine.mutes[t.id]) mixerEngine.onMuteToggle(t.id, false)
+                if (mixerEngine.solos[t.id]) mixerEngine.onSoloToggle(t.id, false)
+              })
+            }}
+            countdownSec={countdownSec}
           />
         )}
         {mixerMinimized && (
@@ -941,11 +1134,72 @@ function RecordingPanel({
             loadingProgress={loadingProgress}
             onTogglePlay={mixerEngine.togglePlay}
             onSeek={mixerEngine.seek}
-            onClose={() => setMixerSessionId(null)}
+            onClose={closeMixer}
             onFullscreen={() => setMixerMinimized(false)}
           />
         )}
       </>)
+    })()}
+
+    {/* 手慢一步弹窗（发表竞态败者） */}
+    {claimTaken && (
+      <div
+        className="fixed inset-0 z-[80] flex items-center justify-center p-4"
+        style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }}
+        onClick={() => setClaimTaken(null)}
+      >
+        <div
+          className="jamony-modal-enter relative w-full max-w-xs rounded-2xl border px-5 py-5 text-center"
+          style={{ backgroundColor: "#0D0D0D", borderColor: "#1A1A1A" }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <p className="text-xs leading-relaxed text-white" style={{ lineHeight: 1.7 }}>
+            手慢一步！<span style={{ color: "#00AAFF" }}>{claimTaken.nickname}</span>正在帮大家发表作品，请稍候。
+          </p>
+          <button
+            onClick={() => setClaimTaken(null)}
+            className="mt-4 rounded-[8px] px-5 py-1.5 text-xs font-semibold text-white transition-all duration-200 hover:opacity-90 active:scale-[0.97]"
+            style={{ background: "linear-gradient(90deg,#9933FF,#FF33AA)" }}
+          >
+            知道了
+          </button>
+        </div>
+      </div>
+    )}
+
+    {/* 发表卡片（2026 上移至面板层：成品产自发表混音器，注入直开；往返保留已填字段） */}
+    {publishSession && (() => {
+      const auth = publishSession.tracks.filter(t => t.allow_use === true)
+      return (
+        <PublishWorkModal
+          open={publishModalOpen}
+          onClose={() => setPublishModalOpen(false)}
+          session={{ index: publishSession.index, duration: publishSession.duration }}
+          roomName={roomName || ""}
+          roomStyle={roomStyle || ""}
+          authors={auth
+            .filter(t => !t.is_system && t.allow_attribution !== false)
+            .map(t => ({ id: String(t.id), name: t.nickname, anonymous: false, instrument: instrumentEmoji(t.instrument_category) }))}
+          anonymousCount={auth.filter(t => !t.is_system && t.allow_attribution === false).length}
+          hasDrumTrack={auth.some(t => t.is_system === true)}
+          roomId={roomId}
+          sessionId={publishSession.id}
+          currentUserId={currentUserId}
+          authorizedTrackIds={auth.map(t => t.id)}
+          authorizedTrackIsDrums={auth.map(t => t.is_system)}
+          allTrackAuthors={auth.map(t => ({
+            userId: t.user_id ?? 0,
+            nickname: t.nickname,
+            instrumentCategory: t.instrument_category,
+            isAnonymous: t.allow_attribution === false,
+          }))}
+          livePublisherUserId={publishSession.publisher_user_id}
+          injectedMix={injectedMix}
+          deadlineMs={publishDeadlineMs}
+          keepFieldsOnReopen
+          onPublished={() => { /* socket sessions-update 自动刷新；草稿清空由面板 effect 处理 */ }}
+        />
+      )
     })()}
 
   </>
@@ -957,69 +1211,34 @@ function SessionCard({
   open,
   now,
   roomId,
-  roomName,
-  roomStyle,
   currentUserId,
   onToggle,
   onPatch,
   onPreview,
+  onPublishEntry,
+  claimingId,
 }: {
   session: RecordingSession
   open: boolean
   now: number
   roomId?: string
-  roomName?: string
-  roomStyle?: string
   currentUserId?: number
   onToggle: () => void
   onPatch: (sessionId: number, trackId: number, field: "allow_use" | "allow_attribution" | "allow_download", value: boolean) => void
   onPreview?: () => void
+  /** 1026 「去发表」入口（面板层抢锁→打开发表混音器） */
+  onPublishEntry?: (session: RecordingSession) => void
+  /** 面板层竞态进行中的 session id（「占位中」瞬态） */
+  claimingId?: number | null
 }) {
   const remaining = session.expires_at ? Math.max(0, Math.ceil((new Date(session.expires_at).getTime() - now) / 1000)) : 0
   const showCountdown = !session.all_locked && remaining > 0
   const canPublish = session.all_locked && session.agreed_count > 0
   // 1025 删除权前置(欢哥): 授权使用=所有权——本人轨未授权(=自动放弃)则按钮灰置,不再走"确认弹窗→403"尴尬链
   const canDelete = session.tracks.some((t) => t.user_id === currentUserId && t.allow_use === true)
-  const [publishOpen, setPublishOpen] = useState(false)
-  const [claiming, setClaiming] = useState(false)
-  const [claimTaken, setClaimTaken] = useState<{ userId: number; nickname: string } | null>(null)
-  const [showClaimConfirm, setShowClaimConfirm] = useState(false) // 抢锁成功后确认弹窗
-  const publishClaimedRef = useRef(false) // 跟踪当前用户是否抢到锁
   const dialog = useJamonyDialog()
   const [delConfirm, setDelConfirm] = useState(false) // 1025 删除确认（欢哥四点定稿：与发表同现,授权=所有权）
   const refusedCount = session.tracks.filter(t => !t.is_system && t.allow_use === false).length
-
-  /* PublishWorkModal 数据映射 — useMemo 防止引用变化导致混音无限循环 */
-  const authorizedTracks = useMemo(
-    () => session.tracks.filter(t => t.allow_use === true),
-    [session.tracks]
-  )
-  const publishAuthors = useMemo(
-    () => authorizedTracks
-      .filter(t => !t.is_system && t.allow_attribution !== false)
-      .map(t => ({
-        id: String(t.id),
-        name: t.nickname,
-        anonymous: false,
-        instrument: instrumentEmoji(t.instrument_category),
-      })),
-    [authorizedTracks]
-  )
-  const publishAnonymousCount = authorizedTracks.filter(t => !t.is_system && t.allow_attribution === false).length
-  const publishHasDrumTrack = authorizedTracks.some(t => t.is_system === true)
-  const authorizedTrackIds = useMemo(() => authorizedTracks.map(t => t.id), [authorizedTracks])
-  const authorizedTrackIsDrums = useMemo(() => authorizedTracks.map(t => t.is_system), [authorizedTracks])
-  /** 全量作者数据（含匿名参与者 + jamony-looper 系统鼓轨），用于发表时存档 */
-  const allTrackAuthors = useMemo(
-    () => authorizedTracks
-      .map(t => ({
-        userId: t.user_id ?? 0,
-        nickname: t.nickname,
-        instrumentCategory: t.instrument_category,
-        isAnonymous: t.allow_attribution === false,
-      })),
-    [authorizedTracks]
-  )
 
   return (
     <div className="rounded-[10px] border border-border bg-secondary">
@@ -1060,14 +1279,39 @@ function SessionCard({
             授权
             <ChevronDown className={`size-3 transition-transform ${open ? "rotate-180" : ""}`} />
           </button>
-          {/* 1025 欢哥终版: 已发表段=按钮本体变"已发表"灰置不可点;卡片其余(徽章/授权文案)一概不动 */}
-          {canPublish && (
-            session.status === 'published' ? (
+          {/* 1026 去发表5态（欢哥定稿，全3字文案无站位跳动）：
+              A 未全员授权=灰「去发表」 / B 可点 / C 「占位中」(竞态瞬间) / D 他人持锁=「发表中」 / E 已发表。
+              点击=面板层抢锁→直开发表混音器（原确认弹窗与发表卡入口已上移退役） */}
+          {(() => {
+            const claiming = claimingId === session.id
+            const isClaimed = session.publisher_user_id != null
+            const isMine = isClaimed && session.publisher_user_id === currentUserId
+            const isOthers = isClaimed && !isMine
+            if (session.status === "published") return (
               <button disabled className="cursor-not-allowed rounded-full bg-brand-green/40 px-3 py-1 text-xs font-bold text-white opacity-60">
                 已发表
               </button>
-            ) : handlePublishButton()
-          )}
+            )
+            if (isOthers || claiming) return (
+              <button disabled className={`cursor-not-allowed rounded-full bg-brand-blue/40 px-3 py-1 text-xs font-bold text-white opacity-40 ${claiming ? "animate-pulse" : ""}`}>
+                {claiming ? "占位中" : "发表中"}
+              </button>
+            )
+            return (
+              <button
+                onClick={() => onPublishEntry?.(session)}
+                disabled={!canPublish || !onPublishEntry}
+                title={canPublish ? undefined : "等待所有乐手完成使用授权（倒计时结束自动默认授权）"}
+                className={`rounded-full px-3 py-1 text-xs font-bold text-white transition-all duration-200 ${
+                  canPublish
+                    ? `${isMine ? "bg-brand-green" : "bg-brand-blue"} hover:scale-[1.03]`
+                    : "cursor-not-allowed bg-brand-blue/40 opacity-40"
+                }`}
+              >
+                {isMine ? "发表中" : "去发表"}
+              </button>
+            )
+          })()}
           {canPublish && (
             <button
               onClick={() => canDelete && setDelConfirm(true)}
@@ -1091,126 +1335,6 @@ function SessionCard({
         </div>
       )}
 
-      {publishOpen && (
-        <PublishWorkModal
-          open={publishOpen}
-          onClose={() => {
-            setPublishOpen(false)
-            // 关闭发表卡片但未发表 → 释放锁
-            if (currentUserId && publishClaimedRef.current && session.status !== "published") {
-              publishClaimedRef.current = false
-              fetch(`/api/rooms/${roomId}/sessions/${session.id}/release-claim`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ userId: currentUserId }),
-              }).catch(() => {})
-            }
-          }}
-          session={{ index: session.index, duration: session.duration }}
-          roomName={roomName || ""}
-          roomStyle={roomStyle || ""}
-          authors={publishAuthors}
-          anonymousCount={publishAnonymousCount}
-          hasDrumTrack={publishHasDrumTrack}
-          roomId={roomId}
-          sessionId={session.id}
-          currentUserId={currentUserId}
-          authorizedTrackIds={authorizedTrackIds}
-          authorizedTrackIsDrums={authorizedTrackIsDrums}
-          allTrackAuthors={allTrackAuthors}
-          livePublisherUserId={session.publisher_user_id}
-          onPublished={() => {
-            // 发表成功后，socket 会推 sessions-update，自动刷新
-            console.log(`session ${session.id} published`)
-          }}
-        />
-      )}
-
-      {/* 手慢一步弹窗 */}
-      {claimTaken && (
-        <div
-          className="fixed inset-0 z-[80] flex items-center justify-center p-4"
-          style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }}
-          onClick={() => setClaimTaken(null)}
-        >
-          <div
-            className="jamony-modal-enter relative w-full max-w-xs rounded-2xl border px-5 py-5 text-center"
-            style={{ backgroundColor: "#0D0D0D", borderColor: "#1A1A1A" }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <p className="text-xs leading-relaxed text-white" style={{ lineHeight: 1.7 }}>
-              手慢一步！<span style={{ color: "#00AAFF" }}>{claimTaken.nickname}</span>正在帮大家发表作品，请稍候。
-            </p>
-            <button
-              onClick={() => setClaimTaken(null)}
-              className="mt-4 rounded-[8px] px-5 py-1.5 text-xs font-semibold text-white transition-all duration-200 hover:opacity-90 active:scale-[0.97]"
-              style={{ background: "linear-gradient(90deg,#9933FF,#FF33AA)" }}
-            >
-              知道了
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* 抢锁成功确认弹窗 */}
-      {showClaimConfirm && (
-        <div
-          className="fixed inset-0 z-[80] flex items-center justify-center p-4"
-          style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }}
-          onClick={() => {
-            setShowClaimConfirm(false)
-            // 用户点背板关闭 → 释放锁
-            if (currentUserId && roomId) {
-              publishClaimedRef.current = false
-              fetch(`/api/rooms/${roomId}/sessions/${session.id}/release-claim`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ userId: currentUserId }),
-              }).catch(() => {})
-            }
-          }}
-        >
-          <div
-            className="jamony-modal-enter relative w-full max-w-xs rounded-2xl border px-5 py-5 text-center"
-            style={{ backgroundColor: "#0D0D0D", borderColor: "#1A1A1A" }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <p className="text-xs leading-relaxed text-white" style={{ lineHeight: 1.7 }}>
-              兵贵神速！感谢你为大家发表作品，请在5分钟内完成发表。超时将自动释放权限。
-            </p>
-            <div className="mt-4 flex items-center justify-center gap-2.5">
-              <button
-                onClick={() => {
-                  setShowClaimConfirm(false)
-                  // 放弃发表 → 释放锁
-                  if (currentUserId && roomId) {
-                    publishClaimedRef.current = false
-                    fetch(`/api/rooms/${roomId}/sessions/${session.id}/release-claim`, {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ userId: currentUserId }),
-                    }).catch(() => {})
-                  }
-                }}
-                className="rounded-lg border px-4 py-1.5 text-xs transition-all duration-200 hover:text-white active:scale-[0.97]"
-                style={{ borderColor: "#2A2A2A", color: "#8A8A8A" }}
-              >
-                暂不发表
-              </button>
-              <button
-                onClick={() => {
-                  setShowClaimConfirm(false)
-                  setPublishOpen(true)
-                }}
-                className="rounded-[8px] px-5 py-1.5 text-xs font-semibold text-white transition-all duration-200 hover:opacity-90 active:scale-[0.97]"
-                style={{ background: "linear-gradient(90deg,#9933FF,#FF33AA)" }}
-              >
-                开始发表
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       {/* 1025 删除确认（欢哥定稿双文案）：已发表=软隐藏提示 / 未发表=物理删警示 */}
       {delConfirm && (
         <ConfirmModal
@@ -1230,78 +1354,6 @@ function SessionCard({
       )}
     </div>
   )
-
-  /** 发表按钮：先到先得抢锁逻辑 */
-  function handlePublishButton() {
-    const isClaimed = session.publisher_user_id !== null && session.publisher_user_id !== undefined
-    const isMine = isClaimed && session.publisher_user_id === currentUserId
-    const isOthers = isClaimed && !isMine
-
-    return (
-      <button
-        onClick={async () => {
-          if (!currentUserId || !roomId) return
-
-          // 已被别人占着 → 弹手慢一步
-          if (isOthers) {
-            setClaimTaken({
-              userId: session.publisher_user_id!,
-              nickname: session.publisher_nickname || "未知用户",
-            })
-            return
-          }
-
-          // 原本就是我抢到的 → 标记一下确保 release-claim 能走
-          if (isMine) {
-            publishClaimedRef.current = true
-            setPublishOpen(true)
-            return
-          }
-
-          // 第一次点击 → 先抢锁
-          if (!isClaimed) {
-            setClaiming(true)
-            try {
-              const res = await fetch(`/api/rooms/${roomId}/sessions/${session.id}/claim-publish`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ userId: currentUserId }),
-              })
-              const data = await res.json()
-              if (!data.claimed) {
-                // 被别人抢了
-                setClaimTaken({
-                  userId: data.publisher_user_id,
-                  nickname: data.publisher_nickname || "未知用户",
-                })
-                return
-              }
-              publishClaimedRef.current = true
-              // 抢锁成功，先弹确认框再打开发表卡片
-              setShowClaimConfirm(true)
-              return
-            } catch (e) {
-              console.error("抢锁失败:", e)
-              return
-            } finally {
-              setClaiming(false)
-            }
-          }
-
-          // 已抢到或原本就是我 → 打开发表卡片
-          setPublishOpen(true)
-        }}
-        disabled={claiming || isOthers}
-        className={`rounded-full px-3 py-1 text-xs font-bold text-white transition-all duration-200
-          ${claiming ? "animate-pulse opacity-50" : ""}
-          ${isOthers ? "cursor-not-allowed opacity-40" : "hover:scale-[1.03]"}
-          ${isMine ? "bg-brand-green" : ""}
-          ${!isClaimed ? "bg-brand-blue" : ""}`}
-      >
-        {claiming ? "抢占中…" : isMine ? "发表中" : "去发表"}
-      </button>
-    )
-  }
 
 }
 

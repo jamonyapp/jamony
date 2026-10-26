@@ -46,6 +46,8 @@ export function useChatSocket(roomId?: string, nickname?: string) {
   const [realtimeRecordingFinalizing, setRealtimeRecordingFinalizing] = useState(false) // 1025: 停止后归档中（房间级事件，全房按钮同步）
   const [kickedEvent, setKickedEvent] = useState<{ userId: number; roomCode: string; ts: number } | null>(null)
   const [dissolvedEvent, setDissolvedEvent] = useState<{ roomCode: string; ts: number } | null>(null)
+  // 1026 闸1: 本次录音无有效用户内容——session 不生成（无 sessions-update 兜底，须显式清归档态）
+  const [discardEvent, setDiscardEvent] = useState<{ reason: string; dirName: string; ts: number } | null>(null)
 
   useEffect(() => {
     if (!roomId || !nickname) return
@@ -178,6 +180,13 @@ export function useChatSocket(roomId?: string, nickname?: string) {
       });
     })
 
+    // 1026 闸1: 停录全量能量检测判定「无人类有效轨」→ 不生成段落——清归档态+抛事件（前端弹品牌提示）
+    socket.on("session-discarded", (data: { roomId: string; reason: string; dirName?: string; ts?: string }) => {
+      if (!data || !data.reason) return
+      setRealtimeRecordingFinalizing(false)
+      setDiscardEvent({ reason: data.reason, dirName: data.dirName || "", ts: Date.now() })
+    })
+
     socket.on("disconnect", () => {
       setConnected(false)
     })
@@ -274,5 +283,5 @@ export function useChatSocket(roomId?: string, nickname?: string) {
     setRealtimeScore(null)
   }
 
-  return { messages, sendMessage, connected, realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, hydrateScore, realtimeScore, realtimeGpState, playGp, pauseGp, updateGpMix, setGpSpeed, setGpCountin, setGpLoop, setGpRange, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, realtimeRecordingFinalizing, kickedEvent, dissolvedEvent, realtimeProgram, realtimeProgramState, programError, playProgram, pauseProgram, stopProgram, updateProgramMix, hydrateProgram, chatRejected, roomViolation }
+  return { messages, sendMessage, connected, realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, hydrateScore, realtimeScore, realtimeGpState, playGp, pauseGp, updateGpMix, setGpSpeed, setGpCountin, setGpLoop, setGpRange, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, realtimeRecordingFinalizing, kickedEvent, dissolvedEvent, realtimeProgram, realtimeProgramState, programError, playProgram, pauseProgram, stopProgram, updateProgramMix, hydrateProgram, chatRejected, roomViolation, discardEvent }
 }

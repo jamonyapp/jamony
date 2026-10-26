@@ -61,7 +61,7 @@ export function PlayingPage() {
   const roomSession = useRoomSession()
   // 10-07 漫游续听：收听音频上移 Provider 全局常驻，listenerActive 为派生值（漫游不断流）
   const listenerActive = roomSession.listening != null
-  const { realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, hydrateScore, realtimeScore, realtimeGpState, playGp, pauseGp, updateGpMix, setGpSpeed, setGpCountin, setGpLoop, setGpRange, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, realtimeRecordingFinalizing, kickedEvent, dissolvedEvent, realtimeProgram, realtimeProgramState, programError, playProgram, pauseProgram, stopProgram, updateProgramMix, hydrateProgram, roomViolation } = useChatSocket(params?.code as string, user?.nickname)
+  const { realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, hydrateScore, realtimeScore, realtimeGpState, playGp, pauseGp, updateGpMix, setGpSpeed, setGpCountin, setGpLoop, setGpRange, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, realtimeRecordingFinalizing, kickedEvent, dissolvedEvent, realtimeProgram, realtimeProgramState, programError, playProgram, pauseProgram, stopProgram, updateProgramMix, hydrateProgram, roomViolation, discardEvent } = useChatSocket(params?.code as string, user?.nickname)
 
   // 1024 推流抽检: 房间违规全房弹窗(抽检有延迟, 命中时房间若仍活跃即提醒全员——告知是义务也是权利)
   useEffect(() => {
@@ -435,6 +435,14 @@ export function PlayingPage() {
     setDissolvedOpen(true)
     roomSession.refresh()  // 房解散 → 全局心跳停
   }, [dissolvedEvent, myRole])
+
+  // 1026 闸1: 本次录音无有效用户内容（全员静音或仅 looper 发声）→ session 不生成，品牌弹窗告知全房（幂等，chat-socket 已清归档态）
+  const discardHandledRef = useRef(0)
+  useEffect(() => {
+    if (!discardEvent || discardHandledRef.current === discardEvent.ts) return
+    discardHandledRef.current = discardEvent.ts
+    dialog.alert("本次录音无有效用户内容，未生成段落。")
+  }, [discardEvent, dialog])
 
   // 房主转移感知：hostId 变化且新房主是自己（且之前不是）→ 弹「你已成为房主」
   useEffect(() => {
