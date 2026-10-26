@@ -1,8 +1,8 @@
 "use client"
 
 import type React from "react"
-import { useCallback, useEffect, useRef } from "react"
-import { Minimize2, Pause, Play, SkipBack, Square, X, AudioLines } from "lucide-react"
+import { useCallback, useEffect, useRef, useState } from "react"
+import { Minimize2, Pause, Play, SkipBack, Square, X, AudioLines, Repeat, RotateCcw } from "lucide-react"
 import { ChannelStrip } from "./channel-strip"
 import { WaveformTrack } from "./waveform-track"
 import { formatTime, MIXER_COLORS, type MixerFullscreenProps } from "./types"
@@ -37,12 +37,74 @@ export function MixerFullscreen({
   masterClip,
   onMasterVolumeChange,
   onResetMasterClip,
+  enableLocator,
+  locator,
+  onLocatorChange,
+  loop,
+  onLoopToggle,
+  onResetAll,
+  publishButton,
+  onPublishClick,
+  onClearMS,
+  countdownSec,
   icon = "🎸",
   titleLabel = "试听混音",
   footerHint = "你可以在这里试听本次录音，在下方调音台区域进行分轨调整。调整只作用于试听，不影响混音发表。",
 }: MixerFullscreenProps) {
   const waveSeekRef = useRef<HTMLDivElement>(null)
   const draggingRef = useRef(false)
+
+  // ───── 定位器（1026 Cubase 式）：拖拽态 + 双击精确输入态 ─────
+  const [locatorDrag, setLocatorDrag] = useState<"a" | "b" | null>(null)
+  const [editing, setEditing] = useState<"a" | "b" | null>(null)
+  const [editVal, setEditVal] = useState("")
+  const locatorMoveRef = useRef<(e: PointerEvent) => void>(() => {})
+
+  const ratioFromClientX = useCallback((clientX: number) => {
+    const el = waveSeekRef.current
+    if (!el) return 0
+    const rect = el.getBoundingClientRect()
+    return Math.min(1, Math.max(0, (clientX - rect.left) / rect.width))
+  }, [])
+
+  // 定位器拖拽（照抄 scrub 的 window 级监听范式；move 逻辑经 ref 取最新值，绑定只在拖拽会话首尾）
+  useEffect(() => {
+    if (!locatorDrag) return
+    const move = (e: PointerEvent) => locatorMoveRef.current(e)
+    const up = () => setLocatorDrag(null)
+    window.addEventListener("pointermove", move)
+    window.addEventListener("pointerup", up)
+    return () => {
+      window.removeEventListener("pointermove", move)
+      window.removeEventListener("pointerup", up)
+    }
+  }, [locatorDrag])
+  locatorMoveRef.current = (e: PointerEvent) => {
+    if (!locatorDrag || !onLocatorChange || duration <= 0) return
+    const v = ratioFromClientX(e.clientX) * duration
+    if (locatorDrag === "a") onLocatorChange(v, locator?.b ?? null)
+    else onLocatorChange(locator?.a ?? 0, v)
+    console.debug("[mixer-locator] drag", locatorDrag, `${v.toFixed(2)}s`)
+  }
+
+  // 双击输入解析：纯秒（"12.5"）或 分:秒（"1:30.5"）
+  const parseTimeInput = (raw: string): number | null => {
+    const s = raw.trim()
+    if (!s) return null
+    if (s.includes(":")) {
+      const [mm, ss] = s.split(":")
+      const m = parseFloat(mm)
+      const sec = parseFloat(ss)
+      if (!Number.isFinite(m) || !Number.isFinite(sec)) return null
+      return Math.max(0, m * 60 + sec)
+    }
+    const v = parseFloat(s)
+    return Number.isFinite(v) ? Math.max(0, v) : null
+  }
+
+  const locARatio = duration > 0 ? (locator?.a ?? 0) / duration : 0
+  const locBRatio = duration > 0 && locator?.b != null ? locator.b / duration : 1
+  const hasAnyMS = !!(Object.values(mutes || {}).some(Boolean) || Object.values(solos || {}).some(Boolean))
 
   // 在波形区按位置 → 指针跳转，联动走带时间
   const handleWaveSeek = useCallback(
@@ -180,6 +242,99 @@ export function MixerFullscreen({
                 willChange: "left",
               }}
             />
+            {/* ───── 定位器（1026，enableLocator 才渲染；program 不传=零感知）─────
+                区间染色层（pointer-events-none，压在 scrub 层上方但不挡交互）+ A/B 直角三角
+                （z 高于 scrub 层可拖拽）+ 拖拽时间码气泡 + 双击精确输入框 */}
+            {enableLocator && duration > 0 && onLocatorChange && (
+              <>
+                {locator && (
+                  <div
+                    className="pointer-events-none absolute top-0 bottom-0"
+                    style={{
+                      left: `calc(184px + (100% - 184px - 12px) * ${locARatio})`,
+                      width: `calc((100% - 184px - 12px) * ${Math.max(0, locBRatio - locARatio)})`,
+                      background: "rgba(187,238,0,0.07)",
+                      borderLeft: "1px solid rgba(187,238,0,0.55)",
+                      borderRight: "1px solid rgba(187,238,0,0.55)",
+                    }}
+                  />
+                )}
+                {/* A 三角（朝右，绿） */}
+                <div
+                  className="absolute top-0 z-10 cursor-ew-resize touch-none"
+                  style={{ left: `calc(184px + (100% - 184px - 12px) * ${locARatio} - 5px)`, width: 12, height: 14 }}
+                  onPointerDown={(e) => { e.stopPropagation(); setEditing(null); setLocatorDrag("a") }}
+                  onDoubleClick={() => { setEditing("a"); setEditVal((locator?.a ?? 0).toFixed(1)) }}
+                  title={`A ${formatTime(locator?.a ?? 0)}（拖拽调整，双击输入精确时间）`}
+                  role="slider"
+                  aria-label="定位器 A 点"
+                  aria-valuemin={0}
+                  aria-valuemax={Math.round(duration)}
+                  aria-valuenow={Math.round(locator?.a ?? 0)}
+                >
+                  <div style={{ width: 0, height: 0, borderTop: "7px solid #BBEE00", borderBottom: "7px solid #BBEE00", borderLeft: "10px solid transparent" }} />
+                </div>
+                {/* B 三角（朝左，绿） */}
+                <div
+                  className="absolute top-0 z-10 cursor-ew-resize touch-none"
+                  style={{ left: `calc(184px + (100% - 184px - 12px) * ${locBRatio} - 5px)`, width: 12, height: 14 }}
+                  onPointerDown={(e) => { e.stopPropagation(); setEditing(null); setLocatorDrag("b") }}
+                  onDoubleClick={() => { setEditing("b"); setEditVal((locator?.b ?? duration).toFixed(1)) }}
+                  title={`B ${formatTime(locator?.b ?? duration)}（拖拽调整，双击输入精确时间）`}
+                  role="slider"
+                  aria-label="定位器 B 点"
+                  aria-valuemin={0}
+                  aria-valuemax={Math.round(duration)}
+                  aria-valuenow={Math.round(locator?.b ?? duration)}
+                >
+                  <div style={{ width: 0, height: 0, borderTop: "7px solid #BBEE00", borderBottom: "7px solid #BBEE00", borderRight: "10px solid transparent" }} />
+                </div>
+                {/* 拖拽时间码气泡 */}
+                {locatorDrag && (
+                  <div
+                    className="pointer-events-none absolute top-4 z-20 -translate-x-1/2 rounded px-1.5 py-0.5 font-mono text-[11px]"
+                    style={{
+                      left: `calc(184px + (100% - 184px - 12px) * ${locatorDrag === "a" ? locARatio : locBRatio})`,
+                      background: "#000",
+                      color: "#BBEE00",
+                      border: "1px solid rgba(187,238,0,0.4)",
+                    }}
+                  >
+                    {formatTime(locatorDrag === "a" ? (locator?.a ?? 0) : (locator?.b ?? duration))}
+                  </div>
+                )}
+                {/* 双击精确输入框（秒 或 分:秒） */}
+                {editing && (
+                  <div
+                    className="absolute top-5 z-30"
+                    style={{ left: `calc(184px + (100% - 184px - 12px) * ${editing === "a" ? locARatio : locBRatio} - 55px)` }}
+                  >
+                    <input
+                      autoFocus
+                      value={editVal}
+                      onChange={(e) => setEditVal(e.target.value)}
+                      onBlur={() => setEditing(null)}
+                      onKeyDown={(e) => {
+                        e.stopPropagation()
+                        if (e.key === "Enter") {
+                          const v = parseTimeInput(editVal)
+                          if (v != null) {
+                            if (editing === "a") onLocatorChange(v, locator?.b ?? null)
+                            else onLocatorChange(locator?.a ?? 0, v)
+                          }
+                          setEditing(null)
+                        } else if (e.key === "Escape") {
+                          setEditing(null)
+                        }
+                      }}
+                      placeholder="秒 或 分:秒"
+                      className="w-[110px] rounded px-2 py-1 font-mono text-xs outline-none"
+                      style={{ background: "#000", color: "#fff", border: "1px solid rgba(187,238,0,0.5)" }}
+                    />
+                  </div>
+                )}
+              </>
+            )}
           </div>
         </section>
 
@@ -225,9 +380,79 @@ export function MixerFullscreen({
               <span style={{ color: MIXER_COLORS.textMuted }}> / {formatTime(duration)}</span>
             </div>
 
+            {/* 发表倒计时（仅发表混音器传 countdownSec；发表成功后父组件不再传=隐藏） */}
+            {typeof countdownSec === "number" && countdownSec > 0 && (
+              <span
+                className="shrink-0 font-mono text-xs tabular-nums"
+                style={{ color: countdownSec < 120 ? MIXER_COLORS.yellow : MIXER_COLORS.textMuted }}
+                title="超时将自动释放发表权"
+              >
+                请在 {Math.floor(countdownSec / 60)}m:{String(Math.floor(countdownSec % 60)).padStart(2, "0")}s 内完成发表，超时将释放发表权
+              </span>
+            )}
+
             <p className="ml-auto text-xs" style={{ color: MIXER_COLORS.textMuted }}>
               {footerHint}
             </p>
+
+            {/* 区间循环开关（enableLocator 才渲染） */}
+            {enableLocator && onLoopToggle && (
+              <button
+                type="button"
+                onClick={() => onLoopToggle(!loop)}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-white/10"
+                style={{
+                  color: loop ? MIXER_COLORS.green : MIXER_COLORS.textMuted,
+                  border: `1px solid ${loop ? "rgba(187,238,0,0.5)" : MIXER_COLORS.border}`,
+                }}
+                aria-label="区间循环播放"
+                title="区间内循环播放"
+              >
+                <Repeat size={14} />
+              </button>
+            )}
+            {/* 复位所有参数（音量/声像/总线/M/S/定位器一键回默认） */}
+            {onResetAll && (
+              <button
+                type="button"
+                onClick={onResetAll}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-white/10"
+                style={{ color: MIXER_COLORS.textMuted, border: `1px solid ${MIXER_COLORS.border}` }}
+                aria-label="复位所有参数"
+                title="复位所有参数（音量/声像/总线/M/S/定位器）"
+              >
+                <RotateCcw size={14} />
+              </button>
+            )}
+            {/* 一键清 M/S（闸2 便利钮：发表要求全员参与混音，存在 M/S 时才显示） */}
+            {onClearMS && hasAnyMS && (
+              <button
+                type="button"
+                onClick={onClearMS}
+                className="shrink-0 rounded-md px-2 py-1 text-xs transition-colors hover:bg-white/10"
+                style={{ color: MIXER_COLORS.yellow, border: `1px solid ${MIXER_COLORS.border}` }}
+                title="发表要求所有分轨参与混音；M/S 仅试听用，一键清除"
+              >
+                清除M/S
+              </button>
+            )}
+            {/* 发表作品按钮（仅发表混音器；灰置时悬停显示原因） */}
+            {publishButton && (
+              <button
+                type="button"
+                onClick={onPublishClick}
+                disabled={publishButton.disabled || publishButton.busy}
+                className="shrink-0 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed"
+                style={{
+                  background: publishButton.disabled ? "#333333" : publishButton.tone === "green" ? MIXER_COLORS.green : MIXER_COLORS.blue,
+                  color: publishButton.disabled ? "#888888" : "#121212",
+                  opacity: publishButton.disabled ? 0.6 : 1,
+                }}
+                title={publishButton.disabled ? publishButton.reason : undefined}
+              >
+                {publishButton.busy ? "生成中…" : publishButton.label}
+              </button>
+            )}
           </div>
         </section>
 

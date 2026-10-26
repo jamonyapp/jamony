@@ -51,6 +51,25 @@ export interface MixerFullscreenProps {
   footerHint?: string
   /** 标题栏图标：默认 🎸；传 false 不渲染（1016 欢哥：Program Mixer 纯文字） */
   icon?: React.ReactNode
+
+  /* ───── 1026 定位器/发表（全可选；program 不传=DOM 与现状一致，回归机器判据）───── */
+  /** 开启定位器 UI（录音双混音器传；program 不传） */
+  enableLocator?: boolean
+  /** 定位器（秒）；null=未设（A 渲染在 0 位、B 在末位） */
+  locator?: { a: number; b: number | null } | null
+  onLocatorChange?: (a: number, b: number | null) => void
+  /** 区间循环开关（enableLocator 时渲染） */
+  loop?: boolean
+  onLoopToggle?: (v: boolean) => void
+  /** 复位所有参数（音量/声像/总线/M/S/定位器一键回默认） */
+  onResetAll?: () => void
+  /** 发表按钮（仅发表混音器传；灰置时 title=reason） */
+  publishButton?: { label: string; disabled: boolean; reason?: string; busy?: boolean; tone?: "blue" | "green" | "gray" }
+  onPublishClick?: () => void
+  /** 一键清除 M/S（闸2 便利钮；存在 M/S 时自动显示） */
+  onClearMS?: () => void
+  /** 发表倒计时剩余秒（undefined=不渲染；发表成功后不再传即隐藏） */
+  countdownSec?: number
 }
 
 export interface MixerMiniProps {
