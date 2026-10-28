@@ -1324,14 +1324,6 @@ function SessionCard({
       {/* 头部：段落信息 + 倒计时 + 发表按钮 + 展开（纤细版，欢哥 0923 瘦身） */}
       <div className="flex items-center justify-between px-3 py-1.5">
         <div className="flex items-center gap-1.5">
-          {onPreview && (
-            <button type="button" onClick={onPreview}
-              className="flex size-5 items-center justify-center rounded-full transition-all hover:scale-105"
-              style={{color:"#FFFFFF",background:"rgba(255,255,255,0.1)",boxShadow:"0 0 0 1px rgba(255,255,255,0.2)"}}
-              aria-label="试听混音">
-              <Headphones size={12} />
-            </button>
-          )}
           <button onClick={onToggle} className="flex items-center gap-2 text-left text-xs transition-colors hover:opacity-80">
             <span className="grid size-5 place-items-center rounded-[6px] bg-primary/20 text-[10px] font-bold text-brand-purple">{session.index}</span>
             <span>
@@ -1358,7 +1350,16 @@ function SessionCard({
             授权
             <ChevronDown className={`size-3 transition-transform ${open ? "rotate-180" : ""}`} />
           </button>
-          {/* 1026 去发表5态（欢哥定稿，全3字文案无站位跳动）：
+          {/* 1029 欢哥：试听入口从卡片左端 icon 迁到按钮行（授权后/去发表前），绿色胶囊同去发表款 */}
+          {onPreview && (
+            <button type="button" onClick={onPreview}
+              className="flex items-center gap-1 rounded-full bg-brand-green px-3 py-1 text-xs font-bold text-white transition-all duration-200 hover:scale-[1.03]"
+              aria-label="试听混音">
+              <Headphones className="size-3" />
+              试听
+            </button>
+          )}
+          {/* 2026 去发表5态（欢哥定稿，全3字文案无站位跳动）：
               A 未全员授权=灰「去发表」 / B 可点 / C 「占位中」(竞态瞬间) / D 他人持锁=「发表中」 / E 已发表。
               点击=面板层抢锁→直开发表混音器（原确认弹窗与发表卡入口已上移退役） */}
           {(() => {
