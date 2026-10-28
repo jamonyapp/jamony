@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { Circle, Square, ChevronDown, ChevronLeft, ChevronRight, Disc3, Headphones, ArrowRight, Download, Ban, Check, X, ChevronUp, SlidersHorizontal, Play, Pause, Printer, Search, Hourglass, Repeat, SkipBack, Trash2 } from "lucide-react"
+import { Circle, Square, ChevronDown, ChevronLeft, ChevronRight, Disc3, Headphones, ArrowRight, Download, Ban, Check, X, ChevronUp, SlidersHorizontal, Play, Pause, Printer, Search, Hourglass, Repeat, SkipBack, Trash2, CircleX } from "lucide-react"
 import { instrumentEmoji, type RecordingSession, type Track, type RoomScore, type GpMix } from "@/lib/jam-data"
 import { MixerFullscreen } from "@/components/mixer/mixer-fullscreen"
 import { MixerMini } from "@/components/mixer/mixer-mini"
@@ -137,10 +137,10 @@ function DropdownSelect({
         onClick={() => !disabled && setOpen((o) => !o)}
         disabled={disabled}
         className={`flex items-center gap-1 rounded-[6px] px-2 py-1 text-[11px] font-bold transition-colors ${
-          disabled
-            ? "cursor-not-allowed bg-accent/50 text-muted-foreground/40"
-            : isDecided
-              ? (activeOption?.className || "bg-accent text-foreground")
+          isDecided
+            ? `${activeOption?.className || "bg-accent text-foreground"}${disabled ? " cursor-not-allowed opacity-80" : ""}`  // 1028: 锁定只锁交互不吞色——授权/拒绝定案色恒显
+            : disabled
+              ? "cursor-not-allowed bg-accent/50 text-muted-foreground/40"
               : "bg-accent text-muted-foreground hover:bg-accent/80 hover:text-foreground"
         }`}
       >
@@ -675,6 +675,7 @@ function RecordingPanel({
   const finalizeBaseline = useRef(0)
   const finalizeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [recToast, setRecToast] = useState('')
+  const recToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [recTime, setRecTime] = useState(0)
   const [now, setNow] = useState(Date.now())
   const fetchingRef = useRef(false)
@@ -821,7 +822,8 @@ function RecordingPanel({
       setFinalizing(false)
       if (finalizeTimer.current) clearTimeout(finalizeTimer.current)
       setRecToast('录音成功！请参与合奏者及时点击录音卡片的"授权"按钮，授权自己的分轨。')
-      setTimeout(() => setRecToast(''), 5000)
+      if (recToastTimer.current) clearTimeout(recToastTimer.current)
+      recToastTimer.current = setTimeout(() => setRecToast(''), 5000)
     }
   }, [sessions, showFinalizing])
 
@@ -1086,6 +1088,14 @@ function RecordingPanel({
             <div className="absolute inset-x-0 top-0 z-10 flex items-center justify-center gap-2 bg-brand-pink/90 px-3 py-2 text-xs font-medium shadow-md text-white">
               <Disc3 className="size-3.5 shrink-0" />
               {recToast}
+              {/* 1028 欢哥：5s 自动淡出前可随时手动关 */}
+              <button
+                onClick={() => { if (recToastTimer.current) clearTimeout(recToastTimer.current); setRecToast('') }}
+                className="absolute right-1.5 grid size-5 place-items-center rounded-[6px] text-white/70 transition-colors hover:bg-white/15 hover:text-white"
+                title="关闭"
+              >
+                <X className="size-3" />
+              </button>
             </div>
           )}
           {/* 录音记录 —— 可滚动 */}
@@ -1467,8 +1477,8 @@ function TrackRow({
               nullLabel="使用授权"
               disabled={track.use_locked}
               options={[
-                { label: "可使用", value: true, className: "text-brand-green" },
-                { label: "禁用", value: false, className: "text-destructive" },
+                { label: "✅ 可使用", value: true, className: "text-brand-green" },
+                { label: "❌ 禁用", value: false, className: "text-destructive" },
               ]}
               onChange={(v) => handleSelect("allow_use", v)}
             />
@@ -1480,8 +1490,8 @@ function TrackRow({
               nullLabel="选择署名"
               disabled={track.allow_use !== true || track.attribution_locked}
               options={[
-                { label: "可署名", value: true, className: "text-brand-green" },
-                { label: "匿名", value: false, className: "text-muted-foreground" },
+                { label: "✅ 可署名", value: true, className: "text-brand-green" },
+                { label: "❌ 匿名", value: false, className: "text-destructive" },
               ]}
               onChange={(v) => handleSelect("allow_attribution", v)}
             />
@@ -1492,8 +1502,8 @@ function TrackRow({
               value={track.allow_download}
               nullLabel="下载权限"
               options={[
-                { label: "可下载", value: true, className: "text-brand-green" },
-                { label: "禁下载", value: false, className: "text-destructive" },
+                { label: "✅ 可下载", value: true, className: "text-brand-green" },
+                { label: "❌ 禁下载", value: false, className: "text-destructive" },
               ]}
               onChange={(v) => handleSelect("allow_download", v)}
             />
@@ -1502,26 +1512,29 @@ function TrackRow({
         </div>
       )}
 
-      {/* 非自己（含 jamony-looper 系统轨）：只显示状态文本 */}
+      {/* 非自己（含 jamony-looper 系统轨）：只显示状态文本（1028 欢哥定稿格式统一——
+          授权=Check+绿文案 / 拒绝=CircleX+红文案，三态同构不再灰绿混杂） */}
       {!isSelf && (
         <div className="flex items-center gap-1.5">
-          <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-            {track.allow_use === true && <span className="text-brand-green"><Check className="inline size-3" /> 可使用</span>}
-            {track.allow_use === false && <span className="text-destructive"><X className="inline size-3" /> 禁用</span>}
-            {track.allow_use === null && <span>⏳ 选择中</span>}
+          <span className="flex items-center gap-1 text-[11px]">
+            {track.allow_use === true && <span className="flex items-center gap-0.5 text-brand-green"><Check className="size-3" /> 可使用</span>}
+            {track.allow_use === false && <span className="flex items-center gap-0.5 text-destructive"><CircleX className="size-3" /> 禁用</span>}
+            {track.allow_use === null && <span className="text-muted-foreground">⏳ 选择中</span>}
           </span>
           {track.allow_use === true && track.allow_attribution !== null && (
             <>
               <span className="text-[11px] text-muted-foreground">·</span>
-              <span className="text-[11px] text-muted-foreground">{track.allow_attribution === true ? "可署名" : "匿名"}</span>
+              {track.allow_attribution === true
+                ? <span className="flex items-center gap-0.5 text-[11px] text-brand-green"><Check className="size-3" /> 可署名</span>
+                : <span className="flex items-center gap-0.5 text-[11px] text-destructive"><CircleX className="size-3" /> 匿名</span>}
             </>
           )}
           {track.allow_download !== null && (
             <>
               <span className="text-[11px] text-muted-foreground">·</span>
-              <span className="text-[11px] text-muted-foreground">
-                {track.allow_download === true ? <span className="text-brand-green">可下载</span> : <span className="text-destructive">禁下载</span>}
-              </span>
+              {track.allow_download === true
+                ? <span className="flex items-center gap-0.5 text-[11px] text-brand-green"><Check className="size-3" /> 可下载</span>
+                : <span className="flex items-center gap-0.5 text-[11px] text-destructive"><CircleX className="size-3" /> 禁下载</span>}
             </>
           )}
         </div>
