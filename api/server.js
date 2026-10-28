@@ -3231,7 +3231,13 @@ app.delete('/api/rooms/:code/sessions/:sid', requireAuth, async (req, res) => {
     if (!session.rows[0]) return res.status(404).json({ ok: false, msg: '录音不存在' })
     const own = await pool.query('SELECT 1 FROM session_tracks WHERE session_id=$1 AND user_id=$2 AND allow_use=TRUE', [sessionId, req.userId])
     if (own.rows.length === 0) {
-      return res.status(403).json({ ok: false, msg: '仅授权使用该录音的合奏者可删除——未授权即视为放弃该段' })
+      // 1028 欢哥实测死角根治: 素材无主=全部人类轨已表态且全禁用 → 任一人类轨主可删(单人禁用/多人全禁用
+      // 均不再悬死; 未决⏳不算无主——有人可能即将授权,不能抢跑; looper 系统轨不参与判定)
+      const human = await pool.query('SELECT user_id, allow_use FROM session_tracks WHERE session_id=$1 AND is_system=FALSE', [sessionId])
+      const ownerless = human.rows.length > 0 && human.rows.every(t => t.allow_use === false) && human.rows.some(t => t.user_id === req.userId)
+      if (!ownerless) {
+        return res.status(403).json({ ok: false, msg: '仅授权使用该录音的合奏者可删除——未授权即视为放弃该段' })
+      }
     }
 
     // ⭐ 1026 使用中判定（欢哥定稿：正在使用的文件不可删除——一视同仁含本人）

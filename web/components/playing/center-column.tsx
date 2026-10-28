@@ -1310,7 +1310,11 @@ function SessionCard({
   const showCountdown = !session.all_locked && remaining > 0
   const canPublish = session.all_locked && session.agreed_count > 0
   // 1025 删除权前置(欢哥): 授权使用=所有权——本人轨未授权(=自动放弃)则按钮灰置,不再走"确认弹窗→403"尴尬链
+  // 1028 死角根治(欢哥实测): 素材无主(全部人类轨已表态且全禁用,未决不算,looper不算)时任一轨主可删——单人禁用不再悬死
+  const humanTracks = session.tracks.filter((t) => !t.is_system)
+  const ownerless = humanTracks.length > 0 && humanTracks.every((t) => t.allow_use === false)
   const canDelete = session.tracks.some((t) => t.user_id === currentUserId && t.allow_use === true)
+    || (ownerless && humanTracks.some((t) => t.user_id === currentUserId))
   const dialog = useJamonyDialog()
   const [delConfirm, setDelConfirm] = useState(false) // 1025 删除确认（欢哥四点定稿：与发表同现,授权=所有权）
   const refusedCount = session.tracks.filter(t => !t.is_system && t.allow_use === false).length
