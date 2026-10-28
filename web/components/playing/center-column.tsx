@@ -1144,7 +1144,7 @@ function RecordingPanel({
             titleLabel={isPublish ? "发表混音" : "试听混音"}
             footerHint={isPublish
               ? "你的调整与发表区间将随「发表作品」落档为作品成品——所发即所听。"
-              : "排练室回放：调整仅本地生效。拖动定位器可循环试听某一小节，帮助决定是否授权。"}
+              : "试听回放：调整仅本地生效，这可以辅助你决定是否授权使用自己的分轨或是否署名。"}
             tracks={mixerEngine.tracks}
             isOpen={true}
             isPlaying={mixerEngine.isPlaying}
