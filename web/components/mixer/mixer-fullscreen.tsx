@@ -204,6 +204,42 @@ export function MixerFullscreen({
           style={tracks.length > 5 ? { maxHeight: 5 * 52 + 4 * 4 } : undefined}
         >
           <div className="relative flex w-full flex-col gap-1">
+            {/* 定位器三角 sticky 锚（1029 欢哥·标准 DAW）：>5 轨滚动时三角钉在可视区顶可拖拽；
+                线（区间条）仍贯穿全部分轨内容——滚到哪里，可见线头都从可视区顶与三角无缝相接 */}
+            {enableLocator && duration > 0 && onLocatorChange && (
+            <div className="sticky top-0 z-20 h-0">
+              {/* A 三角（Cubase 直角等腰：竖直角边贴线，水平直角边向右——斜边指向备选区） */}
+              <div
+                className="absolute -top-2.5 cursor-ew-resize touch-none"
+                style={{ left: `calc(184px + (100% - 184px - 12px) * ${locARatio ?? 0})`, width: 12, height: 14 }}
+                onPointerDown={(e) => { e.stopPropagation(); setEditing(null); setLocatorDrag("a") }}
+                onDoubleClick={() => { setEditing("a"); setEditVal((locator?.a ?? 0).toFixed(1)) }}
+                title={`A ${formatTime(locator?.a ?? 0)}（拖拽调整，双击输入精确时间）`}
+                role="slider"
+                aria-label="定位器 A 点"
+                aria-valuemin={0}
+                aria-valuemax={Math.round(duration)}
+                aria-valuenow={Math.round(locator?.a ?? 0)}
+              >
+                <svg width="10" height="10" className="block"><path d="M0 0 L10 0 L0 10 Z" fill="#BBEE00" /></svg>
+              </div>
+              {/* B 三角（Cubase 直角等腰：竖直角边贴线，水平直角边向左——斜边指向备选区） */}
+              <div
+                className="absolute -top-2.5 cursor-ew-resize touch-none"
+                style={{ left: `calc(184px + (100% - 184px - 12px) * ${locBRatio ?? 1} - 12px)`, width: 12, height: 14 }}
+                onPointerDown={(e) => { e.stopPropagation(); setEditing(null); setLocatorDrag("b") }}
+                onDoubleClick={() => { setEditing("b"); setEditVal((locator?.b ?? duration).toFixed(1)) }}
+                title={`B ${formatTime(locator?.b ?? duration)}（拖拽调整，双击输入精确时间）`}
+                role="slider"
+                aria-label="定位器 B 点"
+                aria-valuemin={0}
+                aria-valuemax={Math.round(duration)}
+                aria-valuenow={Math.round(locator?.b ?? duration)}
+              >
+                <svg width="10" height="10" className="absolute right-0 block"><path d="M10 0 L0 0 L10 10 Z" fill="#BBEE00" /></svg>
+              </div>
+            </div>
+            )}
             {tracks.map((t) => (
               <WaveformTrack
                 key={t.id}
@@ -259,36 +295,6 @@ export function MixerFullscreen({
                     }}
                   />
                 )}
-                {/* A 三角（Cubase 直角等腰：竖直角边贴线，水平直角边向右——斜边指向备选区） */}
-                <div
-                  className="absolute -top-2.5 z-10 cursor-ew-resize touch-none"
-                  style={{ left: `calc(184px + (100% - 184px - 12px) * ${locARatio})`, width: 12, height: 14 }}
-                  onPointerDown={(e) => { e.stopPropagation(); setEditing(null); setLocatorDrag("a") }}
-                  onDoubleClick={() => { setEditing("a"); setEditVal((locator?.a ?? 0).toFixed(1)) }}
-                  title={`A ${formatTime(locator?.a ?? 0)}（拖拽调整，双击输入精确时间）`}
-                  role="slider"
-                  aria-label="定位器 A 点"
-                  aria-valuemin={0}
-                  aria-valuemax={Math.round(duration)}
-                  aria-valuenow={Math.round(locator?.a ?? 0)}
-                >
-                  <svg width="10" height="10" className="block"><path d="M0 0 L10 0 L0 10 Z" fill="#BBEE00" /></svg>
-                </div>
-                {/* B 三角（Cubase 直角等腰：竖直角边贴线，水平直角边向左——斜边指向备选区） */}
-                <div
-                  className="absolute -top-2.5 z-10 cursor-ew-resize touch-none"
-                  style={{ left: `calc(184px + (100% - 184px - 12px) * ${locBRatio} - 12px)`, width: 12, height: 14 }}
-                  onPointerDown={(e) => { e.stopPropagation(); setEditing(null); setLocatorDrag("b") }}
-                  onDoubleClick={() => { setEditing("b"); setEditVal((locator?.b ?? duration).toFixed(1)) }}
-                  title={`B ${formatTime(locator?.b ?? duration)}（拖拽调整，双击输入精确时间）`}
-                  role="slider"
-                  aria-label="定位器 B 点"
-                  aria-valuemin={0}
-                  aria-valuemax={Math.round(duration)}
-                  aria-valuenow={Math.round(locator?.b ?? duration)}
-                >
-                  <svg width="10" height="10" className="absolute right-0 block"><path d="M10 0 L0 0 L10 10 Z" fill="#BBEE00" /></svg>
-                </div>
                 {/* 拖拽时间码气泡 */}
                 {locatorDrag && (
                   <div
