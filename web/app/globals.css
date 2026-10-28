@@ -31,6 +31,7 @@
   /* jamony brand tokens */
   --color-brand-blue: var(--brand-blue);
   --color-brand-purple: var(--brand-purple);
+  --color-brand-purple-deep: var(--brand-purple-deep);
   --color-brand-pink: var(--brand-pink);
   --color-brand-green: var(--brand-green);
   --color-brand-lime: var(--brand-lime);
@@ -66,6 +67,7 @@
   /* jamony brand palette */
   --brand-blue: #00aaff;
   --brand-purple: #9933ff;
+  --brand-purple-deep: #7a2bd9;
   --brand-pink: #ff33aa;
   --brand-lime: #bbee00;
   --brand-green: #bbee00; /* alias for lime */

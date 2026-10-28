@@ -1353,7 +1353,7 @@ function SessionCard({
           {/* 1029 欢哥：试听入口从卡片左端 icon 迁到按钮行（授权后/去发表前），绿色胶囊同去发表款 */}
           {onPreview && (
             <button type="button" onClick={onPreview}
-              className="flex items-center gap-1 rounded-full bg-brand-green px-3 py-1 text-xs font-bold text-white transition-all duration-200 hover:scale-[1.03]"
+              className="flex items-center gap-1 rounded-full bg-brand-purple-deep px-3 py-1 text-xs font-bold text-white transition-all duration-200 hover:scale-[1.03]"
               aria-label="试听混音">
               <Headphones className="size-3" />
               试听
