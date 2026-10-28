@@ -2704,16 +2704,9 @@ async function touchRoomPeak(roomId) {
 // 离开房间
 // 移除成员并检查房间是否解散（/leave 和 socket disconnect 共用，L2 兜底也走这个）
 // 返回 true=房间已解散（杀进程+删房间），false=房间还在（房主可能已转移给最久的合奏者）
-async function removeMemberAndCheckDissolve(userId, roomId, roomCode) {
-  await closeMusicianSession(userId, roomId)  // 闭会话须在删房前（会话无 FK 依赖房，但逻辑上先结算）
-  await closeRoomVisit(roomId, userId) // 1025: 离房闭访问段(时长结算)
-  await pool.query('DELETE FROM room_members WHERE room_id = $1 AND user_id = $2', [roomId, userId])
-
-  // 没有合奏者则解散房间（听众不参与房间存亡；jamony 定位是服务合奏者，没合奏者的房间无意义）
-  const musicianCount = await pool.query(
-    "SELECT COUNT(*) AS c FROM room_members WHERE room_id = $1 AND role = 'musician'", [roomId]
-  )
-  if (parseInt(musicianCount.rows[0].c) === 0) {
+// 标准解散执行体（杀进程/清物料/广播/闭账/归档）。1028 从 removeMemberAndCheckDissolve 原样抽出——
+// 收割者光杆房（零成员）无成员可踢也须直达解散，与"末位合奏者离开"同一条路。
+async function dissolveRoom(roomId, roomCode) {
     const roomInfo = await pool.query('SELECT server_port FROM rooms WHERE id = $1', [roomId])
     const closePort = roomInfo.rows[0]?.server_port
     if (closePort) {
@@ -2749,7 +2742,19 @@ async function removeMemberAndCheckDissolve(userId, roomId, roomCode) {
       )) WHERE id=$1`, [roomId])
     await pool.query('DELETE FROM room_members WHERE room_id = $1', [roomId])
     return true
-  }
+}
+
+// 末位合奏者离开 → 解散检查（解散体已抽 dissolveRoom，行为不变）
+async function removeMemberAndCheckDissolve(userId, roomId, roomCode) {
+  await closeMusicianSession(userId, roomId)  // 闭会话须在删房前（会话无 FK 依赖房，但逻辑上先结算）
+  await closeRoomVisit(roomId, userId) // 1025: 离房闭访问段(时长结算)
+  await pool.query('DELETE FROM room_members WHERE room_id = $1 AND user_id = $2', [roomId, userId])
+
+  // 没有合奏者则解散房间（听众不参与房间存亡；jamony 定位是服务合奏者，没合奏者的房间无意义）
+  const musicianCount = await pool.query(
+    "SELECT COUNT(*) AS c FROM room_members WHERE room_id = $1 AND role = 'musician'", [roomId]
+  )
+  if (parseInt(musicianCount.rows[0].c) === 0) return dissolveRoom(roomId, roomCode)
 
   // 房间还在：房主离开则转移给在房间最久的合奏者（调起 jamsoul 时间最长，用 joined_at 近似）
   const roomResult = await pool.query('SELECT host_id FROM rooms WHERE id = $1', [roomId])
@@ -5962,11 +5967,19 @@ async function reapGhostRooms() {
     )
     for (const room of stale.rows) {
       const members = await pool.query('SELECT user_id FROM room_members WHERE room_id = $1', [room.id])
-      console.log(`[reaper] 收割幽灵房「${room.name}」(${room.room_code})——全员${members.rows.length}人静止超${ROOM_REAPER_STALE_MINUTES}分钟`)
+      const code = String(room.room_code).trim()  // char(8) 尾空格:防物料路径拼接错位(0717 leave-all-rooms 同判例)
+      if (members.rows.length === 0) {
+        // 1028 根治光杆房盲区(欢哥拍板): REST 建房后无人 join → room_members 零行, 逐成员刀法空转, 房间永生
+        // (铁证: E2E频率闸被空喊"收割"577次/48h 从未落刀) → 直达标准解散执行体
+        console.log(`[reaper] 收割光杆房「${room.name}」(${code})——零成员(建房后无人加入)，直接解散`)
+        try { await dissolveRoom(room.id, code) } catch (e) { console.error('[reaper] 光杆解散错误:', e.message) }
+        continue
+      }
+      console.log(`[reaper] 收割幽灵房「${room.name}」(${code})——全员${members.rows.length}人静止超${ROOM_REAPER_STALE_MINUTES}分钟`)
       for (const m of members.rows) {
         const still = await pool.query("SELECT id FROM rooms WHERE id=$1 AND status NOT IN ('closed','archived')", [room.id])
         if (still.rows.length === 0) break  // 已被首笔 leave 触发标准解散，余下成员行随房清
-        try { await removeMemberAndCheckDissolve(m.user_id, room.id, room.room_code) } catch (e) { console.error('[reaper] leave错误:', e.message) }
+        try { await removeMemberAndCheckDissolve(m.user_id, room.id, code) } catch (e) { console.error('[reaper] leave错误:', e.message) }
       }
     }
   } catch (e) { console.error('[reaper] 扫描错误:', e) }
