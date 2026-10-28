@@ -249,7 +249,7 @@ export function MixerFullscreen({
               <>
                 {locator && (
                   <div
-                    className="pointer-events-none absolute top-0 bottom-0"
+                    className="pointer-events-none absolute -top-2.5 bottom-0"
                     style={{
                       left: `calc(184px + (100% - 184px - 12px) * ${locARatio})`,
                       width: `calc((100% - 184px - 12px) * ${Math.max(0, locBRatio - locARatio)})`,
@@ -261,7 +261,7 @@ export function MixerFullscreen({
                 )}
                 {/* A 三角（Cubase 直角等腰：竖直角边贴线，水平直角边向右——斜边指向备选区） */}
                 <div
-                  className="absolute top-0 z-10 cursor-ew-resize touch-none"
+                  className="absolute -top-2.5 z-10 cursor-ew-resize touch-none"
                   style={{ left: `calc(184px + (100% - 184px - 12px) * ${locARatio})`, width: 12, height: 14 }}
                   onPointerDown={(e) => { e.stopPropagation(); setEditing(null); setLocatorDrag("a") }}
                   onDoubleClick={() => { setEditing("a"); setEditVal((locator?.a ?? 0).toFixed(1)) }}
@@ -276,7 +276,7 @@ export function MixerFullscreen({
                 </div>
                 {/* B 三角（Cubase 直角等腰：竖直角边贴线，水平直角边向左——斜边指向备选区） */}
                 <div
-                  className="absolute top-0 z-10 cursor-ew-resize touch-none"
+                  className="absolute -top-2.5 z-10 cursor-ew-resize touch-none"
                   style={{ left: `calc(184px + (100% - 184px - 12px) * ${locBRatio} - 12px)`, width: 12, height: 14 }}
                   onPointerDown={(e) => { e.stopPropagation(); setEditing(null); setLocatorDrag("b") }}
                   onDoubleClick={() => { setEditing("b"); setEditVal((locator?.b ?? duration).toFixed(1)) }}
