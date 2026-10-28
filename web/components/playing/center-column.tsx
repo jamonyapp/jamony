@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { Circle, Square, ChevronDown, ChevronLeft, ChevronRight, Disc3, Headphones, ArrowRight, Download, Ban, Check, X, ChevronUp, SlidersHorizontal, Play, Pause, Printer, Search, Hourglass, Repeat, SkipBack, Trash2, CircleX } from "lucide-react"
+import { Circle, Square, ChevronDown, ChevronLeft, ChevronRight, Disc3, Headphones, ArrowRight, Download, Ban, Check, X, ChevronUp, SlidersHorizontal, Play, Pause, Printer, Search, Hourglass, Repeat, SkipBack, Trash2 } from "lucide-react"
 import { instrumentEmoji, type RecordingSession, type Track, type RoomScore, type GpMix } from "@/lib/jam-data"
 import { MixerFullscreen } from "@/components/mixer/mixer-fullscreen"
 import { MixerMini } from "@/components/mixer/mixer-mini"
@@ -110,7 +110,7 @@ function DropdownSelect({
   nullLabel,
 }: {
   value: boolean | null
-  options: { label: string; value: boolean; className?: string }[]
+  options: { label: string; value: boolean; className?: string; icon?: React.ReactNode }[]
   onChange: (v: boolean) => void
   disabled?: boolean
   nullLabel?: string
@@ -144,7 +144,7 @@ function DropdownSelect({
               : "bg-accent text-muted-foreground hover:bg-accent/80 hover:text-foreground"
         }`}
       >
-        <span>{displayText}</span>
+        <span className="flex items-center gap-1">{isDecided && activeOption?.icon}{displayText}</span>
         {!disabled && (open ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />)}
       </button>
       {open && !disabled && (
@@ -153,11 +153,11 @@ function DropdownSelect({
             <button
               key={String(opt.value)}
               onClick={() => { onChange(opt.value); setOpen(false) }}
-              className={`whitespace-nowrap px-3 py-1 text-left text-[11px] font-bold transition-colors hover:bg-accent ${
+              className={`flex items-center gap-1 whitespace-nowrap px-3 py-1 text-left text-[11px] font-bold transition-colors hover:bg-accent ${
                 value === opt.value ? (opt.className || "text-foreground") : "text-muted-foreground"
               } ${value === opt.value ? "bg-accent" : ""}`}
             >
-              {opt.label}
+              {opt.icon}{opt.label}
             </button>
           ))}
         </div>
@@ -1477,8 +1477,8 @@ function TrackRow({
               nullLabel="使用授权"
               disabled={track.use_locked}
               options={[
-                { label: "✅ 可使用", value: true, className: "text-brand-green" },
-                { label: "❌ 禁用", value: false, className: "text-destructive" },
+                { label: "可使用", value: true, className: "text-brand-green", icon: <Check className="size-3" /> },
+                { label: "禁用", value: false, className: "text-destructive", icon: <Ban className="size-3" /> },
               ]}
               onChange={(v) => handleSelect("allow_use", v)}
             />
@@ -1490,8 +1490,8 @@ function TrackRow({
               nullLabel="选择署名"
               disabled={track.allow_use !== true || track.attribution_locked}
               options={[
-                { label: "✅ 可署名", value: true, className: "text-brand-green" },
-                { label: "❌ 匿名", value: false, className: "text-destructive" },
+                { label: "可署名", value: true, className: "text-brand-green", icon: <Check className="size-3" /> },
+                { label: "匿名", value: false, className: "text-destructive", icon: <Ban className="size-3" /> },
               ]}
               onChange={(v) => handleSelect("allow_attribution", v)}
             />
@@ -1502,8 +1502,8 @@ function TrackRow({
               value={track.allow_download}
               nullLabel="下载权限"
               options={[
-                { label: "✅ 可下载", value: true, className: "text-brand-green" },
-                { label: "❌ 禁下载", value: false, className: "text-destructive" },
+                { label: "可下载", value: true, className: "text-brand-green", icon: <Check className="size-3" /> },
+                { label: "禁下载", value: false, className: "text-destructive", icon: <Ban className="size-3" /> },
               ]}
               onChange={(v) => handleSelect("allow_download", v)}
             />
@@ -1513,12 +1513,12 @@ function TrackRow({
       )}
 
       {/* 非自己（含 jamony-looper 系统轨）：只显示状态文本（1028 欢哥定稿格式统一——
-          授权=Check+绿文案 / 拒绝=CircleX+红文案，三态同构不再灰绿混杂） */}
+          授权=Check+绿文案 / 拒绝=Ban禁止符+红文案，lucide 线条同构，三态不再灰绿混杂） */}
       {!isSelf && (
         <div className="flex items-center gap-1.5">
           <span className="flex items-center gap-1 text-[11px]">
             {track.allow_use === true && <span className="flex items-center gap-0.5 text-brand-green"><Check className="size-3" /> 可使用</span>}
-            {track.allow_use === false && <span className="flex items-center gap-0.5 text-destructive"><CircleX className="size-3" /> 禁用</span>}
+            {track.allow_use === false && <span className="flex items-center gap-0.5 text-destructive"><Ban className="size-3" /> 禁用</span>}
             {track.allow_use === null && <span className="text-muted-foreground">⏳ 选择中</span>}
           </span>
           {track.allow_use === true && track.allow_attribution !== null && (
@@ -1526,7 +1526,7 @@ function TrackRow({
               <span className="text-[11px] text-muted-foreground">·</span>
               {track.allow_attribution === true
                 ? <span className="flex items-center gap-0.5 text-[11px] text-brand-green"><Check className="size-3" /> 可署名</span>
-                : <span className="flex items-center gap-0.5 text-[11px] text-destructive"><CircleX className="size-3" /> 匿名</span>}
+                : <span className="flex items-center gap-0.5 text-[11px] text-destructive"><Ban className="size-3" /> 匿名</span>}
             </>
           )}
           {track.allow_download !== null && (
@@ -1534,7 +1534,7 @@ function TrackRow({
               <span className="text-[11px] text-muted-foreground">·</span>
               {track.allow_download === true
                 ? <span className="flex items-center gap-0.5 text-[11px] text-brand-green"><Check className="size-3" /> 可下载</span>
-                : <span className="flex items-center gap-0.5 text-[11px] text-destructive"><CircleX className="size-3" /> 禁下载</span>}
+                : <span className="flex items-center gap-0.5 text-[11px] text-destructive"><Ban className="size-3" /> 禁下载</span>}
             </>
           )}
         </div>
