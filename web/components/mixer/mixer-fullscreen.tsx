@@ -267,9 +267,9 @@ export function MixerFullscreen({
               aria-valuemax={100}
               aria-valuenow={Math.round(progress * 100)}
             />
-            {/* 纵向播放指针：仅覆盖波形画布区域 */}
+            {/* 纵向播放指针：仅覆盖波形画布区域（top-1=4px 补偿 sticky 锚与首轨间的 gap-1，顶端=首轨上沿） */}
             <div
-              className="pointer-events-none absolute top-0 bottom-0"
+              className="pointer-events-none absolute top-1 bottom-0"
               style={{
                 left: `calc(184px + (100% - 184px - 12px) * ${progress})`,
                 width: 2,
