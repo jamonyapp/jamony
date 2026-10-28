@@ -196,6 +196,7 @@ export function CenterColumn({
   realtimeRecordingStartedAt,
   realtimeRecordingMax,
   realtimeRecordingFinalizing,
+  discardTs,
   onMixerOpen,
   onMixerClose,
   score,
@@ -223,6 +224,8 @@ export function CenterColumn({
   realtimeRecordingStartedAt?: string | null
   realtimeRecordingMax?: number | null
   realtimeRecordingFinalizing?: boolean | null
+  /** 1028: 闸1 静默废弃事件时刻（秒级信号量）——归档态即时退出，不等 60s 兜底 */
+  discardTs?: number | null
   /** 1026 混音器使用 presence（删除保护）：开=占用 / 关=释放 */
   onMixerOpen?: (sessionId: number) => void
   onMixerClose?: () => void
@@ -303,6 +306,7 @@ export function CenterColumn({
           realtimeRecordingStartedAt={realtimeRecordingStartedAt}
           realtimeRecordingMax={realtimeRecordingMax}
           realtimeRecordingFinalizing={realtimeRecordingFinalizing}
+          discardTs={discardTs}
           onMixerOpen={onMixerOpen}
           onMixerClose={onMixerClose}
           drawerOpen={drawerOpen}
@@ -622,6 +626,7 @@ function RecordingPanel({
   realtimeRecordingStartedAt,
   realtimeRecordingMax,
   realtimeRecordingFinalizing,
+  discardTs,
   onMixerOpen,
   onMixerClose,
   drawerOpen,
@@ -637,6 +642,7 @@ function RecordingPanel({
   realtimeRecordingStartedAt?: string | null
   realtimeRecordingMax?: number | null
   realtimeRecordingFinalizing?: boolean | null
+  discardTs?: number | null
   onMixerOpen?: (sessionId: number) => void
   onMixerClose?: () => void
   drawerOpen?: boolean
@@ -737,6 +743,15 @@ function RecordingPanel({
       }
     }
   }, [realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingFinalizing, finalizing, sessions, currentUserId])
+
+  // 1028 欢哥实测判例: 静默废弃路径闸1不建段落→无新 session→归档态等不到自然退出条件,
+  // 只能靠 60s 兜底定时器(实测卡"归档中"1分钟/须强刷)。修复: session-discarded 即退归档态——
+  // 与弹窗同源(discardEvent.ts), 按钮/弹窗两条消费链对齐
+  useEffect(() => {
+    if (discardTs == null) return
+    setFinalizing(false)
+    if (finalizeTimer.current) clearTimeout(finalizeTimer.current)
+  }, [discardTs])
 
   // 录音计时
   useEffect(() => {

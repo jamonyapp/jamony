@@ -517,6 +517,7 @@ export function PlayingPage() {
             onMixerOpen={openMixer}
             onMixerClose={closeMixerPresence}
             realtimeRecordingFinalizing={realtimeRecordingFinalizing}
+            discardTs={discardEvent?.ts ?? null}
             score={score}
             onClearScore={handleClearScore}
             gpState={gpState}
