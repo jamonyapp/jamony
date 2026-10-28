@@ -2743,6 +2743,12 @@ async function dissolveRoom(roomId, roomCode) {
         'musicians', (SELECT COALESCE(jsonb_agg(DISTINCT jsonb_build_object('uid', u.id, 'nick', u.nickname)), '[]'::jsonb) FROM musician_sessions ms JOIN users u ON u.id = ms.user_id WHERE ms.room_id = $1)
       )) WHERE id=$1`, [roomId])
     await pool.query('DELETE FROM room_members WHERE room_id = $1', [roomId])
+    // 1029 欢哥根治: 房间解散=录音终局（标题栏「录音将在房间解散后清除」承诺全兑现）——删未发表 session 行
+    // (文件已随目录清理; 已发表的留——works.session_id FK NOT NULL 无 ON DELETE 且为快照溯源数据源,不可删)
+    try {
+      await pool.query("DELETE FROM session_tracks WHERE session_id IN (SELECT id FROM recording_sessions WHERE room_id=$1 AND status != 'published')", [roomId])
+      await pool.query("DELETE FROM recording_sessions WHERE room_id=$1 AND status != 'published'", [roomId])
+    } catch (e) { console.error('dissolve rm sessions ' + roomId + ':', e.message) }
     return true
 }
 
