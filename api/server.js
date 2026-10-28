@@ -2480,7 +2480,9 @@ function isDrumsRunning(roomPort) {
 // 计算单个 session 的汇总状态：全员 ①② 是否锁定、授权人数、发表人
 async function summarizeSession(session, tracks) {
   const realTracks = tracks.filter(t => !t.is_system)
-  const allLocked = realTracks.length > 0 && realTracks.every(t => t.use_locked && t.attribution_locked)
+  // 1028 死角第二层: ①=禁用的轨②署名下拉灰死永远无法表态→all_locked 死锁(状态卡不出现)——
+  // 禁用=整轨退出作品,署名无意义,①已决即视为整体落定
+  const allLocked = realTracks.length > 0 && realTracks.every(t => t.use_locked && (t.attribution_locked || t.allow_use === false))
   const agreedCount = realTracks.filter(t => t.allow_use === true).length
 
   // 自动释放超过15分钟的发表锁（1026：5→15分钟——混音调参进入锁窗后5分钟不够用，欢哥拍板）

@@ -1391,7 +1391,9 @@ function SessionCard({
               </button>
             )
           })()}
-          {canPublish && (
+          {/* 1028 死角第二层: 门槛原挂 canPublish(=有人授权才出按钮)——0人授权/全员禁用的段永远无按钮,
+              ownerless 修复改了 disabled 却改不到"不出生"。渲染门槛=canDelete(已含授权者∨无主全判定) */}
+          {canDelete && (
             <button
               onClick={() => canDelete && setDelConfirm(true)}
               disabled={!canDelete}
