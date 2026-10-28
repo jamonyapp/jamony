@@ -1085,7 +1085,7 @@ function RecordingPanel({
         <div className="relative min-h-0 overflow-hidden">
           {/* 1025 归档提示终版位（欢哥）：absolute 覆盖层——悬浮于列表之上,不挤占布局不顶列表 */}
           {recToast && (
-            <div className="absolute inset-x-0 top-0 z-10 flex items-center justify-center gap-2 bg-brand-pink/90 px-3 py-2 text-xs font-medium shadow-md text-white">
+            <div className="absolute inset-x-0 top-0 z-10 flex items-center justify-center gap-2 bg-brand-pink/70 px-3 py-2 text-xs font-medium shadow-md text-white">
               <Disc3 className="size-3.5 shrink-0" />
               {recToast}
               {/* 1028 欢哥：5s 自动淡出前可随时手动关 */}
