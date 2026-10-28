@@ -3454,6 +3454,16 @@ app.post('/api/rooms/:code/sessions/:sid/publish', requireAuth, upload.fields([{
     )
     if (ownTrackPub.rows.length === 0) return res.status(403).json({ ok: false, msg: '只有本段落的乐手可以发表' })
 
+    // ⭐ 1029 硬闸(欢哥铁律): 作品不能是纯伴奏/纯looper——无真人乐手授权使用时拒绝发表
+    //    (前端 canPublish 同口径; 此处防 curl 直打绕过前端灰)
+    const humanAgreed = await pool.query(
+      'SELECT 1 FROM session_tracks WHERE session_id=$1 AND is_system=FALSE AND allow_use=TRUE LIMIT 1',
+      [sessionId]
+    )
+    if (humanAgreed.rows.length === 0) {
+      return res.status(400).json({ ok: false, msg: '作品必须有真人乐手授权参与——无人授权使用时无法发表' })
+    }
+
     const { title, style, copyright, cover_song, cover_author, source, description, duration, cover_gradient, has_drum_track, agreed, authors_json } = req.body
     const publisher_user_id = req.userId
 

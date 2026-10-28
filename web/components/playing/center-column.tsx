@@ -1308,10 +1308,9 @@ function SessionCard({
 }) {
   const remaining = session.expires_at ? Math.max(0, Math.ceil((new Date(session.expires_at).getTime() - now) / 1000)) : 0
   const showCountdown = !session.all_locked && remaining > 0
-  // 1029 语义修正(欢哥): 可发表=全员确权完毕 ∧ 发表集合非空(授权轨∪looper)——
-  // 禁用自己但有 looper=纯伴奏版作品,合法可发(后端闸3 looper 豁免/区间终审同口径);
-  // 纯禁用无 looper=空集,无内容可发(去发表混音器零轨卡死)
-  const canPublish = session.all_locked && (session.agreed_count > 0 || session.tracks.some((t) => t.is_system))
+  // 可发表=全员确权完毕 ∧ 至少一名真人乐手授权使用——作品不能是纯伴奏/纯looper,
+  // 无真人参与无法发布作品(1029 欢哥铁律:前端灰+后端硬闸双拦)
+  const canPublish = session.all_locked && session.agreed_count > 0
   // 1025 删除权前置(欢哥): 授权使用=所有权——本人轨未授权(=自动放弃)则按钮灰置,不再走"确认弹窗→403"尴尬链
   // 1028 死角根治(欢哥实测): 素材无主(全部人类轨已表态且全禁用,未决不算,looper不算)时任一轨主可删——单人禁用不再悬死
   const humanTracks = session.tracks.filter((t) => !t.is_system)
@@ -1385,7 +1384,7 @@ function SessionCard({
                 onClick={() => onPublishEntry?.(session)}
                 disabled={!canPublish || !onPublishEntry}
                 title={canPublish ? undefined : session.all_locked
-                  ? "无可发表的音轨：没有人授权使用自己的分轨，也没有伴奏音轨"
+                  ? "作品必须有真人乐手授权参与——无人授权使用时无法发表"
                   : "等待所有乐手完成使用授权（倒计时结束自动默认授权）"}
                 className={`rounded-md px-3 py-1 text-xs font-bold text-white transition-all duration-200 ${
                   canPublish
