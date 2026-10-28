@@ -1085,16 +1085,16 @@ function RecordingPanel({
         <div className="relative min-h-0 overflow-hidden">
           {/* 1025 归档提示终版位（欢哥）：absolute 覆盖层——悬浮于列表之上,不挤占布局不顶列表 */}
           {recToast && (
-            <div className="absolute inset-x-0 top-0 z-10 flex items-center justify-center gap-2 bg-brand-pink/70 px-3 py-2 text-xs font-medium shadow-md text-white">
-              <Disc3 className="size-3.5 shrink-0" />
+            <div className="absolute inset-x-0 top-0 z-10 flex items-center justify-center gap-2 bg-brand-pink/70 px-3 py-1 text-xs font-medium leading-tight shadow-md text-white">
+              <Disc3 className="size-3 shrink-0" />
               {recToast}
               {/* 1028 欢哥：5s 自动淡出前可随时手动关 */}
               <button
                 onClick={() => { if (recToastTimer.current) clearTimeout(recToastTimer.current); setRecToast('') }}
-                className="absolute right-1.5 grid size-5 place-items-center rounded-[6px] text-white/70 transition-colors hover:bg-white/15 hover:text-white"
+                className="absolute right-1.5 grid size-4 place-items-center rounded-[6px] text-white/70 transition-colors hover:bg-white/15 hover:text-white"
                 title="关闭"
               >
-                <X className="size-3" />
+                <X className="size-2.5" />
               </button>
             </div>
           )}
