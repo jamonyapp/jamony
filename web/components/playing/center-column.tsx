@@ -1057,7 +1057,7 @@ function RecordingPanel({
             onClick={() => (recording ? stopRecording() : !stopping && startRecording())}
             disabled={stopping || showFinalizing}
             aria-label={recording ? "停止录音" : "开始录音"}
-            className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold text-white transition-transform hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100 ${
+            className={`flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-bold text-white transition-transform hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100 ${
               recording ? "bg-destructive" : "bg-brand-pink"
             }`}
           >
@@ -1346,14 +1346,14 @@ function SessionCard({
             </>
           )}
           {/* 1025 欢哥定稿: 授权入口显性化——置于发表按钮之前,点击照常弹授权抽屉 */}
-          <button onClick={onToggle} className="flex items-center gap-1 rounded-full bg-brand-pink/75 px-2.5 py-1 text-[11px] font-bold text-white transition-transform hover:scale-[1.03]">
+          <button onClick={onToggle} className="flex items-center gap-1 rounded-md bg-brand-pink/75 px-2.5 py-1 text-[11px] font-bold text-white transition-transform hover:scale-[1.03]">
             授权
             <ChevronDown className={`size-3 transition-transform ${open ? "rotate-180" : ""}`} />
           </button>
           {/* 1029 欢哥：试听入口从卡片左端 icon 迁到按钮行（授权后/去发表前），绿色胶囊同去发表款 */}
           {onPreview && (
             <button type="button" onClick={onPreview}
-              className="flex items-center gap-1 rounded-full bg-brand-purple-deep px-3 py-1 text-xs font-bold text-white transition-all duration-200 hover:scale-[1.03]"
+              className="flex items-center gap-1 rounded-md bg-brand-purple-deep px-3 py-1 text-xs font-bold text-white transition-all duration-200 hover:scale-[1.03]"
               aria-label="试听混音">
               <Headphones className="size-3" />
               试听
@@ -1368,12 +1368,12 @@ function SessionCard({
             const isMine = isClaimed && session.publisher_user_id === currentUserId
             const isOthers = isClaimed && !isMine
             if (session.status === "published") return (
-              <button disabled className="cursor-not-allowed rounded-full bg-brand-green/40 px-3 py-1 text-xs font-bold text-white opacity-60">
+              <button disabled className="cursor-not-allowed rounded-md bg-brand-green/40 px-3 py-1 text-xs font-bold text-white opacity-60">
                 已发表
               </button>
             )
             if (isOthers || claiming) return (
-              <button disabled className={`cursor-not-allowed rounded-full bg-brand-blue/40 px-3 py-1 text-xs font-bold text-white opacity-40 ${claiming ? "animate-pulse" : ""}`}>
+              <button disabled className={`cursor-not-allowed rounded-md bg-brand-blue/40 px-3 py-1 text-xs font-bold text-white opacity-40 ${claiming ? "animate-pulse" : ""}`}>
                 {claiming ? "占位中" : "发表中"}
               </button>
             )
@@ -1382,7 +1382,7 @@ function SessionCard({
                 onClick={() => onPublishEntry?.(session)}
                 disabled={!canPublish || !onPublishEntry}
                 title={canPublish ? undefined : "等待所有乐手完成使用授权（倒计时结束自动默认授权）"}
-                className={`rounded-full px-3 py-1 text-xs font-bold text-white transition-all duration-200 ${
+                className={`rounded-md px-3 py-1 text-xs font-bold text-white transition-all duration-200 ${
                   canPublish
                     ? `${isMine ? "bg-brand-green" : "bg-brand-blue"} hover:scale-[1.03]`
                     : "cursor-not-allowed bg-brand-blue/40 opacity-40"
