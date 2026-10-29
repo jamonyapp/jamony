@@ -1,9 +1,27 @@
 const express = require('express')
 const cors = require('cors')
 const crypto = require('crypto')
+// 1029 env 持久化（照搬 admin 的 .env 机制，零依赖版）：JWT_SECRET/ADMIN_INTERNAL_KEY 等此前只活在
+// 旧进程环境里（dump.pm2 不存=机器重启即丢，JWT 会落回下方 dev 兜底=全员掉登录+token 可伪造）。
+// 已在环境里的键优先（pm2 ecosystem 注入不覆盖）；.env 仅服务器存在（600），永不进 git。
+try {
+  const envFile = require('path').join(__dirname, '.env')
+  if (require('fs').existsSync(envFile)) {
+    for (const line of require('fs').readFileSync(envFile, 'utf8').split('\n')) {
+      const m = line.match(/^([A-Z_][A-Z0-9_]*)=(.*)$/)
+      if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '')
+    }
+  }
+} catch (e) {}
 const http = require("http")
 const { Server } = require("socket.io")
-const { execSync, spawn } = require('child_process')
+const { spawn, execFile } = require('child_process')
+const promisify = require('util').promisify
+// ⭐ 1029 房间隔离宪法：同步子进程/同步密码学调用会冻结整个事件循环=任何房间触发全站所有房间一起卡
+//   （鼓机启动实测冻结 5.394s）。本进程 execSync 已全数退役（仅剩 aliyun.env/rpc密钥两处 64 字节级
+//   readFileSync=微秒，非冻结源）；重活一律 execFileAsync（数组参数，零 shell 注入面）或独立子进程。
+//   子进程内部（manage-jamsoul 等）用 sync 合法——进程边界=防火墙。
+const execFileAsync = promisify(execFile)
 const { Pool, types: pgTypes } = require('pg')
 // 1025 雪花前置: BIGINT 列默认被驱动解析为 string——jamony 的 bigint 恒 < 2^53(迷你雪花),
 // 全局解析回 number, 旧代码(parseInt 严格比较/JWT number 载荷)零改动
@@ -70,229 +88,9 @@ const PROGRAM_MAX_TRACKS = 8
 
 /* alphaTab — GP 谱服务端转换（10-07 P2 步骤②前置：GP→MIDI 走 fluidsynth→幽灵乐手，音频单源=欢哥架构定稿）
    ScoreLoader→MidiFileGenerator→toBinary 与 alphaTab 浏览器播放器同一条生成代码路径，时值无损 */
-const alphatab = require('@coderline/alphatab')
-
-// MIDI 掐尾到 endTick（1012 ⑥-2c 原生循环）：>endTick 事件全弃；A..B 间开了没关的音补 note-off@endTick
-// （不补=原生循环下尾音跨遍永鸣）；末尾钉 vel0 无声事件作 end 锚（引擎"end"取事件尾，纯休止结尾的选段会被引擎提前回头）
-function gpTruncateMidi(midiFile, endTick) {
-  const ET = alphatab.midi.MidiEventType
-  const CT = alphatab.midi.ControllerType
-  const tr0 = midiFile.tracks[0]
-  const tr0track = tr0 && tr0.events.length ? tr0.events[0].track : 0
-  for (const tr of midiFile.tracks) {
-    const kept = []
-    const open = new Map()  // `${ev.track}|${ev.channel}|${ev.noteKey}` → 未关 note-on 数
-    const chans = new Set() // 有事件落地的通道（B 点收口要用）
-    for (const ev of tr.events) {
-      if (ev.tick > endTick) {
-        if (ev.type === ET.NoteOn) continue
-        if (ev.type === ET.NoteOff) continue
-        continue
-      }
-      if (typeof ev.channel === 'number') chans.add(ev.channel)
-      if (ev.type === ET.NoteOn) {
-        const k = `${ev.track}|${ev.channel}|${ev.noteKey}`
-        open.set(k, (open.get(k) || 0) + 1)
-      } else if (ev.type === ET.NoteOff) {
-        const k = `${ev.track}|${ev.channel}|${ev.noteKey}`
-        if (open.get(k)) open.set(k, open.get(k) - 1)
-      }
-      kept.push(ev)
-    }
-    // B 点收口（1012 E2E 实测定罪：只补 note-off 不够——延音踏板 CC64-off 被截掉=踏板永按，
-    // 每遍层积成音墙（cycle2/3 头不回落）。补音关 + 每通道[抬踏板→重置控制器→全切兜底]（同 tick 等效，连 A 前就按住跨整个选段的音也切）
-    const ccs = []
-    for (const ch of chans) {
-      ccs.push(new alphatab.midi.ControlChangeEvent(tr0track, endTick, ch, CT.HoldPedal, 0))
-      ccs.push(new alphatab.midi.ControlChangeEvent(tr0track, endTick, ch, CT.ResetControllers, 0))
-      ccs.push(new alphatab.midi.ControlChangeEvent(tr0track, endTick, ch, CT.AllSoundOff, 0))
-    }
-    const offs = []
-    for (const [k, n] of open) {
-      if (n <= 0) continue
-      const [t, ch, key] = k.split('|').map(Number)
-      for (let i = 0; i < n; i++) offs.push(new alphatab.midi.NoteOffEvent(t, endTick, ch, key, 0))
-    }
-    tr.events = kept.concat(offs, ccs).sort((a, b) => a.tick - b.tick)
-  }
-  // end 锚钉在 tracks[0]（vel0 note-on=静默的 note-off 语义，任何通道都无害）
-  if (tr0 && tr0.events.length) {
-    tr0.events.push(new alphatab.midi.NoteOnEvent(tr0track, endTick, 0, 127, 0))
-    tr0.events.sort((a, b) => a.tick - b.tick)
-  }
-}
-
-// GP→MIDI：返回 { midPath, tracks } 或抛错（格式不支持/文件损坏）
-// mix（10-09 步骤② 调音台，欢哥 A 方案：全员后动作胜出、播放瞬间定稿）：生效点=播放前改各轨
-// playbackInfo.volume（0..16 域，有效静音=0；任一 S 亮=只放 S 且未 M 的轨），生成器自动烤成 CC7
-// ——零事件手术，语义与 alphaTab 播放器一致；缺省无混音=原音量不变
-// endMs（1012 ⑥-2c）：选段 B 点（原速域 ms）——存在则文件烤到 B 为止（引擎原生 player_loop 在 B 无缝回头）
-// seekMs（1013 全曲循环）：全谱文件（startMs=0）首遍从此处（原速域 ms）跳入——首遍从指针播到尾、
-// 之后引擎原生循环头↔尾（⑥-2a"全曲循环=回曲目头"语义在原生循环下的实现；昨天的病根=烤制窗口≠全谱，今天同病起播路径发作）
-function gpToMidi(gpPath, midPath, mix, startMs, speedArg, countIn, endMs, seekMs) {
-  const data = new Uint8Array(fs.readFileSync(gpPath))
-  const score = alphatab.importer.ScoreLoader.loadScoreFromBytes(data, null)
-  const mutes = Array.isArray(mix && mix.mutes) ? mix.mutes.map(Number) : []
-  const solos = Array.isArray(mix && mix.solos) ? mix.solos.map(Number) : []
-  const vols = (mix && typeof mix.vols === 'object' && mix.vols) || {}
-  const anySolo = solos.length > 0
-  for (const t of score.tracks) {
-    const audible = anySolo ? (solos.includes(t.index) && !mutes.includes(t.index)) : !mutes.includes(t.index)
-    const pct = Math.min(100, Math.max(0, Number(vols[t.index] ?? 100)))
-    t.playbackInfo.volume = audible ? t.playbackInfo.volume * pct / 100 : 0
-  }
-  const midiFile = new alphatab.midi.MidiFile()
-  const handler = new alphatab.midi.AlphaSynthMidiFileHandler(midiFile, true)
-  const generator = new alphatab.midi.MidiFileGenerator(score, null, handler)
-  generator.generate()
-  // 从指针处开播（10-09 欢哥补充定稿）：startMs>0 → tick 平移裁剪，fluidsynth 拿到即"从该处开始"
-  // ⚠️裁剪必须用原 tempo 积分（startMs 是原速域谱面位置）——倍速改写只能排在其后
-  if (Number.isFinite(startMs) && startMs > 0) {
-    gpShiftMidiStart(midiFile, Math.round(gpMsToTick(midiFile, startMs)))
-  }
-  // 选段掐尾（1012 ⑥-2c）：B 点截文件（tick 域倍速无关，与 startMs 同在原速积分、speed 烤写之前）
-  // ⚠️gpMsToTick 在已平移的时间轴上查（shift 后 0=原 A 点），故查 (endMs - 实效startMs)——首版写绝对 endMs 多留一个 A（干跑45000≠15000定罪）
-  const gpStartBase = Number.isFinite(startMs) && startMs > 0 ? startMs : 0
-  if (Number.isFinite(endMs) && endMs > gpStartBase) {
-    gpTruncateMidi(midiFile, Math.round(gpMsToTick(midiFile, endMs - gpStartBase)))
-  }
-  // 首遍跳入点（1013 全曲循环）：原速域 seekMs→tick（原 tempo 域积分，与 startMs 同理；tick 域倍速无关）
-  const musicSeekTick = (Number.isFinite(seekMs) && seekMs > 0 && !(Number.isFinite(startMs) && startMs > 0))
-    ? Math.round(gpMsToTick(midiFile, seekMs)) : 0
-  // 倍速（10-10 步骤⑤）：tempo ×speed 烤进 live MIDI，fluidsynth 按文件 tempo 走 → 全员音频同倍速；
-  // tick 域不动=谱面位置语义不变，客户端对表只需墙钟 elapsed ×speed
-  const speed = Number(speedArg) || 1
-  if (speed !== 1) {
-    for (const tr of midiFile.tracks) for (const ev of tr.events) {
-      if (typeof ev.beatsPerMinute === 'number' && ev.beatsPerMinute > 0) ev.beatsPerMinute = ev.beatsPerMinute * speed
-    }
-  }
-  // 预备拍（1011 ⑥-1 欢哥定稿：服务器烤 click 进流，全员一起听哒哒哒→音乐进，零本地协调）：
-  // 全事件右移 N 拍 + channel9 side stick 每拍一击置头；tick0 补烤后 tempo（平移后首个 tempo 在 N 拍处，
-  // click 时长依赖它否则 fluidsynth 按默认120走）。N=第一拍号分子（默认4）；countInMs=烤速域时长随 gp-state 下发
-  let countInMs = 0
-  let countInShift = 0
-  if (countIn) {
-    const division = midiFile.division
-    let numerator = 4, denIdx = 2
-    outer: for (const tr of midiFile.tracks) for (const ev of tr.events) {
-      if (typeof ev.numerator === 'number') { numerator = ev.numerator; denIdx = ev.denominatorIndex ?? 2; break outer }
-    }
-    const beatTicks = Math.round(division * 4 / Math.pow(2, denIdx))
-    const shift = numerator * beatTicks
-    countInShift = shift
-    for (const tr of midiFile.tracks) for (const ev of tr.events) ev.tick += shift
-    let bpm = 120, bestTick = Infinity
-    for (const tr of midiFile.tracks) for (const ev of tr.events) {
-      if (typeof ev.beatsPerMinute === 'number' && ev.beatsPerMinute > 0 && ev.tick < bestTick) { bestTick = ev.tick; bpm = ev.beatsPerMinute }
-    }
-    const t0 = new alphatab.midi.TempoChangeEvent(0, 0)  // ⚠️事件类在 midi 命名空间（model 下没有——1011实测翻车点）
-    t0.beatsPerMinute = bpm
-    midiFile.tracks[0].events.push(t0)
-    for (let i = 0; i < numerator; i++) {
-      midiFile.tracks[0].events.push(new alphatab.midi.NoteOnEvent(0, i * beatTicks, 9, 37, i === 0 ? 110 : 88))
-      midiFile.tracks[0].events.push(new alphatab.midi.NoteOffEvent(0, i * beatTicks + Math.round(beatTicks / 2), 9, 37, 0))
-    }
-    midiFile.tracks[0].events.sort((a, b) => a.tick - b.tick)  // 稳定排序保同 tick 携带序，跨 tick 归位（fluidsynth 按 tick 域走）
-    countInMs = numerator * (60000 / bpm)
-  }
-  // 全时长（烤速域，含 count-in）——B'方案自然结束定时器用
-  let maxTick = 0
-  for (const tr of midiFile.tracks) for (const ev of tr.events) if (ev.tick > maxTick) maxTick = ev.tick
-  const totalMs = Math.ceil(gpTickToMs(midiFile, maxTick))
-  fs.writeFileSync(midPath, Buffer.from(midiFile.toBinary()))
-  // seek 定位（1013 全曲循环）：目标=跳入点前留一拍余量（seek 落点滞后几 tick 会跳过落点音符——1012 六连全静音判例）；
-  // seekTickMs=落点的烤速域墙钟偏移（playAt 锚=开声时刻-此值 → tick0↔playAt 精确对齐）；≤1.5拍不跳（从头走）
-  let seekTick = 0, seekTickMs = 0
-  if (musicSeekTick > 1440) {
-    seekTick = musicSeekTick + countInShift - 480
-    seekTickMs = Math.round(gpTickToMs(midiFile, seekTick))
-  }
-  return {
-    midPath,
-    tracks: score.tracks.map(t => ({ name: String(t.name || '').slice(0, 40) })),
-    countInMs,
-    totalMs,
-    endTick: maxTick,  // 1012 ⑥-2c：烤制周期（引擎回显 end 的校验基准）
-    seekTick, seekTickMs,
-  }
-}
-
-// tick→ms 正向积分（烤后 tempo 域，与前端 tickToMs 同构）——⑥-1 自然结束定时器用
-function gpTickToMs(midiFile, tick) {
-  const tempos = []
-  for (const tr of midiFile.tracks) for (const ev of tr.events) if (typeof ev.beatsPerMinute === 'number' && ev.beatsPerMinute > 0) tempos.push({ tick: ev.tick, bpm: ev.beatsPerMinute })
-  tempos.sort((a, b) => a.tick - b.tick)
-  let ms = 0, t = 0, bpm = 120
-  for (const p of tempos) {
-    if (p.tick >= tick) break
-    ms += ((p.tick - t) / midiFile.division) * (60000 / bpm)
-    t = p.tick; bpm = p.bpm
-  }
-  return ms + ((tick - t) / midiFile.division) * (60000 / bpm)
-}
-
-// ms→tick：沿 tempo 事件积分反查（与前端总时长积分同一套事件流，正反互逆）
-function gpMsToTick(midiFile, ms) {
-  const tempos = []
-  for (const tr of midiFile.tracks) for (const ev of tr.events) if (typeof ev.beatsPerMinute === 'number' && ev.beatsPerMinute > 0) tempos.push({ tick: ev.tick, bpm: ev.beatsPerMinute })
-  tempos.sort((a, b) => a.tick - b.tick)
-  let tick = 0, accMs = 0, bpm = 120
-  for (const next of tempos) {
-    const segMs = ((next.tick - tick) / midiFile.division) * (60000 / bpm)
-    if (accMs + segMs >= ms) return tick + ((ms - accMs) / (60000 / bpm)) * midiFile.division
-    accMs += segMs; tick = next.tick; bpm = next.bpm
-  }
-  return tick + ((ms - accMs) / (60000 / bpm)) * midiFile.division
-}
-
-// 从指定 tick 开始播放：裁掉更早的事件并整体平移。
-// ⚠️携带修复（10-10 欢哥实测"过载吉他变钢琴"）：起点前的 ProgramChange(乐器)/BankSelect(音色库)/
-// Volume/Expression 指令必须补到新文件 tick0——fluidsynth 没收到乐器指令就退默认钢琴；tempo 同理
-function gpShiftMidiStart(midiFile, startTick) {
-  if (!(startTick > 0)) return
-  let lastTempoBefore = null
-  // 每通道：起点前最后一次 乐器/音色库粗细/音量/表情 指令（携带集合）。
-  // ⚠️按事件实际所在的 MidiTrack 对象归组（format 0 时所有事件并在 tracks[0]，ev.track 是原始轨号会对不上宿主）
-  const carryByTrackObj = new Map()  // MidiTrack → Map(`${ev.track}|${ev.channel}` → { program, bankCoarse, bankFine, volume, expression })
-  for (const tr of midiFile.tracks) for (const ev of tr.events) {
-    if (ev.tick >= startTick) continue
-    if (typeof ev.beatsPerMinute === 'number') lastTempoBefore = ev
-    const key = `${ev.track}|${ev.channel}`
-    let slot = null
-    if (typeof ev.program === 'number') {
-      const m = carryByTrackObj.get(tr) || new Map(); carryByTrackObj.set(tr, m)
-      slot = m.get(key) || {}; slot.program = ev; m.set(key, slot)
-    } else if (typeof ev.controller === 'number') {
-      if (ev.controller !== 0 && ev.controller !== 32 && ev.controller !== 7 && ev.controller !== 11) continue
-      const m = carryByTrackObj.get(tr) || new Map(); carryByTrackObj.set(tr, m)
-      slot = m.get(key) || {}
-      if (ev.controller === 0) slot.bankCoarse = ev
-      else if (ev.controller === 32) slot.bankFine = ev
-      else if (ev.controller === 7) slot.volume = ev
-      else slot.expression = ev
-      m.set(key, slot)
-    }
-  }
-  for (const tr of midiFile.tracks) {
-    const carried = []
-    const carryMap = carryByTrackObj.get(tr)
-    if (carryMap) for (const c of carryMap.values()) {
-      for (const key of ['bankCoarse', 'bankFine', 'program', 'volume', 'expression']) {
-        const e = c[key]
-        if (e) { e.tick = 0; carried.push(e) }
-      }
-    }
-    const kept = []
-    for (const ev of tr.events) {
-      if (ev.tick < startTick) { if (ev === lastTempoBefore) { ev.tick = 0; kept.push(ev) } continue }
-      ev.tick -= startTick
-      kept.push(ev)
-    }
-    // 携带指令排最前（同 tick0 时乐器指令先于音符），tempo 事件紧随
-    tr.events = [...carried, ...kept]
-  }
-}
+// GP 烤制（1029 P2 抽 lib/gp-bake*.js，worker 线程执行——纯 JS CPU 计算曾占主事件循环亚秒级，
+// 房间隔离宪法：任何房间的烤制不得冻全站）。主进程经 gpToMidiAsync 调用，签名/语义与原 gpToMidi 一致。
+const { gpToMidiAsync } = require('./lib/gp-bake-async')
 
 // GP 混音状态清洗：mutes/solos=去重轨索引数组(<64)，vols=轨索引→0-100；后动作胜出故只做形状约束
 function sanitizeGpMix(mix) {
@@ -361,21 +159,24 @@ const programUpload = multer({
   }
 })
 
-function verifyPassword(password, hashStr) {
+// 1029 异步化：pbkdf2Sync 600k 迭代≈100-300ms 全站冻结（任何用户登录时其他房间抖）；改线程池异步
+const pbkdf2Async = promisify(crypto.pbkdf2).bind(crypto)
+
+async function verifyPassword(password, hashStr) {
   const parts = hashStr.split(':')
   if (parts.length !== 5 || parts[0] !== 'pbkdf2') return false
   const digest = parts[1]
   const iterations = parseInt(parts[2])
   const salt = parts[3]
   const storedHash = Buffer.from(parts[4], 'base64')
-  const derivedKey = crypto.pbkdf2Sync(password, salt, iterations, storedHash.length, digest)
+  const derivedKey = await pbkdf2Async(password, salt, iterations, storedHash.length, digest)
   return crypto.timingSafeEqual(derivedKey, storedHash)
 }
 
-function hashPassword(password) {
+async function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex')
   const iterations = 600000
-  const key = crypto.pbkdf2Sync(password, salt, iterations, 32, 'sha256')
+  const key = await pbkdf2Async(password, salt, iterations, 32, 'sha256')
   return `pbkdf2:sha256:${iterations}:${salt}:${key.toString('base64')}`
 }
 
@@ -721,7 +522,8 @@ async function submitWorkAudioReview(workId) {
     // ASR 仅支持 16k——转码审核副本(单声道mp3), 审完即删, 原作不动
     reviewMp3 = row.mp3_path.replace(/\.mp3$/i, '') + '-review16k.mp3'
     try {
-      require('child_process').execSync(`ffmpeg -y -i "${row.mp3_path}" -ar 16000 -ac 1 -b:a 64k "${reviewMp3}" -loglevel error`, { timeout: 120000 })
+      // 1029 异步化：原 execSync 同步转码=发表作品时全站冻结数秒~数十秒（120s 超时上限）——房间隔离事故主体之一
+      await execFileAsync('ffmpeg', ['-y', '-i', row.mp3_path, '-ar', '16000', '-ac', '1', '-b:a', '64k', reviewMp3, '-loglevel', 'error'], { timeout: 120000 })
     } catch (e) { console.error(`[moderation] 作品${workId}审核副本转码失败, 保持审核中:`, e.message); return }
     const fileLink = 'http://123.57.33.130' + reviewMp3.replace('/var/jamony/works', '/works')
     const NLSClient = require('@alicloud/nls-filetrans-2018-08-17')
@@ -1101,7 +903,7 @@ app.post('/api/login', async (req, res) => {
     }
 
     const user = result.rows[0]
-    if (!verifyPassword(password, user.password_hash)) {
+    if (!(await verifyPassword(password, user.password_hash))) {
       recordLoginFail(nickname)
       return res.status(401).json({ ok: false, msg: '用户名或密码错误' })
     }
@@ -1169,7 +971,7 @@ app.post('/api/register', async (req, res) => {
       return res.status(409).json({ ok: false, msg: '该昵称已被注册' })
     }
 
-    const hash = hashPassword(password)
+    const hash = await hashPassword(password)
     const avatar = Math.floor(Math.random() * 30) + 1
 
     const cat = instrumentCategory || primaryInstrument
@@ -1699,11 +1501,11 @@ app.post('/api/users/:id/password', requireAuth, async (req, res) => {
     }
 
     const user = result.rows[0]
-    if (!verifyPassword(oldPassword, user.password_hash)) {
+    if (!(await verifyPassword(oldPassword, user.password_hash))) {
       return res.status(401).json({ ok: false, msg: '旧密码错误' })
     }
 
-    const hash = hashPassword(newPassword)
+    const hash = await hashPassword(newPassword)
     await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, id])
 
     res.json({ ok: true, msg: '密码已修改' })
@@ -1887,7 +1689,7 @@ app.post('/api/rooms/:code/score/upload', requireAuth, scoreUpload.array('files'
       if (req.files.length > 1) return res.status(400).json({ ok: false, msg: '谱子文件请单独上传一份' })
       try {
         const midBasename = path.basename(gpFile.path).replace(/\.[^.]+$/, '') + '.mid'
-        const conv = gpToMidi(gpFile.path, path.join(path.dirname(gpFile.path), midBasename))
+        const conv = await gpToMidiAsync(gpFile.path, path.join(path.dirname(gpFile.path), midBasename))
         gp = { midUrl: `/api/rooms/${req.params.code}/score/files/${midBasename}`, tracks: conv.tracks }
       } catch (err) {
         console.error('GP convert error:', err.message)
@@ -2079,11 +1881,11 @@ function progSanitize(p) {
   const tm = Number(p.totalMs)
   return { tracks: p.tracks, mix: { vols, mutes, solos, pans, master }, ...(tm > 0 ? { totalMs: Math.round(tm) } : {}) }
 }
-// 算最长轨毫秒（上传/删轨时写进 current_program；探测失败返 0 由 play 兜底现测）
-function progCalcTotalMs(code, tracks) {
+// 算最长轨毫秒（上传/删轨时写进 current_program；探测失败返 0 由 play 兜底现测）——1029 异步化（ffprobe 链）
+async function progCalcTotalMs(code, tracks) {
   let totalMs = 0
   for (const t of tracks) {
-    const dur = progProbeDurationSec(path.join(programsDir, code, t.file))
+    const dur = await progProbeDurationSec(path.join(programsDir, code, t.file))
     if (dur != null) totalMs = Math.max(totalMs, Math.round(dur * 1000))
   }
   return totalMs
@@ -2128,7 +1930,7 @@ app.post('/api/rooms/:code/program/tracks', requireAuth, programUpload.array('fi
         uploadedBy: req.userId, uploadedByName: nick,
       })
     }
-    prog.totalMs = progCalcTotalMs(code, prog.tracks)  // 1016：上传即下发总长（走带条不待播放即可用）
+    prog.totalMs = await progCalcTotalMs(code, prog.tracks)  // 1016：上传即下发总长（走带条不待播放即可用）
     await stopProgramByCode(code, true)  // 物料变更停播（快照一致性）
     await progSaveAndBroadcast(code, prog)
     res.json({ ok: true, program: prog })
@@ -2151,7 +1953,7 @@ app.delete('/api/rooms/:code/program/tracks/:tid', requireAuth, async (req, res)
     prog.tracks = prog.tracks.filter(x => x.id !== req.params.tid)
     delete prog.mix.vols[t.id]
     prog.mix.mutes = prog.mix.mutes.filter(m => m !== t.id)
-    prog.totalMs = progCalcTotalMs(code, prog.tracks)
+    prog.totalMs = await progCalcTotalMs(code, prog.tracks)
     await stopProgramByCode(code, true)
     await progSaveAndBroadcast(code, prog)
     res.json({ ok: true, program: prog })
@@ -2321,7 +2123,8 @@ app.post('/api/rooms', requireAuth, async (req, res) => {
     await touchRoomPeak(room.id)
 
     try {
-      execSync(`node /var/www/jamony/api/manage-jamsoul.js start ${port} ${musicianLimit + 1}`, { timeout: 5000, stdio: 'pipe' }); try { spawn('node', ['/var/www/jamony/api/manage-jamsoul.js', 'start-ghost', String(port), String(port)], { stdio: 'ignore', detached: true }).unref() } catch(e) { console.error('Ghost start failed:', e.message) }
+      // 1029 异步化：原 execSync 同步拉 jamsoul=每次建房全站冻结最长 5s；child 内部仍可同步（进程边界）
+      await execFileAsync('node', ['/var/www/jamony/api/manage-jamsoul.js', 'start', String(port), String(musicianLimit + 1)], { timeout: 5000 }); try { spawn('node', ['/var/www/jamony/api/manage-jamsoul.js', 'start-ghost', String(port), String(port)], { stdio: 'ignore', detached: true }).unref() } catch(e) { console.error('Ghost start failed:', e.message) }
     } catch (e) {
       console.error('Failed to start jamsoul:', e.stderr?.toString() || e.message)
     }
@@ -2466,15 +2269,18 @@ function jsonRpcCall(roomPort, method, params = {}) {
 }
 
 // 检测房间鼓机（FluidSynth）进程是否在运行 —— 录音停止时判定 jamony-looper 分轨是否显示
-function isDrumsRunning(roomPort) {
+// 1029：优先查内存引擎表（微秒）；pid 文件仅兜底（野生残留），读改异步（房间隔离宪法：状态轮询零子进程）
+async function isDrumsRunning(roomPort) {
+  const e = roomPort != null ? drumsEngines.get(roomPort) : null
+  if (e && e.child && e.child.exitCode == null && !e.child.killed) return true
   try {
-    const pidStr = execSync('cat /tmp/jamony-drums-' + roomPort + '.pid 2>/dev/null', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).toString().trim()
+    const pidStr = (await fs.promises.readFile('/tmp/jamony-drums-' + roomPort + '.pid', 'utf8')).trim()
     if (pidStr) {
       const pid = parseInt(pidStr)
       try { process.kill(pid, 0); return true } catch { return false }
     }
-    return false
-  } catch { return false }
+  } catch { /* 无 pid 文件=没跑 */ }
+  return false
 }
 
 // 计算单个 session 的汇总状态：全员 ①② 是否锁定、授权人数、发表人
@@ -2706,32 +2512,37 @@ async function touchRoomPeak(roomId) {
 // 离开房间
 // 移除成员并检查房间是否解散（/leave 和 socket disconnect 共用，L2 兜底也走这个）
 // 返回 true=房间已解散（杀进程+删房间），false=房间还在（房主可能已转移给最久的合奏者）
+// ⭐ 1029 房间隔离宪法：解散级联资源清理统一体。dissolveRoom / leave-all-rooms / forceDissolveRoom
+// 三处原为同款复制粘贴的 execSync 串——同步逐个跑=解散一次全站冻结数秒（理论最坏 40s）。
+// 统一抽出+全异步化；杀序/清理范围与原版逐一相同（鼓机改走原生引擎表+野生残留清扫）。
+async function cleanupRoomResources(closePort, roomCode) {
+  try { await killDrumsEngine(closePort) } catch (e) { console.error('dissolve drums-stop ' + closePort + ':', e.message) }
+  try { await execFileAsync('node', ['/var/www/jamony/api/manage-jamsoul.js', 'stop', String(closePort)], { timeout: 10000 }) } catch (e) { console.error('dissolve stop ' + closePort + ':', e.message) }
+  try { await execFileAsync('node', ['/var/www/jamony/api/manage-jamsoul.js', 'stop-ghost', String(closePort)], { timeout: 5000 }) } catch (e) { console.error('dissolve stop-ghost ' + closePort + ':', e.message) }
+  // 兜底：杀 watchdog 竞态拉起的孤儿 ffmpeg（leave 杀的是 ghost.json 记录的 pid，watchdog 新拉的会漏杀）
+  try { await execFileAsync('pkill', ['-f', `jm-stream-${closePort}`]) } catch (e) { /* 无进程时 pkill 返回非 0，正常，忽略 */ }
+  try { await execFileAsync('rm', ['-rf', `/var/jamony/recordings/room-${closePort}-records/`]) } catch (e) { console.error('dissolve rm recordings ' + closePort + ':', e.message) }
+  try { await execFileAsync('rm', ['-rf', `/var/jamony/scores/${roomCode}`]) } catch (e) { console.error('dissolve rm scores ' + roomCode + ':', e.message) }  // 10-07 投谱=房间物料，随房清
+  try { await pool.query('DELETE FROM room_scores WHERE room_code = $1', [roomCode]) } catch (e) { console.error('dissolve rm score shelf ' + roomCode + ':', e.message) }  // ⑥-3 谱架册随房清
+  try { await execFileAsync('rm', ['-rf', `/var/jamony/programs/${roomCode}`]) } catch (e) { console.error('dissolve rm programs ' + roomCode + ':', e.message) }  // 1015 program 轨=房间物料，随房清
+  await stopGpByCode(roomCode)  // 10-07 GP走带随房停
+  await stopProgramByCode(roomCode, false)  // 1015 program 走带随房停
+  // 兜底：杀残留 ffmpeg + 清 ghost.json 条目（stop 已处理，此处防 state 漏记）
+  try {
+    const ghostState = JSON.parse((await fs.promises.readFile('/var/lib/jamony/ghost.json', 'utf8')).toString() || '{}')
+    const entry = ghostState[String(closePort)]
+    if (entry && entry.ffmpegPid) { try { process.kill(entry.ffmpegPid) } catch (e) { console.error('dissolve kill ffmpeg ' + entry.ffmpegPid + ':', e.message) } }
+    delete ghostState[String(closePort)]
+    fs.writeFileSync('/var/lib/jamony/ghost.json', JSON.stringify(ghostState, null, 2))
+  } catch (e) { console.error('dissolve ghost cleanup ' + closePort + ':', e.message) }
+}
+
 // 标准解散执行体（杀进程/清物料/广播/闭账/归档）。1028 从 removeMemberAndCheckDissolve 原样抽出——
 // 收割者光杆房（零成员）无成员可踢也须直达解散，与"末位合奏者离开"同一条路。
 async function dissolveRoom(roomId, roomCode) {
     const roomInfo = await pool.query('SELECT server_port FROM rooms WHERE id = $1', [roomId])
     const closePort = roomInfo.rows[0]?.server_port
-    if (closePort) {
-      try { execSync(`node /var/www/jamony/api/manage-jamsoul.js drums-stop ${closePort}`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve drums-stop ' + closePort + ':', e.message) }
-      try { execSync(`node /var/www/jamony/api/manage-jamsoul.js stop ${closePort}`, { timeout: 10000, stdio: 'pipe' }) } catch (e) { console.error('dissolve stop ' + closePort + ':', e.message) }
-      try { execSync(`node /var/www/jamony/api/manage-jamsoul.js stop-ghost ${closePort}`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve stop-ghost ' + closePort + ':', e.message) }
-      // 兜底：杀 watchdog 竞态拉起的孤儿 ffmpeg（leave 杀的是 ghost.json 记录的 pid，watchdog 新拉的会漏杀）
-      try { execSync(`pkill -f "jm-stream-${closePort}"`, { timeout: 3000, stdio: 'pipe' }) } catch (e) { /* 无进程时 pkill 返回非 0，正常，忽略 */ }
-      try { execSync(`rm -rf /var/jamony/recordings/room-${closePort}-records/`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve rm recordings ' + closePort + ':', e.message) }
-      try { execSync(`rm -rf "/var/jamony/scores/${roomCode}"`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve rm scores ' + roomCode + ':', e.message) }  // 10-07 投谱=房间物料，随房清
-      try { await pool.query('DELETE FROM room_scores WHERE room_code = $1', [roomCode]) } catch (e) { console.error('dissolve rm score shelf ' + roomCode + ':', e.message) }  // ⑥-3 谱架册随房清
-      try { execSync(`rm -rf "/var/jamony/programs/${roomCode}"`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve rm programs ' + roomCode + ':', e.message) }  // 1015 program 轨=房间物料，随房清
-      await stopGpByCode(roomCode)  // 10-07 GP走带随房停
-      await stopProgramByCode(roomCode, false)  // 1015 program 走带随房停
-      // 兜底：杀残留 ffmpeg + 清 ghost.json 条目（stop 已处理，此处防 state 漏记）
-      try {
-        const ghostState = JSON.parse(fs.readFileSync('/var/lib/jamony/ghost.json', 'utf8').toString() || '{}')
-        const entry = ghostState[String(closePort)]
-        if (entry && entry.ffmpegPid) { try { process.kill(entry.ffmpegPid) } catch (e) { console.error('dissolve kill ffmpeg ' + entry.ffmpegPid + ':', e.message) } }
-        delete ghostState[String(closePort)]
-        fs.writeFileSync('/var/lib/jamony/ghost.json', JSON.stringify(ghostState, null, 2))
-      } catch (e) { console.error('dissolve ghost cleanup ' + closePort + ':', e.message) }
-    }
+    if (closePort) await cleanupRoomResources(closePort, roomCode)  // 1029：级联抽公共异步体（三处原复制粘贴）
     // 广播房间解散，让听众客户端弹窗"房间已解散"+跳大厅（在踢出 DB 成员前发，确保听众 socket 仍在线收到）
     io.to(roomCode).emit('room-dissolved', { roomCode })
     await closeRoomMusicianSessions(roomId)  // 解散全员闭会话（删房后 room_id 无 FK 但会话须先结算）
@@ -2983,7 +2794,7 @@ app.post('/api/rooms/:code/recording/start', requireAuth, async (req, res) => {
     }
     // 录音开始时捕获鼓机是否已在运行（覆盖录音前就开鼓机的场景）；
     // 录音中才开鼓机由 drums/start API 把标志置 true
-    const drumsAlreadyRunning = isDrumsRunning(room.rows[0].server_port)
+    const drumsAlreadyRunning = await isDrumsRunning(room.rows[0].server_port)
     const startedAt = new Date()  // 服务端权威起始时刻（stop 算真实时长 + 刷新回来校准客户端秒表）
     await pool.query('UPDATE rooms SET recording_active=TRUE, recording_started_at=$2, drums_used_this_recording=$3 WHERE id=$1', [id, startedAt, drumsAlreadyRunning])
     recordingStarters.set(String(code), userId)  // 记发起者（join-room 补发用，强刷回来还能显示"停止"）
@@ -3275,7 +3086,7 @@ app.delete('/api/rooms/:code/sessions/:sid', requireAuth, async (req, res) => {
         console.error('[recording] delete: 拒绝非录音仓目录删除(白名单外):', dir)
         dir = null
       }
-      if (dir) { try { require('child_process').execSync(`rm -rf "${dir}"`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('[recording] 删除分轨目录失败:', e.message) } }
+      if (dir) { try { await execFileAsync('rm', ['-rf', dir], { timeout: 5000 }) } catch (e) { console.error('[recording] 删除分轨目录失败:', e.message) } }  // 1029 异步化
       await pool.query('DELETE FROM session_tracks WHERE session_id=$1', [sessionId])
       await pool.query('DELETE FROM recording_sessions WHERE id=$1', [sessionId])
     }
@@ -4771,14 +4582,107 @@ app.patch('/api/rooms/:code/sessions/:sid/tracks/:tid', requireAuth, async (req,
 const DRUM_STYLES = ['basic', 'rock', 'funk', 'jazz', 'rnb', 'folk', 'metal', 'reggae', 'pop', 'punk', 'soul']
 const DRUM_BASE_DIR = '/var/www/jamony/drum-loops'
 
-app.get('/api/drums/styles', (req, res) => {
+/* ⭐ 1029 房间隔离宪法·鼓机原生引擎重构
+   旧链 = execSync 直等 manage-jamsoul → start-drums.sh（sleep 2+3 盲等）——事件循环冻结实测 5.394s
+   = 全站所有房间一起卡；且接线 2>/dev/null 吞错（3s 没等够=静默哑火）、头 3 秒鼓点播向
+   system:playback = 首拍一直在丢（被盲睡掩盖）。
+   新链 = 照搬 GP startGpPlayback 成熟模式：spawn fluidsynth（增益 0 静默起播）→ 100ms 轮询
+   JACK 端口出现 → 接线（带重试验证）→ stdin 下 player_start+gain 真起播（首拍零白丢）。
+   全程异步零冻结；等待窗=音色库加载物理时长（FluidR3_GM 1~2.5s，无法再省）。
+   start-drums.sh / manage-jamsoul drums-* 退役为运维手工工具，API 不再经过。 */
+const drumsEngines = new Map()    // port → { child, wired, spawnedAt, portAt, bpm }（隔离域=端口，与 JACK 命名同构）
+const drumsInflight = new Set()   // 启动中防抖（gpInflight/programInflight 同款；原"串行"靠冻结意外获得，显式化）
+const DRUM_SOUNDFONT = '/usr/share/sounds/sf2/FluidR3_GM.sf2'
+
+async function killDrumsEngine(port) {
+  const e = port != null ? drumsEngines.get(port) : null
+  if (e) {
+    drumsEngines.delete(port)
+    if (e.child && e.child.exitCode == null) {
+      try { e.child.kill('SIGTERM') } catch (err) {}
+      // 等 exit（JACK 客户端名独占，重启须先释放）；300ms 兜底防挂
+      await new Promise(r => { const t = setTimeout(r, 300); e.child.once('exit', () => { clearTimeout(t); r() }) })
+    }
+  }
+  // 野生残留（旧脚本时代的/崩溃重启后失联的）按名清扫；5 位端口等长无子串误杀（1026 判例）
+  if (port != null) {
+    try { await execFileAsync('pkill', ['-f', `fluidsynth.*FluidSynth-Drums-${port}`]) } catch (err) {}
+    try { fs.unlinkSync(`/tmp/jamony-drums-${port}.pid`) } catch (err) {}
+    try { fs.unlinkSync(`/tmp/jamony-drum-cmd-${port}.txt`) } catch (err) {}
+  }
+}
+
+// 选谱：指定文件优先（须在白名单目录内防穿越），否则该风格随机一首（原 shell 脚本逻辑内迁）
+async function pickDrumMidi(style, file) {
+  const dir = path.join(DRUM_BASE_DIR, style)
+  let names
+  try { names = (await fs.promises.readdir(dir)).filter(f => f.endsWith('.mid')).sort() } catch (e) { return null }
+  if (!names.length) return null
+  if (file) { const hit = names.find(n => n === file); if (hit) return path.join(dir, hit) }
+  return path.join(dir, names[Math.floor(Math.random() * names.length)])
+}
+
+async function startDrumsPlayback(port, midiFile, bpm) {
+  await killDrumsEngine(port)  // 同房旧鼓机先死透（JACK 客户端名独占）
+  const drumName = `FluidSynth-Drums-${port}`  // JACK 命名契约（reference-jack-naming-formula 同族）
+  const ghostL = `jamsoul-${port} jamony-looper:input left`
+  const ghostR = `jamsoul-${port} jamony-looper:input right`
+  const child = spawn('fluidsynth', [
+    '-a', 'jack', '-j', '-n',   // 参数组合照抄 GP（无 -i：stdin 是命令通道，-i 会关掉它=永远静音）
+    '-p', drumName,
+    '-o', `audio.jack.id=${drumName}`,
+    '-o', 'synth.sample-rate=48000',
+    '-g', '0.0',                      // B' 方案（GP 同款）：静默起播，接线完成后才真出声——首拍零白丢
+    '-o', 'synth.polyphony=64',
+    DRUM_SOUNDFONT, midiFile,
+  ], { stdio: ['pipe', 'pipe', 'ignore'] })
+  child.stdin.on('error', () => {})  // EPIPE 静默（进程退出后写，GP 同款教训）
+  const engine = { child, wired: false, spawnedAt: Date.now(), portAt: null, bpm }
+  drumsEngines.set(port, engine)
+  try { fs.writeFileSync(`/tmp/jamony-drums-${port}.pid`, String(child.pid)) } catch (e) {}  // 运维可见性（status 兜底也读它）
+  child.on('exit', () => { const e = drumsEngines.get(port); if (e && e.child === child) drumsEngines.delete(port) })
+  // 循环+tempo 先武装（增益 0 下静默干跑；接线后 player_start 单发即"从头"——GP 判例：不能带 player_stop）
+  child.stdin.write(`player_loop -1\nplayer_tempo_bpm ${Math.round(bpm)}\n`)
+  // 端口轮询（GP 同款 100ms×50）：等待窗=音色库加载物理时长
+  let visible = false
+  for (let i = 0; i < 50; i++) {
+    await new Promise(r => setTimeout(r, 100))
+    const e = drumsEngines.get(port)
+    if (!e || e.child !== child) throw new Error('鼓机引擎已被替换')
+    try { const { stdout } = await execFileAsync('jack_lsp'); if (stdout.includes(drumName + ':')) { visible = true; break } } catch (err) {}
+  }
+  if (!visible) { await killDrumsEngine(port); throw new Error('JACK 端口未出现（音色库加载失败？）') }
+  engine.portAt = Date.now()
+  // 接线：带重试验证（旧脚本吞错静默哑火，废除）；先断 system 直连防串到服务器声卡；左右双声道须全通（防单声道鼓）
+  let wired = false
+  for (let t = 0; t < 5 && !wired; t++) {
+    try { await execFileAsync('jack_disconnect', [`${drumName}:left`, 'system:playback_1']) } catch (err) {}
+    try { await execFileAsync('jack_disconnect', [`${drumName}:right`, 'system:playback_2']) } catch (err) {}
+    let okL = false, okR = false
+    try { await execFileAsync('jack_connect', [`${drumName}:left`, ghostL]); okL = true } catch (err) {}
+    try { await execFileAsync('jack_connect', [`${drumName}:right`, ghostR]); okR = true } catch (err) {}
+    wired = okL && okR
+    if (!wired) await new Promise(r => setTimeout(r, 200))
+  }
+  const e2 = drumsEngines.get(port)
+  if (!wired || !e2 || e2.child !== child) { await killDrumsEngine(port); throw new Error('JACK 接线失败') }
+  e2.wired = true
+  e2.wiredAt = Date.now()
+  // B' 真起播：单发 player_start（从头）+ 增益（GP 判例：player_stop 后 start 会进静音坏状态，禁用）
+  child.stdin.write('player_start\ngain 3.0\n')
+  return e2
+}
+
+// 鼓机风格/节奏型列表（魔盒下拉数据源）；find 异步化（原同步 find=打开魔盒全站抖）
+app.get('/api/drums/styles', async (req, res) => {
   const styles = {}
-  DRUM_STYLES.forEach(style => {
+  for (const style of DRUM_STYLES) {
     try {
-      const result = execSync('find ' + DRUM_BASE_DIR + '/' + style + ' -name \"*.mid\" 2>/dev/null | sort', { encoding: 'utf8' }).toString().trim()
-      styles[style] = result ? result.split('\n').map(f => f.replace(DRUM_BASE_DIR + '/' + style + '/', '')) : []
+      const { stdout } = await execFileAsync('find', [`${DRUM_BASE_DIR}/${style}`, '-name', '*.mid'], { encoding: 'utf8' })
+      const list = String(stdout).trim()
+      styles[style] = list ? list.split('\n').map(f => f.replace(`${DRUM_BASE_DIR}/${style}/`, '')).sort() : []
     } catch { styles[style] = [] }
-  })
+  }
   res.json({ ok: true, styles })
 })
 
@@ -4790,30 +4694,26 @@ app.post('/api/rooms/:code/drums/start', requireAuth, async (req, res) => {
     if (!(await isRoomMusician(req.userId, code))) {
       return res.status(403).json({ ok: false, msg: '仅合奏者可操作鼓机' })
     }
+    if (drumsInflight.has(code)) return res.status(409).json({ ok: false, msg: '鼓机正在启动中，请稍候' })
     const { style, bpm, file } = req.body
     const validStyle = DRUM_STYLES.includes(style) ? style : 'rock'
     const validBpm = Math.min(200, Math.max(40, parseInt(bpm) || 120))
-    const validFile = file || ''
-
-    // Check if any MIDI files exist for this style
-    let hasFiles = false
+    const midiFile = await pickDrumMidi(validStyle, file || '')
+    if (!midiFile) return res.status(404).json({ ok: false, msg: '该风格暂无鼓谱文件，请先上传' })
+    const portRow = await pool.query('SELECT server_port FROM rooms WHERE id = $1', [roomId])
+    const roomPort = portRow.rows[0]?.server_port
+    if (!roomPort) return res.status(404).json({ ok: false, msg: '房间不存在' })
+    drumsInflight.add(code)
     try {
-      const out = execSync('find ' + DRUM_BASE_DIR + '/' + validStyle + ' -name \"*.mid\" 2>/dev/null', { encoding: 'utf8' }).toString().trim()
-      hasFiles = out.length > 0
-    } catch {}
-    
-    if (!hasFiles) {
-      return res.status(404).json({ ok: false, msg: '该风格暂无鼓谱文件，请先上传' })
-    }
-    
-        const portRow = await pool.query('SELECT server_port FROM rooms WHERE id = $1', [roomId]);
-    const roomPort = portRow.rows[0]?.server_port || roomId; execSync('node /var/www/jamony/api/manage-jamsoul.js drums-start ' + validStyle + ' ' + validBpm + ' "' + validFile + '" ' + roomPort, { timeout: 15000, stdio: 'pipe' })
-    await pool.query('UPDATE rooms SET current_bpm = $1, drums_used_this_recording = TRUE WHERE id = $2', [validBpm, roomId])
-    io.to(code).emit('bpm-update', { bpm: validBpm })
-    
-    res.json({ ok: true, msg: '鼓机已启动', style: validStyle, bpm: validBpm })
+      const t0 = Date.now()
+      await startDrumsPlayback(roomPort, midiFile, validBpm)
+      console.log(`Drums start ${code} port ${roomPort} wired ${Date.now() - t0}ms（事件驱动；旧链 execSync 盲睡冻结全站 5.4s）`)
+      await pool.query('UPDATE rooms SET current_bpm = $1, drums_used_this_recording = TRUE WHERE id = $2', [validBpm, roomId])
+      io.to(code).emit('bpm-update', { bpm: validBpm })
+      res.json({ ok: true, msg: '鼓机已启动', style: validStyle, bpm: validBpm })
+    } finally { drumsInflight.delete(code) }
   } catch (err) {
-    console.error('Drums start error:', err)
+    console.error('Drums start error:', err.message)
     res.status(500).json({ ok: false, msg: '鼓机启动失败' })
   }
 })
@@ -4822,20 +4722,23 @@ app.get('/api/rooms/:code/drums/status', async (req, res) => {
   try {
     const roomId = await getRoomIdByCode(req.params.code)
     if (!roomId) return res.status(404).json({ ok: false, msg: '房间不存在' })
-    const portRow = await pool.query('SELECT server_port FROM rooms WHERE id = $1', [roomId]);
-    const roomPort = portRow.rows[0]?.server_port || roomId;
-    const result = execSync('cat /tmp/jamony-drums-' + roomPort + '.pid 2>/dev/null', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).toString().trim();
-    if (result) {
-      const pid = parseInt(result);
-      try { process.kill(pid, 0); res.json({ ok: true, running: true, pid: pid }); }
-      catch { res.json({ ok: true, running: false }); }
-    } else {
-      res.json({ ok: true, running: false });
-    }
+    const portRow = await pool.query('SELECT server_port FROM rooms WHERE id = $1', [roomId])
+    const roomPort = portRow.rows[0]?.server_port
+    // 优先查内存引擎表（微秒，客户端每 5s 轮询不再 spawn 子进程）；pid 文件仅兜底野生残留
+    const e = roomPort != null ? drumsEngines.get(roomPort) : null
+    if (e && e.child && e.child.exitCode == null && !e.child.killed) return res.json({ ok: true, running: true, pid: e.child.pid })
+    try {
+      const pidStr = (await fs.promises.readFile(`/tmp/jamony-drums-${roomPort}.pid`, 'utf8')).trim()
+      if (pidStr) {
+        const pid = parseInt(pidStr)
+        try { process.kill(pid, 0); return res.json({ ok: true, running: true, pid }) } catch (err) {}
+      }
+    } catch (err) {}
+    res.json({ ok: true, running: false })
   } catch (err) {
-    res.json({ ok: true, running: false });
+    res.json({ ok: true, running: false })
   }
-});
+})
 
 app.post('/api/rooms/:code/drums/stop', requireAuth, async (req, res) => {
   try {
@@ -4847,8 +4750,8 @@ app.post('/api/rooms/:code/drums/stop', requireAuth, async (req, res) => {
     if (!(await isRoomMusician(req.userId, code))) {
       return res.status(403).json({ ok: false, msg: '仅合奏者可操作鼓机' })
     }
-    const roomPort = portRow.rows[0]?.server_port || roomId;
-    execSync('node /var/www/jamony/api/manage-jamsoul.js drums-stop ' + roomPort, { timeout: 5000, stdio: 'pipe' })
+    const roomPort = portRow.rows[0]?.server_port || roomId
+    await killDrumsEngine(roomPort)
     await pool.query('UPDATE rooms SET current_bpm = 0 WHERE id = $1', [roomId])
     io.to(code).emit('bpm-update', { bpm: 0 })
     res.json({ ok: true, msg: '鼓机已停止' })
@@ -5007,12 +4910,12 @@ function startGpPlayback(roomCode, port, midPath, totalMs, opts) {
   // 旧记 spawn=指针快1拍(472ms)；中间版记 wire=慢半拍多(~300ms)；portAt=物理真零点。
   // 顺带：端口出现立即连线（100ms 粒度轮询，白丢窗口从 400ms 粒度压到最小）
   let polls = 0
-  const pollPort = () => {
+  const pollPort = async () => {   // 1029 异步化：轮询/接线里的 jack_lsp·jack_connect 原为 execSync=GP 启动窗内全站每 100ms 抖 10-30ms
     polls++
     const e = gpEngines.get(roomCode)
     if (!e || e.child !== child) return
     let visible = false
-    try { execSync(`jack_lsp | grep -q "^${gpName}:"`, { stdio: 'ignore' }); visible = true } catch (err) {}
+    try { const { stdout } = await execFileAsync('jack_lsp'); if (stdout.includes(gpName + ':')) visible = true } catch (err) {}
     if (!visible) {
       if (polls < 50) setTimeout(pollPort, 100)  // 5s 内等 init（音源加载+JACK 注册）
       else console.error(`GP start ${roomCode} JACK 端口未出现`)
@@ -5020,12 +4923,13 @@ function startGpPlayback(roomCode, port, midPath, totalMs, opts) {
     }
     e.portAt = Date.now()  // 起播时刻=时间线零点
     let tries = 0
-    const wire = () => {
+    const wire = async () => {
       tries++
-      try { execSync(`jack_disconnect "${gpName}:left" system:playback_1`, { stdio: 'ignore' }); execSync(`jack_disconnect "${gpName}:right" system:playback_2`, { stdio: 'ignore' }) } catch (err) {}
+      try { await execFileAsync('jack_disconnect', [`${gpName}:left`, 'system:playback_1']) } catch (err) {}
+      try { await execFileAsync('jack_disconnect', [`${gpName}:right`, 'system:playback_2']) } catch (err) {}
       let ok = false
-      try { execSync(`jack_connect "${gpName}:left" "${ghostL}"`, { stdio: 'ignore' }); ok = true } catch (err) {}
-      try { execSync(`jack_connect "${gpName}:right" "${ghostR}"`, { stdio: 'ignore' }) } catch (err) {}
+      try { await execFileAsync('jack_connect', [`${gpName}:left`, ghostL]); ok = true } catch (err) {}
+      try { await execFileAsync('jack_connect', [`${gpName}:right`, ghostR]) } catch (err) {}
       const e2 = gpEngines.get(roomCode)
       if (ok && e2 && e2.child === child) {
         // B' 起播：先写命令链+记 playAt（零点=第一声真实起点），再置 wired（waitGpWired 返回时 playAt 必就绪）
@@ -5132,7 +5036,7 @@ async function gpLoopRestart(roomCode, prev) {
   const spd = sanitizeGpSpeed(score.speed)
   const startMs = score.range ? Math.round(score.range.a) : 0
   let gpGen
-  try { gpGen = gpToMidi(gpPath, midPath, score.mix, startMs, spd, !!score.countin, score.range ? Math.round(score.range.b) : undefined) }
+  try { gpGen = await gpToMidiAsync(gpPath, midPath, score.mix, startMs, spd, !!score.countin, score.range ? Math.round(score.range.b) : undefined) }
   catch (err) {
     console.error('gp loop remix error:', err.message)
     await pool.query('UPDATE rooms SET gp_state = NULL WHERE room_code = $1', [roomCode]).catch(() => {})
@@ -5173,7 +5077,7 @@ async function stopGpByCode(roomCode, broadcast) {
     const r = await pool.query('SELECT server_port FROM rooms WHERE room_code = $1', [roomCode])
     const port = r.rows[0]?.server_port
     killGpEngine(roomCode)
-    if (port) { try { execSync(`pkill -f "fluidsynth.*FluidSynth-GP-${port}"`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { /* 无进程正常 */ } }
+    if (port) { try { await execFileAsync('pkill', ['-f', `fluidsynth.*FluidSynth-GP-${port}`]) } catch (e) { /* 无进程正常 */ } }  // 1029 异步化
     await pool.query('UPDATE rooms SET gp_state = NULL WHERE room_code = $1', [roomCode])
     if (broadcast) io.to(roomCode).emit("gp-state", { playing: false })
   } catch (e) { console.error('stopGp error:', e.message) }
@@ -5194,7 +5098,8 @@ function killProgramEngine(roomCode) {
   if (!e) return
   programEngines.delete(roomCode)  // 先删再杀：exit handler 见 map 无此引擎=被 kill，不触发自然结束链
   for (const c of [e.jstdin, e.ffmpeg]) { try { c.kill('SIGTERM') } catch (err) {} }
-  if (e.port) { try { execSync(`pkill -f "jamony-program-${e.port}"`, { timeout: 5000, stdio: 'pipe' }) } catch (err) { /* 无进程正常 */ } }
+  // killProgramEngine 保持同步签名（同步调用方多）——子进程杀句柄本就不阻塞，兜底 pkill 改 fire-and-forget 异步（1029）
+  if (e.port) { try { execFileAsync('pkill', ['-f', `jamony-program-${e.port}`]).catch(() => {}) } catch (err) { /* 无进程正常 */ } }
 }
 
 async function stopProgramByCode(roomCode, broadcast) {
@@ -5205,11 +5110,11 @@ async function stopProgramByCode(roomCode, broadcast) {
   } catch (e) { console.error('stopProgram error:', e.message) }
 }
 
-// ffprobe 轨时长（秒，float）；读文件头快；失败返 null 由调用方跳过该轨
-function progProbeDurationSec(fpath) {
+// ffprobe 轨时长（秒，float）；读文件头快；失败返 null 由调用方跳过该轨（1029 异步化，数组参数零注入）
+async function progProbeDurationSec(fpath) {
   try {
-    const out = execSync(`ffprobe -v error -show_entries format=duration -of csv=p=0 "${fpath}"`, { timeout: 5000, stdio: ['pipe', 'pipe', 'ignore'] }).toString().trim()
-    const d = parseFloat(out)
+    const { stdout } = await execFileAsync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', fpath], { timeout: 5000 })
+    const d = parseFloat(String(stdout).trim())
     return Number.isFinite(d) && d > 0 ? d : null
   } catch (e) { return null }
 }
@@ -5261,12 +5166,12 @@ function startProgramPlayback(roomCode, port, prog, startMs, totalMs) {
   programEngines.set(roomCode, engine)
   // 端口轮询（GP 同款 100ms×50）：见端口=记 portAt（时间线零点）；5s 未现=起播失败清理
   let polls = 0
-  const pollPort = () => {
+  const pollPort = async () => {   // 1029 异步化：jack_lsp 轮询原为 execSync=启动窗内全站抖，房间隔离宪法清零
     polls++
     const e = programEngines.get(roomCode)
     if (!e || e.jstdin !== jstdin) return
     let visible = false
-    try { execSync(`jack_lsp | grep -q "^${progName}:"`, { stdio: 'ignore' }); visible = true } catch (err) {}
+    try { const { stdout } = await execFileAsync('jack_lsp'); if (stdout.includes(progName + ':')) visible = true } catch (err) {}
     if (visible) { e.portAt = Date.now(); return }
     if (polls < 50) setTimeout(pollPort, 100)
     else {
@@ -5528,7 +5433,7 @@ io.on("connection", (socket) => {
     let gpSeekMs
     if (!score.range && score.loop && startMs > 0) { gpSeekMs = startMs; startMs = 0 }
     try {
-      gpGen = gpToMidi(gpPath, midPath, score.mix, startMs, sanitizeGpSpeed(score.speed), !!score.countin, score.range ? Math.round(score.range.b) : undefined, gpSeekMs)
+      gpGen = await gpToMidiAsync(gpPath, midPath, score.mix, startMs, sanitizeGpSpeed(score.speed), !!score.countin, score.range ? Math.round(score.range.b) : undefined, gpSeekMs)
     } catch (err) {
       console.error('gp play remix error:', err.message)
       clearTimeout(gpInflight.get(roomId)); gpInflight.delete(roomId)
@@ -5679,12 +5584,15 @@ io.on("connection", (socket) => {
     if (!prog.tracks.length) { fail('还没有伴奏轨，先上传'); return }
     // ghost 前置检查（jack-stdin 连不上目标端口会直接退；fluidsynth 有接线重试，这里必须显式拦）
     const port = row.server_port
-    try { execSync(`jack_lsp | grep -q "jamsoul-${port} jamony-looper:input left"`, { stdio: 'ignore' }) } catch (e) { fail('合奏服务未就绪，稍等再试'); return }
+    // ghost 前置检查（jack-stdin 连不上目标端口会直接退；fluidsynth 有接线重试，这里必须显式拦）——1029 异步化
+    let ghostReady = false
+    try { const { stdout } = await execFileAsync('jack_lsp'); ghostReady = stdout.includes(`jamsoul-${port} jamony-looper:input left`) } catch (e) {}
+    if (!ghostReady) { fail('合奏服务未就绪，稍等再试'); return }
     // 轨时长：上传时已算好（1016）；存量/异常缺失才现测兜底+回写（最长轨=时间轴总长）
     let totalMs = Number(prog.totalMs) || 0
     if (!(totalMs > 0)) {
       for (const t of prog.tracks) {
-        const dur = progProbeDurationSec(path.join(programsDir, roomId, t.file))
+        const dur = await progProbeDurationSec(path.join(programsDir, roomId, t.file))
         if (dur == null) { fail(`轨「${t.name}」读取失败，请删除后重新上传`); return }
         totalMs = Math.max(totalMs, Math.round(dur * 1000))
       }
@@ -5862,23 +5770,7 @@ app.post('/api/users/:userId/leave-all-rooms', requireAuth, async (req, res) => 
         const closePort2 = portResult.rows[0]?.server_port
         const dissolveCode = portResult.rows[0]?.room_code
         if (closePort2) {
-          try { execSync(`node /var/www/jamony/api/manage-jamsoul.js drums-stop ${closePort2}`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve drums-stop ' + closePort2 + ':', e.message) }
-          try { execSync(`node /var/www/jamony/api/manage-jamsoul.js stop ${closePort2}`, { timeout: 10000, stdio: 'pipe' }) } catch (e) { console.error('dissolve stop ' + closePort2 + ':', e.message) }
-          try { execSync(`node /var/www/jamony/api/manage-jamsoul.js stop-ghost ${closePort2}`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve stop-ghost ' + closePort2 + ':', e.message) }
-          try { execSync(`pkill -f "jm-stream-${closePort2}"`, { timeout: 3000, stdio: 'pipe' }) } catch (e) { /* 无进程时 pkill 返回非 0，正常，忽略 */ }
-          try { execSync(`rm -rf /var/jamony/recordings/room-${closePort2}-records/`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve rm recordings ' + closePort2 + ':', e.message) }
-          try { execSync(`rm -rf "/var/jamony/scores/${dissolveCode}"`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve rm scores ' + dissolveCode + ':', e.message) }  // 10-07 投谱=房间物料，随房清
-          try { await pool.query('DELETE FROM room_scores WHERE room_code = $1', [dissolveCode]) } catch (e) { console.error('dissolve rm score shelf ' + dissolveCode + ':', e.message) }  // ⑥-3 谱架册随房清
-          try { execSync(`rm -rf "/var/jamony/programs/${dissolveCode}"`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve rm programs ' + dissolveCode + ':', e.message) }  // 1015 program 轨=房间物料，随房清
-          await stopGpByCode(dissolveCode)  // 10-07 GP走带随房停
-          await stopProgramByCode(dissolveCode, false)  // 1015 program 走带随房停
-          try {
-            const gs = JSON.parse(fs.readFileSync('/var/lib/jamony/ghost.json', 'utf8').toString() || '{}')
-            const ent = gs[String(closePort2)]
-            if (ent && ent.ffmpegPid) { try { process.kill(ent.ffmpegPid) } catch (e) { console.error('dissolve kill ffmpeg ' + ent.ffmpegPid + ':', e.message) } }
-            delete gs[String(closePort2)]
-            fs.writeFileSync('/var/lib/jamony/ghost.json', JSON.stringify(gs, null, 2))
-          } catch (e) { console.error('dissolve ghost cleanup ' + closePort2 + ':', e.message) }
+          await cleanupRoomResources(closePort2, dissolveCode)  // 1029：级联抽公共异步体
         }
         // 广播房间解散，让听众客户端弹窗+跳大厅
         if (dissolveCode) io.to(String(dissolveCode).trim()).emit('room-dissolved', { roomCode: String(dissolveCode).trim() })
@@ -5898,7 +5790,8 @@ app.post('/api/users/:userId/leave-all-rooms', requireAuth, async (req, res) => 
   }
 })
 
-try { execSync('jack_lsp 2>/dev/null || (jackd -d alsa -d hw:Loopback -p 1024 -r 48000 &', { timeout: 5000, stdio: 'pipe' }) } catch(e) {}
+// 启动自检 JACK（1029 异步化：原同步 shell || 后台拉起；启动期一次性，语义不变）
+;(async () => { try { await execFileAsync('jack_lsp') } catch (e) { try { spawn('jackd', ['-d', 'alsa', '-d', 'hw:Loopback', '-p', '1024', '-r', '48000'], { stdio: 'ignore', detached: true }).unref() } catch (e2) {} } })()
 
 // 过期通知定时任务（每小时扫描；setInterval 无依赖，pm2 重启重置但 expire_notified/remind_notified 去重字段保护不重复发）
 async function scanExpiredNotices() {
@@ -5922,10 +5815,12 @@ setInterval(scanExpiredNotices, 3600000)
 // 扫描所有 jamsoul-headless 监听的 UDP 端口，对比 rooms 表活跃房间，无对应房间的全部 kill。
 async function cleanupOrphanProcesses() {
   try {
-    // 1. 扫描所有 jamsoul-headless 监听的 UDP 端口
+    // 1. 扫描所有 jamsoul-headless 监听的 UDP 端口（1029 异步化：原 ss/ps execSync=每 10 分钟定时全站抖；
+    //    改 execFileAsync+JS 侧过滤，语义相同——房间隔离宪法：巡检也不许冻别人）
     let headlessPorts = []
     try {
-      const ssOut = execSync("ss -ulnp 2>/dev/null | grep jamsoul-headles", { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).toString()
+      const { stdout: ssRaw } = await execFileAsync('ss', ['-ulnp'])
+      const ssOut = String(ssRaw).split('\n').filter(l => l.includes('jamsoul-headles')).join('\n')
       headlessPorts = [...ssOut.matchAll(/(\d+\.\d+\.\d+\.\d+):(\d+)\s/g)].map(m => parseInt(m[2])).filter(p => p >= 1024)
     } catch (e) { /* 无 headless 进程，正常 */ }
 
@@ -5933,9 +5828,11 @@ async function cleanupOrphanProcesses() {
     //     program 走带 jack-stdin（jamony-program-<端口>）、推流 ffmpeg（jm-stream-<端口>）——
     //     场景=崩溃重启后 headless 已死而卫星还活（不监听UDP，ss 锚点照不到；gpEngines/programEngines
     //     内存 Map 已随重启蒸发，无人持有句柄）。进程名即端口，5位端口等长无子串误杀。
+    //     1029 顺带扩：鼓机（FluidSynth-Drums-<端口>）也入卫星枚举（drumsEngines 重启蒸发同款盲区）
     try {
-      const psOut = execSync("ps -eo args= 2>/dev/null | grep -E 'FluidSynth-GP-|jamony-program-|jm-stream-' | grep -v grep", { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).toString()
-      for (const m of psOut.matchAll(/(?:FluidSynth-GP-|jamony-program-|jm-stream-)(\d{5})/g)) {
+      const { stdout: psRaw } = await execFileAsync('ps', ['-eo', 'args='])
+      const psOut = String(psRaw).split('\n').filter(l => /FluidSynth-GP-|jamony-program-|jm-stream-|FluidSynth-Drums-/.test(l) && !l.includes('grep')).join('\n')
+      for (const m of psOut.matchAll(/(?:FluidSynth-GP-|jamony-program-|jm-stream-|FluidSynth-Drums-)(\d{5})/g)) {
         const p = parseInt(m[1])
         if (p >= 22124 && !headlessPorts.includes(p)) headlessPorts.push(p)
       }
@@ -5950,15 +5847,15 @@ async function cleanupOrphanProcesses() {
     if (orphans.length === 0) { console.log('Orphan check: clean'); return }
     for (const port of orphans) {
       console.log('Orphan check: cleaning port ' + port)
-      try { execSync(`node /var/www/jamony/api/manage-jamsoul.js drums-stop ${port}`, { timeout: 5000, stdio: 'pipe' }) } catch {}
-      try { execSync(`node /var/www/jamony/api/manage-jamsoul.js stop ${port}`, { timeout: 10000, stdio: 'pipe' }) } catch (e) { console.error('orphan stop ' + port + ':', e.message) }
-      try { execSync(`node /var/www/jamony/api/manage-jamsoul.js stop-ghost ${port}`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('orphan stop-ghost ' + port + ':', e.message) }
+      try { await killDrumsEngine(port) } catch (e) {}  // 鼓机走原生引擎表（含野生残留清扫）
+      try { await execFileAsync('node', ['/var/www/jamony/api/manage-jamsoul.js', 'stop', String(port)], { timeout: 10000 }) } catch (e) { console.error('orphan stop ' + port + ':', e.message) }
+      try { await execFileAsync('node', ['/var/www/jamony/api/manage-jamsoul.js', 'stop-ghost', String(port)], { timeout: 5000 }) } catch (e) { console.error('orphan stop-ghost ' + port + ':', e.message) }
       // 残留的 ffmpeg/looper（state 可能没记录），精确按端口匹配兜底 kill
-      try { execSync(`pkill -f 'jm-stream-${port}'`, { stdio: 'pipe' }) } catch {}
-      try { execSync(`pkill -f '127.0.0.1:${port}'`, { stdio: 'pipe' }) } catch {}
+      try { await execFileAsync('pkill', ['-f', `jm-stream-${port}`]) } catch {}
+      try { await execFileAsync('pkill', ['-f', `127.0.0.1:${port}`]) } catch {}
       // 1026 补：GP 走带 fluidsynth + program 走带 jack-stdin（ffmpeg 随管道 EPIPE 自灭）——崩溃重启后 Map 蒸发的孤儿
-      try { execSync(`pkill -f 'FluidSynth-GP-${port}'`, { timeout: 5000, stdio: 'pipe' }) } catch {}
-      try { execSync(`pkill -f 'jamony-program-${port}'`, { timeout: 5000, stdio: 'pipe' }) } catch {}
+      try { await execFileAsync('pkill', ['-f', `FluidSynth-GP-${port}`]) } catch {}
+      try { await execFileAsync('pkill', ['-f', `jamony-program-${port}`]) } catch {}
     }
     console.log('Orphan check: cleaned ' + orphans.length + ' orphan port(s): ' + orphans.join(','))
   } catch (e) { console.error('Orphan cleanup error:', e) }
@@ -6158,14 +6055,14 @@ async function recountTrafficStats() {
     const dayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
     let sitePv = 0
     try {
-      const log = fs.readFileSync('/var/log/nginx/site.log', 'utf8')
+      const log = await fs.promises.readFile('/var/log/nginx/site.log', 'utf8')  // 1029 异步化：日志天天变大,同步读=每小时定时抖
       for (const line of log.split('\n')) {
         if (line.includes(logDate) && /"GET /.test(line) && !/ 304 /.test(line)) sitePv++
       }
     } catch (e) { /* 文件不存在=0 */ }
     let dlHits = 0
     try {
-      const log = fs.readFileSync('/var/log/nginx/app.log', 'utf8')
+      const log = await fs.promises.readFile('/var/log/nginx/app.log', 'utf8')  // 1029 异步化（同上）
       for (const line of log.split('\n')) {
         if (line.includes(logDate) && line.includes('/downloads/') && /"GET /.test(line) && / 200 /.test(line)) dlHits++
       }
@@ -6309,25 +6206,7 @@ async function forceDissolveRoom(roomId, actor) {
   const closePort = room.server_port
   const roomCode = String(room.room_code).trim()
   const members = await pool.query('SELECT user_id FROM room_members WHERE room_id = $1', [roomId])
-  if (closePort) {
-    try { execSync(`node /var/www/jamony/api/manage-jamsoul.js drums-stop ${closePort}`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve drums-stop ' + closePort + ':', e.message) }
-    try { execSync(`node /var/www/jamony/api/manage-jamsoul.js stop ${closePort}`, { timeout: 10000, stdio: 'pipe' }) } catch (e) { console.error('dissolve stop ' + closePort + ':', e.message) }
-    try { execSync(`node /var/www/jamony/api/manage-jamsoul.js stop-ghost ${closePort}`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve stop-ghost ' + closePort + ':', e.message) }
-    try { execSync(`pkill -f "jm-stream-${closePort}"`, { timeout: 3000, stdio: 'pipe' }) } catch (e) { /* 无进程时 pkill 返回非 0，正常，忽略 */ }
-    try { execSync(`rm -rf /var/jamony/recordings/room-${closePort}-records/`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve rm recordings ' + closePort + ':', e.message) }
-    try { execSync(`rm -rf "/var/jamony/scores/${roomCode}"`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve rm scores ' + roomCode + ':', e.message) }
-    try { await pool.query('DELETE FROM room_scores WHERE room_code = $1', [roomCode]) } catch (e) { console.error('dissolve rm score shelf ' + roomCode + ':', e.message) }
-    try { execSync(`rm -rf "/var/jamony/programs/${roomCode}"`, { timeout: 5000, stdio: 'pipe' }) } catch (e) { console.error('dissolve rm programs ' + roomCode + ':', e.message) }
-    await stopGpByCode(roomCode)
-    await stopProgramByCode(roomCode, false)
-    try {
-      const ghostState = JSON.parse(fs.readFileSync('/var/lib/jamony/ghost.json', 'utf8').toString() || '{}')
-      const entry = ghostState[String(closePort)]
-      if (entry && entry.ffmpegPid) { try { process.kill(entry.ffmpegPid) } catch (e) { console.error('dissolve kill ffmpeg ' + entry.ffmpegPid + ':', e.message) } }
-      delete ghostState[String(closePort)]
-      fs.writeFileSync('/var/lib/jamony/ghost.json', JSON.stringify(ghostState, null, 2))
-    } catch (e) { console.error('dissolve ghost cleanup ' + closePort + ':', e.message) }
-  }
+  if (closePort) await cleanupRoomResources(closePort, roomCode)  // 1029：级联抽公共异步体
   io.to(roomCode).emit('room-dissolved', { roomCode })
   await closeRoomMusicianSessions(roomId)
   await closeAllRoomVisits(roomId) // 1025: 解散统一闭访问账(同主解散管线)
