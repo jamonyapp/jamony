@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
+import { io } from "socket.io-client"
 import { User, Headphones, Lock } from "lucide-react"
 import { SectionHeader } from "./section-header"
 import { RoomDetailModal } from "@/components/room-detail-modal"
@@ -133,8 +134,24 @@ export function RoomsScreen() {
         .catch(() => {})
     }
     load()
-    const t = setInterval(load, 15000)  // 15秒刷新，卡片人数实时更新
-    return () => clearInterval(t)
+    const t = setInterval(load, 15000)  // 15秒兜底轮询（实时事件为主，轮询保底）
+    // 1030 大厅实时化：rooms-changed 全局广播 → 300ms 防抖重拉（建房/解散/人数变化秒级反映）；
+    // focus/visibility 即时重拉治后台定时器节流（回来第一眼必新鲜）
+    const socketUrl = `${window.location.protocol}//${window.location.hostname}`
+    const socket = io(socketUrl, { path: "/socket.io" })
+    let debounce: ReturnType<typeof setTimeout> | null = null
+    const bump = () => { if (debounce) clearTimeout(debounce); debounce = setTimeout(load, 300) }
+    socket.on("rooms-changed", bump)
+    const onWake = () => { if (document.visibilityState === "visible") load() }
+    window.addEventListener("focus", onWake)
+    document.addEventListener("visibilitychange", onWake)
+    return () => {
+      clearInterval(t)
+      socket.disconnect()
+      window.removeEventListener("focus", onWake)
+      document.removeEventListener("visibilitychange", onWake)
+      if (debounce) clearTimeout(debounce)
+    }
   }, [])
 
   return (

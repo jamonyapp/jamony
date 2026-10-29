@@ -2037,9 +2037,16 @@ app.post('/api/rooms', requireAuth, async (req, res) => {
       return res.status(400).json({ ok: false, msg: '当前在线房间较多，请稍后再试，或去大厅加入现有房间一起玩' })
     }
     // 1026 建房频率闸(欢哥拍板, 配置中心可调, 默认5/小时): B闸限并发不限频率——防「建-散-建」churn 循环打 jamsoul spawn(2C4G 实打实的CPU/端口消耗)
-    const hourRooms = await pool.query("SELECT COUNT(*)::int AS c FROM rooms WHERE host_id=$1 AND created_at > NOW() - interval '1 hour'", [hostId])
-    if (hourRooms.rows[0].c >= cfg0.roomCreateHourlyLimit) {
-      return res.status(400).json({ ok: false, msg: '创建房间过于频繁，请稍后再试' })
+    // 1030 欢哥两项优化: ①白名单(运维/测试账号不受控——被自家闸门锁了一晚的教训) ②拦截文案带精确等待分钟
+    //    (锚点=窗口内最早一次建房: 它最先满 1 小时腾出名额; 按较晚次算会多报等待)
+    const ROOM_CREATE_WHITELIST = [1]  // 1=欢哥(rainbowtube)。真用户永不加; 加人=运维决策留痕 git
+    if (!ROOM_CREATE_WHITELIST.includes(parseInt(hostId))) {
+      const hourRooms = await pool.query("SELECT COUNT(*)::int AS c, MIN(created_at) AS earliest FROM rooms WHERE host_id=$1 AND created_at > NOW() - interval '1 hour'", [hostId])
+      if (hourRooms.rows[0].c >= cfg0.roomCreateHourlyLimit) {
+        const retryAtMs = new Date(hourRooms.rows[0].earliest).getTime() + 3600 * 1000
+        const waitMin = Math.max(1, Math.ceil((retryAtMs - Date.now()) / 60000))
+        return res.status(400).json({ ok: false, msg: `创建房间过于频繁，请于 ${waitMin} 分钟后再试。` })
+      }
     }
     const roomText = [name, description, style].filter(v => typeof v === 'string' && v.trim()).join('\n')
     if (!(await moderatePublishText('room', null, hostId, req.nickname, roomText))) {
@@ -2129,6 +2136,7 @@ app.post('/api/rooms', requireAuth, async (req, res) => {
       console.error('Failed to start jamsoul:', e.stderr?.toString() || e.message)
     }
 
+    emitRoomsChanged('create:' + room.room_code)  // 1030 大厅实时化：新房秒上大厅
     res.json({ ok: true, room })
   } catch (err) {
     console.error('Room create error:', err)
@@ -2209,6 +2217,13 @@ app.get('/api/rooms/:code', optionalAuth, async (req, res) => {
 // 广播房间成员列表（身份/音频状态变化时调用，让房间内所有人实时同步右栏成员显示）
 // payload 带 hostId：房主转移后前端实时感知新房主（皇冠/管理权/房主行显示）
 // targetSocket 传入=单发该 socket（join-room 进房快照），不传=全房广播（默认，既有调用不变）
+// ⭐ 1030 大厅实时化（欢哥定稿「3.大厅实时更新」）：房间可见性/人数变化 → 全局广播，
+//    大厅/首页房间卡挂监听即时重拉。发射点=建房/解散(3路径)/成员变化(broadcastMembers)/踢人。
+//    注意：socket 鉴权要登录态——未登录访客收不到，回落 15s 轮询（公测强制登录前无实义）。
+function emitRoomsChanged(why) {
+  io.emit('rooms-changed', { why: why || '', at: Date.now() })
+}
+
 async function broadcastMembers(roomCode, targetSocket = null) {
   try {
     const result = await pool.query(
@@ -2223,7 +2238,10 @@ async function broadcastMembers(roomCode, targetSocket = null) {
       hostId: result.rows.length > 0 ? result.rows[0].host_id : null
     }
     if (targetSocket) targetSocket.emit('members-update', payload)
-    else io.to(roomCode).emit('members-update', payload)
+    else {
+      io.to(roomCode).emit('members-update', payload)
+      emitRoomsChanged('members:' + roomCode)  // 1030: 真实成员变化（非补发快照）才通知大厅
+    }
   } catch (e) {
     console.error('Broadcast members error:', e)
   }
@@ -2515,19 +2533,27 @@ async function touchRoomPeak(roomId) {
 // ⭐ 1029 房间隔离宪法：解散级联资源清理统一体。dissolveRoom / leave-all-rooms / forceDissolveRoom
 // 三处原为同款复制粘贴的 execSync 串——同步逐个跑=解散一次全站冻结数秒（理论最坏 40s）。
 // 统一抽出+全异步化；杀序/清理范围与原版逐一相同（鼓机改走原生引擎表+野生残留清扫）。
+// ⭐ 1030 欢哥定稿「同步，不串行」：各腿彼此独立（杀 jamsoul/幽灵/鼓机/GP/program/清目录互不依赖），
+//    Promise.all 同时动手——响应返回时仍全部完成（事务不拆不赛跑），串行实测 2.3s → 并行≈最长一腿。
 async function cleanupRoomResources(closePort, roomCode) {
-  try { await killDrumsEngine(closePort) } catch (e) { console.error('dissolve drums-stop ' + closePort + ':', e.message) }
-  try { await execFileAsync('node', ['/var/www/jamony/api/manage-jamsoul.js', 'stop', String(closePort)], { timeout: 10000 }) } catch (e) { console.error('dissolve stop ' + closePort + ':', e.message) }
-  try { await execFileAsync('node', ['/var/www/jamony/api/manage-jamsoul.js', 'stop-ghost', String(closePort)], { timeout: 5000 }) } catch (e) { console.error('dissolve stop-ghost ' + closePort + ':', e.message) }
-  // 兜底：杀 watchdog 竞态拉起的孤儿 ffmpeg（leave 杀的是 ghost.json 记录的 pid，watchdog 新拉的会漏杀）
-  try { await execFileAsync('pkill', ['-f', `jm-stream-${closePort}`]) } catch (e) { /* 无进程时 pkill 返回非 0，正常，忽略 */ }
-  try { await execFileAsync('rm', ['-rf', `/var/jamony/recordings/room-${closePort}-records/`]) } catch (e) { console.error('dissolve rm recordings ' + closePort + ':', e.message) }
-  try { await execFileAsync('rm', ['-rf', `/var/jamony/scores/${roomCode}`]) } catch (e) { console.error('dissolve rm scores ' + roomCode + ':', e.message) }  // 10-07 投谱=房间物料，随房清
-  try { await pool.query('DELETE FROM room_scores WHERE room_code = $1', [roomCode]) } catch (e) { console.error('dissolve rm score shelf ' + roomCode + ':', e.message) }  // ⑥-3 谱架册随房清
-  try { await execFileAsync('rm', ['-rf', `/var/jamony/programs/${roomCode}`]) } catch (e) { console.error('dissolve rm programs ' + roomCode + ':', e.message) }  // 1015 program 轨=房间物料，随房清
-  await stopGpByCode(roomCode)  // 10-07 GP走带随房停
-  await stopProgramByCode(roomCode, false)  // 1015 program 走带随房停
-  // 兜底：杀残留 ffmpeg + 清 ghost.json 条目（stop 已处理，此处防 state 漏记）
+  const leg = (p, tag, silent) => p.catch(e => { if (!silent) console.error(`dissolve ${tag} ${closePort}:`, e.message) })
+  await Promise.all([
+    leg(killDrumsEngine(closePort), 'drums-stop'),
+    leg(execFileAsync('node', ['/var/www/jamony/api/manage-jamsoul.js', 'stop', String(closePort)], { timeout: 10000 }), 'stop'),
+    leg(execFileAsync('node', ['/var/www/jamony/api/manage-jamsoul.js', 'stop-ghost', String(closePort)], { timeout: 5000 }), 'stop-ghost'),
+    // 兜底：杀 watchdog 竞态拉起的孤儿 ffmpeg（leave 杀的是 ghost.json 记录的 pid，watchdog 新拉的会漏杀；无进程=正常）
+    leg(execFileAsync('pkill', ['-f', `jm-stream-${closePort}`]), 'pkill-stream', true),
+    leg(execFileAsync('rm', ['-rf', `/var/jamony/recordings/room-${closePort}-records/`]), 'rm recordings'),
+    // 谱子目录+谱架册同域成组（文件与行一起清）
+    leg((async () => {
+      await execFileAsync('rm', ['-rf', `/var/jamony/scores/${roomCode}`])
+      await pool.query('DELETE FROM room_scores WHERE room_code = $1', [roomCode])
+    })(), 'rm scores'),  // 10-07 投谱=房间物料，随房清；⑥-3 谱架册随房清
+    leg(execFileAsync('rm', ['-rf', `/var/jamony/programs/${roomCode}`]), 'rm programs'),  // 1015 program 轨=房间物料，随房清
+    leg(stopGpByCode(roomCode), 'stop-gp'),        // 10-07 GP走带随房停
+    leg(stopProgramByCode(roomCode, false), 'stop-program'),  // 1015 program 走带随房停
+  ])
+  // ghost.json 清账（纯状态文件，收尾小步保留串行；杀残留 ffmpeg + 清条目，防 state 漏记）
   try {
     const ghostState = JSON.parse((await fs.promises.readFile('/var/lib/jamony/ghost.json', 'utf8')).toString() || '{}')
     const entry = ghostState[String(closePort)]
@@ -2560,6 +2586,7 @@ async function dissolveRoom(roomId, roomCode) {
       await pool.query("DELETE FROM session_tracks WHERE session_id IN (SELECT id FROM recording_sessions WHERE room_id=$1 AND status != 'published')", [roomId])
       await pool.query("DELETE FROM recording_sessions WHERE room_id=$1 AND status != 'published'", [roomId])
     } catch (e) { console.error('dissolve rm sessions ' + roomId + ':', e.message) }
+    emitRoomsChanged('dissolve:' + roomCode)  // 1030 大厅实时化：卡片即时消失
     return true
 }
 
@@ -5781,6 +5808,7 @@ app.post('/api/users/:userId/leave-all-rooms', requireAuth, async (req, res) => 
             'final', (SELECT COALESCE(jsonb_agg(jsonb_build_object('uid', user_id, 'nick', nickname, 'role', role)), '[]'::jsonb) FROM room_members WHERE room_id = $1),
             'musicians', (SELECT COALESCE(jsonb_agg(DISTINCT jsonb_build_object('uid', u.id, 'nick', u.nickname)), '[]'::jsonb) FROM musician_sessions ms JOIN users u ON u.id = ms.user_id WHERE ms.room_id = $1)
           )) WHERE id=$1`, [row.room_id])
+        emitRoomsChanged('dissolve:' + dissolveCode)  // 1030 大厅实时化：L2 兜底归档也即时通知
       }
     }
     res.json({ ok: true })
@@ -6219,6 +6247,7 @@ async function forceDissolveRoom(roomId, actor) {
   await pool.query('DELETE FROM room_members WHERE room_id = $1', [roomId])
   const archived = true
   console.log(`[admin-internal] force dissolve 「${room.name}」(${roomCode}) by ${actor}: 清出${members.rows.length}人`)
+  emitRoomsChanged('dissolve:' + roomCode)  // 1030 大厅实时化
   return { ok: true, removed: members.rows.length, archived }
 }
 

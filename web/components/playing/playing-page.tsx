@@ -291,14 +291,20 @@ export function PlayingPage() {
     } else {
       // 离开房间
       roomSession.stopListening()  // 10-07：Icecast 已全局常驻，离开房间显式停流
-      fetch(`/api/rooms/${rid}/leave`, {
+      // 1030 欢哥定稿「先结算，后跳转」：原 push 不等 leave 返回=抢跑，到大厅先看到旧卡片再等 15s 轮询。
+      //   现等 leave 归档完成再跳（并行化后 ~0.8s），落地即真相；1.5s 保险丝封顶——级联偶发卡腿不困人，
+      //   保险丝先到也走得干净（残留由 rooms-changed 广播兜底补刷）。
+      const settled = fetch(`/api/rooms/${rid}/leave`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: user.id }),
       }).then(() => { setRoomGone(true); roomSession.refresh() })  // leave 完成后才查（防抢跑残留 session）
        .catch(() => roomSession.refresh())
-      if (target === "home") router.push("/")
-      else if (target === "lobby") router.push("/lobby")
+      const fuse = new Promise<void>(r => setTimeout(r, 1500))
+      Promise.race([settled, fuse]).then(() => {
+        if (target === "home") router.push("/")
+        else if (target === "lobby") router.push("/lobby")
+      })
     }
   }
 
