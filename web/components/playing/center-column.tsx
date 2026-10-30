@@ -10,6 +10,7 @@ import { renderMix, buildMixParams, rangeAudible, computeRangePeak, peakToDbfs }
 import { TRACK_COLORS, type MixerTrack } from "@/components/mixer/types"
 import PublishWorkModal from "@/components/publishing/publish-work-modal"
 import { useJamonyDialog } from "@/components/jamony/dialog"
+import { useSpaceControl } from "@/hooks/useSpaceControl"
 
 // 工具栏上拉菜单（10-10 步骤④）：缩放/五线六线/横竖排三件套，样式与分轨弹层同族（欢哥：全照搬alphaTab下拉，底部工具栏=上拉）
 function ToolbarMenu({ value, options, onPick, title, icon, disabled }: { value: string; options: { v: string; t: string }[]; onPick: (v: string) => void; title?: string; icon?: React.ReactNode; disabled?: boolean }) {
@@ -1699,6 +1700,15 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
   // 按输出采样推进不带speed，四层设置链全通但调度层死路）→ 弃用，与服务器同构：tempoAutomations ×spd
   // 烤死谱模型，player 恒1.0x播放=天然变速。scoreLoaded 先于 player MIDI 生成触发，烤完即生效
   const speedRef = useRef(score.speed ?? 1)      // 已烤进谱的档（换档effect独占更新）
+
+  // 空格=播放/暂停（1031 欢哥拍板，Guitar Pro 肌肉记忆）：与底部走带条主按钮同一条房级链
+  // （断点续播换算/pending 防抖/后动作胜出全同款）；注册进全站空格仲裁器——
+  // 谱在屏即注册，混音器后打开时在视觉顶层、空格随之让位，混音器关闭/最小化自动回落到谱
+  useSpaceControl(!!onPlay || !!onPause, () => {
+    if (pending) return
+    setPending(true)
+    playing ? onPause?.() : onPlay?.(Math.round(scrubMs * speedRef.current))
+  })
   const bufRef = useRef<Uint8Array | null>(null) // 换档重载用的谱子原文
   const loadedRef = useRef(false)                // scoreLoaded 已过（换档才需要重载）
   const reloadSeekRef = useRef<number | null>(null)  // 重载后恢复的谱面位置（烤速域）

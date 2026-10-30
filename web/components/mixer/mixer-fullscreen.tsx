@@ -1,32 +1,15 @@
 "use client"
 
 import type React from "react"
-import { useCallback, useEffect, useId, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
+import { useSpaceControl } from "@/hooks/useSpaceControl"
 import { Minimize2, Pause, Play, SkipBack, Square, X, AudioLines, Repeat, RotateCcw } from "lucide-react"
 import { ChannelStrip } from "./channel-strip"
 import { WaveformTrack } from "./waveform-track"
 import { formatTime, MIXER_COLORS, type MixerFullscreenProps } from "./types"
 
-/* 1031 空格互斥（欢哥拍板「不能一按全都响应」）：
-   全页面只挂一个空格监听器，事件只发给「打开栈栈顶」实例——后打开的混音器在视觉顶层，
-   空格独享权随之；关闭自动回落到次顶层。三租户（试听/发布/program）同组件自动全覆盖。
-   语义：焦点在输入框不拦截；没有任何混音器打开时不拦截（空格还给页面默认行为）。 */
-const openStack: string[] = []
-const spaceHandlers = new Map<string, () => void>()
-let spaceListenerInstalled = false
-function installSpaceListener() {
-  if (spaceListenerInstalled) return
-  spaceListenerInstalled = true
-  window.addEventListener("keydown", (e: KeyboardEvent) => {
-    if (e.code !== "Space" && e.key !== " ") return
-    const el = e.target as HTMLElement | null
-    if (el?.tagName === "INPUT" || el?.tagName === "TEXTAREA" || el?.isContentEditable) return
-    const top = openStack[openStack.length - 1]
-    if (!top) return // 无混音器打开：不拦截不响应
-    e.preventDefault()
-    spaceHandlers.get(top)?.()
-  })
-}
+/* 1031 空格互斥（欢哥拍板「不能一按全都响应」）：全站空格仲裁器统一分发（useSpaceControl，
+   与 GP 谱工作站共用）——后打开的=视觉顶层=空格独享，关闭自动回落次顶层。 */
 
 export function MixerFullscreen({
   sessionLabel,
@@ -139,20 +122,8 @@ export function MixerFullscreen({
     [onSeek],
   )
 
-  // 空格键播放/暂停：注册进全局互斥分发器（1031 改造——每实例不再自挂 window 监听，
-  // 只注册回调；打开时压栈成为栈顶=空格独享，关闭/卸载出栈回落次顶层）
-  const mixerId = useId()
-  useEffect(() => {
-    if (!isOpen) return
-    installSpaceListener()
-    if (!openStack.includes(mixerId)) openStack.push(mixerId)
-    spaceHandlers.set(mixerId, onPlayPause)
-    return () => {
-      spaceHandlers.delete(mixerId)
-      const i = openStack.indexOf(mixerId)
-      if (i >= 0) openStack.splice(i, 1)
-    }
-  }, [isOpen, onPlayPause, mixerId])
+  // 空格键播放/暂停：注册进全站空格仲裁器（1031）——isOpen 时在栈顶独享，关闭/最小化让位
+  useSpaceControl(isOpen, onPlayPause)
 
   // 支持按住后左右拖动指针（scrub）：window 级监听，拖出区域也能跟随
   useEffect(() => {
