@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useRealtime } from "@/hooks/useRealtime"
 import { useSearchParams } from "next/navigation"
 import { Plus, Search } from "lucide-react"
 import { FilterSelect } from "@/components/jamony/filter-select"
@@ -37,11 +38,9 @@ export function BoardPage() {
       .catch(() => {})
   }
 
-  useEffect(() => {
-    fetchNotices()
-    const t = setInterval(fetchNotices, 30000)
-    return () => clearInterval(t)
-  }, [])
+  // 1030 实时化：board-changed（公告发布/删除/后台下架/官方动态）秒级重拉；
+  // 30s 兜底轮询兼管公告到期（expire_at 读时过滤无广播事件）
+  useRealtime("board-changed", fetchNotices, { pollMs: 30000 })
   const [activeTab, setActiveTab] = useState<NoticeType | "all">("all")
   const [search, setSearch] = useState("")
   const [sort, setSort] = useState<SortOption>("latest")

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { Search, Plus, KeyRound } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { io } from "socket.io-client"
+import { useRealtime } from "@/hooks/useRealtime"
 import { RoomCard } from "@/components/room-card"
 import { EmptyState } from "@/components/empty-state"
 import { CreateRoomModal } from "@/components/create-room-modal"
@@ -127,26 +127,9 @@ export function RoomListPage() {
       .catch(() => setLoading(false))
   }
 
-  useEffect(() => {
-    fetchRooms()
-    const t = setInterval(fetchRooms, 15000)  // 15秒兜底轮询（不影响滚动位置；实时事件为主轮询保底）
-    // 1030 大厅实时化：rooms-changed 全局广播 → 300ms 防抖重拉；focus/visible 即时重拉治后台节流
-    const socketUrl = `${window.location.protocol}//${window.location.hostname}`
-    const socket = io(socketUrl, { path: "/socket.io" })
-    let debounce: ReturnType<typeof setTimeout> | null = null
-    const bump = () => { if (debounce) clearTimeout(debounce); debounce = setTimeout(fetchRooms, 300) }
-    socket.on("rooms-changed", bump)
-    const onWake = () => { if (document.visibilityState === "visible") fetchRooms() }
-    window.addEventListener("focus", onWake)
-    document.addEventListener("visibilitychange", onWake)
-    return () => {
-      clearInterval(t)
-      socket.disconnect()
-      window.removeEventListener("focus", onWake)
-      document.removeEventListener("visibilitychange", onWake)
-      if (debounce) clearTimeout(debounce)
-    }
-  }, [])
+  // 1030 大厅实时化（原内联块抽为 useRealtime，行为不变）：
+  // rooms-changed 全局广播秒级重拉；15s 兜底轮询（未登录访客/事件丢失保底）
+  useRealtime("rooms-changed", fetchRooms, { pollMs: 15000 })
 
   // 切 Tab 同步到 URL（replace 不入历史，与作品库一致；刷新/收藏可还原）
   function changeTab(next: RoomTab) {

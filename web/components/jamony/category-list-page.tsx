@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
+import { useRealtime } from "@/hooks/useRealtime"
 import { useRouter } from "next/navigation"
 import { Search } from "lucide-react"
 import { TrackCard } from "@/components/jamony/track-card"
@@ -68,7 +69,7 @@ function CategoryListInner() {
   }
 
   // 从 API 读取作品
-  useEffect(() => {
+  const fetchWorks = () => {
     const uidQ = user?.id ? `?userId=${user.id}` : ""
     fetch(`/api/works${uidQ}`)
       .then(r => r.json())
@@ -97,7 +98,11 @@ function CategoryListInner() {
         setQueue(mapped)
         setLoaded(true)
       })
-  }, [setQueue, user?.id])
+  }
+
+  // 1030 实时化：works-changed（发表审毕/自动下架/后台下架恢复）秒级重拉；
+  // 不加轮询——计数类变化维持原节奏（setQueue 是 player-context 稳定引用，从依赖中去掉）
+  useRealtime("works-changed", fetchWorks, { deps: [user?.id] })
 
   const STYLE_OPTIONS = [...new Set(allTracks.flatMap((t) => t.styles))].sort()
   const INSTRUMENT_OPTIONS = [...new Set(allTracks.flatMap((t) => t.instruments))].sort()

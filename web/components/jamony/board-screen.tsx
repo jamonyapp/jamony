@@ -5,7 +5,8 @@ import { mapNotice } from "@/lib/notice-mappers"
 import { UserPopover } from "@/components/jamony/user-popover"
 import { Avatar } from "@/components/jamony/avatar"
 import { NoticeDetailModal } from "@/components/jamony/notice-detail-modal"
-import { useEffect, useState } from "react"
+import { useState } from "react"
+import { useRealtime } from "@/hooks/useRealtime"
 import { useRouter } from "next/navigation"
 import { SectionHeader } from "./section-header"
 
@@ -113,17 +114,16 @@ export function BoardScreen() {
   const [list, setList] = useState<Notice[]>([])
   const [activeNotice, setActiveNotice] = useState<Notice | null>(null)
 
-  useEffect(() => {
-    const fetchNotices = () => {
-      fetch("/api/notices?limit=8")
-        .then((r) => r.json())
-        .then((data) => { if (data.ok) setList((data.notices || []).map(mapNotice)) })
-        .catch(() => {})
-    }
-    fetchNotices()
-    const t = setInterval(fetchNotices, 30000)
-    return () => clearInterval(t)
-  }, [])
+  const fetchNotices = () => {
+    fetch("/api/notices?limit=8")
+      .then((r) => r.json())
+      .then((data) => { if (data.ok) setList((data.notices || []).map(mapNotice)) })
+      .catch(() => {})
+  }
+
+  // 1030 实时化：board-changed（公告发布/删除/后台下架/官方动态）秒级重拉；
+  // 30s 兜底轮询兼管公告到期（expire_at 读时过滤无广播事件）
+  useRealtime("board-changed", fetchNotices, { pollMs: 30000 })
 
   return (
     <section>

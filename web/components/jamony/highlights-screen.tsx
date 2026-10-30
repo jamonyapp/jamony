@@ -2,6 +2,7 @@
 
 import { Pause, Play, SkipBack, SkipForward, X, ExternalLink, ListMusic, MessageCircle, Volume2 } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
+import { useRealtime } from "@/hooks/useRealtime"
 import { useRouter } from "next/navigation"
 import { SectionHeader } from "./section-header"
 import { useAuth } from "@/lib/auth-context"
@@ -474,7 +475,7 @@ function HighlightsInner() {
   const [active, setActive] = useState<Highlight | null>(null)
   const [works, setWorks] = useState<Highlight[]>([])
 
-  useEffect(() => {
+  const fetchWorks = () => {
     const qs = user?.id ? `&userId=${user.id}` : ""
     fetch(`/api/works?limit=8&sort=likes${qs}`)
       .then(r => r.json())
@@ -508,7 +509,11 @@ function HighlightsInner() {
         setWorks(mapped)
       })
       .catch(() => {})
-  }, [user?.id])
+  }
+
+  // 1030 实时化：works-changed（发表审毕/自动下架/后台下架恢复）秒级重拉；
+  // 不加轮询——计数类（点赞/播放）变化维持原「重访才刷」节奏，防全站高频重拉
+  useRealtime("works-changed", fetchWorks, { deps: [user?.id] })
 
   return (
     <section>

@@ -558,10 +558,12 @@ async function submitWorkAudioReview(workId) {
       const cfg = await getModerationConfig()
       await createNotification({ recipientId: row.publisher_user_id, type: 'restriction', message: `您的作品《${row.title}》因音频内容违规已被自动下架。如认为误判，您可以到个人主页-申诉进行申诉（处罚生效后${cfg.appealDays}天内有效）。请您注意在jamony的行为规范。` })
       console.log(`[moderation] 作品${workId}音频审核拒绝→自动下架(发布者${row.publisher_user_id}${u.rows[0] ? '(' + u.rows[0].nickname + ')' : ''})`)
+      emitWorksChanged('audio-reject')  // 1030 实时化：自动下架，作品库/高光即时消失
       await checkRejectEscalation(row.publisher_user_id, channel)
     } else {
       // 1025 ASR 审计留痕(欢哥: 监管问"是否审核过"须能自证)——转写文本+审毕时间+云侧TaskId 与作品同行, pass/reject 同档留证
       await pool.query("UPDATE works SET audio_review='passed', audio_transcript=$2, audio_reviewed_at=NOW(), asr_task_id=$3 WHERE id=$1 AND audio_review='pending'", [workId, text.slice(0, 400), String(sub.TaskId || '')])
+      emitWorksChanged('audio-pass')  // 1030 实时化：审毕=公域可见时刻，作品库/高光即时上新
       if (verdict === 'suspect') {
         try {
           await pool.query(`INSERT INTO moderation_logs (kind, target_id, user_id, nickname, content, verdict, hits, channel) VALUES ('work_audio',$1,$2,$3,$4,'suspect',$5,$6)`,
@@ -2224,6 +2226,20 @@ function emitRoomsChanged(why) {
   io.emit('rooms-changed', { why: why || '', at: Date.now() })
 }
 
+// ⭐ 1030 公告牌/作品库实时化（照搬 rooms-changed 模式，欢哥拍板）：
+//    结构性变化（发布/删除/下架/恢复/审毕）→ 全局广播即时重拉；计数类（播放/点赞/评论数）维持既有轮询。
+//    board-changed 发射点=公告发布/软删/admin下架恢复/官方动态(admin直写site_config后经 admin-internal/broadcast 触发)；
+//    works-changed 发射点=作品发表/ASR审毕(公域可见时刻)/ASR拒下架/admin下架恢复。
+//    公告到期(expire_at)是读时过滤无写事件——靠前端既有 30s 轮询兜底，不发广播。
+//    广播本体零 DB 查询（房间隔离宪法：命脉路径不加重）；socket 鉴权要登录态，未登录访客回落轮询。
+function emitBoardChanged(why) {
+  io.emit('board-changed', { why: why || '', at: Date.now() })
+}
+
+function emitWorksChanged(why) {
+  io.emit('works-changed', { why: why || '', at: Date.now() })
+}
+
 async function broadcastMembers(roomCode, targetSocket = null) {
   try {
     const result = await pool.query(
@@ -3465,6 +3481,10 @@ app.post('/api/rooms/:code/sessions/:sid/publish', requireAuth, upload.fields([{
     // 1024 音频线: 发布成功即起异步审核(fail-hold——ASR故障作品保持审核中, 兜底扫描自愈)
     submitWorkAudioReview(workId).catch(() => {})
 
+    // 1030 实时化：发表即广播（此刻公域尚不可见 audio_review=pending，本人「审核中」角标即时出现；
+    // 公域可见时刻=下方 ASR 审毕回调再发一次）
+    emitWorksChanged('publish')
+
     res.json({ ok: true, workId })
   } catch (err) {
     console.error('Publish error:', err)
@@ -3953,6 +3973,7 @@ app.post('/api/notices', requireAuth, async (req, res) => {
     const notice = result.rows[0]
     notice.author_id = req.userId
     notice.author_name = req.nickname
+    emitBoardChanged('notice-publish')  // 1030 实时化：公告牌/首页公告卡秒级出新卡
     res.json({ ok: true, notice })
   } catch (err) {
     console.error('Create notice error:', err)
@@ -4058,6 +4079,7 @@ app.delete('/api/notices/:id', requireAuth, async (req, res) => {
     if (row.rows.length === 0) return res.status(404).json({ ok: false, msg: '公告不存在' })
     if (row.rows[0].user_id !== req.userId) return res.status(403).json({ ok: false, msg: '只能删除自己的公告' })
     await pool.query("UPDATE notices SET status='deleted' WHERE id=$1", [id])
+    emitBoardChanged('notice-delete')  // 1030 实时化：各端公告列表即时移除
     res.json({ ok: true })
   } catch (err) {
     console.error('Notice delete error:', err)
@@ -6306,6 +6328,7 @@ async function notifyContentOwner(kind, id, message) {
 app.post('/api/admin-internal/works/:id/status', requireAdminInternal, async (req, res) => {
   try {
     const r = await setTakedownStatus('works', parseInt(req.params.id), req.body?.action)
+    if (r.ok) emitWorksChanged(`admin-${req.body?.action || 'status'}`)  // 1030 实时化：后台下架/恢复即时反映
     res.status(r.ok ? 200 : 409).json(r)
   } catch (err) {
     console.error('admin-internal works status error:', err)
@@ -6316,11 +6339,24 @@ app.post('/api/admin-internal/works/:id/status', requireAdminInternal, async (re
 app.post('/api/admin-internal/notices/:id/status', requireAdminInternal, async (req, res) => {
   try {
     const r = await setTakedownStatus('notices', parseInt(req.params.id), req.body?.action)
+    if (r.ok) emitBoardChanged(`admin-${req.body?.action || 'status'}`)  // 1030 实时化：后台下架/恢复即时反映
     res.status(r.ok ? 200 : 409).json(r)
   } catch (err) {
     console.error('admin-internal notices status error:', err)
     res.status(500).json({ ok: false, msg: '服务器错误' })
   }
+})
+
+// 1030 实时化·信号中继端点：admin 直写 DB 的变更（官方动态 site_config 等）无法由 api 感知，
+// admin 写完后来这里「敲一下门」，api 负责广播。纯信号零 DB 查询，与 takedown 同款 requireAdminInternal。
+app.post('/api/admin-internal/broadcast', requireAdminInternal, async (req, res) => {
+  const type = req.body?.type
+  if (type === 'board-changed') emitBoardChanged(req.body?.why || 'admin')
+  else if (type === 'works-changed') emitWorksChanged(req.body?.why || 'admin')
+  else if (type === 'rooms-changed') emitRoomsChanged(req.body?.why || 'admin')
+  else return res.status(400).json({ ok: false, msg: '未知广播类型' })
+  console.log(`[admin-internal] broadcast ${type} by ${req.headers['x-admin-actor'] || '?'}: ${req.body?.why || ''}`)
+  res.json({ ok: true })
 })
 
 // ========== 申诉处理 + 用户处置（1024 七件套⑤⑥ + 四档处置③④按钮） ==========

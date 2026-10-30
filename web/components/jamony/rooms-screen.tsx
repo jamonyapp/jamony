@@ -1,8 +1,8 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { io } from "socket.io-client"
+import { useRealtime } from "@/hooks/useRealtime"
 import { User, Headphones, Lock } from "lucide-react"
 import { SectionHeader } from "./section-header"
 import { RoomDetailModal } from "@/components/room-detail-modal"
@@ -118,41 +118,24 @@ export function RoomsScreen() {
   const [latency, setLatency] = useState(28)
   const [selectedRoom, setSelectedRoom] = useState<string | null>(null)
 
-  useEffect(() => {
-    const load = () => {
-      const start = Date.now()
-      fetch("/api/rooms")
-        .then(r => r.json())
-        .then(data => {
-          setLatency(Date.now() - start)
-          // 09-28 欢哥: 热门房间公开优先、加密靠后（组内保持 API 原序），再取前4
-          if (data.ok) {
-            const sorted = [...data.rooms].sort((a, b) => (a.is_private ? 1 : 0) - (b.is_private ? 1 : 0))
-            setRooms(sorted.slice(0, 4))
-          }
-        })
-        .catch(() => {})
-    }
-    load()
-    const t = setInterval(load, 15000)  // 15秒兜底轮询（实时事件为主，轮询保底）
-    // 1030 大厅实时化：rooms-changed 全局广播 → 300ms 防抖重拉（建房/解散/人数变化秒级反映）；
-    // focus/visibility 即时重拉治后台定时器节流（回来第一眼必新鲜）
-    const socketUrl = `${window.location.protocol}//${window.location.hostname}`
-    const socket = io(socketUrl, { path: "/socket.io" })
-    let debounce: ReturnType<typeof setTimeout> | null = null
-    const bump = () => { if (debounce) clearTimeout(debounce); debounce = setTimeout(load, 300) }
-    socket.on("rooms-changed", bump)
-    const onWake = () => { if (document.visibilityState === "visible") load() }
-    window.addEventListener("focus", onWake)
-    document.addEventListener("visibilitychange", onWake)
-    return () => {
-      clearInterval(t)
-      socket.disconnect()
-      window.removeEventListener("focus", onWake)
-      document.removeEventListener("visibilitychange", onWake)
-      if (debounce) clearTimeout(debounce)
-    }
-  }, [])
+  const load = () => {
+    const start = Date.now()
+    fetch("/api/rooms")
+      .then(r => r.json())
+      .then(data => {
+        setLatency(Date.now() - start)
+        // 09-28 欢哥: 热门房间公开优先、加密靠后（组内保持 API 原序），再取前4
+        if (data.ok) {
+          const sorted = [...data.rooms].sort((a, b) => (a.is_private ? 1 : 0) - (b.is_private ? 1 : 0))
+          setRooms(sorted.slice(0, 4))
+        }
+      })
+      .catch(() => {})
+  }
+
+  // 1030 大厅实时化（原内联块抽为 useRealtime，行为不变）：
+  // rooms-changed 广播秒级重拉；15s 兜底轮询；focus/visible 即时重拉治后台节流
+  useRealtime("rooms-changed", load, { pollMs: 15000 })
 
   return (
     <section>

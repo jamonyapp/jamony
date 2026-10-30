@@ -3,6 +3,7 @@
 import { Disc3, Home, MessageSquare, Music, Plus, Radio, ScrollText, X } from "lucide-react"
 import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
+import { useRealtime } from "@/hooks/useRealtime"
 import { CreateRoomModal } from "@/components/create-room-modal"
 import { PublishNoticeModal } from "@/components/jamony/publish-notice-modal"
 import type { Notice } from "@/lib/jamony-data"
@@ -22,16 +23,19 @@ export function LeftSidebar() {
   const [createRoomOpen, setCreateRoomOpen] = useState(false)
   const [publishOpen, setPublishOpen] = useState(false)
   const { loggedIn, setShowLoginModal } = useAuth()
-  // 官方动态 — 后台配置中心可改（site_config）；初始=旧文案兜底，挂载拉取一次（下次进入后更新，不轮询——欢哥 10-22 拍板）
+  // 官方动态 — 后台配置中心可改（site_config）；初始=旧文案兜底，失败保旧文案。
+  // 1030 实时化：后台发布 → admin 中继 api 广播 board-changed → 这里秒级刷新；
+  // 仍不轮询（10-22 拍板不变），事件化后「下次进入后更新」升级为「当场更新」
   const [officialUpdate, setOfficialUpdate] = useState({ content: "我们可能不够好，但我们一直在努力。", signature: "——jamony" })
-  useEffect(() => {
+  const fetchOfficial = () => {
     fetch("/api/official-update")
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (d?.ok && d.content) setOfficialUpdate({ content: d.content, signature: d.signature || "——jamony" })
       })
       .catch(() => {}) // 失败保旧文案
-  }, [])
+  }
+  useRealtime("board-changed", fetchOfficial)
 
   const requireAuth = (fn: () => void) => {
     if (!loggedIn) { setShowLoginModal(true); return }
