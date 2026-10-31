@@ -95,6 +95,8 @@ export function useMixerEngine() {
   const sourceNodesRef = useRef<Map<string, AudioBufferSourceNode>>(new Map())
   const masterGainRef = useRef<GainNode | null>(null)
   const masterAnalyserRef = useRef<AnalyserNode | null>(null)
+  const limiterRef = useRef<DynamicsCompressorNode | null>(null) // 1031 验收探针：reduction 实读
+  const limiterLogTsRef = useRef(0)
 
   // 播放位置追踪
   const startTimeRef = useRef(0)
@@ -176,6 +178,13 @@ export function useMixerEngine() {
         masterClipRef.current = true
         setMasterClip(true)
       }
+    }
+    // 1031 限幅器验收探针（欢哥「感觉不到存在」→ 要实读证据）：reduction=节点自报衰减 dB，
+    // 介入时每秒一行（console.log=devtools 默认可见；1026 autoMix 孤儿压缩机前科故设此针）
+    const red = limiterRef.current ? limiterRef.current.reduction : 0
+    if (red <= -0.5 && performance.now() - limiterLogTsRef.current > 1000) {
+      limiterLogTsRef.current = performance.now()
+      console.log(`[limiter] 实时限幅介入 ${red.toFixed(1)}dB（安全带工作中）`)
     }
     }  // end 电平采样 30fps
 
@@ -277,6 +286,7 @@ export function useMixerEngine() {
     limiter.connect(ctx.destination)
     masterGainRef.current = masterGain
     masterAnalyserRef.current = masterAnalyser
+    limiterRef.current = limiter
 
     const newBuffers = new Map<string, AudioBuffer>()
     const newGains = new Map<string, GainNode>()

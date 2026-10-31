@@ -146,6 +146,20 @@ export async function renderMix(input: RenderMixInput): Promise<RenderMixResult>
 
   onProgress?.("渲染混音中…")
   const rendered = await offlineCtx.startRendering()
+  // 1031 限幅器验收探针：成品峰值应被钳在阈值附近（-1dB/20:1 → 重限幅时约 -0.4~-0.65dB）；
+  // ≥0dB=限幅器失效（1026 autoMix 孤儿压缩机前科故设此针）。97 步进采样=近似快扫。
+  {
+    let pk = 0
+    for (let ch = 0; ch < rendered.numberOfChannels; ch++) {
+      const d = rendered.getChannelData(ch)
+      for (let i = 0; i < d.length; i += 97) {
+        const a = Math.abs(d[i])
+        if (a > pk) pk = a
+      }
+    }
+    const pkDb = pk > 0 ? `${(20 * Math.log10(pk)).toFixed(1)}dB` : "-∞"
+    console.log(`[renderMix] 成品峰值 ${pkDb}（限幅工作中应落在 -1 ~ -0.4 区间；≥0=限幅器失效）`)
+  }
   onProgress?.("编码 MP3…（工作线程）")
   const mp3Blob = await encodeMp3InWorker(rendered)
   return { mp3Blob, duration: rendered.duration }
