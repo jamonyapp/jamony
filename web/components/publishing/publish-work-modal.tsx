@@ -453,8 +453,6 @@ export default function PublishWorkModal({
     }
   }, [open, forcePublishFail])
 
-  if (!open) return null
-
   /* 播放/暂停 */
   const togglePlay = () => {
     const audio = audioRef.current
@@ -713,6 +711,11 @@ export default function PublishWorkModal({
     document.addEventListener('mouseup', handleUp)
     return () => document.removeEventListener('mouseup', handleUp)
   }, [])
+
+  /* 1031 黑屏根治（React #310，黑匣子定位）：early return 必须在全部 hook 之后——
+     原先卡在组件中段（togglePlay 前），open false→true 翻转时 hook 数量突变
+     → React 抛错卸载整树 → 黑屏。组件保持常驻（关着也挂载）= keepFieldsOnReopen 字段保留语义不变。 */
+  if (!open) return null
 
   return (
     <div
