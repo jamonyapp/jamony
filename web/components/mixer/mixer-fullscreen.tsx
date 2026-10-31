@@ -208,13 +208,13 @@ export function MixerFullscreen({
               {icon ? <span className="text-lg">{icon}</span> : null}
               {sessionLabel}{titleLabel ? ` · ${titleLabel}` : ""}
             </h2>
-            {/* 复位所有调参值（1031 二轮欢哥：从走带尾端迁至标题栏，带文案） */}
+            {/* 复位所有调参值（1031 三轮欢哥：黄绿实底+描边+加粗，做明显） */}
             {onResetAll && (
               <button
                 type="button"
                 onClick={onResetAll}
-                className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors hover:bg-white/10"
-                style={{ color: MIXER_COLORS.textMuted }}
+                className="flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-semibold transition-transform hover:scale-105"
+                style={{ background: MIXER_COLORS.green, borderColor: "rgba(255,255,255,0.35)", color: "#121212" }}
                 aria-label="复位所有调参值"
                 title="复位所有调参值（音量/声像/总线/M/S/定位器/循环）"
               >
