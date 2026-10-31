@@ -189,6 +189,7 @@ export function useMixerEngine() {
       }
       isPlayingRef.current = false
       setIsPlaying(false)
+      stopAllSources()  // ⚠️ 音源必须杀：只停 UI 不停声=幽灵发声（1031 欢哥实测选区一shot到B）
       // 归位哲学（欢哥：「指针停在终点没意义」）：一shot播完回域起点——选区趟回 A，整曲趟回 0
       const home = rangeOn ? lc.a : 0
       startOffsetRef.current = home
