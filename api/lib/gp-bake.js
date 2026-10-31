@@ -86,8 +86,46 @@ function gpToMidi(gpPath, midPath, mix, startMs, speedArg, countIn, endMs, seekM
   // 选段掐尾（1012 ⑥-2c）：B 点截文件（tick 域倍速无关，与 startMs 同在原速积分、speed 烤写之前）
   // ⚠️gpMsToTick 在已平移的时间轴上查（shift 后 0=原 A 点），故查 (endMs - 实效startMs)——首版写绝对 endMs 多留一个 A（干跑45000≠15000定罪）
   const gpStartBase = Number.isFinite(startMs) && startMs > 0 ? startMs : 0
+  let musicalEndMs = null
   if (Number.isFinite(endMs) && endMs > gpStartBase) {
-    gpTruncateMidi(midiFile, Math.round(gpMsToTick(midiFile, endMs - gpStartBase)))
+    // ⭐ 1031 C 方案（欢哥·吉他手语义，GP/alphaTab 标准选段语义）：选区真正终点=选区内
+    // 最后一个「起始音符」的时值终点——尾巴音符唱完自己的时值才收（循环则每圈多等这口尾巴）。
+    // 三步：①丢弃起点>B 的音符（选区外不响）；②音乐性终点=剩余音符最晚 note-off；
+    // ③文件掐到该点（gpTruncateMidi 对悬挂音补 note-off 兜底——正常情况最后一音自然收）。
+    const bTick = Math.round(gpMsToTick(midiFile, endMs - gpStartBase))
+    const ET = alphatab.midi.MidiEventType
+    let musicalTick = bTick
+    for (const tr of midiFile.tracks) {
+      // 配对扫描（gpTruncateMidi 同款 key 惯用法）：孤儿 off 会污染终点扫描，必须成对处理
+      const kept = []
+      const openOns = new Map()  // key → FIFO（≤bTick 的在响音起始队列）
+      for (const ev of tr.events) {
+        // ⚠️纯 ev.type 判定（1031 实测定罪：生成器产出的 NoteOnEvent.velocity=undefined，
+        // 任何 velocity 判式都会把全部音符误灭=烤出哑巴文件；gpTruncateMidi 同款惯用法）
+        if (ev.type === ET.NoteOn) {
+          if (ev.tick > bTick) continue  // ①选区外不响：起点>B 丢弃（其 off 配对失败自然成孤儿=同丢）
+          const k = `${ev.track}|${ev.channel}|${ev.noteKey}`
+          if (!openOns.has(k)) openOns.set(k, [])
+          openOns.get(k).push(ev.tick)
+          kept.push(ev)
+          continue
+        }
+        if (ev.type === ET.NoteOff) {
+          const k = `${ev.track}|${ev.channel}|${ev.noteKey}`
+          const q = openOns.get(k)
+          if (q && q.length > 0) {
+            q.shift()  // 配对成功=在响音的自然关闸 → ②尾巴候选
+            if (ev.tick > musicalTick) musicalTick = ev.tick
+            kept.push(ev)
+          }
+          continue  // 孤儿 off=被丢音符的关闸 → 丢弃
+        }
+        kept.push(ev)  // 非音符事件（tempo/CC/bend）原样留；>musicalTick 的交给掐尾
+      }
+      tr.events = kept
+    }
+    gpTruncateMidi(midiFile, musicalTick)
+    musicalEndMs = gpStartBase + Math.ceil(gpTickToMs(midiFile, musicalTick))
   }
   // 首遍跳入点（1013 全曲循环）：原速域 seekMs→tick（原 tempo 域积分，与 startMs 同理；tick 域倍速无关）
   const musicSeekTick = (Number.isFinite(seekMs) && seekMs > 0 && !(Number.isFinite(startMs) && startMs > 0))
@@ -147,6 +185,8 @@ function gpToMidi(gpPath, midPath, mix, startMs, speedArg, countIn, endMs, seekM
     countInMs,
     totalMs,
     endTick: maxTick,  // 1012 ⑥-2c：烤制周期（引擎回显 end 的校验基准）
+    // 1031 C 方案：选段音乐性终点（原速域 ms；null=无选段）。>B 的部分=最后音符的尾巴时值
+    musicalEndMs,
     seekTick, seekTickMs,
   }
 }
