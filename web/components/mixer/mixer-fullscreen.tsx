@@ -256,7 +256,8 @@ export function MixerFullscreen({
                 disabled={publishButton.disabled || publishButton.busy}
                 className="shrink-0 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed"
                 style={{
-                  background: publishButton.disabled ? "#333333" : publishButton.tone === "green" ? MIXER_COLORS.green : MIXER_COLORS.blue,
+                  // 1031 六轮欢哥：填充恒品牌蓝，与卡片「去发表」同色（弃 green 分支）
+                  background: publishButton.disabled ? "#333333" : MIXER_COLORS.blue,
                   color: publishButton.disabled ? "#888888" : "#121212",
                   opacity: publishButton.disabled ? 0.6 : 1,
                 }}
