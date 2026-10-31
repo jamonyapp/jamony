@@ -232,7 +232,7 @@ export function CenterColumn({
   onMixerClose?: () => void
   score?: RoomScore | null
   onClearScore?: () => void
-  gpState?: { playing: boolean; startedAt?: string; speed?: number; countInMs?: number; endMs?: number } | null
+  gpState?: { playing: boolean; startedAt?: string; speed?: number; countInMs?: number; endMs?: number; loop?: boolean } | null
   onGpPlay?: (startMs?: number) => void
   onGpPause?: () => void
   onGpMix?: (mix: GpMix) => void
@@ -322,13 +322,13 @@ export function CenterColumn({
 // 谱面调度器（1013 拆）：自身零 hooks——GP 工作站与图片/PDF 舞台是两个组件，类型热切换=换挂，
 // 谁也不会继承对方的 hooks（旧版在 ScoreViewer hooks 中间提前 return <GpWorkstation/>，
 // 图片谱切 GP 谱时同实例 hooks 数变化 = React #300 整页白屏，欢哥热切换投屏实测定罪）
-function ScoreViewer(props: { score: RoomScore; canClear?: boolean; onClear?: () => void; gpState?: { playing: boolean; startedAt?: string; startMs?: number; speed?: number; countInMs?: number; endMs?: number } | null; onGpPlay?: (startMs?: number) => void; onGpPause?: () => void; onGpMix?: (mix: GpMix) => void; onGpSpeed?: (speed: number) => void; onGpCountin?: (countin: boolean) => void; onGpLoop?: (loop: boolean) => void; onGpRange?: (range: { a: number; b: number } | null) => void }) {
+function ScoreViewer(props: { score: RoomScore; canClear?: boolean; onClear?: () => void; gpState?: { playing: boolean; startedAt?: string; startMs?: number; speed?: number; countInMs?: number; endMs?: number; loop?: boolean } | null; onGpPlay?: (startMs?: number) => void; onGpPause?: () => void; onGpMix?: (mix: GpMix) => void; onGpSpeed?: (speed: number) => void; onGpCountin?: (countin: boolean) => void; onGpLoop?: (loop: boolean) => void; onGpRange?: (range: { a: number; b: number } | null) => void }) {
   const { score } = props
   if (score.type === "gp") return <GpWorkstation score={score} canClear={props.canClear} onClear={props.onClear} gpState={props.gpState} onPlay={props.onGpPlay} onPause={props.onGpPause} onMix={props.onGpMix} onSpeed={props.onGpSpeed} onCountin={props.onGpCountin} onLoop={props.onGpLoop} onRange={props.onGpRange} canMix={props.canClear} />
   return <ImagesStage {...props} />
 }
 
-function ImagesStage({ score, canClear, onClear, gpState, onGpPlay, onGpPause, onGpMix, onGpSpeed, onGpCountin, onGpLoop, onGpRange }: { score: RoomScore; canClear?: boolean; onClear?: () => void; gpState?: { playing: boolean; startedAt?: string; startMs?: number; speed?: number; countInMs?: number; endMs?: number } | null; onGpPlay?: (startMs?: number) => void; onGpPause?: () => void; onGpMix?: (mix: GpMix) => void; onGpSpeed?: (speed: number) => void; onGpCountin?: (countin: boolean) => void; onGpLoop?: (loop: boolean) => void; onGpRange?: (range: { a: number; b: number } | null) => void }) {
+function ImagesStage({ score, canClear, onClear, gpState, onGpPlay, onGpPause, onGpMix, onGpSpeed, onGpCountin, onGpLoop, onGpRange }: { score: RoomScore; canClear?: boolean; onClear?: () => void; gpState?: { playing: boolean; startedAt?: string; startMs?: number; speed?: number; countInMs?: number; endMs?: number; loop?: boolean } | null; onGpPlay?: (startMs?: number) => void; onGpPause?: () => void; onGpMix?: (mix: GpMix) => void; onGpSpeed?: (speed: number) => void; onGpCountin?: (countin: boolean) => void; onGpLoop?: (loop: boolean) => void; onGpRange?: (range: { a: number; b: number } | null) => void }) {
   const [page, setPage] = useState(0)
   const [zoom, setZoom] = useState(1)
   const [pdfPages, setPdfPages] = useState(0)  // PDF 加载后才知道总页数（pdf.js 画布渲染，不依赖 Electron PDF 插件）
@@ -1689,7 +1689,7 @@ type GpApi = {
 
 function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onMix, onSpeed, onCountin, onLoop, onRange, canMix }: {
   score: RoomScore; canClear?: boolean; onClear?: () => void
-  gpState?: { playing: boolean; startedAt?: string; startMs?: number; speed?: number; countInMs?: number; endMs?: number } | null
+  gpState?: { playing: boolean; startedAt?: string; startMs?: number; speed?: number; countInMs?: number; endMs?: number; loop?: boolean } | null
   onPlay?: (startMs?: number) => void; onPause?: () => void
   onMix?: (mix: GpMix) => void; onSpeed?: (speed: number) => void; onCountin?: (countin: boolean) => void; onLoop?: (loop: boolean) => void; onRange?: (range: { a: number; b: number } | null) => void; canMix?: boolean
 }) {
@@ -2180,7 +2180,16 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
       // 倍速域（根治版）：本地烤速推进=墙钟1:1，target=base+墙钟elapsed-lag（无×speed）
       // 预备拍：countInMs 期间钳在 base；选段：上限钳 endMs（服务器掐尾重启间隙指针不越界）
       const cap = gpState.endMs !== undefined ? gpState.endMs / spd : Infinity
-      const target = Math.min(cap, Math.max(base, base + Date.now() - startedAtMs - audioLagRef.current - countInMs))
+      const rawT = base + Date.now() - startedAtMs - audioLagRef.current - countInMs
+      // 1031 C 方案配套·到点本地预停：服务端 playing=false 广播含 500ms 宽限+退出链+RTT，
+      // 窗口期 alphaTab 静默时钟自走=声音停了指针还在走的元凶（走多远随拍速=「不规律」的真相）。
+      // 循环态不本地停——由服务端每遍重锚广播接管（gpState.loop）。
+      if (!gpState.loop && gpState.endMs !== undefined && rawT >= cap) {
+        try { api.timePosition = Math.max(0, cap) } catch (e) { /* 忽略 */ }
+        api.pause?.()
+        return
+      }
+      const target = Math.min(cap, Math.max(base, rawT))
       const diff = (api.timePosition ?? 0) - target
       console.log("[gp指针] 对表 tick 本地=", Math.round(api.timePosition ?? 0), "目标=", Math.round(target), "差=", Math.round(diff), "speed=", spd)
       if (Math.abs(diff) > 150) {
@@ -2189,7 +2198,7 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
       }
     }, 2000)
     return () => clearInterval(id)
-  }, [gpState?.playing, gpState?.startedAt, gpState?.startMs, playerReady])
+  }, [gpState?.playing, gpState?.startedAt, gpState?.startMs, gpState?.loop, gpState?.endMs, playerReady])
 
   // 换档重烤（10-10 根治版）：暂停态换档（播放中UI已锁）→ tempo 重烤需要 player 重建 MIDI →
   // 重载原文（scoreLoaded 里按 speedRef 新值烤+积分）。位置域换算：同一谱面点 烤速ms_new = ms_old×old÷new

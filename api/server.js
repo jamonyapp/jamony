@@ -5199,7 +5199,7 @@ async function gpLoopRestart(roomCode, prev) {
   const playTotalMs = score.range ? Math.round((effEndMs - score.range.a) / spd) + Math.round(gpGen.countInMs || 0) : gpGen.totalMs
   startGpPlayback(roomCode, row.server_port, midPath, playTotalMs, {
     loop: !!score.loop,
-    stateTemplate: { startMs, speed: spd, countInMs: Math.round(gpGen.countInMs || 0), endMs: effEndMs },
+    stateTemplate: { startMs, speed: spd, countInMs: Math.round(gpGen.countInMs || 0), endMs: effEndMs, loop: !!score.loop },
     expectedEndTick: gpGen.endTick,
   })
   const engine = gpEngines.get(roomCode)
@@ -5208,7 +5208,7 @@ async function gpLoopRestart(roomCode, prev) {
   if (!wired) { console.error(`GP loop restart ${roomCode}: not wired`); return }
   const e2 = gpEngines.get(roomCode)
   const t0 = e2 && e2.playAt ? e2.playAt : Date.now()
-  const gpState = { playing: true, startedAt: new Date(t0).toISOString(), startMs, speed: spd, countInMs: Math.round(gpGen.countInMs || 0), endMs: effEndMs }
+  const gpState = { playing: true, startedAt: new Date(t0).toISOString(), startMs, speed: spd, countInMs: Math.round(gpGen.countInMs || 0), endMs: effEndMs, loop: !!score.loop }
   try { await pool.query('UPDATE rooms SET gp_state = $1 WHERE room_code = $2', [JSON.stringify(gpState), roomCode]) } catch (e) {}
   io.to(roomCode).emit('gp-state', gpState)
   console.log(`GP loop restart ${roomCode} ${score.range ? `选段${score.range.a}-${score.range.b}ms` : "完整重播"} (countIn=${Math.round(gpGen.countInMs || 0)}ms speed=${spd})`)
@@ -5725,7 +5725,7 @@ io.on("connection", (socket) => {
     // 1013 全曲循环：周期模板 startMs=0（每遍回曲目头），首播单独广播 startMs=指针+startedAt=开声时刻
     startGpPlayback(roomId, row.server_port, midPath, playTotalMs, {
       loop: !!score.loop,
-      stateTemplate: { startMs: Math.round(startMs), speed: spd, countInMs: Math.round(gpGen.countInMs || 0), endMs: effEndMs },
+      stateTemplate: { startMs: Math.round(startMs), speed: spd, countInMs: Math.round(gpGen.countInMs || 0), endMs: effEndMs, loop: !!score.loop },
       expectedEndTick: gpGen.endTick,
       seekTick: gpGen.seekTick, seekTickMs: gpGen.seekTickMs,
     })
@@ -5752,7 +5752,7 @@ io.on("connection", (socket) => {
     const firstStartedAt = new Date(gpSeekMs != null && engine ? t0 + (engine.seekTickMs || 0) : t0).toISOString()
     // speed 随广播下发：客户端对表 target=base+墙钟elapsed×speed（谱面域换算）+本地playbackSpeed同设
     // countInMs（⑥-1 预备拍）：本地公式=内容x到耳墙钟 startedAt+countInMs+(x−base)+lag；count-in 期间指针钳在起点
-    const gpState = { playing: true, startedAt: firstStartedAt, startMs: firstStartMs, speed: spd, countInMs: Math.round(gpGen.countInMs || 0), endMs: effEndMs }
+    const gpState = { playing: true, startedAt: firstStartedAt, startMs: firstStartMs, speed: spd, countInMs: Math.round(gpGen.countInMs || 0), endMs: effEndMs, loop: !!score.loop }
     try { await pool.query('UPDATE rooms SET gp_state = $1 WHERE room_code = $2', [JSON.stringify(gpState), roomId]) } catch (e) {}
     io.to(roomId).emit("gp-state", gpState)
     console.log(`GP play ${roomId} port ${row.server_port} from ${firstStartMs}ms${gpSeekMs != null ? ' 全曲循环首遍跳入' : ''}`)
