@@ -923,9 +923,13 @@ function RecordingPanel({
     if (!mineLock) { await openPublishMixer(publishSession); return } // 锁已懒释放 → 重新抢
     const buffers = mixerEngine.getBuffers()
     const lc = mixerEngine.locator
-    // 1031 三轮（欢哥 DAW 语义定稿）：发表只读 AB 坐标，不看开关——AB 重合=全曲(null)，
-    // AB 分开=按区间（无论黄白）。黄白开关从此只管播放约束（到B停/循环），与发表无关。
-    const range = lc.b > lc.a ? { a: lc.a, b: lc.b } : null
+    // 1031 四轮（欢哥 DAW 语义终版）：AB 之间必须有值——重合（初始态或任意位置）不允许发表，
+    // 全曲=显式区间（A 在开端、B 在尾端）。与 DAW 导出语义完全对齐：无区间=无导出。
+    if (!(lc.b > lc.a)) {
+      dialog.alert(`当前发布作品范围为空，请拖拽定位点确认发布范围。`)
+      return
+    }
+    const range = { a: lc.a, b: lc.b }
     // 1031 排障口供机（console.debug 在 devtools 默认级别不可见=证据黑洞，改 log+黑匣子）：
     // range 状态+每轨入检/跳过原因全量留痕，一次复现=完整口供
     const jlog = (m: string) => {
@@ -1182,7 +1186,7 @@ function RecordingPanel({
             sessionLabel={`段落 ${mixerSession?.index}`}
             titleLabel={isPublish ? "发表混音" : "试听混音"}
             footerHint={isPublish
-              ? "作品区间取决于定位器 AB 位置：AB 重合=全部分轨音频整体发表，AB 分开=按区间发表。"
+              ? "作品范围=定位器 AB 区间：AB 重合不可发表；发表整体请将 A 拖至开端、B 拖至尾端。"
               : "试听回放：调整仅本地生效，这可以辅助你决定是否授权使用自己的分轨或是否署名。"}
             tracks={mixerEngine.tracks}
             isOpen={true}
