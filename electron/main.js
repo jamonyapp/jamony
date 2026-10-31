@@ -95,79 +95,71 @@ function showUpdateDialog(data) {
     console.log('[jamony] 版本端点无本平台下载地址')
     return
   }
+  // ⚠️ contextIsolation 必须 false——更新弹窗是自生成 data: URL，按钮要 require('electron')
+  // 发 IPC（contextIsolation: true 下 require 不可用=按钮点不动，1031 欢哥实测定罪）
   updateWindow = new BrowserWindow({
-    width: 420, height: 480, resizable: false, minimizable: false, maximizable: false,
+    width: 400, height: 340, resizable: false, minimizable: false, maximizable: false,
     title: 'jamony 更新', backgroundColor: '#000000', show: false,
     parent: mainWindow, modal: true,
-    webPreferences: { contextIsolation: true, nodeIntegration: false },
+    webPreferences: { contextIsolation: false, nodeIntegration: true },
   })
-  // 更新日志 HTML（品牌弹窗同款观感：纯黑底+品牌色）
-  const changelogHtml = (data.changelog || []).map(c =>
-    `<div style="margin-top:10px"><span style="color:#BBEE00;font-size:12px;font-weight:600">${c.component}</span>${(c.items || []).map(i => `<div style="color:#C8C8C8;font-size:12px;line-height:1.6;padding-left:12px">· ${i}</div>`).join('')}</div>`
-  ).join('')
-  const sizeMb = dl.size ? `（约 ${Math.round(dl.size / 1024 / 1024)}MB）` : ''
+  // 更新日志（1031 欢哥定稿：用户视角不割裂 jamsoul/jamony——一律 jamony；编号列表制）
+  const items = []
+  for (const c of (data.changelog || [])) items.push(...(c.items || []))
+  const changelogHtml = items.length > 0
+    ? `<div style="color:#888;font-size:11px;margin-bottom:6px">更新内容：</div>` + items.map((i, n) => `<div style="color:#C8C8C8;font-size:12px;line-height:1.7">${n + 1}. ${i}</div>`).join('')
+    : '<span style="color:#666;font-size:12px">优化与修复</span>'
+  const sizeMb = dl.size > 1024 * 1024 ? `（约 ${Math.round(dl.size / 1024 / 1024)}MB）` : ''
   updateWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
-    <html><head><style>
+    <html><head><meta charset="utf-8"><style>
       * { margin:0; padding:0; box-sizing:border-box; }
-      body { background:#000; color:#fff; font-family:-apple-system,'Segoe UI','Noto Sans SC',sans-serif; padding:24px; user-select:none; }
-      h2 { font-size:16px; margin-bottom:6px; }
+      body { background:#000; color:#fff; font-family:-apple-system,'Segoe UI','Noto Sans SC',sans-serif; padding:20px; user-select:none; display:flex; flex-direction:column; height:100vh; }
+      h2 { font-size:15px; margin-bottom:4px; flex-shrink:0; }
       .ver { color:#9933FF; font-weight:700; }
-      .sub { color:#888; font-size:12px; margin-bottom:16px; }
-      .changelog { background:#0d0d0d; border:1px solid #1a1a1a; border-radius:8px; padding:14px; max-height:240px; overflow-y:auto; }
-      .btns { display:flex; gap:8px; margin-top:18px; }
-      .btn { flex:1; padding:10px 0; border:none; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; }
+      .sub { color:#888; font-size:11px; margin-bottom:14px; flex-shrink:0; }
+      .changelog { flex:1; overflow-y:auto; background:#0d0d0d; border:1px solid #1a1a1a; border-radius:8px; padding:12px; min-height:0; }
+      .btns { display:flex; gap:8px; margin-top:14px; flex-shrink:0; }
+      .btn { flex:1; padding:9px 0; border:none; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; }
       .btn-update { background:linear-gradient(135deg,#00AAFF,#9933FF); color:#fff; }
       .btn-later { background:#1a1a1a; color:#888; border:1px solid #2a2a2a; }
-      .dl-progress { display:none; margin-top:14px; }
+      .dl-progress { display:none; margin-top:12px; flex-shrink:0; }
       .dl-bar { height:4px; background:#1a1a1a; border-radius:2px; overflow:hidden; }
       .dl-fill { height:100%; background:linear-gradient(90deg,#00AAFF,#9933FF); width:0%; transition:width .3s; }
-      .dl-text { color:#888; font-size:11px; margin-top:6px; text-align:center; }
+      .dl-text { color:#888; font-size:11px; margin-top:5px; text-align:center; }
     </style></head><body>
       <h2>jamony <span class="ver">${data.version}</span> 可用</h2>
       <div class="sub">当前版本 ${app.getVersion()}${sizeMb}</div>
-      <div class="changelog">${changelogHtml || '<span style="color:#666;font-size:12px">优化与修复</span>'}</div>
+      <div class="changelog">${changelogHtml}</div>
       <div class="btns">
-        <button class="btn btn-later" onclick="later()">稍后</button>
-        <button class="btn btn-update" id="btnGo" onclick="go()">立即更新</button>
+        <button class="btn btn-later" onclick="require('electron').ipcRenderer.send('update-later')">稍后</button>
+        <button class="btn btn-update" id="btnGo" onclick="require('electron').ipcRenderer.send('update-go')">立即更新</button>
       </div>
       <div class="dl-progress" id="dlProg">
         <div class="dl-bar"><div class="dl-fill" id="dlFill"></div></div>
         <div class="dl-text" id="dlText">准备下载…</div>
       </div>
-      <script>
-        const { ipcRenderer } = require('electron')
-        function later() { ipcRenderer.send('update-later') }
-        function go() { ipcRenderer.send('update-go') }
-      </script>
     </body></html>
   `)}`)
   updateWindow.once('closed', () => { updateWindow = null })
-  // IPC：稍后 / 立即更新 / 下载进度
-  const { ipcMain } = require('electron')
-  // 防重复注册（每窗口一次性）
-  const handlers = ipcMain.listeners('update-later')
-  if (handlers.length === 0) {
+  // IPC：稍后 / 立即更新（一次性注册·防重复）
+  if (ipcMain.listeners('update-later').length === 0) {
     ipcMain.on('update-later', () => { updateDeferred = true; if (updateWindow) updateWindow.close() })
     ipcMain.on('update-go', async () => {
       try {
-        // 禁用按钮+显示进度
-        updateWindow.webContents.executeJavaScript(`document.getElementById('btnGo').disabled=true;document.getElementById('dlProg').style.display='block'`)
+        if (updateWindow) updateWindow.webContents.executeJavaScript("document.getElementById('btnGo').disabled=true;document.getElementById('dlProg').style.display='block'")
         const isMac = process.platform === 'darwin'
         const dlUrl = isMac ? data.downloads.mac.url : data.downloads.win.url
         const ext = isMac ? 'dmg' : 'exe'
         const dlPath = path.join(app.getPath('downloads'), `jamony-${data.version}.${ext}`)
-        // 下载（net.fetch 流式写文件——大文件不占内存；进度回报）
+        console.log('[jamony] 更新下载:', dlUrl.slice(0, 80), '→', dlPath)
         const resp = await net.fetch(dlUrl)
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
-        const total = parseInt(resp.headers.get('content-length') || '0')
         const buf = await resp.arrayBuffer()
-        require('fs').writeFileSync(dlPath, Buffer.from(buf))
+        fs.writeFileSync(dlPath, Buffer.from(buf))
         if (updateWindow) {
-          updateWindow.webContents.executeJavaScript(`document.getElementById('dlFill').style.width='100%';document.getElementById('dlText').textContent='下载完成，正在${isMac ? '打开安装包' : '运行安装器'}…'`)
+          updateWindow.webContents.executeJavaScript(`document.getElementById('dlFill').style.width='100%';document.getElementById('dlText').textContent='下载完成，正在打开安装包…'`)
         }
-        // Mac=打开 dmg 让用户拖装（半自动·欢哥裁定）；Win=直接运行安装器（NSIS 静默覆盖装）
-        if (isMac) shell.openPath(dlPath)
-        else shell.openPath(dlPath)  // Win: NSIS 安装器自行接管
+        shell.openPath(dlPath)
         setTimeout(() => { if (updateWindow) updateWindow.close() }, 1500)
       } catch (e) {
         console.error('[jamony] 更新下载失败:', e.message)
