@@ -521,8 +521,8 @@ export function MixerFullscreen({
 
             {/* 发表倒计时已迁标题栏（1031 三轮欢哥） */}
 
-            {/* 1031 五轮欢哥：发表态提示白字（publishButton 仅发表混音器传）；试听维持灰 */}
-            <p className="ml-auto text-xs" style={{ color: publishButton ? MIXER_COLORS.text : MIXER_COLORS.textMuted }}>
+            {/* 提示文案统一灰（1031 七轮后欢哥回调：白色弃用） */}
+            <p className="ml-auto text-xs" style={{ color: MIXER_COLORS.textMuted }}>
               {footerHint}
             </p>
 
