@@ -2159,7 +2159,16 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
         const atPos = api.timePosition ?? 0
         // 自然播完归位（1012 range版）：有选区→回选区开头（demo 同款）；无选区→回全曲头
         const rangeHome = scoreRangeRef.current ? Math.round(scoreRangeRef.current.a * (speedRef.current || 1)) : 0
-        const home = totalMs > 0 && atPos >= totalMs - 500 ? rangeHome : Math.max(0, Math.round(atPos))
+        let home = totalMs > 0 && atPos >= totalMs - 500 ? rangeHome : Math.max(0, Math.round(atPos))
+        // 1031 指针归界兜底（欢哥「B 在小节线时好时坏」）：最终落位一律钳进选区——
+        // 无论此前哪条路径（精确定时器/对表/alphaTab 自走/广播收尾）把指针带到哪，最后一下必归 B 内
+        if (scoreRangeRef.current) {
+          const bCap = Math.round(scoreRangeRef.current.b / (speedRef.current || 1))
+          if (home > bCap) {
+            home = bCap
+            try { api.timePosition = home } catch (e) { /* 静默 */ }
+          }
+        }
         setScrubMs(home)
         try { if (totalMs > 0 && atPos >= totalMs - 500) api.timePosition = home } catch (e) { /* 静默 */ }
         setPosMs(0)
