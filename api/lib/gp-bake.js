@@ -150,16 +150,20 @@ function gpToMidi(gpPath, midPath, mix, startMs, speedArg, countIn, endMs, seekM
   // 预备拍（1011 ⑥-1 欢哥定稿：服务器烤 click 进流，全员一起听哒哒哒→音乐进，零本地协调）：
   // 全事件右移 N 拍 + channel9 side stick 每拍一击置头；tick0 补烤后 tempo（平移后首个 tempo 在 N 拍处，
   // click 时长依赖它否则 fluidsynth 按默认120走）。N=第一拍号分子（默认4）；countInMs=烤速域时长随 gp-state 下发
+  // ⭐ 1031 丢首音根治（欢哥 sexy-V8 定罪）：鼓轨第一击位于 tick 0 → player_start 重启落点吞音
+  //   （1012 seek 落点判例的 tick-0 特例；吉他谱首音在 479tick 幸存=鼓必丢吉他不丢的统一解释；
+  //   countIn 因整体 +4 拍而免疫）。修法=无 countIn 也无条件垫 1 拍静默头，任何音符不再位于 tick 0。
+  //   垫拍时长走 countInMs 同一套数学（指针钳制/边界链/播放时长全自动兼容）。
   let countInMs = 0
   let countInShift = 0
-  if (countIn) {
+  {
     const division = midiFile.division
     let numerator = 4, denIdx = 2
     outer: for (const tr of midiFile.tracks) for (const ev of tr.events) {
       if (typeof ev.numerator === 'number') { numerator = ev.numerator; denIdx = ev.denominatorIndex ?? 2; break outer }
     }
     const beatTicks = Math.round(division * 4 / Math.pow(2, denIdx))
-    const shift = numerator * beatTicks
+    const shift = countIn ? numerator * beatTicks : beatTicks  // countIn=N拍哒哒；无=1拍静默垫（防 tick0 吞音）
     countInShift = shift
     for (const tr of midiFile.tracks) for (const ev of tr.events) ev.tick += shift
     let bpm = 120, bestTick = Infinity
@@ -169,12 +173,14 @@ function gpToMidi(gpPath, midPath, mix, startMs, speedArg, countIn, endMs, seekM
     const t0 = new alphatab.midi.TempoChangeEvent(0, 0)  // ⚠️事件类在 midi 命名空间（model 下没有——1011实测翻车点）
     t0.beatsPerMinute = bpm
     midiFile.tracks[0].events.push(t0)
-    for (let i = 0; i < numerator; i++) {
-      midiFile.tracks[0].events.push(new alphatab.midi.NoteOnEvent(0, i * beatTicks, 9, 37, i === 0 ? 110 : 88))
-      midiFile.tracks[0].events.push(new alphatab.midi.NoteOffEvent(0, i * beatTicks + Math.round(beatTicks / 2), 9, 37, 0))
+    if (countIn) {
+      for (let i = 0; i < numerator; i++) {
+        midiFile.tracks[0].events.push(new alphatab.midi.NoteOnEvent(0, i * beatTicks, 9, 37, i === 0 ? 110 : 88))
+        midiFile.tracks[0].events.push(new alphatab.midi.NoteOffEvent(0, i * beatTicks + Math.round(beatTicks / 2), 9, 37, 0))
+      }
     }
     midiFile.tracks[0].events.sort((a, b) => a.tick - b.tick)  // 稳定排序保同 tick 携带序，跨 tick 归位（fluidsynth 按 tick 域走）
-    countInMs = numerator * (60000 / bpm)
+    countInMs = (countIn ? numerator : 1) * (60000 / bpm)
   }
   // 全时长（烤速域，含 count-in）——B'方案自然结束定时器用
   let maxTick = 0
