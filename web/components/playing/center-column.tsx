@@ -925,14 +925,21 @@ function RecordingPanel({
     const lc = mixerEngine.locator
     // 1031 开关独立（欢哥定稿）：生效才按区间送闸3预检/落库；未生效=全曲（null 语义与服务端权威终审口径不变）
     const range = mixerEngine.locatorActive && lc.b > lc.a ? { a: lc.a, b: lc.b } : null
+    // 1031 排障口供机（console.debug 在 devtools 默认级别不可见=证据黑洞，改 log+黑匣子）：
+    // range 状态+每轨入检/跳过原因全量留痕，一次复现=完整口供
+    const jlog = (m: string) => {
+      console.log("[gate3]", m)
+      ;(window as unknown as { __jamonyLog?: (x: string) => void }).__jamonyLog?.(m)
+    }
+    jlog(`publish: 预检开始 locatorActive=${mixerEngine.locatorActive} locator=(${lc.a.toFixed(2)},${lc.b.toFixed(2)}) range=${range ? `[${range.a.toFixed(2)},${range.b.toFixed(2)}]` : "null(全曲)"}`)
     // 闸3客户端预检：授权人类轨在区间内须有可感知声音（looper 豁免；服务端另有权威终审）
     const silent: string[] = []
     for (const t of publishSession.tracks) {
-      if (t.is_system || t.allow_use !== true) continue
+      if (t.is_system || t.allow_use !== true) { jlog(`publish: 预检跳过 ${t.nickname}(is_system=${t.is_system} allow_use=${t.allow_use})`); continue }
       const buf = buffers.get(String(t.id))
-      if (!buf) continue
+      if (!buf) { jlog(`publish: 预检跳过 ${t.nickname}(buffer缺失 id=${t.id})`); continue }
       const audible = range ? rangeAudible(buf, range.a, range.b) : true // 无定位器=落版闸1已测全曲
-      console.debug("[gate3-precheck]", t.nickname, `${peakToDbfs(computeRangePeak(buf, range ? range.a : 0, range ? range.b : buf.duration)).toFixed(1)}dB`, audible ? "有声" : "无声")
+      jlog(`publish: 预检 ${t.nickname} 区间[${(range ? range.a : 0).toFixed(2)},${(range ? range.b : buf.duration).toFixed(2)}] 峰值${peakToDbfs(computeRangePeak(buf, range ? range.a : 0, range ? range.b : buf.duration)).toFixed(1)}dB=${audible ? "有声" : "无声"}`)
       if (!audible) silent.push(t.nickname)
     }
     if (silent.length > 0) {
