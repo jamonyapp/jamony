@@ -940,11 +940,12 @@ function RecordingPanel({
       return
     }
     setRendering(true)
+    ;(window as unknown as { __jamonyLog?: (m: string) => void }).__jamonyLog?.("publish: 闸3预检通过, 进入渲染管线")
     try {
       const specs = mixerEngine.tracks
         .map(mt => ({ key: mt.id, buffer: buffers.get(mt.id), gain: mixerEngine.volumes[mt.id] ?? 1, pan: mixerEngine.pans[mt.id] ?? 0 }))
         .filter((s): s is { key: string; buffer: AudioBuffer; gain: number; pan: number } => !!s.buffer)
-      const result = await renderMix({ tracks: specs, master: mixerEngine.masterVolume, range, onProgress: m => { console.debug("[renderMix]", m); setRenderStage(m) } })
+      const result = await renderMix({ tracks: specs, master: mixerEngine.masterVolume, range, onProgress: m => { console.debug("[renderMix]", m); setRenderStage(m); (window as unknown as { __jamonyLog?: (x: string) => void }).__jamonyLog?.(`publish: ${m}`) } })
       const params = buildMixParams({
         tracks: publishSession.tracks.filter(t => t.allow_use === true).map(t => {
           const id = String(t.id)
@@ -961,9 +962,11 @@ function RecordingPanel({
         range: range ? { a: range.a, b: range.b } : { a: 0, b: mixerEngine.duration },
         clientAudit: { silent_tracks: silent, checked_at: new Date().toISOString() },
       })
+      ;(window as unknown as { __jamonyLog?: (m: string) => void }).__jamonyLog?.("publish: 渲染+编码完成, 组装参数并开确认弹窗")
       setInjectedMix({ mp3Blob: result.mp3Blob, durationSec: result.duration, mixParamsJson: JSON.stringify(params) })
       setPublishModalOpen(true)
     } catch (e) {
+      ;(window as unknown as { __jamonyLog?: (m: string) => void }).__jamonyLog?.(`publish: 异常 ${e instanceof Error ? e.message : String(e)}`)
       dialog.alert(`成品渲染失败：${e instanceof Error ? e.message : String(e)}，请重试`)
     } finally { setRendering(false); setRenderStage("") }
   }
