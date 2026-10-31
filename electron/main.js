@@ -217,6 +217,7 @@ function createWindow() {
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       { label: 'jamony', submenu: [
         { role: 'about', label: '关于 jamony' }, { type: 'separator' },
+        { label: '检查更新…', click: () => { updateDeferred = false; checkForUpdate(false) } }, { type: 'separator' },
         { role: 'hide', label: '隐藏 jamony' },
         { role: 'hideOthers', label: '隐藏其他' }, { type: 'separator' },
         { role: 'quit', label: '退出 jamony' }
