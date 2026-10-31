@@ -1034,6 +1034,18 @@ function RecordingPanel({
     closeMixer()
   }
 
+  // 1031 终章+1（欢哥）：发表态点 X 关窗=同「放弃发表」语义（closeMixer 未发表即释放锁）
+  // ——同义的释放性操作须同款确认；试听模式/最小化不受影响（最小化不释放）
+  const requestCloseMixer = async () => {
+    const s = mixerSessionId !== null ? sessions.find(x => x.id === mixerSessionId) : null
+    if (mixerMode === "publish" && s && s.status !== "published" && s.publisher_user_id === currentUserId) {
+      const ok = await dialog.confirm("关闭发表混音器将释放当前发表权限。", { danger: true, confirmText: "确认关闭", cancelText: "继续发表" })
+      if (!ok) return
+      publishClaimedRef.current = true
+    }
+    closeMixer()
+  }
+
   // 1026 使用 presence 上报：混音器开=占用该段落（挡删除），关/换段=释放；断线重连由 chat-socket 自动补报
   const prevMixerSessionRef = useRef<number | null>(null)
   useEffect(() => {
@@ -1213,7 +1225,7 @@ function RecordingPanel({
             masterVolume={mixerEngine.masterVolume}
             masterLevel={mixerEngine.masterLevel}
             masterClip={mixerEngine.masterClip}
-            onClose={closeMixer}
+            onClose={requestCloseMixer}
             onMinimize={() => setMixerMinimized(true)}
             onPlayPause={mixerEngine.togglePlay}
             onStop={mixerEngine.stop}
@@ -1256,7 +1268,7 @@ function RecordingPanel({
             loadingProgress={loadingProgress}
             onTogglePlay={mixerEngine.togglePlay}
             onSeek={mixerEngine.seek}
-            onClose={closeMixer}
+            onClose={requestCloseMixer}
             onFullscreen={() => setMixerMinimized(false)}
           />
         )}
