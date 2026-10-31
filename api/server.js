@@ -1902,7 +1902,15 @@ function progSanitize(p) {
   const master = Number.isFinite(mRaw) ? Math.max(0, Math.min(200, Math.round(mRaw))) : 100
   // totalMs=最长轨毫秒（1016 欢哥：走带条常驻可点——上传即随物料下发，时间/进度条不待播放即可用）
   const tm = Number(p.totalMs)
-  return { tracks: p.tracks, mix: { vols, mutes, solos, pans, master }, ...(tm > 0 ? { totalMs: Math.round(tm) } : {}) }
+  // 1031 三轴（定位器区间/开关/循环，欢哥 DAW 语义）：透传+数值清洗（ms 域；b≤a=折叠=null）
+  const rngA = p.range ? Number(p.range.a) : NaN
+  const rngB = p.range ? Number(p.range.b) : NaN
+  const range = (Number.isFinite(rngA) && Number.isFinite(rngB) && rngB > rngA && rngA >= 0) ? { a: Math.round(rngA), b: Math.round(rngB) } : null
+  return {
+    tracks: p.tracks, mix: { vols, mutes, solos, pans, master },
+    ...(tm > 0 ? { totalMs: Math.round(tm) } : {}),
+    ...(range ? { range } : {}), ...(p.rangeActive ? { rangeActive: true } : {}), ...(p.loop ? { loop: true } : {}),
+  }
 }
 // 算最长轨毫秒（上传/删轨时写进 current_program；探测失败返 0 由 play 兜底现测）——1029 异步化（ffprobe 链）
 async function progCalcTotalMs(code, tracks) {
@@ -5239,16 +5247,19 @@ function killProgramEngine(roomCode) {
   const e = programEngines.get(roomCode)
   if (!e) return
   programEngines.delete(roomCode)  // 先删再杀：exit handler 见 map 无此引擎=被 kill，不触发自然结束链
+  if (e.endTimer) { clearTimeout(e.endTimer); e.endTimer = null }  // 1031 边界定时器随杀随清
+  if (e.mixsegPath) { try { fs.unlinkSync(e.mixsegPath) } catch (err) {} }  // 1031 烤段临时文件回收
   for (const c of [e.jstdin, e.ffmpeg]) { try { c.kill('SIGTERM') } catch (err) {} }
   // killProgramEngine 保持同步签名（同步调用方多）——子进程杀句柄本就不阻塞，兜底 pkill 改 fire-and-forget 异步（1029）
   if (e.port) { try { execFileAsync('pkill', ['-f', `jamony-program-${e.port}`]).catch(() => {}) } catch (err) { /* 无进程正常 */ } }
 }
 
-async function stopProgramByCode(roomCode, broadcast) {
+async function stopProgramByCode(roomCode, broadcast, endedAtMs) {
   try {
     killProgramEngine(roomCode)
     await pool.query('UPDATE rooms SET program_state = NULL WHERE room_code = $1', [roomCode])
-    if (broadcast) io.to(roomCode).emit('program-state', { playing: false })
+    // endedAtMs（1031 B 停归位）：客户端指针渲染落点（归位哲学：选区趟回 A）
+    if (broadcast) io.to(roomCode).emit('program-state', endedAtMs != null ? { playing: false, endedAtMs: Math.round(endedAtMs) } : { playing: false })
   } catch (e) { console.error('stopProgram error:', e.message) }
 }
 
@@ -5262,18 +5273,37 @@ async function progProbeDurationSec(fpath) {
 }
 
 // 起播：混音快照烤进 ffmpeg 命令（volume 0-100→0-1，mute=0；normalize=0 不自动衰减）
-function startProgramPlayback(roomCode, port, prog, startMs, totalMs) {
-  killProgramEngine(roomCode)
-  const progName = `jamony-program-${port}`  // JACK 命名契约（reference-jack-naming-formula 新成员）
-  const ghostL = `jamsoul-${port} jamony-looper:input left`
-  const ghostR = `jamsoul-${port} jamony-looper:input right`
-  const parts = ['ffmpeg', '-v', 'error', '-nostdin']
-  if (startMs > 0) parts.push('-ss', (startMs / 1000).toFixed(3))
-  for (const t of prog.tracks) parts.push('-i', path.join(programsDir, roomCode, t.file))
-  // 每轨链（1016 四功能，对齐录音混音器 DAW 语义）：
-  //   effectiveGain=有 solo 只放 solo 轨、否则看 mute（useMixerEngine 同款规则）；
-  //   pan=linear balance（pan=0 完全直通无衰减无串音；p>0 衰左/p<0 衰右；mono 先立体声化）；
-  //   master=amix 后总 gain（0-200/100，同推子口径）
+/* ============ 1031 program 定位器三轴（欢哥 DAW 语义终版移植推流域）============
+ * 行为矩阵与试听/发表混音器同语义，权威全在服务端（定时器不依赖任何浏览器）：
+ *   range = rangeActive∧b>a ? {a,b} : null（折叠/未激活=null=全曲）
+ *   loop+range+P≤A      → loopSeg：预剪混段+stream_loop 采样级无缝循环（1031 探针三指纹实证）
+ *   loop+range+A<P<B    → reachThenLoopSeg：先播 [P,B]（到 B 服务端定时器）→ 换代进 [A,B] 循环
+ *   loop+range+P≥B      → reachThenLoopSeg(bound=null)：播到曲尾自然结束 → 换代进 [A,B] 循环（边角1级联）
+ *   loop+无range        → loopAll：整曲烤段+stream_loop（多轨相位锁定同两段式根治）
+ *   无loop+range+P<B    → oneShotToB：到 B 服务端定时器停+指针归 A（归位哲学）
+ *   无loop+其他         → oneShot：自然到尾（现状语义）
+ * 两段式动机：多轨各自 -stream_loop 会相位漂移；烤段=各轨同窗一次性锁定相位，
+ * 且流进程退化为 PCM 直拷（零 filter 零解码，比直通管线更省）。
+ */
+function progEffectiveRange(prog) {
+  return (prog.rangeActive && prog.range && prog.range.b > prog.range.a) ? prog.range : null
+}
+
+function progPlanSegment(prog, positionMs) {
+  const rng = progEffectiveRange(prog)
+  if (prog.loop) {
+    if (rng) {
+      if (positionMs <= rng.a) return { mode: 'loopSeg', a: rng.a, dur: rng.b - rng.a }
+      return { mode: 'reachThenLoopSeg', from: positionMs, boundMs: positionMs < rng.b ? rng.b : null }
+    }
+    return { mode: 'loopAll', from: positionMs }
+  }
+  if (rng && positionMs < rng.b) return { mode: 'oneShotToB', from: positionMs, endAtMs: rng.b, homeMs: rng.a }
+  return { mode: 'oneShot', from: positionMs }
+}
+
+// 混音 filter 链（1016 四功能单源：直播管线与烤段共用——program 版「所发即所听」）
+function progBuildFilterChain(prog) {
   const hasSolo = prog.mix.solos.length > 0
   const fc = prog.tracks.map((t, i) => {
     const soloed = prog.mix.solos.includes(t.id)
@@ -5284,14 +5314,90 @@ function startProgramPlayback(roomCode, port, prog, startMs, totalMs) {
     const lc = 1 - Math.max(0, p)
     const rc = 1 - Math.max(0, -p)
     const panPart = Math.abs(p) < 0.001
-      ? '' : `,pan=stereo|c0<${lc.toFixed(3)}*c0|c1<${rc.toFixed(3)}*c1`  // ⚠️pan 滤镜系数必须在通道名前（0.7*c0 合法、c0*0.7 语法错——1016 干跑定罪）
+      ? '' : `,pan=stereo|c0<${lc.toFixed(3)}*c0|c1<${rc.toFixed(3)}*c1`  // ⚠️pan 滤镜系数必须在通道名前（1016 干跑定罪）
     return `[${i}:a]aformat=channel_layouts=stereo,volume=${vol.toFixed(3)}${panPart}[a${i}]`
   })
   const mGain = (Number(prog.mix.master) || 100) / 100
   const masterPart = Math.abs(mGain - 1) < 0.001 ? '' : `,volume=${mGain.toFixed(3)}`
   fc.push(`${prog.tracks.map((_, i) => `[a${i}]`).join('')}amix=inputs=${prog.tracks.length}:duration=longest:normalize=0${masterPart},` +
     `aformat=sample_fmts=fltp,aresample=48000:first_pts=0,aformat=sample_fmts=s16:channel_layouts=stereo[out]`)
-  parts.push('-filter_complex', fc.join(';'), '-map', '[out]', '-f', 's16le', '-c:a', 'pcm_s16le', '-')
+  return fc
+}
+
+// 烤混段：现有 filter 链一次性剪出 [fromMs, fromMs+durMs|曲尾] 成品 PCM wav（apad 补齐=循环周期严格一致）
+function progBakeMixSeg(roomCode, prog, fromMs, durMs, outPath) {
+  return new Promise((resolve, reject) => {
+    const parts = ['ffmpeg', '-v', 'error', '-nostdin', '-y']
+    for (const t of prog.tracks) {
+      if (fromMs > 0) parts.push('-ss', (fromMs / 1000).toFixed(3))
+      if (durMs != null) parts.push('-t', (durMs / 1000).toFixed(3))
+      parts.push('-i', path.join(programsDir, roomCode, t.file))
+    }
+    const fc = progBuildFilterChain(prog)
+    if (durMs != null) {
+      // 尾链补 apad：短轨补静音到精确 dur（多轨循环周期必须全等）
+      fc[fc.length - 1] = fc[fc.length - 1].replace('[out]', ',apad[out]')
+      parts.push('-filter_complex', fc.join(';'), '-map', '[out]', '-t', (durMs / 1000).toFixed(3))
+    } else {
+      parts.push('-filter_complex', fc.join(';'), '-map', '[out]')
+    }
+    parts.push('-c:a', 'pcm_s16le', outPath)
+    // ⚠️ parts[0]='ffmpeg' 本尊——spawn 惯例剥首位（直通管线同款），execFile 必须slice否则
+    // 字面量'ffmpeg'被当输出文件名（exit 234 "Unable to choose an output format for 'ffmpeg'"，1031 E2E 定罪）
+    execFile(parts[0], parts.slice(1), { timeout: 60000 }, (err, _so, se) => {
+      if (err) reject(new Error(`烤段失败(${err.code || err.signal || 'exit'}): ${String(se || err.message).slice(-300)}`))
+      else resolve()
+    })
+  })
+}
+
+// 到边界后的选区循环换代（oneShot 到 B 定时器 / 自然结束 两路共用）
+async function cascadeProgramLoopSeg(roomCode) {
+  const e = programEngines.get(roomCode)
+  if (!e || !e.prog) { await stopProgramByCode(roomCode, true); return }
+  const rng = progEffectiveRange(e.prog)
+  if (!rng) { await stopProgramByCode(roomCode, true); return }
+  console.log(`Program cascade ${roomCode}: 到边界→选区循环 [${rng.a},${rng.b}]ms`)
+  try {
+    await startProgramPlayback(roomCode, e.port, e.prog, rng.a, e.totalMs)
+    await waitProgramPort(roomCode, 8000)
+    const e3 = programEngines.get(roomCode)
+    const t0 = e3 && e3.portAt ? e3.portAt : Date.now()
+    const st = { playing: true, startedAt: new Date(t0).toISOString(), startMs: Math.round(rng.a), totalMs: e.totalMs, range: { a: Math.round(rng.a), b: Math.round(rng.b) } }
+    await pool.query('UPDATE rooms SET program_state = $1 WHERE room_code = $2', [JSON.stringify(st), roomCode]).catch(() => {})
+    io.to(roomCode).emit('program-state', st)
+  } catch (err) {
+    console.error(`Program cascade ${roomCode} 失败:`, err.message)
+    await stopProgramByCode(roomCode, true).catch(() => {})
+  }
+}
+
+async function startProgramPlayback(roomCode, port, prog, startMs, totalMs) {
+  killProgramEngine(roomCode)
+  const progName = `jamony-program-${port}`  // JACK 命名契约（reference-jack-naming-formula 新成员）
+  const ghostL = `jamsoul-${port} jamony-looper:input left`
+  const ghostR = `jamsoul-${port} jamony-looper:input right`
+  const plan = progPlanSegment(prog, startMs)
+  const engine = { ffmpeg: null, jstdin: null, port, prog, spawnedAt: Date.now(), portAt: null, totalMs, startMs, plan, endTimer: null, mixsegPath: null }
+  programEngines.set(roomCode, engine)
+  const parts = ['ffmpeg', '-v', 'error', '-nostdin']
+  if (plan.mode === 'loopSeg' || plan.mode === 'loopAll') {
+    // 两段式：烤段（含全部混音参数）→ stream_loop 无限 PCM 直拷
+    const segPath = path.join(programsDir, roomCode, `.mixseg-${port}.wav`)
+    engine.mixsegPath = segPath
+    try { fs.unlinkSync(segPath) } catch (err) {}
+    const bakeFrom = plan.mode === 'loopSeg' ? plan.a : plan.from
+    const bakeDur = plan.mode === 'loopSeg' ? plan.dur : null
+    await progBakeMixSeg(roomCode, prog, bakeFrom, bakeDur, segPath)
+    parts.push('-stream_loop', '-1', '-i', segPath, '-f', 's16le', '-c:a', 'copy', '-')
+  } else {
+    // 一遍模式：直通管线（1031 顺修：per-input -ss——旧版只挂首个 -i 前，多轨 seek 各轨失步潜伏 bug）
+    for (const t of prog.tracks) {
+      if (plan.from > 0) parts.push('-ss', (plan.from / 1000).toFixed(3))
+      parts.push('-i', path.join(programsDir, roomCode, t.file))
+    }
+    parts.push('-filter_complex', progBuildFilterChain(prog).join(';'), '-map', '[out]', '-f', 's16le', '-c:a', 'pcm_s16le', '-')
+  }
   const ffmpeg = spawn(parts[0], parts.slice(1), { stdio: ['ignore', 'pipe', 'pipe'] })
   let errTail = ''
   ffmpeg.stderr.on('data', d => { if (errTail.length < 500) errTail += String(d) })
@@ -5304,9 +5410,9 @@ function startProgramPlayback(roomCode, port, prog, startMs, totalMs) {
   const jstdin = spawn('jack-stdin', ['-q', '-n', progName, '-b', '16', ghostL, ghostR], { stdio: ['pipe', 'ignore', 'ignore'] })
   ffmpeg.stdout.pipe(jstdin.stdin)
   jstdin.stdin.on('error', () => {})  // EPIPE 静默（对端先退，main.js 同款教训）
-  const engine = { ffmpeg, jstdin, port, prog, spawnedAt: Date.now(), portAt: null, totalMs, startMs }
-  programEngines.set(roomCode, engine)
-  // 端口轮询（GP 同款 100ms×50）：见端口=记 portAt（时间线零点）；5s 未现=起播失败清理
+  engine.ffmpeg = ffmpeg
+  engine.jstdin = jstdin
+  // 端口轮询（GP 同款 100ms×50）：见端口=记 portAt（时间线零点）+武装边界定时器；5s 未现=起播失败清理
   let polls = 0
   const pollPort = async () => {   // 1029 异步化：jack_lsp 轮询原为 execSync=启动窗内全站抖，房间隔离宪法清零
     polls++
@@ -5314,7 +5420,28 @@ function startProgramPlayback(roomCode, port, prog, startMs, totalMs) {
     if (!e || e.jstdin !== jstdin) return
     let visible = false
     try { const { stdout } = await execFileAsync('jack_lsp'); if (stdout.includes(progName + ':')) visible = true } catch (err) {}
-    if (visible) { e.portAt = Date.now(); return }
+    if (visible) {
+      e.portAt = Date.now()
+      // 边界定时器（服务端权威，不依赖浏览器）：oneShotToB=到B停指针归A；reachThenLoopSeg=到B换代进循环
+      if (e.plan.mode === 'oneShotToB') {
+        const remainMs = e.plan.endAtMs - e.startMs - (Date.now() - e.portAt)
+        e.endTimer = setTimeout(() => {
+          const e2 = programEngines.get(roomCode)
+          if (!e2 || e2.jstdin !== jstdin) return
+          console.log(`Program range-end ${roomCode}: B=${e.plan.endAtMs}ms 停，指针归 A=${e.plan.homeMs}ms`)
+          stopProgramByCode(roomCode, true, Math.round(e.plan.homeMs)).catch(() => {})
+        }, Math.max(0, remainMs))
+      } else if (e.plan.mode === 'reachThenLoopSeg' && e.plan.boundMs != null) {
+        const remainMs = e.plan.boundMs - e.startMs - (Date.now() - e.portAt)
+        e.endTimer = setTimeout(() => {
+          const e2 = programEngines.get(roomCode)
+          if (!e2 || e2.jstdin !== jstdin) return
+          console.log(`Program reach-bound ${roomCode}: B=${e.plan.boundMs}ms → 换代进选区循环`)
+          cascadeProgramLoopSeg(roomCode).catch(() => {})
+        }, Math.max(0, remainMs))
+      }
+      return
+    }
     if (polls < 50) setTimeout(pollPort, 100)
     else {
       console.error(`Program start ${roomCode} JACK 端口未出现（ghost 未起或 jack-stdin 退出）`)
@@ -5322,10 +5449,15 @@ function startProgramPlayback(roomCode, port, prog, startMs, totalMs) {
     }
   }
   setTimeout(pollPort, 100)
-  // 自然结束：jstdin 退出且引擎仍在 map（非 kill）= 播完到尾 → 清状态广播停
+  // 自然结束：jstdin 退出且引擎仍在 map（非 kill）——reachThenLoopSeg(bound=null)=换代进循环；其余=清状态广播停
   jstdin.on('exit', () => {
     const e = programEngines.get(roomCode)
-    if (e && e.jstdin === jstdin) stopProgramByCode(roomCode, true).catch(() => {})
+    if (!e || e.jstdin !== jstdin) return
+    if (e.plan.mode === 'reachThenLoopSeg' && e.plan.boundMs == null) {
+      cascadeProgramLoopSeg(roomCode).catch(() => {})
+      return
+    }
+    stopProgramByCode(roomCode, true).catch(() => {})
   })
   return engine
 }
@@ -5742,15 +5874,18 @@ io.on("connection", (socket) => {
       await pool.query('UPDATE rooms SET current_program = $1 WHERE room_code = $2', [JSON.stringify(prog), roomId]).catch(() => {})
     }
     if (startMs >= totalMs) { clearTimeout(programInflight.get(roomId)); programInflight.delete(roomId); socket.emit('program-error', { msg: '已到曲尾' }); io.to(roomId).emit('program-state', { playing: false }); return }
-    const engine = startProgramPlayback(roomId, port, prog, startMs, totalMs)
+    const engine = await startProgramPlayback(roomId, port, prog, startMs, totalMs)
     const portUp = await waitProgramPort(roomId, 8000)
     clearTimeout(programInflight.get(roomId)); programInflight.delete(roomId)
     if (!portUp) { console.error('program play: port not up', roomId); return }  // pollPort 失败路径已清理+广播
     // 零点=portAt（JACK 端口出现=出声前一刻；prebuffer 常数残差走实测校准，GP 三段账同款哲学）
     const eng = programEngines.get(roomId)
     const t0 = eng && eng.portAt ? eng.portAt : Date.now()
-    if (eng && eng.spawnedAt) console.log(`Program play ${roomId} port ${port} from ${startMs}ms total ${totalMs}ms 时间线: spawn→port=${t0 - eng.spawnedAt}ms`)
+    if (eng && eng.spawnedAt) console.log(`Program play ${roomId} port ${port} from ${startMs}ms total ${totalMs}ms 模式=${eng.plan.mode} 时间线: spawn→port=${t0 - eng.spawnedAt}ms`)
     const st = { playing: true, startedAt: new Date(t0).toISOString(), startMs: Math.round(startMs), totalMs }
+    // 1031 三轴：循环选区=客户端指针循环渲染依据；B 停=指针上限
+    if (eng && eng.plan.mode === 'loopSeg') st.range = { a: Math.round(eng.plan.a), b: Math.round(eng.plan.a + eng.plan.dur) }
+    if (eng && eng.plan.mode === 'oneShotToB') st.endMs = Math.round(eng.plan.endAtMs)
     try { await pool.query('UPDATE rooms SET program_state = $1 WHERE room_code = $2', [JSON.stringify(st), roomId]) } catch (e) {}
     io.to(roomId).emit('program-state', st)
   })
@@ -5809,19 +5944,70 @@ io.on("connection", (socket) => {
     let st = null
     try { st = row.program_state ? JSON.parse(row.program_state) : null } catch (e) {}
     if (eng && st && st.playing) {
-      // 播放中：kill+带当前位置重 spawn（-ss 续播）；新零点=新 portAt
+      // 播放中：kill+带当前位置重 spawn（-ss 续播）；新零点=新 portAt；1031 起按当前三轴状态重算段计划
       const curMs = Math.round(st.startMs + (Date.now() - new Date(st.startedAt).getTime()))
       const resumeMs = Math.max(0, Math.min(curMs, eng.totalMs - 1))
-      const engine2 = startProgramPlayback(roomId, eng.port, prog, resumeMs, eng.totalMs)
+      const engine2 = await startProgramPlayback(roomId, eng.port, prog, resumeMs, eng.totalMs)
       const portUp = await waitProgramPort(roomId, 8000)
       if (portUp) {
         const t0 = engine2.portAt || Date.now()
         const st2 = { playing: true, startedAt: new Date(t0).toISOString(), startMs: resumeMs, totalMs: eng.totalMs }
+        if (engine2.plan.mode === 'loopSeg') st2.range = { a: Math.round(engine2.plan.a), b: Math.round(engine2.plan.a + engine2.plan.dur) }
+        if (engine2.plan.mode === 'oneShotToB') st2.endMs = Math.round(engine2.plan.endAtMs)
         await pool.query('UPDATE rooms SET program_state = $1 WHERE room_code = $2', [JSON.stringify(st2), roomId]).catch(() => {})
         io.to(roomId).emit('program-state', st2)
       }
     }
     io.to(roomId).emit('program-update', { program: prog })  // 暂停态参数全屋可见（方案拍板②）
+  })
+
+  // 1031 program 定位器三轴（欢哥 DAW 语义）：房间级单源状态（随 current_program 落库），
+  // 仅合奏者可改（听众无入口天然不可见）；播放中 loop 翻转=立即换代（GP 同构），
+  // AB 拖动/开关切换不换代（生效于下次起播/mix 换代——拖动事件高频，禁止逐发 respawn）
+  socket.on("program-range", async (data) => {
+    const { roomId, a, b, active, loop } = data || {}
+    if (!roomId || !socket.userId) return
+    if (!(await isRoomMusician(socket.userId, roomId))) return
+    const r = await pool.query('SELECT current_program, program_state FROM rooms WHERE room_code = $1', [roomId])
+    const row = r.rows[0]
+    if (!row) return
+    const prog = progSanitize(progRead(row))
+    if (!prog.tracks.length) return
+    const hadLoop = !!prog.loop
+    let touched = false
+    if (a !== undefined && b !== undefined) {
+      const A = Math.max(0, Math.round(Number(a) || 0))
+      const B = Math.round(Number(b) || 0)
+      const capMs = Math.max(A + 200, Number(prog.totalMs) || 3600 * 1000)
+      if (B > A + 200 && B <= capMs) { prog.range = { a: A, b: B }; touched = true }  // 最小循环段 200ms
+      else if (B <= A) { delete prog.range; touched = true }  // 折叠
+    }
+    if (active !== undefined) { if (active) { prog.rangeActive = true } else { delete prog.rangeActive }; touched = true }
+    if (loop !== undefined) { if (loop) { prog.loop = true } else { delete prog.loop }; touched = true }
+    if (!touched) return
+    await pool.query('UPDATE rooms SET current_program = $1 WHERE room_code = $2', [JSON.stringify(prog), roomId])
+    io.to(roomId).emit('program-update', { program: prog })
+    // loop 翻转且播放中 → 换代（当前指针位起新配置，行为矩阵自然涌现）
+    const eng = programEngines.get(roomId)
+    let st = null
+    try { st = row.program_state ? JSON.parse(row.program_state) : null } catch (e) {}
+    if (eng && st && st.playing && !!prog.loop !== hadLoop) {
+      const curMs = Math.round(st.startMs + (Date.now() - new Date(st.startedAt).getTime()))
+      const resumeMs = Math.max(0, Math.min(curMs, eng.totalMs - 1))
+      console.log(`Program loop 换代 ${roomId}: loop=${!!prog.loop} @${resumeMs}ms`)
+      try {
+        const engine2 = await startProgramPlayback(roomId, eng.port, prog, resumeMs, eng.totalMs)
+        const portUp = await waitProgramPort(roomId, 8000)
+        if (portUp) {
+          const t0 = engine2.portAt || Date.now()
+          const st2 = { playing: true, startedAt: new Date(t0).toISOString(), startMs: resumeMs, totalMs: eng.totalMs }
+          if (engine2.plan.mode === 'loopSeg') st2.range = { a: Math.round(engine2.plan.a), b: Math.round(engine2.plan.a + engine2.plan.dur) }
+          if (engine2.plan.mode === 'oneShotToB') st2.endMs = Math.round(engine2.plan.endAtMs)
+          await pool.query('UPDATE rooms SET program_state = $1 WHERE room_code = $2', [JSON.stringify(st2), roomId]).catch(() => {})
+          io.to(roomId).emit('program-state', st2)
+        }
+      } catch (err) { console.error(`Program loop 换代 ${roomId} 失败:`, err.message) }
+    }
   })
 
   socket.on("disconnect", async () => {

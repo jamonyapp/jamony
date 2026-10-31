@@ -84,7 +84,9 @@ export function useProgramClock(state: ProgramState | null) {
   const lastPlayingRef = useRef(false)
   useEffect(() => {
     if (!state || !state.playing) {
-      if (lastPlayingRef.current) pausedAtRef.current = currentTime  // 播→停瞬间锁定指针
+      // 1031 B 停归位（服务端 endedAtMs=域起点，指针落 A）；无则保留暂停锁位语义
+      if (state && state.endedAtMs != null) { pausedAtRef.current = state.endedAtMs; setCurrentTime(state.endedAtMs) }
+      else if (lastPlayingRef.current) pausedAtRef.current = currentTime  // 播→停瞬间锁定指针
       lastPlayingRef.current = false
       return
     }
@@ -92,14 +94,18 @@ export function useProgramClock(state: ProgramState | null) {
     let raf = 0
     const tick = () => {
       const st = state
-      const t = (st.startMs || 0) + (Date.now() - new Date(st.startedAt || 0).getTime())
+      let t = (st.startMs || 0) + (Date.now() - new Date(st.startedAt || 0).getTime())
+      if (st.endMs != null && t > st.endMs) t = st.endMs            // 1031 oneShotToB：指针上限=B
+      if (st.range && st.range.b > st.range.a && t >= st.range.a) { // 1031 loopSeg：指针随循环回头
+        t = st.range.a + ((t - st.range.a) % (st.range.b - st.range.a))
+      }
       setCurrentTime(Math.min(Math.max(0, t), st.totalMs || t))
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state?.playing, state?.startedAt, state?.startMs, state?.totalMs])
+  }, [state?.playing, state?.startedAt, state?.startMs, state?.totalMs, state?.range?.a, state?.range?.b, state?.endMs, state?.endedAtMs])
   const setPausedAt = useCallback((ms: number) => { pausedAtRef.current = ms; setCurrentTime(ms) }, [])
   return { currentTime, pausedAtRef, setPausedAt }
 }
@@ -117,6 +123,7 @@ export function ProgramStage(props: {
   pauseProgram: () => void
   stopProgram: () => void
   updateProgramMix: (mix: ProgramMix) => void
+  setProgramRange: (v: { a?: number; b?: number; active?: boolean; loop?: boolean }) => void
 }) {
   const { roomId, program, progState, open, canOperate } = props
   const dialog = useJamonyDialog()
@@ -184,6 +191,57 @@ export function ProgramStage(props: {
   const mixPatch = (partial: Partial<ProgramMix>): ProgramMix => ({
     vols: mix.vols, mutes: mix.mutes, solos, pans, master: mix.master ?? 100, ...partial,
   })
+
+  // ── 1031 定位器三轴（欢哥 DAW 语义移植推流域）──权威=服务端 current_program（program-update 广播），
+  // 本地乐观镜像+去抖上翻（拖拽事件高频禁逐发 RPC）；广播到达即让位校准。本组件域=ms（混音器组件秒，边界换算）。
+  const [locMirror, setLocMirror] = useState<{ a: number; b: number } | null | undefined>(undefined)
+  const [activeMirror, setActiveMirror] = useState<boolean | undefined>(undefined)
+  const [loopMirror, setLoopMirror] = useState<boolean | undefined>(undefined)
+  const rangeRpcTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    setLocMirror(undefined); setActiveMirror(undefined); setLoopMirror(undefined)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [program?.range?.a, program?.range?.b, program?.rangeActive, program?.loop])
+  const locatorMs = locMirror !== undefined ? locMirror : (program?.range ?? null)
+  const rangeActive = activeMirror !== undefined ? activeMirror : !!program?.rangeActive
+  const loopOn = loopMirror !== undefined ? loopMirror : !!program?.loop
+  const pushRange = (v: { a?: number; b?: number; active?: boolean; loop?: boolean }) => {
+    if (!canOperate) return
+    props.setProgramRange(v)
+  }
+  // 三角拖拽/双击键入（秒→ms；乐观镜像+300ms 去抖上翻；A 不越 B / B 不越曲尾，折叠合法）
+  const handleLocatorChange = (which: "a" | "b", vSec: number) => {
+    if (!canOperate) return
+    const cur = locatorMs ?? { a: 0, b: 0 }
+    const next = which === "a"
+      ? { a: Math.max(0, Math.min(Math.round(vSec * 1000), cur.b)), b: cur.b }
+      : { a: cur.a, b: Math.max(cur.a, Math.min(Math.round(vSec * 1000), Math.round(totalMs))) }
+    setLocMirror(next)
+    if (rangeRpcTimer.current) clearTimeout(rangeRpcTimer.current)
+    rangeRpcTimer.current = setTimeout(() => pushRange(next), 300)
+  }
+  // 细条拖拽平移（增量秒→ms，两端钳制）
+  const handleLocatorMove = (deltaSec: number) => {
+    if (!canOperate || !locatorMs) return
+    const shift = Math.max(-locatorMs.a, Math.min(Math.round(deltaSec * 1000), Math.round(totalMs) - locatorMs.b))
+    if (shift === 0) return
+    const next = { a: locatorMs.a + shift, b: locatorMs.b + shift }
+    setLocMirror(next)
+    if (rangeRpcTimer.current) clearTimeout(rangeRpcTimer.current)
+    rangeRpcTimer.current = setTimeout(() => pushRange(next), 300)
+  }
+  // 细条开关（播放约束：到B停/循环）与循环钮——立即上翻（低频事件不去抖）
+  const handleRangeActive = (v: boolean) => { if (!canOperate) return; setActiveMirror(v); pushRange({ active: v }) }
+  const handleLoopToggle = (v: boolean) => { if (!canOperate) return; setLoopMirror(v); pushRange({ loop: v }) }
+  // 复位（1031 欢哥拍板带上）：mix 归默认+定位器折叠+开关/循环关
+  const handleProgramReset = () => {
+    if (!canOperate || !program) return
+    const vols: Record<string, number> = {}
+    for (const t of program.tracks) vols[t.id] = 100
+    props.updateProgramMix({ vols, mutes: [], solos: [], pans: {}, master: 100 })
+    setLocMirror(null); setActiveMirror(false); setLoopMirror(false)
+    pushRange({ a: 0, b: 0, active: false, loop: false })
+  }
 
   const handlePlayPause = () => {
     if (!canOperate) return
@@ -262,6 +320,16 @@ export function ProgramStage(props: {
       onResetClip={handleResetClip}
       onMasterVolumeChange={handleMaster}
       onResetMasterClip={handleResetMasterClip}
+      /* 1031 定位器三轴（欢哥 DAW 语义）：秒/ms 边界换算；折叠={0,0} 与试听/发表同款 Cubase 初始态 */
+      enableLocator
+      locator={{ a: (locatorMs?.a ?? 0) / 1000, b: (locatorMs?.b ?? 0) / 1000 }}
+      locatorActive={rangeActive}
+      onLocatorChange={handleLocatorChange}
+      onLocatorMove={handleLocatorMove}
+      onLocatorActiveChange={handleRangeActive}
+      loop={loopOn}
+      onLoopToggle={handleLoopToggle}
+      onResetAll={handleProgramReset}
       icon={false}
       titleLabel=""
       footerHint="播放由服务器渲染并推流至全房间；音量/静音调整实时同步（播放中调整将接缝续播）。"

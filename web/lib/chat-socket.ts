@@ -10,8 +10,8 @@ export type GpState = { playing: boolean; startedAt?: string; startMs?: number; 
 export type ProgramTrack = { id: string; name: string; file: string; size: number; uploadedBy: number; uploadedByName: string }
 export type ProgramMix = { vols: Record<string, number>; mutes: string[]; solos?: string[]; pans?: Record<string, number>; master?: number }
 // vols 0-200（100=0dB 原声，200=+6dB 头空间——1016 欢哥拍板对齐录音混音器 DAW 级）；pans -1~1；master 0-200 同 vols 口径
-export type ProgramData = { tracks: ProgramTrack[]; mix: ProgramMix; totalMs?: number } | null
-export type ProgramState = { playing: boolean; startedAt?: string; startMs?: number; totalMs?: number }
+export type ProgramData = { tracks: ProgramTrack[]; mix: ProgramMix; totalMs?: number; range?: { a: number; b: number }; rangeActive?: boolean; loop?: boolean } | null
+export type ProgramState = { playing: boolean; startedAt?: string; startMs?: number; totalMs?: number; range?: { a: number; b: number }; endMs?: number; endedAtMs?: number }
 
 export type ChatMessage = {
   id: string
@@ -252,6 +252,11 @@ export function useChatSocket(roomId?: string, nickname?: string) {
     socketRef.current.emit("program-mix", { roomId, mix })
     setRealtimeProgram((prev) => (prev ? { ...prev, mix } : prev))
   }
+  // 1031 program 定位器三轴（欢哥 DAW 语义）：房间级单源，仅合奏者可改（服务端闸）；ms 域
+  const setProgramRange = (v: { a?: number; b?: number; active?: boolean; loop?: boolean }) => {
+    if (!socketRef.current || !roomId) return
+    socketRef.current.emit("program-range", { roomId, ...v })
+  }
   // 水合（强刷/后进）：照 hydrateScore 模式喂单一真相源
   const hydrateProgram = (program: ProgramData, state: ProgramState | null) => { setRealtimeProgram(program); setRealtimeProgramState(state) }
   // GP 调音台：乐观本地+广播（滑条由组件侧节流后调用，这里即时发）
@@ -300,5 +305,5 @@ export function useChatSocket(roomId?: string, nickname?: string) {
     setRealtimeScore(null)
   }
 
-  return { messages, sendMessage, connected, realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, hydrateScore, realtimeScore, realtimeGpState, playGp, pauseGp, updateGpMix, setGpSpeed, setGpCountin, setGpLoop, setGpRange, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, realtimeRecordingFinalizing, kickedEvent, dissolvedEvent, realtimeProgram, realtimeProgramState, programError, playProgram, pauseProgram, stopProgram, updateProgramMix, hydrateProgram, chatRejected, roomViolation, discardEvent, openMixer, closeMixerPresence }
+  return { messages, sendMessage, connected, realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, hydrateScore, realtimeScore, realtimeGpState, playGp, pauseGp, updateGpMix, setGpSpeed, setGpCountin, setGpLoop, setGpRange, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, realtimeRecordingFinalizing, kickedEvent, dissolvedEvent, realtimeProgram, realtimeProgramState, programError, playProgram, pauseProgram, stopProgram, updateProgramMix, setProgramRange, hydrateProgram, chatRejected, roomViolation, discardEvent, openMixer, closeMixerPresence }
 }
