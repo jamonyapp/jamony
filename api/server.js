@@ -3470,7 +3470,8 @@ app.post('/api/rooms/:code/sessions/:sid/publish', requireAuth, upload.fields([{
       }))
       if (silentNames.length > 0) {
         insertEnergyAudit(gate3Records) // 拦截也留档（fire-safe，不阻断响应语义）
-        return res.status(400).json({ ok: false, code: 'SILENT_RANGE', msg: `以下分轨在所选区间内无声：${silentNames.join('、')}。请调整发表区间，或由该乐手拒绝使用授权` })
+        // 1031 三轮欢哥定稿：不外露审查机制+授权不可撤销——统一口径文案
+        return res.status(400).json({ ok: false, code: 'SILENT_RANGE', msg: '发布作品区间内存在无效分轨，请调整发表区间。' })
       }
     }
 

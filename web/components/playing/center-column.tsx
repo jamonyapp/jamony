@@ -923,8 +923,9 @@ function RecordingPanel({
     if (!mineLock) { await openPublishMixer(publishSession); return } // 锁已懒释放 → 重新抢
     const buffers = mixerEngine.getBuffers()
     const lc = mixerEngine.locator
-    // 1031 开关独立（欢哥定稿）：生效才按区间送闸3预检/落库；未生效=全曲（null 语义与服务端权威终审口径不变）
-    const range = mixerEngine.locatorActive && lc.b > lc.a ? { a: lc.a, b: lc.b } : null
+    // 1031 三轮（欢哥 DAW 语义定稿）：发表只读 AB 坐标，不看开关——AB 重合=全曲(null)，
+    // AB 分开=按区间（无论黄白）。黄白开关从此只管播放约束（到B停/循环），与发表无关。
+    const range = lc.b > lc.a ? { a: lc.a, b: lc.b } : null
     // 1031 排障口供机（console.debug 在 devtools 默认级别不可见=证据黑洞，改 log+黑匣子）：
     // range 状态+每轨入检/跳过原因全量留痕，一次复现=完整口供
     const jlog = (m: string) => {
@@ -966,7 +967,8 @@ function RecordingPanel({
       }).catch(() => {})
     }
     if (silent.length > 0) {
-      dialog.alert(`以下分轨在发表区间内无声：${silent.join("、")}。请调整发表区间，或由该乐手拒绝使用授权。`)
+      // 1031 三轮欢哥定稿：不外露审查机制+授权不可撤销（原「或由该乐手拒绝使用授权」不可操作）
+      dialog.alert(`发布作品区间内存在无效分轨，请调整发表区间。`)
       return
     }
     setRendering(true)
@@ -1180,7 +1182,7 @@ function RecordingPanel({
             sessionLabel={`段落 ${mixerSession?.index}`}
             titleLabel={isPublish ? "发表混音" : "试听混音"}
             footerHint={isPublish
-              ? "作品内容取决于定位器范围，定位器未打开视为全部分轨音频整体发表。"
+              ? "作品区间取决于定位器 AB 位置：AB 重合=全部分轨音频整体发表，AB 分开=按区间发表。"
               : "试听回放：调整仅本地生效，这可以辅助你决定是否授权使用自己的分轨或是否署名。"}
             tracks={mixerEngine.tracks}
             isOpen={true}
