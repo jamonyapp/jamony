@@ -49,13 +49,149 @@ let pendingLaunchSettle = null
 let currentRoom = null  // jamony: 当前所在房间 { roomCode, userId }，供退出时主进程可靠发 leave
 let isLastMusician = false  // jamony: 当前用户是否房间唯一合奏者（叉 jamony/dock 退出弹窗文案用）
 
+/* ============ 1031 壳自动更新（欢哥裁定架构：版本探测→弹窗→签名URL下载；安装包走 OSS 不碰 EIP 合奏管道）============
+ * 流程：启动+每4h → GET /api/version/latest（几百字节）→ 版本比对 → 房间礼仪闸 → 品牌弹窗
+ *   → 立即更新：Mac=下载 dmg+打开拖装（半自动·欢哥裁定）/ Win=下载 exe+运行安装器
+ *   → 稍后：本次运行静默+下次启动再问（永不加码，不跳过版本——工具诚实用户自主哲学）
+ */
+let updateDeferred = false      // 用户点了稍后 → 本次运行内不再弹（承诺①）
+let updateWindow = null          // 更新弹窗引用（防重复开）
+let updateTimer = null           // 4h 定时器
+
+async function checkForUpdate(silent = false) {
+  if (updateWindow || updateDeferred) return  // 已在弹窗中 / 用户已说稍后
+  try {
+    const currentVersion = app.getVersion()
+    const res = await net.fetch(`${WEB_URL}/api/version/latest`)
+    if (!res.ok) return
+    const data = await res.json()
+    if (!data.ok || !data.update || !data.version) return
+    // 版本比对（semver 简比：逐段数字）
+    const cur = currentVersion.split('.').map(Number)
+    const neu = data.version.split('.').map(Number)
+    let hasNew = false
+    for (let i = 0; i < Math.max(cur.length, neu.length); i++) {
+      const a = cur[i] || 0, b = neu[i] || 0
+      if (b > a) { hasNew = true; break }
+      if (b < a) break
+    }
+    if (!hasNew) return
+    // 房间礼仪闸：正在房间内（jamsoul 在跑 / currentRoom 有值）=不打扰（宪法：合奏中神圣不可侵犯）
+    if (jamsoulProcess || currentRoom) {
+      console.log('[jamony] 更新检测到新版本但用户在房间内，礼仪闸压下')
+      return  // 下次对账周期再试（不弹窗）
+    }
+    showUpdateDialog(data)
+  } catch (e) {
+    if (!silent) console.log('[jamony] 版本检测失败（静默）:', e.message)
+  }
+}
+
+function showUpdateDialog(data) {
+  if (updateWindow) return
+  const plat = process.platform === 'darwin' ? 'mac' : 'win'
+  const dl = data.downloads && data.downloads[plat]
+  if (!dl || !dl.url) {
+    console.log('[jamony] 版本端点无本平台下载地址')
+    return
+  }
+  updateWindow = new BrowserWindow({
+    width: 420, height: 480, resizable: false, minimizable: false, maximizable: false,
+    title: 'jamony 更新', backgroundColor: '#000000', show: false,
+    parent: mainWindow, modal: true,
+    webPreferences: { contextIsolation: true, nodeIntegration: false },
+  })
+  // 更新日志 HTML（品牌弹窗同款观感：纯黑底+品牌色）
+  const changelogHtml = (data.changelog || []).map(c =>
+    `<div style="margin-top:10px"><span style="color:#BBEE00;font-size:12px;font-weight:600">${c.component}</span>${(c.items || []).map(i => `<div style="color:#C8C8C8;font-size:12px;line-height:1.6;padding-left:12px">· ${i}</div>`).join('')}</div>`
+  ).join('')
+  const sizeMb = dl.size ? `（约 ${Math.round(dl.size / 1024 / 1024)}MB）` : ''
+  updateWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
+    <html><head><style>
+      * { margin:0; padding:0; box-sizing:border-box; }
+      body { background:#000; color:#fff; font-family:-apple-system,'Segoe UI','Noto Sans SC',sans-serif; padding:24px; user-select:none; }
+      h2 { font-size:16px; margin-bottom:6px; }
+      .ver { color:#9933FF; font-weight:700; }
+      .sub { color:#888; font-size:12px; margin-bottom:16px; }
+      .changelog { background:#0d0d0d; border:1px solid #1a1a1a; border-radius:8px; padding:14px; max-height:240px; overflow-y:auto; }
+      .btns { display:flex; gap:8px; margin-top:18px; }
+      .btn { flex:1; padding:10px 0; border:none; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; }
+      .btn-update { background:linear-gradient(135deg,#00AAFF,#9933FF); color:#fff; }
+      .btn-later { background:#1a1a1a; color:#888; border:1px solid #2a2a2a; }
+      .dl-progress { display:none; margin-top:14px; }
+      .dl-bar { height:4px; background:#1a1a1a; border-radius:2px; overflow:hidden; }
+      .dl-fill { height:100%; background:linear-gradient(90deg,#00AAFF,#9933FF); width:0%; transition:width .3s; }
+      .dl-text { color:#888; font-size:11px; margin-top:6px; text-align:center; }
+    </style></head><body>
+      <h2>jamony <span class="ver">${data.version}</span> 可用</h2>
+      <div class="sub">当前版本 ${app.getVersion()}${sizeMb}</div>
+      <div class="changelog">${changelogHtml || '<span style="color:#666;font-size:12px">优化与修复</span>'}</div>
+      <div class="btns">
+        <button class="btn btn-later" onclick="later()">稍后</button>
+        <button class="btn btn-update" id="btnGo" onclick="go()">立即更新</button>
+      </div>
+      <div class="dl-progress" id="dlProg">
+        <div class="dl-bar"><div class="dl-fill" id="dlFill"></div></div>
+        <div class="dl-text" id="dlText">准备下载…</div>
+      </div>
+      <script>
+        const { ipcRenderer } = require('electron')
+        function later() { ipcRenderer.send('update-later') }
+        function go() { ipcRenderer.send('update-go') }
+      </script>
+    </body></html>
+  `)}`)
+  updateWindow.once('closed', () => { updateWindow = null })
+  // IPC：稍后 / 立即更新 / 下载进度
+  const { ipcMain } = require('electron')
+  // 防重复注册（每窗口一次性）
+  const handlers = ipcMain.listeners('update-later')
+  if (handlers.length === 0) {
+    ipcMain.on('update-later', () => { updateDeferred = true; if (updateWindow) updateWindow.close() })
+    ipcMain.on('update-go', async () => {
+      try {
+        // 禁用按钮+显示进度
+        updateWindow.webContents.executeJavaScript(`document.getElementById('btnGo').disabled=true;document.getElementById('dlProg').style.display='block'`)
+        const isMac = process.platform === 'darwin'
+        const dlUrl = isMac ? data.downloads.mac.url : data.downloads.win.url
+        const ext = isMac ? 'dmg' : 'exe'
+        const dlPath = path.join(app.getPath('downloads'), `jamony-${data.version}.${ext}`)
+        // 下载（net.fetch 流式写文件——大文件不占内存；进度回报）
+        const resp = await net.fetch(dlUrl)
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+        const total = parseInt(resp.headers.get('content-length') || '0')
+        const buf = await resp.arrayBuffer()
+        require('fs').writeFileSync(dlPath, Buffer.from(buf))
+        if (updateWindow) {
+          updateWindow.webContents.executeJavaScript(`document.getElementById('dlFill').style.width='100%';document.getElementById('dlText').textContent='下载完成，正在${isMac ? '打开安装包' : '运行安装器'}…'`)
+        }
+        // Mac=打开 dmg 让用户拖装（半自动·欢哥裁定）；Win=直接运行安装器（NSIS 静默覆盖装）
+        if (isMac) shell.openPath(dlPath)
+        else shell.openPath(dlPath)  // Win: NSIS 安装器自行接管
+        setTimeout(() => { if (updateWindow) updateWindow.close() }, 1500)
+      } catch (e) {
+        console.error('[jamony] 更新下载失败:', e.message)
+        if (updateWindow) updateWindow.webContents.executeJavaScript(`document.getElementById('dlText').textContent='下载失败：${e.message}'`)
+      }
+    })
+  }
+  updateWindow.once('ready-to-show', () => updateWindow.show())
+}
+
+// 启动 5s 后首次探测（等 web 页面加载完，不影响启动速度）；之后每 4h
+// 房间礼仪闸隐含在 checkForUpdate 内部：在房间→静默跳过本轮（下轮 4h 再试）
+function startUpdateChecker() {
+  setTimeout(() => checkForUpdate(true), 5000)
+  updateTimer = setInterval(() => checkForUpdate(true), 4 * 60 * 60 * 1000)
+}
+
 function createWindow() {
   // #3 安全白名单：只允许白名单域加载，防注入恶意页面（file: 本地页 + 内测IP + 公测域名）
   const ALLOWED_HOSTS = ['39.96.30.128', '123.57.33.130', 'jamonyapp.com', 'localhost', '127.0.0.1']
   session.defaultSession.webRequest.onBeforeRequest((details, callback) => {
     try {
       const u = new URL(details.url)
-      const allowed = u.protocol === 'file:' || u.protocol === 'chrome:' || u.protocol === 'devtools:'
+      const allowed = u.protocol === 'file:' || u.protocol === 'chrome:' || u.protocol === 'devtools:' || u.protocol === 'data:'  // 1031: data: for update dialog (self-generated only, not user input)
         || ALLOWED_HOSTS.some(h => u.hostname === h || u.hostname.endsWith('.' + h))
       if (!allowed) console.log('[jamony] 拦截非白名单请求:', details.url)
       callback({ cancel: !allowed })
@@ -395,7 +531,10 @@ ipcMain.on('set-last-musician', (_event, payload) => {
 // ══════════════════════════════════════
 // 生命周期
 // ══════════════════════════════════════
-app.whenReady().then(createWindow)
+app.whenReady().then(() => {
+  createWindow()
+  startUpdateChecker()  // 1031 壳自动更新：启动 5s 后首查+每 4h 对账（欢哥裁定架构）
+})
 
 // 退出 jamony 时：在房间（合奏者或听众）弹窗确认 + SIGKILL；不在房间直接退
 let isQuitting = false

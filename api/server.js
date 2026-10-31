@@ -4941,6 +4941,53 @@ app.get('/api/official-update', async (req, res) => {
   }
 })
 
+/* ============ 1031 壳版本探测 + OSS 签名 URL（欢哥自动更新战役·Task#10）============
+ * 架构（欢哥裁定：不分阶段直上公测架构；安装包走 OSS 下载桶、不碰 EIP 合奏管道）：
+ *   壳启动/每4h → GET /api/version/latest（几百字节，EIP 流量忽略不计）
+ *     → { version, changelog, downloads: { mac: 签名URL, win: 签名URL } }
+ *     → 壳比对版本 → 弹窗 → 用户确认 → 从签名 URL 下载安装包（大文件全走 OSS）
+ *
+ * 签名 URL：OSS HMAC-SHA1 临时授权（桶私有，比公共读更安全——防盗链/防扫描/有效期可控）。
+ * 版本数据存 site_config 'app_version'：{ version, changelog: [{component, items[]}], published, mac_file, win_file, win_blockmap }
+ * admin 后台发布页写此 key（Task#12）；API 生成签名 URL（只读+签名，无写权限需求）。
+ */
+function ossSignUrl(objectKey, expireSec = 3600) {
+  const ak = process.env.OSS_ACCESS_KEY_ID
+  const sk = process.env.OSS_ACCESS_KEY_SECRET
+  const bucket = process.env.OSS_BUCKET || 'jamony-download'
+  const endpoint = process.env.OSS_ENDPOINT || 'oss-cn-beijing.aliyuncs.com'
+  if (!ak || !sk) return null
+  const expires = Math.floor(Date.now() / 1000) + expireSec
+  // OSS 签名：VERB + \n + Content-MD5 + \n + Content-Type + \n + Expires + \n + CanonicalizedResource
+  const stringToSign = `GET\n\n\n${expires}\n/${bucket}/${objectKey}`
+  const signature = crypto.createHmac('sha1', sk).update(stringToSign).digest('base64')
+  return `https://${bucket}.${endpoint}/${objectKey}?OSSAccessKeyId=${encodeURIComponent(ak)}&Expires=${expires}&Signature=${encodeURIComponent(signature)}`
+}
+
+app.get('/api/version/latest', async (req, res) => {
+  try {
+    const r = await pool.query(`SELECT value FROM site_config WHERE key = 'app_version'`)
+    const v = r.rows[0]?.value
+    if (!v || !v.published || !v.version) {
+      return res.json({ ok: true, update: false })
+    }
+    // 签名 URL 有效期 24h（壳在有效期内完成下载；过时重新探测拿新 URL）
+    const downloads = {}
+    if (v.mac_file) downloads.mac = { url: ossSignUrl(v.mac_file, 86400), size: v.mac_size || 0 }
+    if (v.win_file) downloads.win = { url: ossSignUrl(v.win_file, 86400), size: v.win_size || 0, blockmapUrl: v.win_blockmap ? ossSignUrl(v.win_blockmap, 86400) : null }
+    res.json({
+      ok: true,
+      update: true,
+      version: v.version,
+      changelog: Array.isArray(v.changelog) ? v.changelog : [],
+      downloads,
+    })
+  } catch (e) {
+    console.error('version/latest error:', e.message)
+    res.json({ ok: true, update: false })
+  }
+})
+
 // 用户反馈（配置中心三单之二：公开提交，匿名可发；同 IP 60s 限 1 条；jamony_api 仅 INSERT 无读权限）
 const feedbackRate = new Map() // ip → 上次提交时间戳
 app.post('/api/feedback', optionalAuth, async (req, res) => {
