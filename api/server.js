@@ -3421,6 +3421,10 @@ app.post('/api/rooms/:code/sessions/:sid/publish', requireAuth, upload.fields([{
     let mpA = 0, mpB = Infinity
     if (mixParams.range && Number.isFinite(Number(mixParams.range.a)) && Number.isFinite(Number(mixParams.range.b))) {
       mpA = Math.max(0, Number(mixParams.range.a))
+      // 1031 四轮（欢哥 DAW 语义终版）：AB 重合=范围为空=不允许发表（客户端弹窗+服务端硬闸双拦）
+      if (!(Number(mixParams.range.b) > mpA)) {
+        return res.status(400).json({ ok: false, code: 'EMPTY_RANGE', msg: '当前发布作品范围为空，请拖拽定位点确认发布范围。' })
+      }
       mpB = Math.max(mpA + 1, Number(mixParams.range.b)) // 最小区间 1s，防极短探测窗口
     }
     // 护栏：总线静音或全轨静音 → 拒
