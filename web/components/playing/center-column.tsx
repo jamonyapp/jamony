@@ -2164,7 +2164,7 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
         // 无论此前哪条路径（精确定时器/对表/alphaTab 自走/广播收尾）把指针带到哪，最后一下必归 B 内
         if (scoreRangeRef.current) {
           const spdNow = speedRef.current || 1
-          const restCap = gpState.restMs !== undefined ? Math.round(gpState.restMs / spdNow) : Math.round(scoreRangeRef.current.b / spdNow)
+          const restCap = gpState?.restMs !== undefined ? Math.round(gpState.restMs / spdNow) : Math.round(scoreRangeRef.current.b / spdNow)
           if (home > restCap) {
             home = restCap
             try { api.timePosition = home } catch (e) { /* 静默 */ }
