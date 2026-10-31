@@ -262,7 +262,9 @@ export function MixerFullscreen({
               <div
                 className="absolute cursor-grab touch-none active:cursor-grabbing"
                 style={{
-                  top: -6, height: 14,
+                  // 高度=三角直角边（10px SVG）：下沿顶齐首轨上沿，不溢进音频块
+                  // （1029 gap 判例同族：sticky 锚 h-0+gap-1=首轨顶在容器 +4px）
+                  top: -6, height: 10,
                   left: `calc(184px + (100% - 184px - 12px) * ${locARatio})`,
                   width: `calc((100% - 184px - 12px) * ${locBRatio - locARatio})`,
                   // 1031 二轮（欢哥）：绿色阴影退役——未激活=白（单纯指示）；激活=黄
