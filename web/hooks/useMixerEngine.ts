@@ -23,12 +23,15 @@ export function extractPeaks(buf: AudioBuffer, targetCount: number): number[] {
 
 const DEFAULT_GAIN = 1.0  // 0dB（unity），DAW 标准
 
-/** 草稿参数（1026 按 session 分仓 localStorage；M/S 不入草稿——试听工具不跨会话残留） */
+/** 草稿参数（1026 按 session 分仓 localStorage；M/S 不入草稿——试听工具不跨会话残留）
+    1031 定位器重构：区间常驻+开关独立——老草稿 locator.b 可为 null=曲尾，载入时折算；
+    locatorActive 缺省=false（老草稿自动落到关）。 */
 export interface MixerDraft {
   volumes?: Record<string, number>
   pans?: Record<string, number>
   master?: number
   locator?: { a: number; b: number | null } | null
+  locatorActive?: boolean
   loop?: boolean
 }
 
@@ -62,9 +65,12 @@ export function useMixerEngine() {
   // master
   const [masterVolume, setMasterVolume] = useState(DEFAULT_GAIN)
 
-  // 定位器（1026 Cubase 式）：{a,b} 秒，b=null=到末尾；整体 null=未启用（全曲）
-  const [locator, setLocator] = useState<{ a: number; b: number | null } | null>(null)
-  // 区间内循环开关
+  // 定位器（1031 Cubase 式重构，欢哥定稿三轴解耦）：
+  // 区间 {A,B} 常驻（默认折叠在 0，拖 B 向右拉开）——只是「告诉播放器范围」；
+  // locatorActive=独立开关（细条点击）——关=区间单纯指示，不参与任何播放约束；
+  // loop 归播放引擎——定位器开=循环选区，定位器关=循环整曲。
+  const [locator, setLocator] = useState<{ a: number; b: number }>({ a: 0, b: 0 })
+  const [locatorActive, setLocatorActiveState] = useState(false)
   const [loop, setLoopState] = useState(false)
 
   // ref（避免闭包 + seek 恢复）
@@ -75,7 +81,8 @@ export function useMixerEngine() {
   const masterVolumeRef = useRef(DEFAULT_GAIN)
   const clipsRef = useRef<Record<string, boolean>>({})
   const masterClipRef = useRef(false)
-  const locatorRef = useRef<{ a: number; b: number | null } | null>(null)
+  const locatorRef = useRef<{ a: number; b: number }>({ a: 0, b: 0 })
+  const locatorActiveRef = useRef(false)
   const loopRef = useRef(false)
   // 区间循环重启桥（rafTick 经 ref 调用，避免 useCallback 循环依赖）
   const restartRef = useRef<(offset: number) => void>(() => {})
@@ -117,8 +124,12 @@ export function useMixerEngine() {
   const rafTick = useCallback(() => {
     if (!isPlayingRef.current) return
     const elapsed = (performance.now() - startTimeRef.current) / 1000
-    // 定位器生效时终点=区间 B（1026）；区间可拖动中实时收窄生效
-    const endAt = locatorRef.current ? (locatorRef.current.b ?? durationRef.current) : durationRef.current
+    // 1031 行为矩阵（欢哥定稿，三轴独立）：区间生效 = 开关开 ∧ B>A ∧ 本趟起点在 B 之前
+    // （从选区外播进来也算「进入」）；生效则本趟终点=B，否则终点=曲尾。
+    // 指针在 B 之后=选区已过，正常播到曲尾。区间拖动中 B 值实时更新=实时收窄生效。
+    const lc = locatorRef.current
+    const rangeOn = locatorActiveRef.current && lc.b > lc.a && startOffsetRef.current < lc.b
+    const endAt = rangeOn ? lc.b : durationRef.current
     const next = Math.min(startOffsetRef.current + elapsed, endAt)
     setCurrentTime(next)
 
@@ -169,15 +180,19 @@ export function useMixerEngine() {
     }  // end 电平采样 30fps
 
     if (next >= endAt) {
-      if (loopRef.current && locatorRef.current) {
-        // 区间循环：回 A 重启（1026 定位器配套）
-        restartRef.current(locatorRef.current.a)
+      if (loopRef.current) {
+        // 循环回头点=域起点：选区趟回 A（从此锁定选区循环）；整曲趟回 0。
+        // 边角1级联（欢哥拍板）：指针在 B 后开播→整曲趟到尾回 0→第二趟起点 0<B
+        // 即为选区趟→自然进选区循环，无特判。
+        restartRef.current(rangeOn ? lc.a : 0)
         return
       }
       isPlayingRef.current = false
       setIsPlaying(false)
-      startOffsetRef.current = locatorRef.current ? locatorRef.current.a : 0
-      setCurrentTime(locatorRef.current ? locatorRef.current.a : 0)
+      // 归位哲学（欢哥：「指针停在终点没意义」）：一shot播完回域起点——选区趟回 A，整曲趟回 0
+      const home = rangeOn ? lc.a : 0
+      startOffsetRef.current = home
+      setCurrentTime(home)
       return
     }
     rafRef.current = requestAnimationFrame(rafTickRef.current)
@@ -196,12 +211,9 @@ export function useMixerEngine() {
 
   // 从当前偏移量播放
   const playFromOffset = useCallback((offset: number) => {
-    // 定位器生效时播放约束在区间内（1026）
-    const lc = locatorRef.current
-    if (lc) {
-      const end = lc.b ?? durationRef.current
-      offset = Math.min(Math.max(offset, lc.a), Math.max(lc.a, end - 0.05))
-    }
+    // 1031 指针解耦（欢哥拍板）：播放起点不再钳制进区间——指针自由放置任意点，
+    // 到哪算哪由 rafTick 行为矩阵实时判定（选区趟/整曲趟）。
+    offset = Math.max(0, Math.min(offset, durationRef.current))
     const ctx = getCtx()
     const buffers = buffersRef.current
     const gains = gainNodesRef.current
@@ -243,11 +255,12 @@ export function useMixerEngine() {
     startOffsetRef.current = 0
     setCurrentTime(0)
 
-    // 草稿 master/定位器先落 ref（总线节点与播放约束读的是 ref）
+    // 草稿 master 先落 ref；定位器暂存本地变量（区间终值依赖曲长，解码完再定稿）
     if (initial && Number.isFinite(initial.master) && (initial.master as number) > 0) {
       masterVolumeRef.current = initial.master as number
     }
-    locatorRef.current = (initial && initial.locator) ? { a: initial.locator.a, b: initial.locator.b } : null
+    const draftLoc = (initial && initial.locator) ? { a: initial.locator.a, b: initial.locator.b } : null
+    locatorActiveRef.current = !!(initial && initial.locatorActive)
     loopRef.current = !!(initial && initial.loop)
 
     // master 总线：masterGain → analyser（表头=限幅器前的诚实表头，clip 灯改义「限幅介入指示」）
@@ -327,7 +340,17 @@ export function useMixerEngine() {
     setVolumes(initVols)
     setPans(initPans)
     setMasterVolume(masterVolumeRef.current)
+    // 定位器定稿（1031）：无草稿=折叠 {0,0}（Cubase 初始态）；老草稿 b=null→曲尾；
+    // 越界/破 0.5s 间距回折叠（宁弃勿歪）
+    if (draftLoc) {
+      const da = Math.max(0, Math.min(draftLoc.a, Math.max(0, maxDuration - 0.5)))
+      const db = Math.min(draftLoc.b ?? maxDuration, maxDuration)
+      locatorRef.current = db >= da + 0.5 ? { a: da, b: db } : { a: 0, b: 0 }
+    } else {
+      locatorRef.current = { a: 0, b: 0 }
+    }
     setLocator(locatorRef.current)
+    setLocatorActiveState(locatorActiveRef.current)
     setLoopState(loopRef.current)
     clipsRef.current = {}
     masterClipRef.current = false
@@ -363,22 +386,16 @@ export function useMixerEngine() {
 
   const stop = useCallback(() => {
     stopAllSources()
-    // 定位器生效时停在区间头（DAW 惯例），否则回 0
-    const backTo = locatorRef.current ? locatorRef.current.a : 0
-    startOffsetRef.current = backTo
+    // 1031 边角3（欢哥拍板）：停止钮一律回开头，与定位器彻底解耦（单键单义）
+    startOffsetRef.current = 0
     isPlayingRef.current = false
     setIsPlaying(false)
-    setCurrentTime(backTo)
+    setCurrentTime(0)
   }, [stopAllSources])
 
   const seek = useCallback((ratio: number) => {
-    let newTime = ratio * duration
-    // 定位器生效时 seek 钳制进区间（2026 Cubase 式）
-    const lc = locatorRef.current
-    if (lc) {
-      const end = lc.b ?? duration
-      newTime = Math.min(Math.max(newTime, lc.a), Math.max(lc.a, end - 0.05))
-    }
+    // 1031 指针解耦：波形任意点可点可拖，不再钳制进选区
+    const newTime = Math.min(1, Math.max(0, ratio)) * duration
     startOffsetRef.current = newTime
     setCurrentTime(newTime)
     if (isPlayingRef.current) {
@@ -448,30 +465,36 @@ export function useMixerEngine() {
     setMasterClip(false)
   }, [])
 
-  // ───── 定位器 API（1026 Cubase 式：双三角 A/B，最小间距 0.5s）─────
+  // ───── 定位器 API（1031 Cubase 式重构：区间常驻 {A,B}，最小间距 0.5s；开关独立）─────
   const setLocatorA = useCallback((v: number) => {
     const cur = locatorRef.current
-    const d = durationRef.current || 0
-    const end = cur?.b ?? d
-    const a = Math.max(0, Math.min(v, Math.max(0, end - 0.5)))
-    locatorRef.current = { a, b: cur?.b ?? null }
+    // 折叠态（A=B）时 A 拖不出 0——先拖 B 向右拉开（Cubase 惯例）
+    const a = Math.max(0, Math.min(v, Math.max(0, cur.b - 0.5)))
+    locatorRef.current = { a, b: cur.b }
     setLocator(locatorRef.current)
   }, [])
 
   const setLocatorB = useCallback((v: number) => {
     const cur = locatorRef.current
-    const d = durationRef.current || 0
-    const a = cur?.a ?? 0
-    const b = Math.max(a + 0.5, Math.min(v, d)) // B 不超曲长
-    locatorRef.current = { a, b }
+    const b = Math.max(cur.a + 0.5, Math.min(v, durationRef.current || 0)) // B 不超曲长
+    locatorRef.current = { a: cur.a, b }
     setLocator(locatorRef.current)
   }, [])
 
-  const clearLocator = useCallback(() => {
-    locatorRef.current = null
-    loopRef.current = false
-    setLocator(null)
-    setLoopState(false)
+  // 边角5（欢哥拍板）：细条拖拽=AB 锁定同步平移（保宽度；增量 delta，两端钳制 0/曲尾）
+  const moveLocator = useCallback((deltaSec: number) => {
+    const cur = locatorRef.current
+    const d = durationRef.current || 0
+    const shift = Math.max(-cur.a, Math.min(deltaSec, d - cur.b))
+    if (shift === 0) return
+    locatorRef.current = { a: cur.a + shift, b: cur.b + shift }
+    setLocator(locatorRef.current)
+  }, [])
+
+  // 开关独立（细条点击，1031 欢哥拍板）：关=区间单纯指示，播放约束全部失效
+  const setLocatorActive = useCallback((v: boolean) => {
+    locatorActiveRef.current = v
+    setLocatorActiveState(v)
   }, [])
 
   const setLoop = useCallback((v: boolean) => {
@@ -479,7 +502,7 @@ export function useMixerEngine() {
     setLoopState(v)
   }, [])
 
-  /** 复位所有参数（1026 欢哥定案）：音量1.0/声像0/总线1.0/M/S清/定位器清 */
+  /** 复位所有参数（1026 定案+1031 定位器新义）：音量1.0/声像0/总线1.0/M/S清/定位器折叠+开关关/循环关 */
   const resetAll = useCallback(() => {
     const ids = [...buffersRef.current.keys()]
     const vols: Record<string, number> = {}
@@ -498,14 +521,16 @@ export function useMixerEngine() {
     solosRef.current = {}
     masterVolumeRef.current = DEFAULT_GAIN
     if (masterGainRef.current) masterGainRef.current.gain.value = DEFAULT_GAIN
-    locatorRef.current = null
+    locatorRef.current = { a: 0, b: 0 }
+    locatorActiveRef.current = false
     loopRef.current = false
     setVolumes(vols)
     setPans(pns)
     setMutes({})
     setSolos({})
     setMasterVolume(DEFAULT_GAIN)
-    setLocator(null)
+    setLocator({ a: 0, b: 0 })
+    setLocatorActiveState(false)
     setLoopState(false)
   }, [])
 
@@ -527,10 +552,10 @@ export function useMixerEngine() {
     isPlaying, currentTime, duration, progress,
     tracks, mutes, solos, volumes, pans, levels, clips,
     masterVolume, masterLevel, masterClip,
-    locator, loop,
+    locator, locatorActive, loop,
     loadTracks,
     play, pause, stop, seek,
-    setLocatorA, setLocatorB, clearLocator, setLoop, resetAll, getBuffers,
+    setLocatorA, setLocatorB, moveLocator, setLocatorActive, setLoop, resetAll, getBuffers,
     togglePlay: isPlaying ? pause : play,
     onVolumeChange: handleVolume,
     onMuteToggle: handleMute,

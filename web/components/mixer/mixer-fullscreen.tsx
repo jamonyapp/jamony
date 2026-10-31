@@ -43,7 +43,10 @@ export function MixerFullscreen({
   onResetMasterClip,
   enableLocator,
   locator,
+  locatorActive,
   onLocatorChange,
+  onLocatorMove,
+  onLocatorActiveChange,
   loop,
   onLoopToggle,
   onResetAll,
@@ -58,11 +61,17 @@ export function MixerFullscreen({
   const waveSeekRef = useRef<HTMLDivElement>(null)
   const draggingRef = useRef(false)
 
-  // ───── 定位器（1026 Cubase 式）：拖拽态 + 双击精确输入态 ─────
+  // ───── 定位器（1031 Cubase 式重构，欢哥定稿）：区间常驻+独立开关+指针解耦 ─────
   const [locatorDrag, setLocatorDrag] = useState<"a" | "b" | null>(null)
   const [editing, setEditing] = useState<"a" | "b" | null>(null)
   const [editVal, setEditVal] = useState("")
   const locatorMoveRef = useRef<(e: PointerEvent) => void>(() => {})
+  // 细条（边角5）：点击=开关（黄=生效/同色阴影=单纯指示）；拖拽=AB 锁定同步平移。
+  // 点击vs拖拽判定=4px 位移阈值（防误触发开关的手感噪音）。
+  const stripDragRef = useRef<{ startX: number; lastX: number; moved: boolean } | null>(null)
+
+  // 缺省折叠态（program 不传 locator 也不会炸；折叠=B>A 不成立=零可视）
+  const loc = locator ?? { a: 0, b: 0 }
 
   const ratioFromClientX = useCallback((clientX: number) => {
     const el = waveSeekRef.current
@@ -86,10 +95,40 @@ export function MixerFullscreen({
   locatorMoveRef.current = (e: PointerEvent) => {
     if (!locatorDrag || !onLocatorChange || duration <= 0) return
     const v = ratioFromClientX(e.clientX) * duration
-    if (locatorDrag === "a") onLocatorChange(v, locator?.b ?? null)
-    else onLocatorChange(locator?.a ?? 0, v)
+    onLocatorChange(locatorDrag, v)
     console.debug("[mixer-locator] drag", locatorDrag, `${v.toFixed(2)}s`)
   }
+
+  // 细条拖拽（scrub 同款 window 级范式）：增量 delta 交给引擎钳制；松手未超阈值=点击开关
+  useEffect(() => {
+    const move = (e: PointerEvent) => {
+      const s = stripDragRef.current
+      if (!s || !onLocatorMove || duration <= 0) return
+      if (!s.moved && Math.abs(e.clientX - s.startX) > 4) s.moved = true
+      if (!s.moved) return
+      const rect = waveSeekRef.current?.getBoundingClientRect()
+      if (!rect || rect.width <= 0) return
+      const dx = e.clientX - s.lastX
+      if (dx !== 0) {
+        onLocatorMove((dx / rect.width) * duration)
+        s.lastX = e.clientX
+      }
+    }
+    const up = () => {
+      const s = stripDragRef.current
+      stripDragRef.current = null
+      if (s && !s.moved && onLocatorActiveChange) {
+        onLocatorActiveChange(!locatorActive)
+        console.debug("[mixer-locator] strip toggle →", !locatorActive)
+      }
+    }
+    window.addEventListener("pointermove", move)
+    window.addEventListener("pointerup", up)
+    return () => {
+      window.removeEventListener("pointermove", move)
+      window.removeEventListener("pointerup", up)
+    }
+  }, [onLocatorMove, onLocatorActiveChange, locatorActive, duration])
 
   // 双击输入解析：纯秒（"12.5"）或 分:秒（"1:30.5"）
   const parseTimeInput = (raw: string): number | null => {
@@ -106,8 +145,8 @@ export function MixerFullscreen({
     return Number.isFinite(v) ? Math.max(0, v) : null
   }
 
-  const locARatio = duration > 0 ? (locator?.a ?? 0) / duration : 0
-  const locBRatio = duration > 0 && locator?.b != null ? locator.b / duration : 1
+  const locARatio = duration > 0 ? loc.a / duration : 0
+  const locBRatio = duration > 0 ? loc.b / duration : 1
   const hasAnyMS = !!(Object.values(mutes || {}).some(Boolean) || Object.values(solos || {}).some(Boolean))
 
   // 在波形区按位置 → 指针跳转，联动走带时间
@@ -200,33 +239,57 @@ export function MixerFullscreen({
                 线（区间条）仍贯穿全部分轨内容——滚到哪里，可见线头都从可视区顶与三角无缝相接 */}
             {enableLocator && duration > 0 && onLocatorChange && (
             <div className="sticky top-0 z-20 h-0">
+              {/* 细条开关+拖拽平移（1031 欢哥 Cubase 定稿，边角5）：点击=选区生效开关
+                  （黄=生效；与下方分轨阴影同色=未生效单纯指示）；拖拽=AB 锁定同步平移。
+                  仅 B>A 有可视宽度（折叠态零宽=无热区，先拖 B 拉开区间） */}
+              {loc.b > loc.a && onLocatorMove && onLocatorActiveChange && (
+              <div
+                className="absolute cursor-grab touch-none active:cursor-grabbing"
+                style={{
+                  top: -6, height: 14,
+                  left: `calc(184px + (100% - 184px - 12px) * ${locARatio})`,
+                  width: `calc((100% - 184px - 12px) * ${locBRatio - locARatio})`,
+                  background: locatorActive ? "rgba(187,238,0,0.85)" : "rgba(187,238,0,0.07)",
+                  borderLeft: "1px solid rgba(187,238,0,0.55)",
+                  borderRight: "1px solid rgba(187,238,0,0.55)",
+                }}
+                onPointerDown={(e) => { e.stopPropagation(); setEditing(null); stripDragRef.current = { startX: e.clientX, lastX: e.clientX, moved: false } }}
+                title={locatorActive
+                  ? `定位器生效中（${formatTime(loc.a)} – ${formatTime(loc.b)}）：播放到 B 停止或循环回 A。点击关闭，拖动平移选区`
+                  : `选区未生效（单纯指示）：点击启用定位器，拖动平移选区`}
+                role="switch"
+                aria-checked={!!locatorActive}
+                aria-label="定位器选区开关"
+              />
+              )}
               {/* A 三角（Cubase 直角等腰：竖直角边贴线，水平直角边向右——斜边指向备选区） */}
               <div
                 className="absolute -top-1.5 cursor-ew-resize touch-none"
-                style={{ left: `calc(184px + (100% - 184px - 12px) * ${locARatio ?? 0})`, width: 12, height: 14 }}
+                style={{ left: `calc(184px + (100% - 184px - 12px) * ${locARatio})`, width: 12, height: 14 }}
                 onPointerDown={(e) => { e.stopPropagation(); setEditing(null); setLocatorDrag("a") }}
-                onDoubleClick={() => { setEditing("a"); setEditVal((locator?.a ?? 0).toFixed(1)) }}
-                title={`A ${formatTime(locator?.a ?? 0)}（拖拽调整，双击输入精确时间）`}
+                onDoubleClick={() => { setEditing("a"); setEditVal(loc.a.toFixed(1)) }}
+                title={`A ${formatTime(loc.a)}（拖拽调整，双击输入精确时间）`}
                 role="slider"
                 aria-label="定位器 A 点"
                 aria-valuemin={0}
                 aria-valuemax={Math.round(duration)}
-                aria-valuenow={Math.round(locator?.a ?? 0)}
+                aria-valuenow={Math.round(loc.a)}
               >
                 <svg width="10" height="10" className="block"><path d="M0 0 L10 0 L0 10 Z" fill="#BBEE00" /></svg>
               </div>
-              {/* B 三角（Cubase 直角等腰：竖直角边贴线，水平直角边向左——斜边指向备选区） */}
+              {/* B 三角（Cubase 直角等腰：竖直角边贴线，水平直角边向左——斜边指向备选区；
+                  折叠初始态与 A 拼合，B 在左侧（欢哥 Cubase 定稿） */}
               <div
                 className="absolute -top-1.5 cursor-ew-resize touch-none"
-                style={{ left: `calc(184px + (100% - 184px - 12px) * ${locBRatio ?? 1} - 12px)`, width: 12, height: 14 }}
+                style={{ left: `calc(184px + (100% - 184px - 12px) * ${locBRatio} - 12px)`, width: 12, height: 14 }}
                 onPointerDown={(e) => { e.stopPropagation(); setEditing(null); setLocatorDrag("b") }}
-                onDoubleClick={() => { setEditing("b"); setEditVal((locator?.b ?? duration).toFixed(1)) }}
-                title={`B ${formatTime(locator?.b ?? duration)}（拖拽调整，双击输入精确时间）`}
+                onDoubleClick={() => { setEditing("b"); setEditVal(loc.b.toFixed(1)) }}
+                title={`B ${formatTime(loc.b)}（拖拽调整，双击输入精确时间）`}
                 role="slider"
                 aria-label="定位器 B 点"
                 aria-valuemin={0}
                 aria-valuemax={Math.round(duration)}
-                aria-valuenow={Math.round(locator?.b ?? duration)}
+                aria-valuenow={Math.round(loc.b)}
               >
                 <svg width="10" height="10" className="absolute right-0 block"><path d="M10 0 L0 0 L10 10 Z" fill="#BBEE00" /></svg>
               </div>
@@ -275,7 +338,7 @@ export function MixerFullscreen({
                 （z 高于 scrub 层可拖拽）+ 拖拽时间码气泡 + 双击精确输入框 */}
             {enableLocator && duration > 0 && onLocatorChange && (
               <>
-                {locator && (
+                {loc.b > loc.a && (
                   <div
                     className="pointer-events-none absolute -top-1.5 bottom-0"
                     style={{
@@ -298,7 +361,7 @@ export function MixerFullscreen({
                       border: "1px solid rgba(187,238,0,0.4)",
                     }}
                   >
-                    {formatTime(locatorDrag === "a" ? (locator?.a ?? 0) : (locator?.b ?? duration))}
+                    {formatTime(locatorDrag === "a" ? loc.a : loc.b)}
                   </div>
                 )}
                 {/* 双击精确输入框（秒 或 分:秒） */}
@@ -316,10 +379,7 @@ export function MixerFullscreen({
                         e.stopPropagation()
                         if (e.key === "Enter") {
                           const v = parseTimeInput(editVal)
-                          if (v != null) {
-                            if (editing === "a") onLocatorChange(v, locator?.b ?? null)
-                            else onLocatorChange(locator?.a ?? 0, v)
-                          }
+                          if (v != null) onLocatorChange(editing, v)
                           setEditing(null)
                         } else if (e.key === "Escape") {
                           setEditing(null)
@@ -393,8 +453,9 @@ export function MixerFullscreen({
               {footerHint}
             </p>
 
-            {/* 区间循环开关（enableLocator 才渲染） */}
-            {enableLocator && onLoopToggle && (
+            {/* 循环开关（1031 归播放引擎，欢哥拍板维度纠正：循环=播放器的事，与定位器解耦——
+                传了就渲染；program 不传=零感知）。定位器开=循环选区，关=整曲循环 */}
+            {onLoopToggle && (
               <button
                 type="button"
                 onClick={() => onLoopToggle(!loop)}
@@ -403,8 +464,8 @@ export function MixerFullscreen({
                   color: loop ? MIXER_COLORS.green : MIXER_COLORS.textMuted,
                   border: `1px solid ${loop ? "rgba(187,238,0,0.5)" : MIXER_COLORS.border}`,
                 }}
-                aria-label="区间循环播放"
-                title="区间内循环播放"
+                aria-label="循环播放"
+                title="循环播放（定位器生效时循环选区，否则整曲循环）"
               >
                 <Repeat size={14} />
               </button>

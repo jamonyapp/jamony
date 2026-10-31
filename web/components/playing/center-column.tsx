@@ -835,7 +835,7 @@ function RecordingPanel({
   }
   const currentDraft = (): MixerDraft => ({
     volumes: mixerEngine.volumes, pans: mixerEngine.pans, master: mixerEngine.masterVolume,
-    locator: mixerEngine.locator, loop: mixerEngine.loop,
+    locator: mixerEngine.locator, locatorActive: mixerEngine.locatorActive, loop: mixerEngine.loop,
   })
   const saveDraftNow = (sid: number) => {
     try { localStorage.setItem(draftKey(sid), JSON.stringify({ ...currentDraft(), savedAt: Date.now() })) } catch {}
@@ -846,7 +846,7 @@ function RecordingPanel({
     if (draftTimerRef.current) clearTimeout(draftTimerRef.current)
     draftTimerRef.current = setTimeout(() => saveDraftNow(mixerSessionId), 800)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mixerSessionId, mixerMode, mixerEngine.volumes, mixerEngine.pans, mixerEngine.masterVolume, mixerEngine.locator, mixerEngine.loop])
+  }, [mixerSessionId, mixerMode, mixerEngine.volumes, mixerEngine.pans, mixerEngine.masterVolume, mixerEngine.locator, mixerEngine.locatorActive, mixerEngine.loop])
   // 发表完成 → 草稿清空（参数已冻结进作品快照）
   useEffect(() => {
     if (mixerSessionId === null) return
@@ -921,7 +921,8 @@ function RecordingPanel({
     if (!mineLock) { await openPublishMixer(publishSession); return } // 锁已懒释放 → 重新抢
     const buffers = mixerEngine.getBuffers()
     const lc = mixerEngine.locator
-    const range = lc ? { a: lc.a, b: lc.b ?? mixerEngine.duration } : null
+    // 1031 开关独立（欢哥定稿）：生效才按区间送闸3预检/落库；未生效=全曲（null 语义与服务端权威终审口径不变）
+    const range = mixerEngine.locatorActive && lc.b > lc.a ? { a: lc.a, b: lc.b } : null
     // 闸3客户端预检：授权人类轨在区间内须有可感知声音（looper 豁免；服务端另有权威终审）
     const silent: string[] = []
     for (const t of publishSession.tracks) {
@@ -1176,16 +1177,10 @@ function RecordingPanel({
             onResetMasterClip={mixerEngine.resetMasterClip}
             enableLocator
             locator={mixerEngine.locator}
-            onLocatorChange={(a, b) => {
-              if (mixerEngine.locator) {
-                mixerEngine.setLocatorA(a)
-                if (b != null) mixerEngine.setLocatorB(b)
-              } else if (b != null) {
-                mixerEngine.setLocatorB(b)
-              } else {
-                mixerEngine.setLocatorA(a)
-              }
-            }}
+            locatorActive={mixerEngine.locatorActive}
+            onLocatorChange={(which, v) => { which === "a" ? mixerEngine.setLocatorA(v) : mixerEngine.setLocatorB(v) }}
+            onLocatorMove={mixerEngine.moveLocator}
+            onLocatorActiveChange={mixerEngine.setLocatorActive}
             loop={mixerEngine.loop}
             onLoopToggle={mixerEngine.setLoop}
             onResetAll={mixerEngine.resetAll}

@@ -55,10 +55,17 @@ export interface MixerFullscreenProps {
   /* ───── 1026 定位器/发表（全可选；program 不传=DOM 与现状一致，回归机器判据）───── */
   /** 开启定位器 UI（录音双混音器传；program 不传） */
   enableLocator?: boolean
-  /** 定位器（秒）；null=未设（A 渲染在 0 位、B 在末位） */
-  locator?: { a: number; b: number | null } | null
-  onLocatorChange?: (a: number, b: number | null) => void
-  /** 区间循环开关（enableLocator 时渲染） */
+  /** 定位器区间（秒，1031 起常驻）：默认折叠 {0,0}，B>A 才有可视选区 */
+  locator?: { a: number; b: number }
+  /** 定位器开关（1031 细条点击，欢哥 Cubase 定稿）：true=选区参与播放约束（到 B 停/循环回 A）；false=单纯指示 */
+  locatorActive?: boolean
+  /** A/B 三角拖拽与双击键入（which=哪个端点，v=秒；1031 起显式指明——区间常驻后无法按值判空区分） */
+  onLocatorChange?: (which: "a" | "b", v: number) => void
+  /** 细条拖拽：AB 锁定同步平移（增量秒；引擎内钳制 0/曲尾） */
+  onLocatorMove?: (deltaSec: number) => void
+  /** 细条点击：选区生效开关切换 */
+  onLocatorActiveChange?: (v: boolean) => void
+  /** 循环开关（1031 归播放引擎，与定位器解耦：传了就渲染——program 不传=零感知） */
   loop?: boolean
   onLoopToggle?: (v: boolean) => void
   /** 复位所有参数（音量/声像/总线/M/S/定位器一键回默认） */
