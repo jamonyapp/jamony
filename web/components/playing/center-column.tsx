@@ -2164,7 +2164,7 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
         // 无论此前哪条路径（精确定时器/对表/alphaTab 自走/广播收尾）把指针带到哪，最后一下必归 B 内
         if (scoreRangeRef.current) {
           const spdNow = speedRef.current || 1
-          const restCap = gpState?.restMs !== undefined ? Math.round(gpState.restMs / spdNow) : Math.round(scoreRangeRef.current.b / spdNow)
+          const restCap = (gpState?.restMs !== undefined ? Math.round(gpState.restMs / spdNow) : Math.round(scoreRangeRef.current.b / spdNow)) + 0.005
           if (home > restCap) {
             home = restCap
             try { api.timePosition = home } catch (e) { /* 静默 */ }
@@ -2200,8 +2200,10 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
       // 循环态不本地停——由服务端每遍重锚广播接管（gpState.loop）。
       if (!gpState.loop && gpState.endMs !== undefined && rawT >= cap) {
         // 归位=选区内最晚音符起始（服务端烤制算出 restMs；无则退 B）——压 B 线在小节线场景
-        // 视觉上=下一小节开头，压最后音符=无歧义选区内（欢哥语义）
-        const rest = gpState.restMs !== undefined ? gpState.restMs / spd : hardCap
+        // 视觉上=下一小节开头，压最后音符=无歧义选区内（欢哥语义）。
+        // +5ms 深入音符体内：服务端 tick→ms 与 alphaTab 自算存在亚毫秒差，恰落在 onset 前一丝
+        // =视觉空白尾巴上（欢哥「指针停在空白」定罪）；音符体 150ms+，5ms 稳落音上。
+        const rest = (gpState.restMs !== undefined ? gpState.restMs / spd : hardCap) + 0.005
         try { api.timePosition = Math.max(0, rest) } catch (e) { /* 忽略 */ }
         api.pause?.()
         return
@@ -2223,9 +2225,10 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
       endTimer = setTimeout(() => {
         const api2 = apiRef.current
         if (!api2) return
-        // 停针位=选区内最晚音符起始（restMs 服务端烤制算出；无选区退 B；无 B 退音频终点）
+        // 停针位=选区内最晚音符起始（restMs 服务端烤制算出；无选区退 B；无 B 退音频终点）；
+        // +5ms 深入音符体（亚毫秒差落在 onset 前=视觉空白尾巴，同预停路径）
         const rb = scoreRangeRef.current ? scoreRangeRef.current.b / spd : Infinity
-        const restPos = Math.max(0, gpState.restMs !== undefined ? gpState.restMs / spd : Math.min(capPos, rb))
+        const restPos = Math.max(0, (gpState.restMs !== undefined ? gpState.restMs / spd : Math.min(capPos, rb)) + 0.005)
         try { api2.timePosition = restPos } catch (e) { /* 忽略 */ }
         api2.pause?.()
         console.log("[gp指针] 到点精确预停 @B=", Math.round(restPos), "（音频终点=", Math.round(capPos), "）")
