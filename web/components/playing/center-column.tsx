@@ -2179,17 +2179,21 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
       if (!api) return
       // 倍速域（根治版）：本地烤速推进=墙钟1:1，target=base+墙钟elapsed-lag（无×speed）
       // 预备拍：countInMs 期间钳在 base；选段：上限钳 endMs（服务器掐尾重启间隙指针不越界）
+      // 1031 指针归界（欢哥语义「停止后指针停在选段最后，不停在选区外」）：音频尾巴可唱到
+      // 音乐性终点(endMs)，但指针硬上限=min(endMs, 选区B)——尾巴期间指针在 B 上等音频收完。
       const cap = gpState.endMs !== undefined ? gpState.endMs / spd : Infinity
+      const rangeB = scoreRangeRef.current ? scoreRangeRef.current.b / spd : Infinity
+      const hardCap = Math.min(cap, rangeB)
       const rawT = base + Date.now() - startedAtMs - audioLagRef.current - countInMs
       // 1031 C 方案配套·到点本地预停：服务端 playing=false 广播含 500ms 宽限+退出链+RTT，
       // 窗口期 alphaTab 静默时钟自走=声音停了指针还在走的元凶（走多远随拍速=「不规律」的真相）。
       // 循环态不本地停——由服务端每遍重锚广播接管（gpState.loop）。
       if (!gpState.loop && gpState.endMs !== undefined && rawT >= cap) {
-        try { api.timePosition = Math.max(0, cap) } catch (e) { /* 忽略 */ }
+        try { api.timePosition = Math.max(0, hardCap) } catch (e) { /* 忽略 */ }
         api.pause?.()
         return
       }
-      const target = Math.min(cap, Math.max(base, rawT))
+      const target = Math.min(hardCap, Math.max(base, rawT))
       const diff = (api.timePosition ?? 0) - target
       console.log("[gp指针] 对表 tick 本地=", Math.round(api.timePosition ?? 0), "目标=", Math.round(target), "差=", Math.round(diff), "speed=", spd)
       if (Math.abs(diff) > 150) {
@@ -2206,9 +2210,12 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
       endTimer = setTimeout(() => {
         const api2 = apiRef.current
         if (!api2) return
-        try { api2.timePosition = Math.max(0, capPos) } catch (e) { /* 忽略 */ }
+        // 停针位=选区 B（欢哥语义：指针的家在选区内——音频唱到音乐性终点，指针钉在 B）
+        const rb = scoreRangeRef.current ? scoreRangeRef.current.b / spd : Infinity
+        const restPos = Math.max(0, Math.min(capPos, rb))
+        try { api2.timePosition = restPos } catch (e) { /* 忽略 */ }
         api2.pause?.()
-        console.log("[gp指针] 到点精确预停 @", Math.round(capPos))
+        console.log("[gp指针] 到点精确预停 @B=", Math.round(restPos), "（音频终点=", Math.round(capPos), "）")
       }, Math.max(0, remainMs))
     }
     return () => { if (endTimer) clearTimeout(endTimer); clearInterval(id) }
