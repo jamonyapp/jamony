@@ -6,7 +6,7 @@ import { useSpaceControl } from "@/hooks/useSpaceControl"
 import { Minimize2, Pause, Play, SkipBack, Square, X, AudioLines, Repeat, RotateCcw } from "lucide-react"
 import { ChannelStrip } from "./channel-strip"
 import { WaveformTrack } from "./waveform-track"
-import { formatTime, MIXER_COLORS, type MixerFullscreenProps } from "./types"
+import { formatTime, LOCATOR_YELLOW, MIXER_COLORS, type MixerFullscreenProps } from "./types"
 
 /* 1031 空格互斥（欢哥拍板「不能一按全都响应」）：全站空格仲裁器统一分发（useSpaceControl，
    与 GP 谱工作站共用）——后打开的=视觉顶层=空格独享，关闭自动回落次顶层。 */
@@ -267,10 +267,10 @@ export function MixerFullscreen({
                   top: -6, height: 10,
                   left: `calc(184px + (100% - 184px - 12px) * ${locARatio})`,
                   width: `calc((100% - 184px - 12px) * ${locBRatio - locARatio})`,
-                  // 1031 二轮（欢哥）：绿色阴影退役——未激活=白（单纯指示）；激活=黄
-                  background: locatorActive ? "rgba(255,204,0,0.85)" : "rgba(255,255,255,0.07)",
-                  borderLeft: `1px solid ${locatorActive ? "rgba(255,204,0,0.55)" : "rgba(255,255,255,0.55)"}`,
-                  borderRight: `1px solid ${locatorActive ? "rgba(255,204,0,0.55)" : "rgba(255,255,255,0.55)"}`,
+                  // 1031 二轮（欢哥）：绿色阴影退役——未激活=白（单纯指示）；激活=品牌黄
+                  background: locatorActive ? LOCATOR_YELLOW.fill : "rgba(255,255,255,0.07)",
+                  borderLeft: `1px solid ${locatorActive ? LOCATOR_YELLOW.line : "rgba(255,255,255,0.55)"}`,
+                  borderRight: `1px solid ${locatorActive ? LOCATOR_YELLOW.line : "rgba(255,255,255,0.55)"}`,
                 }}
                 onPointerDown={(e) => { e.stopPropagation(); setEditing(null); stripDragRef.current = { startX: e.clientX, lastX: e.clientX, moved: false } }}
                 title={locatorActive
@@ -363,9 +363,9 @@ export function MixerFullscreen({
                     style={{
                       left: `calc(184px + (100% - 184px - 12px) * ${locARatio})`,
                       width: `calc((100% - 184px - 12px) * ${Math.max(0, locBRatio - locARatio)})`,
-                      background: locatorActive ? "rgba(255,204,0,0.07)" : "rgba(255,255,255,0.07)",
-                      borderLeft: `1px solid ${locatorActive ? "rgba(255,204,0,0.55)" : "rgba(255,255,255,0.55)"}`,
-                      borderRight: `1px solid ${locatorActive ? "rgba(255,204,0,0.55)" : "rgba(255,255,255,0.55)"}`,
+                      background: locatorActive ? LOCATOR_YELLOW.tint : "rgba(255,255,255,0.07)",
+                      borderLeft: `1px solid ${locatorActive ? LOCATOR_YELLOW.line : "rgba(255,255,255,0.55)"}`,
+                      borderRight: `1px solid ${locatorActive ? LOCATOR_YELLOW.line : "rgba(255,255,255,0.55)"}`,
                     }}
                   />
                 )}

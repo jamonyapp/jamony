@@ -70,6 +70,7 @@
   --brand-purple-deep: #7a2bd9;
   --brand-pink: #ff33aa;
   --brand-lime: #bbee00;
+  --brand-yellow: #ffeb3b;
   --brand-green: #bbee00; /* alias for lime */
   --brand-gradient: linear-gradient(
     90deg,

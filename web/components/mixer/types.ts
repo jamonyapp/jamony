@@ -120,6 +120,14 @@ export const MIXER_COLORS = {
   border: "#333333",
 } as const
 
+// 定位器激活黄（1031 欢哥拍板）：品牌黄 #FFEB3B（globals --brand-yellow 同源）。
+// 弃 #FFCC00（色相 48° 偏橙金土黄）；#FFEB3B 色相 54° 柠檬黄，纯黑底最干净。
+export const LOCATOR_YELLOW = {
+  fill: "rgba(255,235,59,0.85)", // 细条开关实心
+  tint: "rgba(255,235,59,0.07)", // 下方选区淡染
+  line: "rgba(255,235,59,0.55)", // 竖线（选区左右沿+细条沿）
+} as const
+
 export function formatTime(seconds: number): string {
   const safe = Number.isFinite(seconds) && seconds > 0 ? seconds : 0
   const m = Math.floor(safe / 60)
