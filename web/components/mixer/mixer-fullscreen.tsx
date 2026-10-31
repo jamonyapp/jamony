@@ -222,6 +222,17 @@ export function MixerFullscreen({
                 复位所有调参值
               </button>
             )}
+            {/* 发表倒计时（1031 三轮欢哥：迁标题栏复位钮后；品牌玫红；句号收尾。
+                仅发表混音器传 countdownSec；发表成功后父组件不再传=隐藏） */}
+            {typeof countdownSec === "number" && countdownSec > 0 && (
+              <span
+                className="ml-1 shrink-0 font-mono text-xs tabular-nums"
+                style={{ color: MIXER_COLORS.pink }}
+                title="超时将自动释放发表权"
+              >
+                请在 {Math.floor(countdownSec / 60)}m:{String(Math.floor(countdownSec % 60)).padStart(2, "0")}s 内完成发表，超时将释放发表权。
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -476,16 +487,7 @@ export function MixerFullscreen({
               <span style={{ color: MIXER_COLORS.textMuted }}> / {formatTime(duration)}</span>
             </div>
 
-            {/* 发表倒计时（仅发表混音器传 countdownSec；发表成功后父组件不再传=隐藏） */}
-            {typeof countdownSec === "number" && countdownSec > 0 && (
-              <span
-                className="shrink-0 font-mono text-xs tabular-nums"
-                style={{ color: countdownSec < 120 ? MIXER_COLORS.yellow : MIXER_COLORS.textMuted }}
-                title="超时将自动释放发表权"
-              >
-                请在 {Math.floor(countdownSec / 60)}m:{String(Math.floor(countdownSec % 60)).padStart(2, "0")}s 内完成发表，超时将释放发表权
-              </span>
-            )}
+            {/* 发表倒计时已迁标题栏（1031 三轮欢哥） */}
 
             <p className="ml-auto text-xs" style={{ color: MIXER_COLORS.textMuted }}>
               {footerHint}

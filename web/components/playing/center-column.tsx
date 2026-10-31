@@ -663,6 +663,8 @@ function RecordingPanel({
   const [claimTaken, setClaimTaken] = useState<{ userId: number; nickname: string } | null>(null)
   const [claimingId, setClaimingId] = useState<number | null>(null) // 卡片「占位中」瞬态
   const [rendering, setRendering] = useState(false)
+  // 渲染阶段面包屑（1031 发表黑屏排障）：busy 按钮显示当前阶段——再崩时欢哥报按钮文案=死点定位
+  const [renderStage, setRenderStage] = useState("")
   const [injectedMix, setInjectedMix] = useState<{ mp3Blob: Blob; durationSec: number; mixParamsJson: string } | null>(null)
   const [publishModalOpen, setPublishModalOpen] = useState(false)
   const publishClaimedRef = useRef(false)
@@ -901,7 +903,7 @@ function RecordingPanel({
     const hasSolo = engIds.some(id => mixerEngine.solos[id])
     const anySilenced = engIds.some(id => (hasSolo ? !mixerEngine.solos[id] : !!mixerEngine.mutes[id]))
     if (anySilenced) return { label: "发表作品", disabled: true, tone: "gray" as const, reason: "存在静音/独奏轨——发表要求所有分轨参与混音（M/S 仅试听用），点「清除M/S」后重试" }
-    if (rendering) return { label: "生成中…", disabled: true, busy: true, tone: "blue" as const }
+    if (rendering) return { label: renderStage || "生成中…", disabled: true, busy: true, tone: "blue" as const }
     const mineLock = publishSession.publisher_user_id === currentUserId
     if (publishSession.publisher_user_id != null && !mineLock) return { label: "发表中", disabled: true, tone: "gray" as const, reason: `${publishSession.publisher_nickname || "其他乐手"} 正在发表` }
     if (!mineLock) return { label: "去发表", disabled: false, tone: "blue" as const } // 锁懒超时已释放 → 点击重新抢
@@ -942,7 +944,7 @@ function RecordingPanel({
       const specs = mixerEngine.tracks
         .map(mt => ({ key: mt.id, buffer: buffers.get(mt.id), gain: mixerEngine.volumes[mt.id] ?? 1, pan: mixerEngine.pans[mt.id] ?? 0 }))
         .filter((s): s is { key: string; buffer: AudioBuffer; gain: number; pan: number } => !!s.buffer)
-      const result = await renderMix({ tracks: specs, master: mixerEngine.masterVolume, range, onProgress: m => console.debug("[renderMix]", m) })
+      const result = await renderMix({ tracks: specs, master: mixerEngine.masterVolume, range, onProgress: m => { console.debug("[renderMix]", m); setRenderStage(m) } })
       const params = buildMixParams({
         tracks: publishSession.tracks.filter(t => t.allow_use === true).map(t => {
           const id = String(t.id)
@@ -963,7 +965,7 @@ function RecordingPanel({
       setPublishModalOpen(true)
     } catch (e) {
       dialog.alert(`成品渲染失败：${e instanceof Error ? e.message : String(e)}，请重试`)
-    } finally { setRendering(false) }
+    } finally { setRendering(false); setRenderStage("") }
   }
 
   // 关混音器：草稿即刻落盘（防抖尾巴不丢）+ 未发表释放锁 + 发表流收尾
@@ -1145,7 +1147,7 @@ function RecordingPanel({
             sessionLabel={`段落 ${mixerSession?.index}`}
             titleLabel={isPublish ? "发表混音" : "试听混音"}
             footerHint={isPublish
-              ? "你的调整与发表区间将随「发表作品」落档为作品成品——所发即所听。"
+              ? "作品内容取决于定位器范围，定位器未打开视为全部分轨音频整体发表。"
               : "试听回放：调整仅本地生效，这可以辅助你决定是否授权使用自己的分轨或是否署名。"}
             tracks={mixerEngine.tracks}
             isOpen={true}

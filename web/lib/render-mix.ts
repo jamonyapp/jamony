@@ -10,7 +10,8 @@
  * 闸3客户端预检（computeRangePeak）：点「发表作品」时扫内存 buffer 的
  * 区间峰值，无声人类轨当场指认（服务端另有权威终审，客户端只是体验层）。
  */
-import { encodeMp3 } from "./auto-mix"
+// MP3 编码已 Worker 化（1031 发表黑屏根治，见下方 encodeMp3InWorker 与
+// public/mp3-encoder-worker.js）；auto-mix.ts 的 encodeMp3 仅供其遗留路径使用。
 
 /* ============ 固定安全限幅器（两链同参，单点定义防漂移）============
  * 性质是安全带不是审美：阈值 -1dB、20:1 限幅语义，健康混音永不介入。
@@ -104,9 +105,40 @@ export async function renderMix(input: RenderMixInput): Promise<RenderMixResult>
 
   onProgress?.("渲染混音中…")
   const rendered = await offlineCtx.startRendering()
-  onProgress?.("编码 MP3…")
-  const mp3Blob = encodeMp3(rendered)
+  onProgress?.("编码 MP3…（工作线程）")
+  const mp3Blob = await encodeMp3InWorker(rendered)
   return { mp3Blob, duration: rendered.duration }
+}
+
+/* ============ MP3 编码 Worker 化（1031 发表黑屏根治）============
+ * 主线程同步 lamejs 编码分钟级成品=渲染进程冻结+内存压力→Electron 杀进程
+ * （内置崩溃页）。搬进 Worker：主线程全程活着；编码爆炸只死 worker，
+ * reject → 上层 toast。worker 体见 public/mp3-encoder-worker.js。
+ */
+function encodeMp3InWorker(buffer: AudioBuffer): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    let worker: Worker
+    try {
+      worker = new Worker("/mp3-encoder-worker.js")
+    } catch {
+      reject(new Error("MP3 编码 worker 启动失败"))
+      return
+    }
+    worker.onmessage = (ev: MessageEvent) => {
+      const d = ev.data as { ok: boolean; data?: Int8Array; msg?: string }
+      worker.terminate()
+      if (d.ok && d.data) resolve(new Blob([d.data], { type: "audio/mpeg" }))
+      else reject(new Error(d.msg || "MP3 编码失败"))
+    }
+    worker.onerror = (ev: ErrorEvent) => {
+      worker.terminate()
+      reject(new Error(`MP3 编码 worker 异常：${ev.message || "未知"}`))
+    }
+    // getChannelData 返回内部存储视图不可转移，structuredClone 复制一次性开销
+    const left = buffer.getChannelData(0)
+    const right = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : null
+    worker.postMessage({ left, right, sampleRate: buffer.sampleRate })
+  })
 }
 
 /* ============ 闸3 客户端预检（纯函数）============ */
