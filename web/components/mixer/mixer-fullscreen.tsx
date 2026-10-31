@@ -246,8 +246,10 @@ export function MixerFullscreen({
         </header>
 
         {/* ───── 1. 波形区（高度跟随轨道数；≤5 条贴合内容，>5 条固定高度并滚动） ───── */}
+        {/* select-none（1031 欢哥）：拖三角/细条/刮擦时浏览器把拖动当框选复制，
+            分轨名文案被带上选择背景——波形区无任何供选择文案，静态关闭 */}
         <section
-          className="relative shrink-0 overflow-y-auto px-3 py-3"
+          className="relative shrink-0 overflow-y-auto px-3 py-3 select-none"
           style={tracks.length > 5 ? { maxHeight: 5 * 52 + 4 * 4 } : undefined}
         >
           <div className="relative flex w-full flex-col gap-1">
