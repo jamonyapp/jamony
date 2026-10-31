@@ -220,6 +220,10 @@ function gpMsToTick(midiFile, ms) {
 // Volume/Expression 指令必须补到新文件 tick0——fluidsynth 没收到乐器指令就退默认钢琴；tempo 同理
 function gpShiftMidiStart(midiFile, startTick) {
   if (!(startTick > 0)) return
+  // ⚠️A 侧守卫窗 3 tick（1031 欢哥实测「选区开端丢拍」定罪）：生成器网格音符系统性在 480k−1 tick
+  // （B 侧守卫同源伪影）——A 吸附到网格位 1920 而音符在 1919 时，严格 tick≥startTick 会把
+  // 「A 点上的第一个音符」当负位移丢弃=选区起播丢拍。平移点回退 3 tick（≈1.5ms，无感）。
+  startTick = Math.max(0, startTick - 3)
   let lastTempoBefore = null
   // 每通道：起点前最后一次 乐器/音色库粗细/音量/表情 指令（携带集合）。
   // ⚠️按事件实际所在的 MidiTrack 对象归组（format 0 时所有事件并在 tracks[0]，ev.track 是原始轨号会对不上宿主）
