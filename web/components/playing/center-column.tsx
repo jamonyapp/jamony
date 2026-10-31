@@ -6,7 +6,7 @@ import { instrumentEmoji, type RecordingSession, type Track, type RoomScore, typ
 import { MixerFullscreen } from "@/components/mixer/mixer-fullscreen"
 import { MixerMini } from "@/components/mixer/mixer-mini"
 import { useMixerEngine, type MixerDraft } from "@/hooks/useMixerEngine"
-import { renderMix, buildMixParams, rangeAudible, computeRangePeak, peakToDbfs } from "@/lib/render-mix"
+import { renderMix, buildMixParams, computeRangePeak, peakToDbfs, rangeAudibleStrict, computeRangeRmsDb, SILENCE_RMS_THRESHOLD_DB, RANGE_HEAD_SKIP_SEC } from "@/lib/render-mix"
 import { TRACK_COLORS, type MixerTrack } from "@/components/mixer/types"
 import PublishWorkModal from "@/components/publishing/publish-work-modal"
 import { useJamonyDialog } from "@/components/jamony/dialog"
@@ -932,15 +932,38 @@ function RecordingPanel({
       ;(window as unknown as { __jamonyLog?: (x: string) => void }).__jamonyLog?.(m)
     }
     jlog(`publish: 预检开始 locatorActive=${mixerEngine.locatorActive} locator=(${lc.a.toFixed(2)},${lc.b.toFixed(2)}) range=${range ? `[${range.a.toFixed(2)},${range.b.toFixed(2)}]` : "null(全曲)"}`)
-    // 闸3客户端预检：授权人类轨在区间内须有可感知声音（looper 豁免；服务端另有权威终审）
+    // 闸3客户端预检（1031 判据升级：严格判据=头50ms豁免+RMS>-40dB，与服务端终审同口径；
+    // looper 豁免；服务端另有权威终审）。全程留痕（1031 立宪：拦/放都上报 energy_audit）。
     const silent: string[] = []
+    const precheckRecords: { trackId: number | string; nickname: string; skipped: boolean; reason?: string; rmsDb?: number; peakDb?: number; audible?: boolean }[] = []
     for (const t of publishSession.tracks) {
-      if (t.is_system || t.allow_use !== true) { jlog(`publish: 预检跳过 ${t.nickname}(is_system=${t.is_system} allow_use=${t.allow_use})`); continue }
+      if (t.is_system || t.allow_use !== true) {
+        jlog(`publish: 预检跳过 ${t.nickname}(is_system=${t.is_system} allow_use=${t.allow_use})`)
+        precheckRecords.push({ trackId: t.id, nickname: t.nickname, skipped: true, reason: t.is_system ? "system轨豁免" : "未授权" })
+        continue
+      }
       const buf = buffers.get(String(t.id))
-      if (!buf) { jlog(`publish: 预检跳过 ${t.nickname}(buffer缺失 id=${t.id})`); continue }
-      const audible = range ? rangeAudible(buf, range.a, range.b) : true // 无定位器=落版闸1已测全曲
-      jlog(`publish: 预检 ${t.nickname} 区间[${(range ? range.a : 0).toFixed(2)},${(range ? range.b : buf.duration).toFixed(2)}] 峰值${peakToDbfs(computeRangePeak(buf, range ? range.a : 0, range ? range.b : buf.duration)).toFixed(1)}dB=${audible ? "有声" : "无声"}`)
+      if (!buf) {
+        jlog(`publish: 预检跳过 ${t.nickname}(buffer缺失 id=${t.id})`)
+        precheckRecords.push({ trackId: t.id, nickname: t.nickname, skipped: true, reason: "buffer缺失" })
+        continue
+      }
+      // 无定位器=全曲（落版闸1已测原始域全曲）→ 区间判据不适用，按有声放行
+      const audible = range ? rangeAudibleStrict(buf, range.a, range.b) : true
+      const a2 = Math.max(range ? range.a : 0, RANGE_HEAD_SKIP_SEC)
+      const b2 = range ? range.b : buf.duration
+      const rmsDb = computeRangeRmsDb(buf, a2, b2)
+      const peakDb = peakToDbfs(computeRangePeak(buf, a2, b2))
+      precheckRecords.push({ trackId: t.id, nickname: t.nickname, skipped: false, rmsDb, peakDb, audible })
+      jlog(`publish: 预检 ${t.nickname} 区间[${(range ? range.a : 0).toFixed(2)},${(range ? range.b : buf.duration).toFixed(2)}] RMS${rmsDb === -Infinity ? "-∞" : rmsDb.toFixed(1)}dB(阈${SILENCE_RMS_THRESHOLD_DB}) 峰值${peakDb === -Infinity ? "-∞" : peakDb.toFixed(1)}dB=${audible ? "有声" : "无声"}`)
       if (!audible) silent.push(t.nickname)
+    }
+    // ⭐ 留痕上报（1031 立宪：被拦的预检也必须留服务端档——此前被拦尝试零痕迹=悬案取证难的根源）
+    if (roomId && mixerSessionId !== null) {
+      fetch(`/api/rooms/${roomId}/sessions/${mixerSessionId}/precheck-audit`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ blocked: silent.length > 0, rangeA: range ? range.a : null, rangeB: range ? range.b : null, records: precheckRecords }),
+      }).catch(() => {})
     }
     if (silent.length > 0) {
       dialog.alert(`以下分轨在发表区间内无声：${silent.join("、")}。请调整发表区间，或由该乐手拒绝使用授权。`)
@@ -961,13 +984,13 @@ function RecordingPanel({
             track_id: t.id, user_id: t.user_id, nickname: t.nickname, is_system: t.is_system,
             instrument_category: t.instrument_category,
             gain: mixerEngine.volumes[id] ?? 1, pan: mixerEngine.pans[id] ?? 0,
-            in_range: buf ? (range ? rangeAudible(buf, range.a, range.b) : true) : false,
+            in_range: buf ? (range ? rangeAudibleStrict(buf, range.a, range.b) : true) : false,
           }
         }),
         master: mixerEngine.masterVolume,
         // 契约：b 恒为具体值（未设定位器=全曲时长），服务端终审永远有窗口可审
         range: range ? { a: range.a, b: range.b } : { a: 0, b: mixerEngine.duration },
-        clientAudit: { silent_tracks: silent, checked_at: new Date().toISOString() },
+        clientAudit: { silent_tracks: silent, checked_at: new Date().toISOString(), records: precheckRecords, criterion: `rms>${SILENCE_RMS_THRESHOLD_DB}dB+headSkip${RANGE_HEAD_SKIP_SEC}s` },
       })
       ;(window as unknown as { __jamonyLog?: (m: string) => void }).__jamonyLog?.("publish: 渲染+编码完成, 组装参数并开确认弹窗")
       setInjectedMix({ mp3Blob: result.mp3Blob, durationSec: result.duration, mixParamsJson: JSON.stringify(params) })

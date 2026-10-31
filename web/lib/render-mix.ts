@@ -31,6 +31,47 @@ export const ENGINE_ID = "webaudio-v1"
 /** 闸3 静音判据（与停录落档/服务端终审同阈值） */
 export const SILENCE_THRESHOLD_DB = -60
 
+/* ============ 1031 判据升级（欢哥四案实验定罪）============
+ * 旧峰值判据在归一化域被双穿：归一化爆音(-1.4dBTP，normalize-wav 增益放大 t=0 微不连续)
+ * 与效果器底噪(归一化后 -44~-27.5dB 峰值，增益逐轨不同)。新判据（归一化域专用，
+ * 闸1 原始域维持峰值-60dB 不变）：区间均值 RMS > -30dB + 跳过曲头 50ms（爆音免疫区）。
+ * 阈值依据（1031 实测）：热底噪 RMS=-40.0（拦，裕量10dB）/ 冷底噪 -45~-48（拦）/
+ * 真静默 -90（拦）/ 真演奏 -12~-19（放，裕量11~18dB）——底噪与演奏间隔 21dB，
+ * -30 居中两向各 10dB。客户端预检与服务端终审同口径；审计留档供后续数据化调参。
+ */
+export const SILENCE_RMS_THRESHOLD_DB = -30
+export const RANGE_HEAD_SKIP_SEC = 0.05
+
+/** 区间均值 RMS（dBFS；空窗/纯零=-Infinity） */
+export function computeRangeRmsDb(buffer: AudioBuffer, a: number, b: number): number {
+  const sr = buffer.sampleRate
+  const start = Math.max(0, Math.floor(a * sr))
+  const end = Math.min(buffer.length, Math.ceil(b * sr))
+  if (end <= start) return -Infinity
+  let sumSq = 0
+  let n = 0
+  for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
+    const data = buffer.getChannelData(ch)
+    for (let i = start; i < end; i++) {
+      const s = data[i]
+      sumSq += s * s
+      n++
+    }
+  }
+  if (n === 0) return -Infinity
+  const rms = Math.sqrt(sumSq / n)
+  return rms > 0 ? 20 * Math.log10(rms) : -Infinity
+}
+
+/** 严格判据（1031）：头 50ms 豁免 + RMS 阈值；区间窄于豁免区=无有效内容=拦 */
+export function rangeAudibleStrict(buffer: AudioBuffer, a: number, b: number): boolean {
+  const a2 = Math.max(a, RANGE_HEAD_SKIP_SEC)
+  if (b <= a2) return false
+  const db = computeRangeRmsDb(buffer, a2, b)
+  if (db === -Infinity) return false
+  return db > SILENCE_RMS_THRESHOLD_DB
+}
+
 export function applyFixedLimiter(comp: DynamicsCompressorNode) {
   comp.threshold.value = FIXED_LIMITER_PARAMS.threshold
   comp.ratio.value = FIXED_LIMITER_PARAMS.ratio

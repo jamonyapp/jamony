@@ -362,7 +362,28 @@ function optionalAuth(req, res, next) {
 const { moderateText } = require('./lib/moderation')
 // 1025 迷你雪花: 暴露面主实体显式发号(15-16位长数字,JS安全域); 日志类表保留SERIAL
 const { nextId } = require('./lib/snowflake')
-const { probeMaxVolumeDb } = require('./lib/probe-volume')
+const { probeMaxVolumeDb, probeVolumeDb } = require('./lib/probe-volume')
+
+/* ⭐ 能量检测审计（1031 欢哥立宪：「每道闸的能量检测都必须留档——第几次检测、哪个阶段、
+ * 检测了哪些分轨、检测数据、是否放行」）。attempt=同session同gate检测序号。
+ * 落档失败只记日志绝不阻断业务（审计是记录者不是参与者）。 */
+async function insertEnergyAudit(records) {
+  for (const r of records) {
+    try {
+      const n = await pool.query(
+        'SELECT COUNT(*)::int + 1 AS n FROM energy_audit WHERE session_id IS NOT DISTINCT FROM $1 AND gate = $2',
+        [r.sessionId ?? null, r.gate]
+      )
+      await pool.query(
+        `INSERT INTO energy_audit (attempt, session_id, track_id, work_id, gate, file_domain, range_a, range_b, metric, value_db, verdict, detail)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+        [n.rows[0].n, r.sessionId ?? null, r.trackId ?? null, r.workId ?? null, r.gate,
+         r.fileDomain || 'raw', r.rangeA ?? null, r.rangeB ?? null, r.metric || 'peak',
+         r.valueDb ?? null, r.verdict || 'unknown', JSON.stringify(r.detail || {})]
+      )
+    } catch (e) { console.error('[energy-audit] 落档失败(不阻断业务):', e.message) }
+  }
+}
 const MODERATION_REJECT_MSG = '内容包含违规信息，请修改后重发'
 
 // 返回 true=放行, false=拒绝; kind: notice|notice_comment|work|work_comment|room|theme|chat|message
@@ -2963,10 +2984,17 @@ async function stopRoomRecording(code, id, duration) {
     // 静音轨（用户或 looper）一律不进 session——无声者不参与授权/署名/混音，从根上杜绝
     // 「带着无声轨进 session→署名却无实质声音」的移花接木温床。
     const audibleMap = new Map() // fullPath -> boolean
+    const gate1Records = [] // ⭐ 审计留档（1031 立宪）：原始域峰值判据维持不变（欢哥四案实验证明其准）
     await Promise.all(wavFiles.map(w =>
       probeMaxVolumeDb(w.fullPath).then(db => {
         const audible = db === null ? true : db > -60
         audibleMap.set(w.fullPath, audible)
+        gate1Records.push({
+          sessionId: null, trackId: null, gate: 'gate1-admission', fileDomain: 'raw',
+          rangeA: null, rangeB: null, metric: 'peak', valueDb: db,
+          verdict: db === null ? 'pass(probe失败保守放行)' : (audible ? 'pass' : 'block'),
+          detail: { filename: w.filename, isSystem: w.filename.startsWith('jamony-looper'), fullPath: w.fullPath },
+        })
         if (!audible) console.log(`[recording] 分轨静默不拉入: ${w.filename} (max_volume=${db}dB)`)
       })
     ))
@@ -2988,6 +3016,7 @@ async function stopRoomRecording(code, id, duration) {
       }
       console.log(`[recording] 本次录音无有效用户内容，不生成段落 (人轨可听=0, looper=${looperAudible}): ${recSessDir}`)
       io.to(code).emit('session-discarded', { roomId: code, reason: 'no_user_audio', dirName: path.basename(recSessDir || ''), ts: new Date().toISOString() })
+      insertEnergyAudit(gate1Records) // ⭐ 审计：被拦的检测也要留档（1031 立宪）
       return
     }
 
@@ -3022,6 +3051,18 @@ async function stopRoomRecording(code, id, duration) {
         [sessionId, looperWav ? looperWav.fullPath : '']
       )
     }
+
+    // ⭐ 审计落档：闸1结果关联 session/track_id（session_tracks 建行后回填；1031 立宪）
+    try {
+      const trRows = await pool.query('SELECT id, file_path FROM session_tracks WHERE session_id=$1', [sessionId])
+      const pathToId = new Map(trRows.rows.map(r => [r.file_path, r.id]))
+      gate1Records.forEach(r => {
+        r.sessionId = sessionId
+        const tid = (r.detail && r.detail.fullPath) ? pathToId.get(r.detail.fullPath) : undefined
+        if (tid) r.trackId = tid
+      })
+    } catch (e) { console.error('[energy-audit] 闸1回填track_id失败:', e.message) }
+    insertEnergyAudit(gate1Records)
 
           await broadcastSessions(code)
           // 异步音量标准化（完成后 socket 通知前端）
@@ -3270,6 +3311,35 @@ app.post('/api/rooms/:code/sessions/:sid/claim-publish', requireAuth, async (req
 })
 
 // 释放发表锁（关闭发表卡片但未发表时调用）
+// ⭐ 客户端预检留痕（1031 欢哥立宪）：拦/放都必须留档——此前被拦的预检尝试零服务端痕迹，
+//    正是段落3悬案取证艰难的根源。fire-and-forget 上报，失败不碍发表流。
+app.post('/api/rooms/:code/sessions/:sid/precheck-audit', requireAuth, async (req, res) => {
+  try {
+    const roomId = await getRoomIdByCode(req.params.code)
+    if (!roomId) return res.status(404).json({ ok: false, msg: '房间不存在' })
+    const sessRow = await pool.query('SELECT id FROM recording_sessions WHERE id=$1 AND room_id=$2', [req.params.sid, roomId])
+    if (sessRow.rows.length === 0) return res.status(404).json({ ok: false, msg: '段落不存在' })
+    const b = req.body || {}
+    const recs = Array.isArray(b.records) ? b.records.slice(0, 32) : []
+    const rows = recs.map(r => ({
+      sessionId: sessRow.rows[0].id,
+      trackId: Number(r.trackId) > 0 ? Number(r.trackId) : null,
+      gate: 'gate3-client-precheck', fileDomain: 'normalized',
+      rangeA: Number.isFinite(+b.rangeA) ? +b.rangeA : null,
+      rangeB: Number.isFinite(+b.rangeB) ? +b.rangeB : null,
+      metric: 'rms',
+      valueDb: Number.isFinite(+r.rmsDb) ? Math.max(-200, Math.min(0, +r.rmsDb)) : null,
+      verdict: r.skipped ? `skip:${String(r.reason || 'unknown').slice(0, 40)}` : (r.audible ? 'pass' : 'block'),
+      detail: { peakDb: Number.isFinite(+r.peakDb) ? +r.peakDb : null, nickname: String(r.nickname || '').slice(0, 64), blocked: !!b.blocked },
+    }))
+    if (rows.length > 0) insertEnergyAudit(rows)
+    res.json({ ok: true, archived: rows.length })
+  } catch (err) {
+    console.error('precheck-audit error:', err.message)
+    res.status(500).json({ ok: false })
+  }
+})
+
 app.post('/api/rooms/:code/sessions/:sid/release-claim', requireAuth, async (req, res) => {
   try {
     const { code, sid: sessionId } = req.params
@@ -3375,17 +3445,31 @@ app.post('/api/rooms/:code/sessions/:sid/publish', requireAuth, upload.fields([{
       return res.status(400).json({ ok: false, msg: '混音分轨与已授权分轨不一致，请重新打开发表混音器' })
     }
 
-    // ⭐ 闸3·区间能量终审：人类轨在发表区间 [a,b) 内峰值须 >-60dB
-    //   防「区间外出声掩人耳目」移花接木变体（欢哥红队推演）；全曲缺省跳过=落版闸1已测；
-    //   探测失败=保守放行（宁放过不误拦，probe 哲学同源）
+    // ⭐ 闸3·区间能量终审（1031 判据升级，欢哥四案实验定罪）：归一化域判据=区间均值
+    //   RMS>-30dB + 跳过头 50ms——旧峰值>-60dB 判据被归一化爆音(-1.4dBTP，normalize-wav
+    //   增益放大 t=0 微不连续)与效果器底噪(归一化后峰值-44~-27.5dB，增益逐轨不同)双穿；
+    //   闸1 维持原始域峰值-60dB 不变（两域判据按域校准）。阈值-30=热底噪-40与真演奏
+    //   -12~-19 的 21dB 间隔居中，两向各 10dB 裕量（1031 实测定参）。防「区间外出声
+    //   掩人耳目」移花接木变体；全曲缺省跳过=落版闸1已测；探测失败=保守放行。
+    const gate3Records = [] // ⭐ 审计留档（1031 立宪：拦截与放行都落档）
     if (mpB !== Infinity) {
       const silentNames = []
+      const headSkip = 0.05
       await Promise.all(humanRows.map(async t => {
         if (!t.file_path) return
-        const db = await probeMaxVolumeDb(t.file_path, mpA, Math.max(mpB - mpA, 1))
-        if (db !== null && db <= -60) silentNames.push(t.nickname)
+        const a = Math.max(mpA, headSkip) // 头 50ms 豁免=归一化爆音免疫
+        const v = await probeVolumeDb(t.file_path, a, Math.max(mpB - a, 0.1))
+        const audible = v === null ? true : v.mean > -30
+        gate3Records.push({
+          sessionId, trackId: t.id, workId: null, gate: 'gate3-server-final', fileDomain: 'normalized',
+          rangeA: mpA, rangeB: mpB, metric: 'rms', valueDb: v ? v.mean : null,
+          verdict: v === null ? 'pass(probe失败保守放行)' : (audible ? 'pass' : 'block'),
+          detail: { peakDb: v ? v.max : null, headSkipSec: headSkip },
+        })
+        if (!audible) silentNames.push(t.nickname)
       }))
       if (silentNames.length > 0) {
+        insertEnergyAudit(gate3Records) // 拦截也留档（fire-safe，不阻断响应语义）
         return res.status(400).json({ ok: false, code: 'SILENT_RANGE', msg: `以下分轨在所选区间内无声：${silentNames.join('、')}。请调整发表区间，或由该乐手拒绝使用授权` })
       }
     }
@@ -3424,6 +3508,10 @@ app.post('/api/rooms/:code/sessions/:sid/publish', requireAuth, upload.fields([{
        VALUES ($15, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'published', 'pending', $16)`,
       [roomId, sessionId, publisher_user_id, title, style, copyright, cover_song || '', cover_author || '', source || '', description || '', duration || '', cover_gradient || '', has_drum_track === 'true', agreed === 'true', workId, JSON.stringify(mixSnapshot)]
     )
+
+    // ⭐ 审计落档：闸3放行记录关联 work_id（1031 立宪；拦截路径已在上方落档）
+    gate3Records.forEach(r => { r.workId = workId })
+    insertEnergyAudit(gate3Records)
 
     // 创建作品专属文件夹 /var/jamony/works/YYYYMMDDHHmm_userId_作品名称_sessionId/
     const now = new Date()
