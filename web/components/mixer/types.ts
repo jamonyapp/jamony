@@ -73,6 +73,8 @@ export interface MixerFullscreenProps {
   /** 发表按钮（仅发表混音器传；灰置时 title=reason） */
   publishButton?: { label: string; disabled: boolean; reason?: string; busy?: boolean; tone?: "blue" | "green" | "gray" }
   onPublishClick?: () => void
+  /** 放弃发表（1031 终章欢哥：持锁人主动退出通道——确认弹窗后释放锁退出，他人可重新竞态） */
+  onAbandonPublish?: () => void
   /** 一键清除 M/S（闸2 便利钮；存在 M/S 时自动显示） */
   onClearMS?: () => void
   /** 发表倒计时剩余秒（undefined=不渲染；发表成功后不再传即隐藏） */

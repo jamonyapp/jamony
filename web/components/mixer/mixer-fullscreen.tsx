@@ -52,6 +52,7 @@ export function MixerFullscreen({
   onResetAll,
   publishButton,
   onPublishClick,
+  onAbandonPublish,
   onClearMS,
   countdownSec,
   icon = "🎸",
@@ -503,6 +504,19 @@ export function MixerFullscreen({
                 title="发表要求所有分轨参与混音；M/S 仅试听用，一键清除"
               >
                 清除M/S
+              </button>
+            )}
+            {/* 放弃发表（1031 终章欢哥：持锁人主动退出通道——确认后释放发表权，
+                卡片按钮经 socket 广播即时回到可竞态态；红色=退出性操作语言） */}
+            {publishButton && onAbandonPublish && !publishButton.busy && (
+              <button
+                type="button"
+                onClick={onAbandonPublish}
+                className="shrink-0 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors hover:bg-white/10"
+                style={{ color: MIXER_COLORS.red, border: "1px solid rgba(255,51,102,0.5)" }}
+                title="释放当前发表权限，其他乐手可重新抢锁发表"
+              >
+                放弃发表
               </button>
             )}
             {/* 发表作品按钮（仅发表混音器；灰置时悬停显示原因） */}

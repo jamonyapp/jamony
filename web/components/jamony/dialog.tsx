@@ -9,7 +9,7 @@ const downOnOverlay = { current: false }
 // 制式：rounded-[10px] + 深色卡 + 品牌渐变确认键（删除类红色 danger）；Promise 化，调用处 await 即可
 // 用法：const dialog = useJamonyDialog(); if (!(await dialog.confirm("删吗？", { danger: true }))) return
 
-type DialogOptions = { title?: string; danger?: boolean; confirmText?: string }
+type DialogOptions = { title?: string; danger?: boolean; confirmText?: string; cancelText?: string }
 type DialogRequest = { message: string; options?: DialogOptions; mode: "confirm" | "alert"; resolve: (v: boolean) => void }
 
 const DialogCtx = createContext<{ confirm: (message: string, options?: DialogOptions) => Promise<boolean>; alert: (message: string, options?: DialogOptions) => Promise<void> } | null>(null)
@@ -48,7 +48,7 @@ export function DialogProvider({ children }: { children: React.ReactNode }) {
             <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed" style={{ color: "#C8C8C8" }}>{req.message}</p>
             <div className="mt-5 flex justify-end gap-2">
               {req.mode === "confirm" && (
-                <button onClick={() => close(false)} className="rounded-[10px] border border-[#2A2A2A] px-4 py-1.5 text-sm transition-colors hover:bg-white/5" style={{ color: "#B0B0B0" }}>取消</button>
+                <button onClick={() => close(false)} className="rounded-[10px] border border-[#2A2A2A] px-4 py-1.5 text-sm transition-colors hover:bg-white/5" style={{ color: "#B0B0B0" }}>{req.options?.cancelText || "取消"}</button>
               )}
               <button onClick={() => close(true)} className="rounded-[10px] px-4 py-1.5 text-sm font-medium text-white transition-all active:scale-[0.97]"
                 style={{ background: req.options?.danger ? "#FF5C5C" : "linear-gradient(135deg, #00AAFF, #9933FF)" }}>

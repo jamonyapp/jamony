@@ -1025,6 +1025,15 @@ function RecordingPanel({
     onMixerClose?.() // 1026 使用 presence 释放（挡删除解除）
   }
 
+  // 1031 终章（欢哥）：持锁人主动放弃发表——确认后走 closeMixer（存草稿+释放锁+退出），
+  // release-claim 服务端 broadcastSessions → 卡片按钮即时回可竞态态，他人可重新抢锁
+  const abandonPublish = async () => {
+    const ok = await dialog.confirm("放弃发表将释放当前发表权限。", { danger: true, confirmText: "确认放弃", cancelText: "继续发表" })
+    if (!ok) return
+    publishClaimedRef.current = true // 兜底：确保 closeMixer 走释放分支（我们持有锁才看得到此按钮）
+    closeMixer()
+  }
+
   // 1026 使用 presence 上报：混音器开=占用该段落（挡删除），关/换段=释放；断线重连由 chat-socket 自动补报
   const prevMixerSessionRef = useRef<number | null>(null)
   useEffect(() => {
@@ -1227,6 +1236,7 @@ function RecordingPanel({
             onResetAll={mixerEngine.resetAll}
             publishButton={isPublish ? (publishBtnState ?? undefined) : undefined}
             onPublishClick={runPublish}
+            onAbandonPublish={isPublish ? abandonPublish : undefined}
             onClearMS={() => {
               mixerEngine.tracks.forEach(t => {
                 if (mixerEngine.mutes[t.id]) mixerEngine.onMuteToggle(t.id, false)
