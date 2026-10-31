@@ -2197,7 +2197,21 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
         try { api.timePosition = Math.max(0, target) } catch (e) { /* 忽略本轮 */ }
       }
     }, 2000)
-    return () => clearInterval(id)
+    // 1031 到点精确预停：2s 对表粒度=指针越界 0~2s「不规律」的元凶（相位决定走量，127bpm 下
+    // 2s=两个小节）；终点时刻一次性定时器精确收针。循环态由服务端每遍重锚接管，不本地停。
+    let endTimer: ReturnType<typeof setTimeout> | null = null
+    if (!gpState.loop && gpState.endMs !== undefined) {
+      const capPos = gpState.endMs / spd
+      const remainMs = capPos - base - (Date.now() - startedAtMs - audioLagRef.current - countInMs)
+      endTimer = setTimeout(() => {
+        const api2 = apiRef.current
+        if (!api2) return
+        try { api2.timePosition = Math.max(0, capPos) } catch (e) { /* 忽略 */ }
+        api2.pause?.()
+        console.log("[gp指针] 到点精确预停 @", Math.round(capPos))
+      }, Math.max(0, remainMs))
+    }
+    return () => { if (endTimer) clearTimeout(endTimer); clearInterval(id) }
   }, [gpState?.playing, gpState?.startedAt, gpState?.startMs, gpState?.loop, gpState?.endMs, playerReady])
 
   // 换档重烤（10-10 根治版）：暂停态换档（播放中UI已锁）→ tempo 重烤需要 player 重建 MIDI →

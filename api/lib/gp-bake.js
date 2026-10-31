@@ -103,7 +103,10 @@ function gpToMidi(gpPath, midPath, mix, startMs, speedArg, countIn, endMs, seekM
         // ⚠️纯 ev.type 判定（1031 实测定罪：生成器产出的 NoteOnEvent.velocity=undefined，
         // 任何 velocity 判式都会把全部音符误灭=烤出哑巴文件；gpTruncateMidi 同款惯用法）
         if (ev.type === ET.NoteOn) {
-          if (ev.tick > bTick) continue  // ①选区外不响：起点>B 丢弃（其 off 配对失败自然成孤儿=同丢）
+          // ⚠️边界守卫窗 3 tick（1031 欢哥实测+live文件解剖定罪）：生成器把网格音符系统性
+          // 放在 480k−1 tick（小节线音=1919 而 B 换算=1920）——严格 tick<bTick 会把「B 点上的
+          // 下一小节开头音」以 0.5ms 之差误纳入选区，连尾巴唱出去=声音超播元凶。半开区间语义。
+          if (ev.tick > bTick - 3) continue  // ①选区外不响：起点>B（含守卫窗）丢弃（off 成孤儿同丢）
           const k = `${ev.track}|${ev.channel}|${ev.noteKey}`
           if (!openOns.has(k)) openOns.set(k, [])
           openOns.get(k).push(ev.tick)
