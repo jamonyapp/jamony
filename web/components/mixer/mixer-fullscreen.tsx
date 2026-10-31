@@ -228,7 +228,7 @@ export function MixerFullscreen({
                 type="button"
                 onClick={onResetAll}
                 className="flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-semibold transition-transform hover:scale-105"
-                style={{ background: MIXER_COLORS.green, borderColor: "rgba(255,255,255,0.35)", color: "#121212" }}
+                style={{ background: MIXER_COLORS.green, borderColor: "rgba(255,255,255,0.35)", color: "#FFFFFF" }}
                 aria-label="复位所有调参值"
                 title="复位所有调参值（音量/声像/总线/M/S/定位器/循环）"
               >
@@ -256,9 +256,10 @@ export function MixerFullscreen({
                 disabled={publishButton.disabled || publishButton.busy}
                 className="shrink-0 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed"
                 style={{
-                  // 1031 六轮欢哥：填充恒品牌蓝，与卡片「去发表」同色（弃 green 分支）
+                  // 1031 六轮欢哥：填充恒品牌蓝与卡片「去发表」同色（#00AAFF 同源）；
+                  // 七轮：文案白字（深字衬暗整钮=「颜色偏深」的观感元凶）
                   background: publishButton.disabled ? "#333333" : MIXER_COLORS.blue,
-                  color: publishButton.disabled ? "#888888" : "#121212",
+                  color: publishButton.disabled ? "#888888" : "#FFFFFF",
                   opacity: publishButton.disabled ? 0.6 : 1,
                 }}
                 title={publishButton.disabled ? publishButton.reason : undefined}
