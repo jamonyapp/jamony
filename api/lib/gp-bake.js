@@ -87,6 +87,7 @@ function gpToMidi(gpPath, midPath, mix, startMs, speedArg, countIn, endMs, seekM
   // ⚠️gpMsToTick 在已平移的时间轴上查（shift 后 0=原 A 点），故查 (endMs - 实效startMs)——首版写绝对 endMs 多留一个 A（干跑45000≠15000定罪）
   const gpStartBase = Number.isFinite(startMs) && startMs > 0 ? startMs : 0
   let musicalEndMs = null
+  let restMs = null
   if (Number.isFinite(endMs) && endMs > gpStartBase) {
     // ⭐ 1031 C 方案（欢哥·吉他手语义，GP/alphaTab 标准选段语义）：选区真正终点=选区内
     // 最后一个「起始音符」的时值终点——尾巴音符唱完自己的时值才收（循环则每圈多等这口尾巴）。
@@ -95,6 +96,7 @@ function gpToMidi(gpPath, midPath, mix, startMs, speedArg, countIn, endMs, seekM
     const bTick = Math.round(gpMsToTick(midiFile, endMs - gpStartBase))
     const ET = alphatab.midi.MidiEventType
     let musicalTick = bTick
+    let lastOnsetTick = -1
     for (const tr of midiFile.tracks) {
       // 配对扫描（gpTruncateMidi 同款 key 惯用法）：孤儿 off 会污染终点扫描，必须成对处理
       const kept = []
@@ -110,6 +112,7 @@ function gpToMidi(gpPath, midPath, mix, startMs, speedArg, countIn, endMs, seekM
           const k = `${ev.track}|${ev.channel}|${ev.noteKey}`
           if (!openOns.has(k)) openOns.set(k, [])
           openOns.get(k).push(ev.tick)
+          if (ev.tick > lastOnsetTick) lastOnsetTick = ev.tick
           kept.push(ev)
           continue
         }
@@ -129,6 +132,9 @@ function gpToMidi(gpPath, midPath, mix, startMs, speedArg, countIn, endMs, seekM
     }
     gpTruncateMidi(midiFile, musicalTick)
     musicalEndMs = gpStartBase + Math.ceil(gpTickToMs(midiFile, musicalTick))
+    // 指针归位点（1031 欢哥语义「停在选区内最后一个有效音符上」）：选区内最晚音符起始——
+    // 压 B 线在小节线场景视觉上=下一小节开头；压最后音符=无歧义的选区内。
+    if (lastOnsetTick >= 0) restMs = gpStartBase + Math.round(gpTickToMs(midiFile, lastOnsetTick))
   }
   // 首遍跳入点（1013 全曲循环）：原速域 seekMs→tick（原 tempo 域积分，与 startMs 同理；tick 域倍速无关）
   const musicSeekTick = (Number.isFinite(seekMs) && seekMs > 0 && !(Number.isFinite(startMs) && startMs > 0))
@@ -190,6 +196,8 @@ function gpToMidi(gpPath, midPath, mix, startMs, speedArg, countIn, endMs, seekM
     endTick: maxTick,  // 1012 ⑥-2c：烤制周期（引擎回显 end 的校验基准）
     // 1031 C 方案：选段音乐性终点（原速域 ms；null=无选段）。>B 的部分=最后音符的尾巴时值
     musicalEndMs,
+    // 1031 指针归位点：选区内最晚音符起始（原速域 ms；null=无选段）
+    restMs,
     seekTick, seekTickMs,
   }
 }

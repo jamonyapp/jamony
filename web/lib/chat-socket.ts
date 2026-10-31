@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react"
 import { io, type Socket } from "socket.io-client"
 import type { GpMix, RoomScore } from "@/lib/jam-data"
 
-export type GpState = { playing: boolean; startedAt?: string; startMs?: number; speed?: number; countInMs?: number; endMs?: number; loop?: boolean }
+export type GpState = { playing: boolean; startedAt?: string; startMs?: number; speed?: number; countInMs?: number; endMs?: number; restMs?: number; loop?: boolean }
 
 // program 背景轨（1015）：物料（轨+混音快照）与走带态分离——对照 current_score/gp_state 双通道模式
 export type ProgramTrack = { id: string; name: string; file: string; size: number; uploadedBy: number; uploadedByName: string }
