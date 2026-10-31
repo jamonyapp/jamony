@@ -719,7 +719,10 @@ export default function PublishWorkModal({
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-center justify-center overflow-y-auto p-4"
+      /* 1031：z 70→320——发表确认弹窗必须压过混音器全屏(z-300)；2026 设计时藏在
+         混音器背后从未被真人看见（黑匣子全链铁证：弹窗开了但用户看不见）。
+         层级序：混音器300 < 发表确认320 < 品牌弹窗400 */
+      className="fixed inset-0 z-[320] flex items-center justify-center overflow-y-auto p-4"
       style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }}
       onClick={handleBackdropClick}
     >
