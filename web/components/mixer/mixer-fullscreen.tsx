@@ -209,7 +209,20 @@ export function MixerFullscreen({
               {icon ? <span className="text-lg">{icon}</span> : null}
               {sessionLabel}{titleLabel ? ` · ${titleLabel}` : ""}
             </h2>
-            {/* 复位所有调参值（1031 三轮欢哥：黄绿实底+描边+加粗，做明显） */}
+            {/* 发表倒计时（1031 五轮欢哥：仅时间玫红，其余文案白；句号收尾。
+                仅发表混音器传 countdownSec；发表成功后父组件不再传=隐藏） */}
+            {typeof countdownSec === "number" && countdownSec > 0 && (
+              <span
+                className="ml-1 shrink-0 font-mono text-xs tabular-nums"
+                style={{ color: MIXER_COLORS.text }}
+                title="超时将自动释放发表权"
+              >
+                请在 <span style={{ color: MIXER_COLORS.pink }}>{Math.floor(countdownSec / 60)}m:{String(Math.floor(countdownSec % 60)).padStart(2, "0")}s</span> 内完成发表，超时将释放发表权。
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {/* 复位所有调参值（1031 五轮欢哥：迁右侧按钮组首位，放弃发表左边） */}
             {onResetAll && (
               <button
                 type="button"
@@ -223,19 +236,35 @@ export function MixerFullscreen({
                 复位所有调参值
               </button>
             )}
-            {/* 发表倒计时（1031 三轮欢哥：迁标题栏复位钮后；品牌玫红；句号收尾。
-                仅发表混音器传 countdownSec；发表成功后父组件不再传=隐藏） */}
-            {typeof countdownSec === "number" && countdownSec > 0 && (
-              <span
-                className="ml-1 shrink-0 font-mono text-xs tabular-nums"
-                style={{ color: MIXER_COLORS.pink }}
-                title="超时将自动释放发表权"
+            {/* 放弃发表（1031 五轮欢哥：迁标题栏最小化钮左边；红色=退出性操作语言） */}
+            {publishButton && onAbandonPublish && !publishButton.busy && (
+              <button
+                type="button"
+                onClick={onAbandonPublish}
+                className="shrink-0 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors hover:bg-white/10"
+                style={{ color: MIXER_COLORS.red, border: "1px solid rgba(255,51,102,0.5)" }}
+                title="释放当前发表权限，其他乐手可重新抢锁发表"
               >
-                请在 {Math.floor(countdownSec / 60)}m:{String(Math.floor(countdownSec % 60)).padStart(2, "0")}s 内完成发表，超时将释放发表权。
-              </span>
+                放弃发表
+              </button>
             )}
-          </div>
-          <div className="flex items-center gap-2">
+            {/* 发表作品按钮（1031 五轮欢哥：迁标题栏；灰置时悬停显示原因） */}
+            {publishButton && (
+              <button
+                type="button"
+                onClick={onPublishClick}
+                disabled={publishButton.disabled || publishButton.busy}
+                className="shrink-0 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed"
+                style={{
+                  background: publishButton.disabled ? "#333333" : publishButton.tone === "green" ? MIXER_COLORS.green : MIXER_COLORS.blue,
+                  color: publishButton.disabled ? "#888888" : "#121212",
+                  opacity: publishButton.disabled ? 0.6 : 1,
+                }}
+                title={publishButton.disabled ? publishButton.reason : undefined}
+              >
+                {publishButton.label}
+              </button>
+            )}
             <button
               type="button"
               onClick={onMinimize}
@@ -490,7 +519,8 @@ export function MixerFullscreen({
 
             {/* 发表倒计时已迁标题栏（1031 三轮欢哥） */}
 
-            <p className="ml-auto text-xs" style={{ color: MIXER_COLORS.textMuted }}>
+            {/* 1031 五轮欢哥：发表态提示白字（publishButton 仅发表混音器传）；试听维持灰 */}
+            <p className="ml-auto text-xs" style={{ color: publishButton ? MIXER_COLORS.text : MIXER_COLORS.textMuted }}>
               {footerHint}
             </p>
 
@@ -506,36 +536,7 @@ export function MixerFullscreen({
                 清除M/S
               </button>
             )}
-            {/* 放弃发表（1031 终章欢哥：持锁人主动退出通道——确认后释放发表权，
-                卡片按钮经 socket 广播即时回到可竞态态；红色=退出性操作语言） */}
-            {publishButton && onAbandonPublish && !publishButton.busy && (
-              <button
-                type="button"
-                onClick={onAbandonPublish}
-                className="shrink-0 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors hover:bg-white/10"
-                style={{ color: MIXER_COLORS.red, border: "1px solid rgba(255,51,102,0.5)" }}
-                title="释放当前发表权限，其他乐手可重新抢锁发表"
-              >
-                放弃发表
-              </button>
-            )}
-            {/* 发表作品按钮（仅发表混音器；灰置时悬停显示原因） */}
-            {publishButton && (
-              <button
-                type="button"
-                onClick={onPublishClick}
-                disabled={publishButton.disabled || publishButton.busy}
-                className="shrink-0 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed"
-                style={{
-                  background: publishButton.disabled ? "#333333" : publishButton.tone === "green" ? MIXER_COLORS.green : MIXER_COLORS.blue,
-                  color: publishButton.disabled ? "#888888" : "#121212",
-                  opacity: publishButton.disabled ? 0.6 : 1,
-                }}
-                title={publishButton.disabled ? publishButton.reason : undefined}
-              >
-                {publishButton.busy ? "生成中…" : publishButton.label}
-              </button>
-            )}
+            {/* 放弃发表/发表作品已迁标题栏（1031 五轮欢哥） */}
           </div>
         </section>
 

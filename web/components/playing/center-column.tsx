@@ -1207,7 +1207,7 @@ function RecordingPanel({
             sessionLabel={`段落 ${mixerSession?.index}`}
             titleLabel={isPublish ? "发表混音" : "试听混音"}
             footerHint={isPublish
-              ? "作品范围=定位器 AB 区间：AB 重合不可发表；发表整体请将 A 拖至开端、B 拖至尾端。"
+              ? "作品范围：请拖拽左右定位点（分轨区域顶部的绿色小三角），确定发表作品区域。"
               : "试听回放：调整仅本地生效，这可以辅助你决定是否授权使用自己的分轨或是否署名。"}
             tracks={mixerEngine.tracks}
             isOpen={true}
