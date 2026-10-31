@@ -50,6 +50,10 @@ export function PublishNoticeModal({ open, onClose, onPublished, initialNotice }
   const [submitting, setSubmitting] = useState(false)
   const [limitTip, setLimitTip] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  // 1023 遮罩拖出误关判例（notice-detail-modal 同款范式）：按下+松开都在遮罩上才关。
+  // ⚠️ useRef 必须在下方 if(!open) return null 之前——hook 放早退后=open 翻转时
+  // hook 数量突变 → React 卸载整树（#310，1031 晚本人刚在 publish-work-modal 犯过同款）
+  const downOnOverlay = useRef(false)
 
   // 打开时：编辑模式预填，否则重置
   useEffect(() => {
@@ -168,10 +172,7 @@ export function PublishNoticeModal({ open, onClose, onPublished, initialNotice }
     }
   }
 
-  // 1023 遮罩拖出误关判例（notice-detail-modal 同款范式，此处当年漏修）：
-  // 卡片内按下拖到遮罩上松开 → click 派发到公共祖先(遮罩)且 target=遮罩 → 裸 onClick 误关。
-  // 修法=按下+松开都在遮罩上才关。
-  const downOnOverlay = useRef(false)
+  // （downOnOverlay 声明已上移至全部 hook 区——见文件上方 ⚠️ 注释）
 
   return (
     <div
