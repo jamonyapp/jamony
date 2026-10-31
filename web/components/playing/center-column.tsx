@@ -1832,6 +1832,30 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
     }
     return ms + ((tick - prevTick) / t.division) * (60000 / bpm)
   }
+  // 1031 S1 指针归位·显示轨版（欢哥定案）：落位=**显示轨**在选区内的最后音符起始——多轨并集
+  // 落位会停在非显示轨的音符位置=显示轨视觉空白（欢哥六轨谱逐轨核实：总有轨在音上、显示轨恰逢空）。
+  // 显示轨取法同选区回填：用户框选所在轨优先，退首个渲染轨。+5ms 入音体（亚毫秒差防空白尾巴）。
+  const displayedRestPosMs = (): number | null => {
+    const rng = scoreRangeRef.current
+    if (!rng) return null
+    const rendered = renderedIdxRef.current
+    const idx = selTrackIdxRef.current != null && rendered.includes(selTrackIdxRef.current)
+      ? selTrackIdxRef.current : (rendered.length > 0 ? rendered[0] : -1)
+    if (idx < 0) return null
+    const beatsMap = mbBeatsRef.current.get(idx)
+    if (!beatsMap || beatsMap.size === 0) return null
+    const bMs = rng.b / (speedRef.current || 1)  // 烤速域（与 target/cap 同域）
+    let best = -1
+    for (const beats of beatsMap.values()) {
+      for (const bt of beats as { absolutePlaybackStart?: number }[]) {
+        const t = bt.absolutePlaybackStart
+        if (typeof t !== "number") continue
+        const ms = tickToMs(t)
+        if (ms <= bMs && ms > best) best = ms
+      }
+    }
+    return best >= 0 ? best + 0.005 : null
+  }
   // ms→tick（⑥-2b 选段回填）：tickToMs 逆运算（烤速域；与服务器 gpMsToTick 同构）
   const msToTick = (ms: number): number => {
     const t = tickMapRef.current
@@ -2164,7 +2188,7 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
         // 无论此前哪条路径（精确定时器/对表/alphaTab 自走/广播收尾）把指针带到哪，最后一下必归 B 内
         if (scoreRangeRef.current) {
           const spdNow = speedRef.current || 1
-          const restCap = (gpState?.restMs !== undefined ? Math.round(gpState.restMs / spdNow) : Math.round(scoreRangeRef.current.b / spdNow)) + 0.005
+          const restCap = displayedRestPosMs() ?? ((gpState?.restMs !== undefined ? Math.round(gpState.restMs / spdNow) : Math.round(scoreRangeRef.current.b / spdNow)) + 0.005)
           if (home > restCap) {
             home = restCap
             try { api.timePosition = home } catch (e) { /* 静默 */ }
@@ -2199,11 +2223,9 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
       // 窗口期 alphaTab 静默时钟自走=声音停了指针还在走的元凶（走多远随拍速=「不规律」的真相）。
       // 循环态不本地停——由服务端每遍重锚广播接管（gpState.loop）。
       if (!gpState.loop && gpState.endMs !== undefined && rawT >= cap) {
-        // 归位=选区内最晚音符起始（服务端烤制算出 restMs；无则退 B）——压 B 线在小节线场景
-        // 视觉上=下一小节开头，压最后音符=无歧义选区内（欢哥语义）。
-        // +5ms 深入音符体内：服务端 tick→ms 与 alphaTab 自算存在亚毫秒差，恰落在 onset 前一丝
-        // =视觉空白尾巴上（欢哥「指针停在空白」定罪）；音符体 150ms+，5ms 稳落音上。
-        const rest = (gpState.restMs !== undefined ? gpState.restMs / spd : hardCap) + 0.005
+        // 归位=**显示轨**在选区内最后音符起始（1031 S1 欢哥定案；服务端并集 restMs 仅兜底——
+        // 并集落位会停在非显示轨音符=显示轨视觉空白）。+5ms 入音体（亚毫秒差防空白尾巴）。
+        const rest = displayedRestPosMs() ?? ((gpState.restMs !== undefined ? gpState.restMs / spd : hardCap) + 0.005)
         try { api.timePosition = Math.max(0, rest) } catch (e) { /* 忽略 */ }
         api.pause?.()
         return
@@ -2225,10 +2247,9 @@ function GpWorkstation({ score, canClear, onClear, gpState, onPlay, onPause, onM
       endTimer = setTimeout(() => {
         const api2 = apiRef.current
         if (!api2) return
-        // 停针位=选区内最晚音符起始（restMs 服务端烤制算出；无选区退 B；无 B 退音频终点）；
-        // +5ms 深入音符体（亚毫秒差落在 onset 前=视觉空白尾巴，同预停路径）
+        // 停针位=显示轨选区内最后音符起始（1031 S1 显示轨版；并集兜底→B 兜底→音频终点兜底）
         const rb = scoreRangeRef.current ? scoreRangeRef.current.b / spd : Infinity
-        const restPos = Math.max(0, (gpState.restMs !== undefined ? gpState.restMs / spd : Math.min(capPos, rb)) + 0.005)
+        const restPos = Math.max(0, displayedRestPosMs() ?? ((gpState.restMs !== undefined ? gpState.restMs / spd : Math.min(capPos, rb)) + 0.005))
         try { api2.timePosition = restPos } catch (e) { /* 忽略 */ }
         api2.pause?.()
         console.log("[gp指针] 到点精确预停 @B=", Math.round(restPos), "（音频终点=", Math.round(capPos), "）")

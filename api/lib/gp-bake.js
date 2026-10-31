@@ -93,47 +93,26 @@ function gpToMidi(gpPath, midPath, mix, startMs, speedArg, countIn, endMs, seekM
     // 最后一个「起始音符」的时值终点——尾巴音符唱完自己的时值才收（循环则每圈多等这口尾巴）。
     // 三步：①丢弃起点>B 的音符（选区外不响）；②音乐性终点=剩余音符最晚 note-off；
     // ③文件掐到该点（gpTruncateMidi 对悬挂音补 note-off 兜底——正常情况最后一音自然收）。
+    // ⭐ 1031 终版 S1 边界制（欢哥定案：选区=时值主权——「哪怕延音 10 个小节，选区在第三拍结束，
+    //   剩下的延音也不应该发声」；GP/alphaTab 同款业界标准）：B 只看 B，不看任何分轨脸色。
+    //   悬挂延音在 B 齐收（gpTruncateMidi 的 1012 收口机制：悬挂音补 note-off@B+抬踏板+全切兜底）。
+    //   旧 C 方案多轨并集尾巴废弃（延音和弦等 2 小节=声音超播+指针落非显示轨空白的复合元凶，
+    //   欢哥六轨谱逐轨核实定罪；单轨干净谱测不出的原因）。
+    //   守卫窗 3 tick 保留（480k−1 网格伪影：小节线音=1919 而 B=1920，0.5ms 之差误纳入）。
     const bTick = Math.round(gpMsToTick(midiFile, endMs - gpStartBase))
     const ET = alphatab.midi.MidiEventType
-    let musicalTick = bTick
     let lastOnsetTick = -1
     for (const tr of midiFile.tracks) {
-      // 配对扫描（gpTruncateMidi 同款 key 惯用法）：孤儿 off 会污染终点扫描，必须成对处理
-      const kept = []
-      const openOns = new Map()  // key → FIFO（≤bTick 的在响音起始队列）
       for (const ev of tr.events) {
-        // ⚠️纯 ev.type 判定（1031 实测定罪：生成器产出的 NoteOnEvent.velocity=undefined，
-        // 任何 velocity 判式都会把全部音符误灭=烤出哑巴文件；gpTruncateMidi 同款惯用法）
-        if (ev.type === ET.NoteOn) {
-          // ⚠️边界守卫窗 3 tick（1031 欢哥实测+live文件解剖定罪）：生成器把网格音符系统性
-          // 放在 480k−1 tick（小节线音=1919 而 B 换算=1920）——严格 tick<bTick 会把「B 点上的
-          // 下一小节开头音」以 0.5ms 之差误纳入选区，连尾巴唱出去=声音超播元凶。半开区间语义。
-          if (ev.tick > bTick - 3) continue  // ①选区外不响：起点>B（含守卫窗）丢弃（off 成孤儿同丢）
-          const k = `${ev.track}|${ev.channel}|${ev.noteKey}`
-          if (!openOns.has(k)) openOns.set(k, [])
-          openOns.get(k).push(ev.tick)
-          if (ev.tick > lastOnsetTick) lastOnsetTick = ev.tick
-          kept.push(ev)
-          continue
-        }
-        if (ev.type === ET.NoteOff) {
-          const k = `${ev.track}|${ev.channel}|${ev.noteKey}`
-          const q = openOns.get(k)
-          if (q && q.length > 0) {
-            q.shift()  // 配对成功=在响音的自然关闸 → ②尾巴候选
-            if (ev.tick > musicalTick) musicalTick = ev.tick
-            kept.push(ev)
-          }
-          continue  // 孤儿 off=被丢音符的关闸 → 丢弃
-        }
-        kept.push(ev)  // 非音符事件（tempo/CC/bend）原样留；>musicalTick 的交给掐尾
+        if (ev.type !== ET.NoteOn) continue
+        if (ev.tick <= bTick - 3 && ev.tick > lastOnsetTick) lastOnsetTick = ev.tick
       }
-      tr.events = kept
+      tr.events = tr.events.filter(ev => !(ev.type === ET.NoteOn && ev.tick > bTick - 3))
     }
-    gpTruncateMidi(midiFile, musicalTick)
-    musicalEndMs = gpStartBase + Math.ceil(gpTickToMs(midiFile, musicalTick))
-    // 指针归位点（1031 欢哥语义「停在选区内最后一个有效音符上」）：选区内最晚音符起始——
-    // 压 B 线在小节线场景视觉上=下一小节开头；压最后音符=无歧义的选区内。
+    gpTruncateMidi(midiFile, bTick)
+    musicalEndMs = gpStartBase + Math.ceil(gpTickToMs(midiFile, bTick))
+    // 指针归位兜底值（全轨并集最后音符起始）：客户端优先按**显示轨**自算（显示轨=本地状态，
+    // 服务端不知），此值仅作 beat 表缺席时的回退
     if (lastOnsetTick >= 0) restMs = gpStartBase + Math.round(gpTickToMs(midiFile, lastOnsetTick))
   }
   // 首遍跳入点（1013 全曲循环）：原速域 seekMs→tick（原 tempo 域积分，与 startMs 同理；tick 域倍速无关）
