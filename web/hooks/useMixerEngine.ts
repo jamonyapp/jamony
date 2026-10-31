@@ -341,11 +341,11 @@ export function useMixerEngine() {
     setPans(initPans)
     setMasterVolume(masterVolumeRef.current)
     // 定位器定稿（1031）：无草稿=折叠 {0,0}（Cubase 初始态）；老草稿 b=null→曲尾；
-    // 越界/破 0.5s 间距回折叠（宁弃勿歪）
+    // 折叠态（b=a）合法，仅防倒挂
     if (draftLoc) {
-      const da = Math.max(0, Math.min(draftLoc.a, Math.max(0, maxDuration - 0.5)))
-      const db = Math.min(draftLoc.b ?? maxDuration, maxDuration)
-      locatorRef.current = db >= da + 0.5 ? { a: da, b: db } : { a: 0, b: 0 }
+      const da = Math.max(0, Math.min(draftLoc.a, maxDuration))
+      const db = Math.max(da, Math.min(draftLoc.b ?? maxDuration, maxDuration))
+      locatorRef.current = { a: da, b: db }
     } else {
       locatorRef.current = { a: 0, b: 0 }
     }
@@ -465,18 +465,19 @@ export function useMixerEngine() {
     setMasterClip(false)
   }, [])
 
-  // ───── 定位器 API（1031 Cubase 式重构：区间常驻 {A,B}，最小间距 0.5s；开关独立）─────
+  // ───── 定位器 API（1031 Cubase 式重构：区间常驻 {A,B}；开关独立）─────
+  // 1031 二轮（欢哥拍板）：0.5s 最小间距废除——B 可拉回与 A 完全重合（任意位置折叠，
+  // 两线合一=空选区）；A 亦可折向 B。折叠态 b>a 不成立=零播放约束（rafTick/发表区间同判）。
   const setLocatorA = useCallback((v: number) => {
     const cur = locatorRef.current
-    // 折叠态（A=B）时 A 拖不出 0——先拖 B 向右拉开（Cubase 惯例）
-    const a = Math.max(0, Math.min(v, Math.max(0, cur.b - 0.5)))
+    const a = Math.max(0, Math.min(v, cur.b)) // 不越过 B
     locatorRef.current = { a, b: cur.b }
     setLocator(locatorRef.current)
   }, [])
 
   const setLocatorB = useCallback((v: number) => {
     const cur = locatorRef.current
-    const b = Math.max(cur.a + 0.5, Math.min(v, durationRef.current || 0)) // B 不超曲长
+    const b = Math.max(cur.a, Math.min(v, durationRef.current || 0)) // 不越过 A，不超曲长
     locatorRef.current = { a: cur.a, b }
     setLocator(locatorRef.current)
   }, [])

@@ -203,10 +203,26 @@ export function MixerFullscreen({
           className="flex items-center justify-between px-5 py-3"
           style={{ borderBottom: `1px solid ${MIXER_COLORS.border}` }}
         >
-          <h2 className="flex items-center gap-2 text-sm font-semibold" style={{ color: MIXER_COLORS.text }}>
-            {icon ? <span className="text-lg">{icon}</span> : null}
-            {sessionLabel}{titleLabel ? ` · ${titleLabel}` : ""}
-          </h2>
+          <div className="flex items-center gap-3">
+            <h2 className="flex items-center gap-2 text-sm font-semibold" style={{ color: MIXER_COLORS.text }}>
+              {icon ? <span className="text-lg">{icon}</span> : null}
+              {sessionLabel}{titleLabel ? ` · ${titleLabel}` : ""}
+            </h2>
+            {/* 复位所有调参值（1031 二轮欢哥：从走带尾端迁至标题栏，带文案） */}
+            {onResetAll && (
+              <button
+                type="button"
+                onClick={onResetAll}
+                className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors hover:bg-white/10"
+                style={{ color: MIXER_COLORS.textMuted }}
+                aria-label="复位所有调参值"
+                title="复位所有调参值（音量/声像/总线/M/S/定位器/循环）"
+              >
+                <RotateCcw size={12} />
+                复位所有调参值
+              </button>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -249,9 +265,10 @@ export function MixerFullscreen({
                   top: -6, height: 14,
                   left: `calc(184px + (100% - 184px - 12px) * ${locARatio})`,
                   width: `calc((100% - 184px - 12px) * ${locBRatio - locARatio})`,
-                  background: locatorActive ? "rgba(187,238,0,0.85)" : "rgba(187,238,0,0.07)",
-                  borderLeft: "1px solid rgba(187,238,0,0.55)",
-                  borderRight: "1px solid rgba(187,238,0,0.55)",
+                  // 1031 二轮（欢哥）：绿色阴影退役——未激活=白（单纯指示）；激活=黄
+                  background: locatorActive ? "rgba(255,204,0,0.85)" : "rgba(255,255,255,0.07)",
+                  borderLeft: `1px solid ${locatorActive ? "rgba(255,204,0,0.55)" : "rgba(255,255,255,0.55)"}`,
+                  borderRight: `1px solid ${locatorActive ? "rgba(255,204,0,0.55)" : "rgba(255,255,255,0.55)"}`,
                 }}
                 onPointerDown={(e) => { e.stopPropagation(); setEditing(null); stripDragRef.current = { startX: e.clientX, lastX: e.clientX, moved: false } }}
                 title={locatorActive
@@ -344,9 +361,9 @@ export function MixerFullscreen({
                     style={{
                       left: `calc(184px + (100% - 184px - 12px) * ${locARatio})`,
                       width: `calc((100% - 184px - 12px) * ${Math.max(0, locBRatio - locARatio)})`,
-                      background: "rgba(187,238,0,0.07)",
-                      borderLeft: "1px solid rgba(187,238,0,0.55)",
-                      borderRight: "1px solid rgba(187,238,0,0.55)",
+                      background: locatorActive ? "rgba(255,204,0,0.07)" : "rgba(255,255,255,0.07)",
+                      borderLeft: `1px solid ${locatorActive ? "rgba(255,204,0,0.55)" : "rgba(255,255,255,0.55)"}`,
+                      borderRight: `1px solid ${locatorActive ? "rgba(255,204,0,0.55)" : "rgba(255,255,255,0.55)"}`,
                     }}
                   />
                 )}
@@ -431,6 +448,23 @@ export function MixerFullscreen({
               >
                 <Square size={14} fill="currentColor" />
               </button>
+              {/* 循环开关（1031 二轮欢哥：前移至停止后、时间前；归播放引擎与定位器解耦——
+                  传了就渲染，program 不传=零感知。定位器生效=循环选区，未生效=整曲循环） */}
+              {onLoopToggle && (
+                <button
+                  type="button"
+                  onClick={() => onLoopToggle(!loop)}
+                  className="flex h-9 w-9 items-center justify-center rounded-full transition-colors hover:bg-white/10"
+                  style={{
+                    color: loop ? MIXER_COLORS.green : MIXER_COLORS.textMuted,
+                    border: `1px solid ${loop ? "rgba(187,238,0,0.5)" : MIXER_COLORS.border}`,
+                  }}
+                  aria-label="循环播放"
+                  title="循环播放（定位器生效时循环选区，否则整曲循环）"
+                >
+                  <Repeat size={14} />
+                </button>
+              )}
             </div>
 
             <div className="shrink-0 font-mono text-sm tabular-nums" style={{ color: MIXER_COLORS.text }}>
@@ -453,36 +487,6 @@ export function MixerFullscreen({
               {footerHint}
             </p>
 
-            {/* 循环开关（1031 归播放引擎，欢哥拍板维度纠正：循环=播放器的事，与定位器解耦——
-                传了就渲染；program 不传=零感知）。定位器开=循环选区，关=整曲循环 */}
-            {onLoopToggle && (
-              <button
-                type="button"
-                onClick={() => onLoopToggle(!loop)}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-white/10"
-                style={{
-                  color: loop ? MIXER_COLORS.green : MIXER_COLORS.textMuted,
-                  border: `1px solid ${loop ? "rgba(187,238,0,0.5)" : MIXER_COLORS.border}`,
-                }}
-                aria-label="循环播放"
-                title="循环播放（定位器生效时循环选区，否则整曲循环）"
-              >
-                <Repeat size={14} />
-              </button>
-            )}
-            {/* 复位所有参数（音量/声像/总线/M/S/定位器一键回默认） */}
-            {onResetAll && (
-              <button
-                type="button"
-                onClick={onResetAll}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-white/10"
-                style={{ color: MIXER_COLORS.textMuted, border: `1px solid ${MIXER_COLORS.border}` }}
-                aria-label="复位所有参数"
-                title="复位所有参数（音量/声像/总线/M/S/定位器）"
-              >
-                <RotateCcw size={14} />
-              </button>
-            )}
             {/* 一键清 M/S（闸2 便利钮：发表要求全员参与混音，存在 M/S 时才显示） */}
             {onClearMS && hasAnyMS && (
               <button
