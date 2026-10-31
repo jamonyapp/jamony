@@ -168,11 +168,17 @@ export function PublishNoticeModal({ open, onClose, onPublished, initialNotice }
     }
   }
 
+  // 1023 遮罩拖出误关判例（notice-detail-modal 同款范式，此处当年漏修）：
+  // 卡片内按下拖到遮罩上松开 → click 派发到公共祖先(遮罩)且 target=遮罩 → 裸 onClick 误关。
+  // 修法=按下+松开都在遮罩上才关。
+  const downOnOverlay = useRef(false)
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       style={{ backgroundColor: "rgba(0,0,0,0.6)" }}
-      onClick={handleClose}
+      onMouseDown={(e) => { downOnOverlay.current = e.target === e.currentTarget }}
+      onClick={(e) => { if (e.target === e.currentTarget && downOnOverlay.current) handleClose() }}
     >
       <div
         className="jamony-modal-enter w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl border p-6"
