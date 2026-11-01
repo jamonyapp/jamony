@@ -33,9 +33,6 @@
       ],
       "icon": "icon.png",
       "category": "public.app-category.music",
-      "dmg": {
-        "backgroundColor": "#000000"
-      },
       "extraResources": [
         {
           "from": "jamsoul.app",
