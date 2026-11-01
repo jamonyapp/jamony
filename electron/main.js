@@ -26,6 +26,10 @@ function migrateJamsoulAudioQuality() {
 // 1021 起正式壳指向 ECS 新机（旧轻量已退居回退/staging；将来域名包日再切 app.jamonyapp.com）
 const WEB_URL = process.env.JAMONY_WEB_URL || 'http://123.57.33.130'
 
+// 1102: E2E 隔离用——指定独立 userData 目录，避免源码跑壳与已装客户端抢同一 profile
+// （Chromium LevelDB 单写者；不设此项则默认 ~/Library/Application Support/jamony）
+if (process.env.JAMONY_USER_DATA) app.setPath('userData', process.env.JAMONY_USER_DATA)
+
 // jamony 10-02: Mac 帮助菜单外链（欢哥后续做官网/FAQ页后改这里即可）
 const HELP_SITE_URL = 'https://jamonyapp.com'
 const HELP_FAQ_URL = `${WEB_URL}/faq`
@@ -56,17 +60,29 @@ let isLastMusician = false  // jamony: 当前用户是否房间唯一合奏者�
  */
 let updateDeferred = false      // 用户点了稍后 → 本次运行内不再弹（承诺①）
 let updateWindow = null          // 更新弹窗引用（防重复开）
+let infoWindow = null            // 「已是最新/检查失败」小信息窗引用（1102）
 let updateTimer = null           // 4h 定时器
 
 async function checkForUpdate(silent = false, force = false) {
-  if (updateWindow) return  // 已在弹窗中
+  if (updateWindow || infoWindow) return  // 已在弹窗中
   if (!force && updateDeferred) return  // 用户已说稍后（手动触发时 force 绕过）
   try {
     const currentVersion = app.getVersion()
     const res = await net.fetch(`${WEB_URL}/api/version/latest`)
-    if (!res.ok) return
+    if (!res.ok) {
+      // 1102: 手动检查必须有回执（欢哥实测定罪：点了没反应=静默 return）；自动探测保持静默
+      if (force) showUpdateInfoDialog('检查更新失败', `服务器无响应（HTTP ${res.status}），请稍后再试。`)
+      return
+    }
     const data = await res.json()
-    if (!data.ok || !data.update || !data.version) return
+    if (!data.ok || !data.update || !data.version) {
+      // 1102: update:false=无发布版本/版本对齐——手动点击弹「已是最新版本」，自动探测静默
+      if (force) {
+        if (data.ok) showUpdateInfoDialog('jamony', `当前已是最新版本。（v${currentVersion}）`)
+        else showUpdateInfoDialog('检查更新失败', '版本服务异常，请稍后再试。')
+      }
+      return
+    }
     // 版本比对（semver 简比：逐段数字）
     const cur = currentVersion.split('.').map(Number)
     const neu = data.version.split('.').map(Number)
@@ -76,7 +92,10 @@ async function checkForUpdate(silent = false, force = false) {
       if (b > a) { hasNew = true; break }
       if (b < a) break
     }
-    if (!hasNew) return
+    if (!hasNew) {
+      if (force) showUpdateInfoDialog('jamony', `当前已是最新版本。（v${currentVersion}）`)
+      return
+    }
     // 房间礼仪闸：自动探测（非 force）在房间内=不打扰；用户主动点击（force）=绕过闸直接弹
     // （1031 欢哥实测定罪：手动点检查更新被礼仪闸吞=「点了没反应」——礼仪管自动，不管手动）
     if (!force && (jamsoulProcess || currentRoom)) {
@@ -170,6 +189,38 @@ function showUpdateDialog(data) {
     })
   }
   updateWindow.once('ready-to-show', () => updateWindow.show())
+}
+
+// 1102: 手动「检查更新」的回执小窗（无更新/失败）——与更新弹窗同一视觉语言（黑底/#9933FF/渐变按钮）
+// 判例来源：版本对齐时 force 点击被静默 return =「点了没反应」，欢哥定稿文案「当前已是最新版本。」
+function showUpdateInfoDialog(title, sub) {
+  if (infoWindow) return
+  infoWindow = new BrowserWindow({
+    width: 340, height: 168, resizable: false, minimizable: false, maximizable: false,
+    title: 'jamony', backgroundColor: '#000000', show: false,
+    parent: mainWindow, modal: true,
+    webPreferences: { contextIsolation: false, nodeIntegration: true },
+  })
+  infoWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
+    <html><head><meta charset="utf-8"><style>
+      * { margin:0; padding:0; box-sizing:border-box; }
+      body { background:#000; color:#fff; font-family:-apple-system,'Segoe UI','Noto Sans SC',sans-serif; padding:22px 20px 18px; user-select:none; display:flex; flex-direction:column; height:100vh; }
+      h2 { font-size:15px; margin-bottom:5px; }
+      .sub { color:#888; font-size:12px; line-height:1.6; }
+      .btns { display:flex; margin-top:auto; }
+      .btn { flex:1; padding:9px 0; border:none; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; background:linear-gradient(135deg,#00AAFF,#9933FF); color:#fff; }
+    </style></head><body>
+      <h2>${title}</h2>
+      <div class="sub">${sub}</div>
+      <div class="btns"><button class="btn" onclick="require('electron').ipcRenderer.send('update-info-ok')">好</button></div>
+    </body></html>
+  `)}`)
+  infoWindow.once('closed', () => { infoWindow = null })
+  // IPC：好（一次性注册·防重复，同 update-later/update-go 模式）
+  if (ipcMain.listeners('update-info-ok').length === 0) {
+    ipcMain.on('update-info-ok', () => { if (infoWindow) infoWindow.close() })
+  }
+  infoWindow.once('ready-to-show', () => infoWindow.show())
 }
 
 // 启动 5s 后首次探测（等 web 页面加载完，不影响启动速度）；之后每 4h
