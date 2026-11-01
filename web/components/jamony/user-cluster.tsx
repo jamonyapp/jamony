@@ -199,13 +199,15 @@ export function UserCluster({ onRefresh }: { onRefresh?: () => void }) {
           {/* 头像 */}
           <div className="relative">
             <button
-              className="relative flex items-center gap-1.5 rounded-lg p-0.5 transition-colors hover:bg-white/5"
+              className="flex items-center gap-1.5 rounded-lg p-0.5 transition-colors hover:bg-white/5"
               onClick={() => setOpenMenu((m) => (m === "user" ? "none" : "user"))}
             >
-              <Avatar nickname={user?.nickname || "U"} avatarUrl={user?.avatarUrl} size={28} />
-              {versionDrift && (
-                <span className="absolute right-0 top-0 h-2 w-2 rounded-full" style={{ background: "#FF33AA" }} />
-              )}
+              <span className="relative inline-block">
+                <Avatar nickname={user?.nickname || "U"} avatarUrl={user?.avatarUrl} size={28} />
+                {versionDrift && (
+                  <span className="absolute right-[-2px] top-[-2px] h-2 w-2 rounded-full border" style={{ background: "#FF33AA", borderColor: "#000", borderWidth: 1.5 }} />
+                )}
+              </span>
               <ChevronDown className="h-4 w-4" style={{ color: "#8A8A8A" }} />
             </button>
 
