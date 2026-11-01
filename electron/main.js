@@ -58,8 +58,9 @@ let updateDeferred = false      // 用户点了稍后 → 本次运行内不再�
 let updateWindow = null          // 更新弹窗引用（防重复开）
 let updateTimer = null           // 4h 定时器
 
-async function checkForUpdate(silent = false) {
-  if (updateWindow || updateDeferred) return  // 已在弹窗中 / 用户已说稍后
+async function checkForUpdate(silent = false, force = false) {
+  if (updateWindow) return  // 已在弹窗中
+  if (!force && updateDeferred) return  // 用户已说稍后（手动触发时 force 绕过）
   try {
     const currentVersion = app.getVersion()
     const res = await net.fetch(`${WEB_URL}/api/version/latest`)
@@ -76,10 +77,11 @@ async function checkForUpdate(silent = false) {
       if (b < a) break
     }
     if (!hasNew) return
-    // 房间礼仪闸：正在房间内（jamsoul 在跑 / currentRoom 有值）=不打扰（宪法：合奏中神圣不可侵犯）
-    if (jamsoulProcess || currentRoom) {
-      console.log('[jamony] 更新检测到新版本但用户在房间内，礼仪闸压下')
-      return  // 下次对账周期再试（不弹窗）
+    // 房间礼仪闸：自动探测（非 force）在房间内=不打扰；用户主动点击（force）=绕过闸直接弹
+    // （1031 欢哥实测定罪：手动点检查更新被礼仪闸吞=「点了没反应」——礼仪管自动，不管手动）
+    if (!force && (jamsoulProcess || currentRoom)) {
+      console.log('[jamony] 更新检测到新版本但用户在房间内，礼仪闸压下（自动探测）')
+      return
     }
     showUpdateDialog(data)
   } catch (e) {
@@ -175,8 +177,8 @@ function showUpdateDialog(data) {
 function startUpdateChecker() {
   setTimeout(() => checkForUpdate(true), 5000)
   updateTimer = setInterval(() => checkForUpdate(true), 4 * 60 * 60 * 1000)
-  // 1031 web 侧 IPC 入口（顶层注册·非 showUpdateDialog 内——否则首次弹窗前 handler 不存在=点了没反应）
-  ipcMain.on('jamony-check-update', () => { updateDeferred = false; checkForUpdate(false) })
+  // 1031 web 侧 IPC 入口（顶层注册；force=true 绕过稍后标记+房间礼仪闸——用户主动点击要的是弹窗，不是被吞）
+  ipcMain.on('jamony-check-update', () => { updateDeferred = false; checkForUpdate(false, true) })
 }
 
 function createWindow() {
@@ -219,7 +221,7 @@ function createWindow() {
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       { label: 'jamony', submenu: [
         { role: 'about', label: '关于 jamony' }, { type: 'separator' },
-        { label: '检查更新…', click: () => { updateDeferred = false; checkForUpdate(false) } }, { type: 'separator' },
+        { label: '检查更新…', click: () => { updateDeferred = false; checkForUpdate(false, true) } }, { type: 'separator' },
         { role: 'hide', label: '隐藏 jamony' },
         { role: 'hideOthers', label: '隐藏其他' }, { type: 'separator' },
         { role: 'quit', label: '退出 jamony' }
