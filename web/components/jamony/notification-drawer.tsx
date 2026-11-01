@@ -14,7 +14,14 @@ const TABS = [
   { key: "message", label: "私信", types: ["message"] as string[] },
 ] as const
 
-export function NotificationDrawer({ open, onClose, onOpenNotice }: { open: boolean; onClose: () => void; onOpenNotice?: (noticeId: number) => void }) {
+export function NotificationDrawer({ open, onClose, onOpenNotice, versionDrift, latestVersion }: {
+  open: boolean
+  onClose: () => void
+  onOpenNotice?: (noticeId: number) => void
+  /** 1031 版本漂移（欢哥裁定：不可消除的状态指示，仅版本对齐才消失） */
+  versionDrift?: boolean
+  latestVersion?: string
+}) {
   const router = useRouter()
   const { fetchList, markRead, markAllRead, deleteNotif, refreshUnread } = useNotifications()
   const { user } = useAuth()
@@ -205,10 +212,32 @@ export function NotificationDrawer({ open, onClose, onOpenNotice }: { open: bool
             )
           ) : loading ? (
             <p className="py-20 text-center text-sm" style={{ color: "#8A8A8A" }}>加载中...</p>
-          ) : filtered.length === 0 ? (
+          ) : filtered.length === 0 && !(tab === "notice" && versionDrift) ? (
             <p className="py-20 text-center text-sm" style={{ color: "#8A8A8A" }}>{tab === "comment" ? "暂无评论通知" : "暂无通知"}</p>
           ) : (
-            filtered.map((n) => (
+            <>
+            {/* 1031 版本更新通知卡片（欢哥裁定：不可消除，仅版本对齐消失；置顶通知 tab） */}
+            {tab === "notice" && versionDrift && (
+              <div className="flex items-start gap-3 border-b px-4 py-3" style={{ borderColor: "#1A1A1A", background: "rgba(153,51,255,0.08)" }}>
+                <img src="/jamony_logo.png" alt="jamony" className="h-[32px] w-[32px] flex-shrink-0 rounded-full object-cover" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-white">jamony {latestVersion || "新版本"} 可用</p>
+                  <p className="mt-0.5 text-xs" style={{ color: "#8A8A8A" }}>更新以获得最新功能和修复</p>
+                  <button
+                    className="mt-2 rounded-md px-3 py-1 text-xs font-semibold text-white transition-transform active:scale-[0.97]"
+                    style={{ background: "linear-gradient(90deg, #00AAFF, #9933FF)" }}
+                    onClick={() => {
+                      const api = (window as unknown as { jamonyAPI?: { checkForUpdate?: () => void } }).jamonyAPI
+                      if (api?.checkForUpdate) { onClose(); api.checkForUpdate() }
+                    }}
+                  >
+                    立即更新
+                  </button>
+                </div>
+                <span className="mt-1 h-2 w-2 flex-shrink-0 rounded-full" style={{ background: "#FF33AA" }} />
+              </div>
+            )}
+            {filtered.map((n) => (
               <div key={n.id} onClick={() => handleClick(n)}
                 className="group flex cursor-pointer items-start gap-3 border-b px-4 py-3 transition-colors hover:bg-white/5"
                 style={{ borderColor: "#1A1A1A", background: n.read_at ? "transparent" : "rgba(153,51,255,0.06)" }}>
@@ -261,7 +290,8 @@ export function NotificationDrawer({ open, onClose, onOpenNotice }: { open: bool
                   <Trash2 className="h-3.5 w-3.5" />
                 </span>
               </div>
-            ))
+            ))}
+            </>
           )}
         </div>
       </div>

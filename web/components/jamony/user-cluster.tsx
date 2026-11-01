@@ -48,6 +48,7 @@ export function UserCluster({ onRefresh }: { onRefresh?: () => void }) {
 
   // 1031 版本漂移红点（欢哥裁定：红点=版本漂移指示，不取决于用户是否点过稍后，只看版本是否真的差了）
   const [versionDrift, setVersionDrift] = useState(false)
+  const [latestVer, setLatestVer] = useState<string>("")
   useEffect(() => {
     let cancelled = false
     const check = async () => {
@@ -57,12 +58,14 @@ export function UserCluster({ onRefresh }: { onRefresh?: () => void }) {
         const r = await fetch("/api/version/latest", { credentials: "include" })
         const d = await r.json()
         if (cancelled || !d.ok || !d.update) return
+        setLatestVer(d.version)
         const cur = shellVersion.split(".").map(Number)
         const neu = d.version.split(".").map(Number)
         for (let i = 0; i < Math.max(cur.length, neu.length); i++) {
           if ((neu[i] || 0) > (cur[i] || 0)) { if (!cancelled) setVersionDrift(true); return }
           if ((neu[i] || 0) < (cur[i] || 0)) return
         }
+        if (!cancelled) setVersionDrift(false)  // 版本对齐=红点消失
       } catch { /* 静默 */ }
     }
     check()
@@ -188,26 +191,22 @@ export function UserCluster({ onRefresh }: { onRefresh?: () => void }) {
               onClick={openDrawer}
             >
               <Mail className="h-[18px] w-[18px]" />
-              {unreadCount > 0 && (
+              {/* 1031 欢哥裁定：信封红点=未读 OR 版本漂移（版本漂移分量不可消，仅版本对齐消失） */}
+              {(unreadCount > 0 || versionDrift) && (
                 <span className="absolute right-1 top-1 h-2 w-2 rounded-full" style={{ background: "#FF33AA" }} />
               )}
             </button>
           </div>
-          <NotificationDrawer open={drawerOpen} onClose={closeDrawer} onOpenNotice={handleOpenNotice} />
+          <NotificationDrawer open={drawerOpen} onClose={closeDrawer} onOpenNotice={handleOpenNotice} versionDrift={versionDrift} latestVersion={versionDrift ? latestVer : undefined} />
           <NoticeDetailModal notice={globalNotice} onClose={() => setGlobalNotice(null)} onDelete={handleGlobalDelete} />
 
-          {/* 头像 */}
+          {/* 头像（1031 欢哥裁定：头像本身不放红点——通知归信封，手动检查归下拉菜单） */}
           <div className="relative">
             <button
               className="flex items-center gap-1.5 rounded-lg p-0.5 transition-colors hover:bg-white/5"
               onClick={() => setOpenMenu((m) => (m === "user" ? "none" : "user"))}
             >
-              <span className="relative inline-block">
-                <Avatar nickname={user?.nickname || "U"} avatarUrl={user?.avatarUrl} size={28} />
-                {versionDrift && (
-                  <span className="absolute right-[-2px] top-[-2px] h-2 w-2 rounded-full border" style={{ background: "#FF33AA", borderColor: "#000", borderWidth: 1.5 }} />
-                )}
-              </span>
+              <Avatar nickname={user?.nickname || "U"} avatarUrl={user?.avatarUrl} size={28} />
               <ChevronDown className="h-4 w-4" style={{ color: "#8A8A8A" }} />
             </button>
 
