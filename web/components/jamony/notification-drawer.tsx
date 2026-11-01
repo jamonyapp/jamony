@@ -152,11 +152,14 @@ export function NotificationDrawer({ open, onClose, onOpenNotice, versionDrift, 
           <div className="flex gap-5">
             {TABS.map((t) => {
               const unread = list.filter((n) => t.types.includes(n.type) && !n.read_at).length
+              // 1031 欢哥：通知 tab 的版本漂移红点（不可消，仅版本对齐消失；与未读计数红点并存）
+              const driftDot = t.key === "notice" && versionDrift
               return (
                 <button key={t.key} onClick={() => setTab(t.key)} className="relative text-sm font-medium transition-colors"
                   style={{ color: tab === t.key ? "#fff" : "#8A8A8A" }}>
                   {t.label}
-                  {unread > 0 && <span className="absolute -right-3 -top-2 flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[10px] font-medium leading-none text-white" style={{ background: "#FF33AA" }}>{unread > 99 ? '99+' : unread}</span>}
+                  {driftDot && <span className="absolute -right-2 -top-1 h-2 w-2 rounded-full" style={{ background: "#FF33AA" }} />}
+                  {unread > 0 && <span className="absolute -right-3 -top-2 flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[10px] font-medium leading-none text-white" style={{ background: "#FF33AA", marginLeft: driftDot ? "6px" : undefined }}>{unread > 99 ? '99+' : unread}</span>}
                 </button>
               )
             })}

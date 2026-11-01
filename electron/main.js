@@ -141,11 +141,9 @@ function showUpdateDialog(data) {
     </body></html>
   `)}`)
   updateWindow.once('closed', () => { updateWindow = null })
-  // IPC：稍后 / 立即更新（一次性注册·防重复）
+  // IPC：稍后 / 立即更新（一次性注册·防重复；jamony-check-update 已移至 startUpdateChecker 顶层）
   if (ipcMain.listeners('update-later').length === 0) {
     ipcMain.on('update-later', () => { updateDeferred = true; if (updateWindow) updateWindow.close() })
-    // 1031 web 侧「检查更新」入口（头像下拉菜单 IPC 触发）：重置 deferred + 立即对账+弹窗
-    ipcMain.on('jamony-check-update', () => { updateDeferred = false; checkForUpdate(false) })
     ipcMain.on('update-go', async () => {
       try {
         if (updateWindow) updateWindow.webContents.executeJavaScript("document.getElementById('btnGo').disabled=true;document.getElementById('dlProg').style.display='block'")
@@ -177,6 +175,8 @@ function showUpdateDialog(data) {
 function startUpdateChecker() {
   setTimeout(() => checkForUpdate(true), 5000)
   updateTimer = setInterval(() => checkForUpdate(true), 4 * 60 * 60 * 1000)
+  // 1031 web 侧 IPC 入口（顶层注册·非 showUpdateDialog 内——否则首次弹窗前 handler 不存在=点了没反应）
+  ipcMain.on('jamony-check-update', () => { updateDeferred = false; checkForUpdate(false) })
 }
 
 function createWindow() {
