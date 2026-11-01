@@ -1,6 +1,6 @@
 "use client"
 
-import { ChevronDown, LogOut, Mail, RefreshCw, Settings, User, LogIn } from "lucide-react"
+import { ChevronDown, Download, LogOut, Mail, RefreshCw, Settings, User, LogIn } from "lucide-react"
 import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
 import { useAuth } from "@/lib/auth-context"
@@ -18,6 +18,7 @@ import { type Notice } from "@/lib/jamony-data"
 const menuItems = [
   { id: "profile", label: "个人主页", icon: User },
   { id: "settings", label: "设置", icon: Settings },
+  { id: "checkupdate", label: "检查更新", icon: Download },
   { id: "logout", label: "退出登录", icon: LogOut },
 ]
 
@@ -44,6 +45,42 @@ export function UserCluster({ onRefresh }: { onRefresh?: () => void }) {
   // 断开确认弹窗（合奏者专属；听众直接断）与退出登录确认共用 DisconnectDialog，
   // pendingAction 区分确认后的动作
   const [pendingAction, setPendingAction] = useState<"none" | "disconnect" | "logout">("none")
+
+  // 1031 版本漂移红点（欢哥裁定：红点=版本漂移指示，不取决于用户是否点过稍后，只看版本是否真的差了）
+  const [versionDrift, setVersionDrift] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    const check = async () => {
+      try {
+        const shellVersion = (window as unknown as { jamonyAPI?: { version?: string } }).jamonyAPI?.version
+        if (!shellVersion) return  // 非 Electron 环境（浏览器/开发模式）不检
+        const r = await fetch("/api/version/latest", { credentials: "include" })
+        const d = await r.json()
+        if (cancelled || !d.ok || !d.update) return
+        const cur = shellVersion.split(".").map(Number)
+        const neu = d.version.split(".").map(Number)
+        for (let i = 0; i < Math.max(cur.length, neu.length); i++) {
+          if ((neu[i] || 0) > (cur[i] || 0)) { if (!cancelled) setVersionDrift(true); return }
+          if ((neu[i] || 0) < (cur[i] || 0)) return
+        }
+      } catch { /* 静默 */ }
+    }
+    check()
+    const timer = setInterval(check, 4 * 60 * 60 * 1000)
+    return () => { cancelled = true; clearInterval(timer) }
+  }, [])
+
+  const handleCheckUpdate = () => {
+    setOpenMenu("none")
+    const api = (window as unknown as { jamonyAPI?: { checkForUpdate?: () => void; version?: string } }).jamonyAPI
+    if (api?.checkForUpdate) {
+      // Electron 壳环境：IPC 让壳弹原生更新窗
+      api.checkForUpdate()
+    } else {
+      // 浏览器环境（开发/非壳）：诚实提示
+      dialog.alert("此功能仅在 jamony 客户端内可用。")
+    }
+  }
 
   const handleDisconnectClick = () => {
     if (session?.role === "musician") setPendingAction("disconnect")
@@ -162,10 +199,13 @@ export function UserCluster({ onRefresh }: { onRefresh?: () => void }) {
           {/* 头像 */}
           <div className="relative">
             <button
-              className="flex items-center gap-1.5 rounded-lg p-0.5 transition-colors hover:bg-white/5"
+              className="relative flex items-center gap-1.5 rounded-lg p-0.5 transition-colors hover:bg-white/5"
               onClick={() => setOpenMenu((m) => (m === "user" ? "none" : "user"))}
             >
               <Avatar nickname={user?.nickname || "U"} avatarUrl={user?.avatarUrl} size={28} />
+              {versionDrift && (
+                <span className="absolute right-0 top-0 h-2 w-2 rounded-full" style={{ background: "#FF33AA" }} />
+              )}
               <ChevronDown className="h-4 w-4" style={{ color: "#8A8A8A" }} />
             </button>
 
@@ -198,6 +238,10 @@ export function UserCluster({ onRefresh }: { onRefresh?: () => void }) {
                         className="flex h-10 w-full items-center gap-2.5 rounded-lg px-3 text-[14px] transition-colors hover:bg-white/5"
                         style={{ color: "#E0E0E0" }}
                         onClick={() => {
+                          if (item.id === "checkupdate") {
+                            handleCheckUpdate()
+                            return
+                          }
                           if (item.id === "logout") {
                             setOpenMenu("none")
                             // 10-06：有活跃房间先弹断开确认（退出登录=断开连接语义，欢哥拍板复用弹窗）
@@ -219,6 +263,9 @@ export function UserCluster({ onRefresh }: { onRefresh?: () => void }) {
                       >
                         <Icon className="h-4 w-4" />
                         {item.label}
+                        {item.id === "checkupdate" && versionDrift && (
+                          <span className="ml-auto h-2 w-2 rounded-full" style={{ background: "#FF33AA" }} />
+                        )}
                       </button>
                     )
                   })}

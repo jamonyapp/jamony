@@ -144,6 +144,8 @@ function showUpdateDialog(data) {
   // IPC：稍后 / 立即更新（一次性注册·防重复）
   if (ipcMain.listeners('update-later').length === 0) {
     ipcMain.on('update-later', () => { updateDeferred = true; if (updateWindow) updateWindow.close() })
+    // 1031 web 侧「检查更新」入口（头像下拉菜单 IPC 触发）：重置 deferred + 立即对账+弹窗
+    ipcMain.on('jamony-check-update', () => { updateDeferred = false; checkForUpdate(false) })
     ipcMain.on('update-go', async () => {
       try {
         if (updateWindow) updateWindow.webContents.executeJavaScript("document.getElementById('btnGo').disabled=true;document.getElementById('dlProg').style.display='block'")

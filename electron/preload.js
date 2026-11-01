@@ -53,6 +53,10 @@ contextBridge.exposeInMainWorld('jamonyAPI', {
     ipcRenderer.on('jamsoul-delay', handler)
     return () => ipcRenderer.removeListener('jamsoul-delay', handler)
   },
+  // 1031 欢哥裁定：web 侧「检查更新」入口（头像下拉菜单）→ IPC 让壳弹更新窗
+  checkForUpdate: () => {
+    ipcRenderer.send('jamony-check-update')
+  },
 })
 
 // 拦截网页的 window.postMessage，如果内容是 JOIN_ROOM 则转发到主进程
