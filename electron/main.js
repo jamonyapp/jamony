@@ -23,8 +23,8 @@ function migrateJamsoulAudioQuality() {
 }
 
 // 云端页面地址
-// 1021 起正式壳指向 ECS 新机（旧轻量已退居回退/staging；将来域名包日再切 app.jamonyapp.com）
-const WEB_URL = process.env.JAMONY_WEB_URL || 'http://123.57.33.130'
+// 1102 域名时代：直接 https（一步到位，不吃未来 80 收口的 301）；老包 IP 直连由 nginx default_server 80 兜底
+const WEB_URL = process.env.JAMONY_WEB_URL || 'https://app.jamonyapp.com'
 
 // 1102: E2E 隔离用——指定独立 userData 目录，避免源码跑壳与已装客户端抢同一 profile
 // （Chromium LevelDB 单写者；不设此项则默认 ~/Library/Application Support/jamony）

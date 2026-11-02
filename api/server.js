@@ -251,7 +251,9 @@ function setAuthCookie(res, user) {
     httpOnly: true,
     maxAge: TOKEN_MAX_AGE,
     sameSite: 'lax',
-    // secure: true,  // 公测 HTTPS 启用
+    // 1102 #14: Secure 属性做成 env 开关（默认 false=不写该属性，老包 http IP 直连零影响）
+    // 拨 true 的时点=壳域名包普及、IP 直连退役（Big Day 开下载区之后）
+    secure: process.env.COOKIE_SECURE === 'true',
   })
 }
 
@@ -306,7 +308,7 @@ function parseSession(req, res) {
     const remaining = decoded.exp * 1000 - Date.now()
     if (remaining < 24 * 3600 * 1000) {
       const newToken = jwt.sign({ id: decoded.id, nickname: decoded.nickname }, JWT_SECRET, { expiresIn: '7d' })
-      res.cookie(COOKIE_NAME, newToken, { httpOnly: true, maxAge: TOKEN_MAX_AGE, sameSite: 'lax' })
+      res.cookie(COOKIE_NAME, newToken, { httpOnly: true, maxAge: TOKEN_MAX_AGE, sameSite: 'lax', secure: process.env.COOKIE_SECURE === 'true' })
     }
     return decoded
   } catch (e) {
