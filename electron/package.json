@@ -13,6 +13,7 @@
   "build": {
     "appId": "com.jamony.app",
     "productName": "jamony",
+    "artifactName": "${name}-${version}-${arch}.${ext}",
     "directories": {
       "output": "../dist"
     },

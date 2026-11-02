@@ -168,7 +168,8 @@ jobs:
         with:
           name: jamony-${{ github.event.inputs.version }}-windows
           path: |
-            jamony-private/dist/jamony*Setup*.exe
+            jamony-private/dist/jamony-*.exe
+            jamony-private/dist/jamony-*.exe.blockmap
           retention-days: 30
           if-no-files-found: warn
 
