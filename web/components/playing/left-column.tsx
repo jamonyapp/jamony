@@ -4,7 +4,7 @@ import { Fragment, useEffect, useRef, useState } from "react"
 import { LevelMeter } from "@/components/playing/level-meter"
 import { FilterSelect } from "@/components/jamony/filter-select"
 import { useParams } from "next/navigation"
-import { Sparkles, PowerOff, Plug, Headphones, Play, Square, Upload, Download, Trash2, Music4 } from "lucide-react"
+import { Sparkles, PowerOff, Plug, Headphones, Play, Square, Upload, Download, Trash2, Music4, X } from "lucide-react"
 import {
   DAILY_THEME,
   CHORD_STYLES,
@@ -14,6 +14,7 @@ import {
   type RoomScore,
 } from "@/lib/jam-data"
 import { ProgramPanel } from "@/components/playing/program-tool"
+import { UploadToast } from "@/components/playing/upload-toast"
 import { HoverName } from "@/components/playing/hover-fullname"
 import type { ProgramData, ProgramMix, ProgramState } from "@/lib/chat-socket"
 import { useJamonyDialog } from "@/components/jamony/dialog"
@@ -455,6 +456,14 @@ function ScorePanel({ roomId, currentScore, onPushScore }: {
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState("")
   const [hint, setHint] = useState("")
+  // 1103 欢哥（内测反馈第2条）：上传成功 toast——照录音落档款，5s 自动淡出，叉子可提前关
+  const [toast, setToast] = useState("")
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const showToast = (msg: string) => {
+    setToast(msg)
+    if (toastTimer.current) clearTimeout(toastTimer.current)
+    toastTimer.current = setTimeout(() => setToast(""), 5000)
+  }
   const [confirmDelete, setConfirmDelete] = useState<ShelfItem | null>(null)  // 1013 欢哥定稿：删正投屏的谱先弹闸
   const [confirmSwitch, setConfirmSwitch] = useState<ShelfItem | null>(null)  // 1013 欢哥定稿：热切换常驻确认（不可忽略）
 
@@ -475,7 +484,7 @@ function ScorePanel({ roomId, currentScore, onPushScore }: {
   const handlePick = async (e: import("react").ChangeEvent<HTMLInputElement>) => {
     const list = Array.from(e.target.files || [])
     e.target.value = ""
-    setError(""); setHint("")
+    setError(""); setHint(""); setToast("")
     if (list.length === 0 || !roomId) return
     const bad = list.find(f => !GP_EXT.test(f.name) && !NOTATION_EXT.test(f.name) && !IMG_EXT.test(f.name) && !/\.pdf$/i.test(f.name))
     if (bad) { setError(`「${bad.name}」类型不支持（图片/PDF/GP/制谱文件）`); return }
@@ -488,7 +497,7 @@ function ScorePanel({ roomId, currentScore, onPushScore }: {
       const res = await fetch(`/api/rooms/${roomId}/score/upload`, { method: "POST", body: fd })
       const data = await res.json()
       if (!data.ok) { setError(data.msg || "上传失败"); return }
-      setHint(`已上传 ${list.length} 份`)
+      showToast(`已上传 ${list.length} 份`)
       load()
     } catch {
       setError("上传失败，请重试")
@@ -567,6 +576,13 @@ function ScorePanel({ roomId, currentScore, onPushScore }: {
 
   return (
     <div className="flex h-full flex-col gap-2 py-1">
+      {/* 错误提示条（1103 欢哥：照 Program 同款红条，出错才占位；覆盖预检拒绝/上传失败/投屏未选中等） */}
+      {error && (
+        <div className="flex shrink-0 items-start gap-2 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+          <span className="flex-1">{error}</span>
+          <button onClick={() => setError("")} aria-label="关闭提示"><X size={12} className="mt-0.5" /></button>
+        </div>
+      )}
       {/* 三按钮：上传 + 清空 + 投屏（1016 欢哥，对齐 Program 三键节奏；投屏对选中项生效） */}
       <input ref={fileInputRef} type="file" multiple hidden accept={ACCEPT} onChange={handlePick} />
       <div className="grid shrink-0 grid-cols-3 gap-2">
@@ -592,7 +608,10 @@ function ScorePanel({ roomId, currentScore, onPushScore }: {
       </p>
 
       {/* 乐谱列表（内部纵向滚动；格式分组排序：GP/制谱→PDF→图片，同类新→旧） */}
-      <div className="min-h-0 flex-1 overflow-y-auto rounded-[8px] border scrollbar-thin" style={{ borderColor: "#2A2A2A", background: "#141414" }}>
+      {/* 1103 欢哥：外壳 relative 供上传 toast 悬浮列表顶——宽度=列表框等宽，不挤占布局不顶列表（照录音落档位） */}
+      <div className="relative min-h-0 flex-1">
+        {toast && <UploadToast msg={toast} icon={Music4} onClose={() => { if (toastTimer.current) clearTimeout(toastTimer.current); setToast("") }} />}
+        <div className="h-full overflow-y-auto rounded-[8px] border scrollbar-thin" style={{ borderColor: "#2A2A2A", background: "#141414" }}>
         {items.length === 0 ? (
           <p className="px-3 py-4 text-center text-[11px] leading-relaxed" style={{ color: "#8A8A8A" }}>
             谱架空着<br />上传的乐谱都在这里，选中即可投屏
@@ -619,10 +638,10 @@ function ScorePanel({ roomId, currentScore, onPushScore }: {
             </button>
           </div>
         ))}
+        </div>
       </div>
 
       {hint && <p className="shrink-0 truncate text-[11px]" style={{ color: "#8A8A8A" }}>{hint}</p>}
-      {error && <p className="shrink-0 text-[11px]" style={{ color: "#FF5C5C" }}>{error}</p>}
 
       {/* 热切换确认闸（1013 欢哥定稿：常驻不可忽略）：返回=不动；确认=服务器原位替换（收回当前+上新） */}
       {confirmSwitch && (

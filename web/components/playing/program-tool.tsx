@@ -6,12 +6,13 @@
 // 本地 decodeAudioData 仅供波形 peaks+伪电平显示；MixerFullscreen/MixerMini 纯受控复用零改动。
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Download, Pause, Play, SkipBack, Square, Trash2, X } from "lucide-react"
+import { Download, Headphones, Pause, Play, SkipBack, Square, Trash2, X } from "lucide-react"
 import { HoverName } from "@/components/playing/hover-fullname"
 import { MixerFullscreen } from "@/components/mixer/mixer-fullscreen"
 import { TRACK_COLORS, formatTime, type MixerTrack } from "@/components/mixer/types"
 import { extractPeaks } from "@/hooks/useMixerEngine"
 import { useJamonyDialog } from "@/components/jamony/dialog"
+import { UploadToast } from "@/components/playing/upload-toast"
 import type { ProgramData, ProgramMix, ProgramState, ProgramTrack } from "@/lib/chat-socket"
 
 const PROGRAM_EXTS = [".mp3", ".wav", ".ogg", ".flac", ".m4a"]
@@ -424,12 +425,20 @@ export function ProgramPanel(props: {
   const fileRef = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
   const [localErr, setLocalErr] = useState<string | null>(null)
+  // 1103 欢哥（内测反馈第2条）：上传成功 toast——照录音落档款，5s 自动淡出，叉子可提前关
+  const [toast, setToast] = useState("")
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const showToast = (msg: string) => {
+    setToast(msg)
+    if (toastTimer.current) clearTimeout(toastTimer.current)
+    toastTimer.current = setTimeout(() => setToast(""), 5000)
+  }
   const tracks = program?.tracks || []
   const playing = !!(progState && progState.playing)
 
   const pick = (list: FileList | null) => {
     if (!list || !list.length) return
-    setLocalErr(null)
+    setLocalErr(null); setToast("")
     if (tracks.length + list.length > PROGRAM_MAX_TRACKS) { setLocalErr(`最多 ${PROGRAM_MAX_TRACKS} 轨（当前 ${tracks.length} 轨）`); return }
     for (const f of Array.from(list)) {
       const ext = f.name.slice(f.name.lastIndexOf(".")).toLowerCase()
@@ -441,7 +450,7 @@ export function ProgramPanel(props: {
     setBusy(true)
     fetch(`/api/rooms/${roomId}/program/tracks`, { method: "POST", body: fd })
       .then(r => r.json())
-      .then(j => { if (!j.ok) setLocalErr(j.msg || "上传失败") })
+      .then(j => { if (!j.ok) setLocalErr(j.msg || "上传失败"); else showToast(`已上传 ${list.length} 轨`) })
       .catch(() => setLocalErr("上传失败，请重试"))
       .finally(() => setBusy(false))
   }
@@ -512,7 +521,10 @@ export function ProgramPanel(props: {
       </p>
 
       {/* 轨列表框（照乐谱共享列表框：同容器/行分隔/空态样式） */}
-      <div className="min-h-0 flex-1 overflow-y-auto rounded-[8px] border scrollbar-thin" style={{ borderColor: "#2A2A2A", background: "#141414" }}>
+      {/* 1103 欢哥：外壳 relative 供上传 toast 悬浮列表顶——宽度=列表框等宽，不挤占布局不顶列表（照录音落档位） */}
+      <div className="relative min-h-0 flex-1">
+        {toast && <UploadToast msg={toast} icon={Headphones} onClose={() => { if (toastTimer.current) clearTimeout(toastTimer.current); setToast("") }} />}
+        <div className="h-full overflow-y-auto rounded-[8px] border scrollbar-thin" style={{ borderColor: "#2A2A2A", background: "#141414" }}>
         {tracks.length === 0 ? (
           <p className="px-3 py-4 text-center text-[11px] leading-relaxed" style={{ color: "#8A8A8A" }}>
             还没有伴奏轨<br />上传的音频都在这里，按「播放」全屋同响
@@ -543,6 +555,7 @@ export function ProgramPanel(props: {
             )}
           </div>
         ))}
+        </div>
       </div>
 
       {/* 常驻走带控制条（1016 欢哥定稿：替代独立停止按钮；听众只读显示；有轨即常可点，直接开播不必先进混音器） */}
