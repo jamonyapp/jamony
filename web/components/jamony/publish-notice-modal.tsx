@@ -262,9 +262,10 @@ export function PublishNoticeModal({ open, onClose, onPublished, initialNotice }
           {/* 标题 */}
           <div>
             <label className="mb-2 block text-sm font-medium text-white">标题 <span style={{ color: "#FF33AA" }}>*</span></label>
-            <input type="text" value={title} maxLength={50} onChange={(e) => setTitle(e.target.value)} placeholder="给你的公告起个名字"
+            <input type="text" value={title} maxLength={20} onChange={(e) => setTitle(e.target.value)} placeholder="给你的公告起个名字"
               className="jamony-input w-full rounded-lg border px-3 py-2 text-sm text-white outline-none placeholder:text-[#5A5A5A]"
               style={{ backgroundColor: "#141414", borderColor: "#2A2A2A" }} />
+            {title.length >= 20 && <p className="mt-1 text-[11px]" style={{ color: "#FF9A9A" }}>公告标题最多 20 字（已到上限）</p>}
           </div>
 
           {/* 正文 */}
@@ -272,10 +273,11 @@ export function PublishNoticeModal({ open, onClose, onPublished, initialNotice }
             <label className="mb-2 block text-sm font-medium text-white">
               {type === "online" ? "简短说明" : "正文"} <span style={{ color: "#FF33AA" }}>*</span>
             </label>
-            <textarea value={body} rows={4} onChange={(e) => setBody(e.target.value)}
+            <textarea value={body} rows={4} maxLength={400} onChange={(e) => setBody(e.target.value)}
               placeholder={type === "online" ? "简单说说想玩什么、氛围如何..." : "详细描述你的公告内容..."}
               className="jamony-input w-full resize-none rounded-lg border px-3 py-2 text-sm text-white outline-none placeholder:text-[#5A5A5A]"
               style={{ backgroundColor: "#141414", borderColor: "#2A2A2A" }} />
+            {body.length >= 400 && <p className="mt-1 text-[11px]" style={{ color: "#FF9A9A" }}>公告正文最多 400 字（已到上限）</p>}
           </div>
 
           {/* 城市 + 风格 */}

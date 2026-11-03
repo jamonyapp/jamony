@@ -4053,6 +4053,9 @@ app.post('/api/notices', requireAuth, async (req, res) => {
     if (!['offline', 'online'].includes(type)) return res.status(400).json({ ok: false, msg: '公告类型无效' })
     if (!title || !String(title).trim()) return res.status(400).json({ ok: false, msg: '请填写标题' })
     if (!body || !String(body).trim()) return res.status(400).json({ ok: false, msg: '请填写正文' })
+    // 1103 欢哥定稿 20/400: 前端已拦(maxLength), 此处防御直打
+    if (String(title).trim().length > 20) return res.status(400).json({ ok: false, msg: '公告标题最多 20 字' })
+    if (String(body).trim().length > 400) return res.status(400).json({ ok: false, msg: '公告正文最多 400 字' })
     if (!(await guardCanPublish(req.userId, res))) return
     const noticeText = [String(title).trim(), String(body).trim(), city, style].filter(v => typeof v === 'string' && v.trim()).join('\n')
     if (!(await moderatePublishText('notice', null, req.userId, req.nickname, noticeText))) {
@@ -4146,6 +4149,9 @@ app.patch('/api/notices/:id', requireAuth, async (req, res) => {
     if (row.rows.length === 0) return res.status(404).json({ ok: false, msg: '公告不存在' })
     if (row.rows[0].user_id !== req.userId) return res.status(403).json({ ok: false, msg: '只能编辑自己的公告' })
     if (new Date(row.rows[0].expire_at).getTime() <= Date.now()) return res.status(400).json({ ok: false, msg: '已过期不可编辑，可删除' })
+    // 1103 欢哥定稿 20/400: 编辑同款防御直打
+    if (title !== undefined && String(title).trim().length > 20) return res.status(400).json({ ok: false, msg: '公告标题最多 20 字' })
+    if (body !== undefined && String(body).trim().length > 400) return res.status(400).json({ ok: false, msg: '公告正文最多 400 字' })
 
     const sets = [], params = []
     const add = (col, val) => { if (val !== undefined) { params.push(val); sets.push(`${col}=$${params.length}`) } }

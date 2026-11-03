@@ -59,30 +59,50 @@ function NoteCard({ notice, index, onOpen }: { notice: Notice; index: number; on
       >
       {/* 欢哥 08-31: 移除彩色图钉+左侧发光条（照片背景保留——欢哥只让移除外层墙面大图） */}
       <div
-        className="relative overflow-hidden rounded-[4px] p-4 pl-5"
+        className="relative rounded-[4px] p-4 pl-5"
         style={{
-          backgroundImage: `url('${notice.imageUrl || `/images/jamony-board-bg-${String(notice.bgIndex).padStart(2, "0")}.webp`}')`,
-          backgroundSize: "cover",
-          backgroundPosition: "center",
           color: "#EDEDED",
           boxShadow:
             "0 1px 0 rgba(255,255,255,0.06) inset, 0 10px 22px rgba(0,0,0,0.6), 0 3px 6px rgba(0,0,0,0.5)",
         }}
       >
+        {/* 背景（1103 欢哥：裁切职责移背景层——容器去 overflow-hidden，标题/摘要的悬停气泡才能外溢卡片） */}
+        <span
+          className="pointer-events-none absolute inset-0 overflow-hidden rounded-[4px]"
+          style={{
+            backgroundImage: `url('${notice.imageUrl || `/images/jamony-board-bg-${String(notice.bgIndex).padStart(2, "0")}.webp`}')`,
+            backgroundSize: "cover",
+            backgroundPosition: "center",
+          }}
+          aria-hidden
+        />
         {/* 深色渐变叠加保证文字可读 */}
         <span
-          className="pointer-events-none absolute inset-0"
+          className="pointer-events-none absolute inset-0 rounded-[4px]"
           style={{ background: "linear-gradient(to top, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.5) 60%, rgba(0,0,0,0.25) 100%)" }}
           aria-hidden
         />
         <div className="relative">
-          <h3 className="text-[15px] font-bold leading-snug" style={{ color: "#FFFFFF" }}>
-            {notice.title}
-          </h3>
+          {/* 1103 欢哥：标题单行截断+悬停气泡全文（named group 隔离，与房间卡片同款纯黑） */}
+          <div className="group/tt relative">
+            <h3 className="truncate text-[15px] font-bold leading-snug" style={{ color: "#FFFFFF" }}>
+              {notice.title}
+            </h3>
+            <div className="pointer-events-none absolute inset-x-0 top-full z-50 mt-1 rounded-[8px] border px-3 py-2 text-xs leading-relaxed text-white/90 opacity-0 shadow-xl transition-opacity duration-75 group-hover/tt:opacity-100"
+              style={{ borderColor: "#333", background: "#000" }}>
+              {notice.title}
+            </div>
+          </div>
           <div className="mt-1.5">
-            <p className="text-[13px] leading-relaxed line-clamp-3" style={{ color: "#E8E8E8" }}>
-              {notice.body}
-            </p>
+            <div className="group/tt relative">
+              <p className="text-[13px] leading-relaxed line-clamp-3" style={{ color: "#E8E8E8" }}>
+                {notice.body}
+              </p>
+              <div className="pointer-events-none absolute inset-x-0 top-full z-50 mt-1 rounded-[8px] border px-3 py-2 text-xs leading-relaxed text-white/90 opacity-0 shadow-xl transition-opacity duration-75 group-hover/tt:opacity-100"
+                style={{ borderColor: "#333", background: "#000" }}>
+                {notice.body}
+              </div>
+            </div>
             <span className="mt-0.5 inline-block text-[11px]" style={{ color: "#BBBBBB" }}>
               ... 更多
             </span>

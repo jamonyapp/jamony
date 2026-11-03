@@ -276,18 +276,25 @@ function NoticeCard({ notice, onClick }: { notice: Notice; onClick: () => void }
   return (
     <button
       onClick={onClick}
-      className="jamony-card group mb-5 block w-full overflow-hidden rounded-[10px] text-left transition-transform duration-200 hover:-translate-y-[3px]"
+      className="jamony-card group mb-5 block w-full rounded-[10px] text-left transition-transform duration-200 hover:-translate-y-[3px]"
     >
       <div
-        className="relative w-full bg-cover bg-center"
+        className="relative w-full"
         style={{
-          backgroundImage: `url('${notice.imageUrl || `/images/jamony-board-bg-${String(notice.bgIndex).padStart(2, "0")}.webp`}')`,
           aspectRatio: notice.bgIndex % 3 === 0 ? "3 / 4" : notice.bgIndex % 2 === 0 ? "1 / 1" : "4 / 5",
         }}
       >
+        {/* 背景裁切层（1103 欢哥：容器 overflow-hidden 移此处——文字层悬停气泡才能外溢卡片底） */}
+        <span
+          className="absolute inset-0 overflow-hidden rounded-[10px] bg-cover bg-center"
+          style={{
+            backgroundImage: `url('${notice.imageUrl || `/images/jamony-board-bg-${String(notice.bgIndex).padStart(2, "0")}.webp`}')`,
+          }}
+          aria-hidden
+        />
         {/* 蒙版：整图半透明 + 底部渐变深保证文字可读 */}
-        <span className="absolute inset-0 bg-black/30" />
-        <span className="absolute inset-0" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.4) 50%, rgba(0,0,0,0.15) 100%)" }} />
+        <span className="absolute inset-0 rounded-[10px] bg-black/30" />
+        <span className="absolute inset-0 rounded-[10px]" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.4) 50%, rgba(0,0,0,0.15) 100%)" }} />
 
         {/* 文字叠底部 */}
         <div className="absolute bottom-0 left-0 right-0 p-3">
@@ -298,9 +305,22 @@ function NoticeCard({ notice, onClick }: { notice: Notice; onClick: () => void }
             </span>
             <span style={{ color: "#9A9A9A" }}>{notice.time}</span>
           </div>
-          <p className="line-clamp-2 text-sm font-bold leading-snug text-white">{notice.title}</p>
+          {/* 1103 欢哥：标题单行截断+悬停气泡全文（named group 隔离整卡 hover，与房间卡片同款纯黑） */}
+          <div className="group/tt relative">
+            <p className="truncate text-sm font-bold leading-snug text-white">{notice.title}</p>
+            <div className="pointer-events-none absolute inset-x-0 top-full z-50 mt-1 rounded-[8px] border px-3 py-2 text-xs leading-relaxed text-white/90 opacity-0 shadow-xl transition-opacity duration-75 group-hover/tt:opacity-100"
+              style={{ borderColor: "#333", background: "#000" }}>
+              {notice.title}
+            </div>
+          </div>
           <div className="mt-1">
-            <p className="line-clamp-3 text-xs leading-relaxed" style={{ color: "#D0D0D0" }}>{notice.body}</p>
+            <div className="group/tt relative">
+              <p className="line-clamp-3 text-xs leading-relaxed" style={{ color: "#D0D0D0" }}>{notice.body}</p>
+              <div className="pointer-events-none absolute inset-x-0 top-full z-50 mt-1 rounded-[8px] border px-3 py-2 text-xs leading-relaxed text-white/90 opacity-0 shadow-xl transition-opacity duration-75 group-hover/tt:opacity-100"
+                style={{ borderColor: "#333", background: "#000" }}>
+                {notice.body}
+              </div>
+            </div>
             <span className="text-[11px]" style={{ color: "#9A9A9A" }}>... 更多</span>
           </div>
           <p className="mt-2 flex items-center gap-1 text-xs" style={{ color: "#B0B0B0" }}>
