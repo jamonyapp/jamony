@@ -92,7 +92,12 @@ export function NotificationDrawer({ open, onClose, onOpenNotice, versionDrift, 
   const filtered = tab === "message" ? [] : list.filter((n) => tabDef.types.includes(n.type))
 
   const handleClick = async (n: Notif) => {
-    if (!n.read_at) await markRead(n.id)
+    // 1103 欢哥（内测反馈⑤）：点击=立即已读（业界标准即时反馈）——API 写库后同步本地行,
+    // 紫底当场消失+tab 角标当场-1（此前本地不更新,要重开抽屉才变,尤其公告评论回复/切 tab 等不关抽屉的路径）
+    if (!n.read_at) {
+      await markRead(n.id)
+      setList((l) => l.map((x) => (x.id === n.id ? { ...x, read_at: x.read_at || new Date().toISOString() } : x)))
+    }
     if (n.type === "comment_reply" && n.notice_id) onOpenNotice?.(n.notice_id)
     else if ((n.type === "like" || n.type === "work_comment" || n.type === "work_comment_reply") && n.work_id) { onClose(); router.push(`/library/${n.work_id}`) }
     else if (n.type === "follow" && n.actor_nickname) { onClose(); router.push(`/profile?nickname=${encodeURIComponent(n.actor_nickname)}`) }
@@ -200,7 +205,7 @@ export function NotificationDrawer({ open, onClose, onOpenNotice, versionDrift, 
               <p className="py-20 text-center text-sm" style={{ color: "#8A8A8A" }}>暂无私信</p>
             ) : (
               conversations.map((c) => (
-                <div key={c.id} onClick={() => openExisting(c.id)} className="group flex cursor-pointer items-center gap-3 border-b px-4 py-3 transition-colors hover:bg-white/5" style={{ borderColor: "#1A1A1A", background: c.unread_count > 0 ? "rgba(153,51,255,0.06)" : "transparent" }}>
+                <div key={c.id} onClick={() => openExisting(c.id)} className="group flex cursor-pointer items-center gap-3 border-b px-4 py-3 transition-colors hover:bg-white/5" style={{ borderColor: "#1A1A1A", background: c.unread_count > 0 ? "rgba(153,51,255,0.15)" : "transparent" }}>
                   <Avatar nickname={c.other_nickname || "U"} size={36} avatarUrl={c.other_avatar || undefined} />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between">
@@ -243,7 +248,7 @@ export function NotificationDrawer({ open, onClose, onOpenNotice, versionDrift, 
             {filtered.map((n) => (
               <div key={n.id} onClick={() => handleClick(n)}
                 className="group flex cursor-pointer items-start gap-3 border-b px-4 py-3 transition-colors hover:bg-white/5"
-                style={{ borderColor: "#1A1A1A", background: n.read_at ? "transparent" : "rgba(153,51,255,0.06)" }}>
+                style={{ borderColor: "#1A1A1A", background: n.read_at ? "transparent" : "rgba(153,51,255,0.15)" }}>
                 {/* jamony 1018: 系统通知无 actor——用 jamony logo 替字母兜底头像(欢哥拍板);其余用户照旧真人头像
                     1023: restriction(处罚)/appeal_result(申诉回执)同属系统通知, 同款渲染 */}
                 {(n.type === "system" || n.type === "restriction" || n.type === "appeal_result") ? (
