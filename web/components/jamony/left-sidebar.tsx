@@ -220,6 +220,7 @@ function FeedbackModal({ onClose }: { onClose: () => void }) {
 
         <textarea
           value={value}
+          maxLength={500}
           onChange={(e) => setValue(e.target.value)}
           placeholder="请告诉我们你的想法或问题…"
           rows={5}

@@ -48,9 +48,9 @@ export function AppealForm({ onSuccess }: { onSuccess?: () => void }) {
     <div className="space-y-3">
       <textarea
         value={reason}
+        maxLength={500}
         onChange={(e) => setReason(e.target.value)}
         rows={4}
-        maxLength={1000}
         placeholder="请说明您的情况，例如：内容为什么被误判、当时的实际语境…（至少 10 个字）"
         className="w-full resize-none rounded-[10px] border border-[#2A2A2A] bg-[#0D0D0D] px-3 py-2 text-sm text-white outline-none focus:border-[#9933FF]"
       />

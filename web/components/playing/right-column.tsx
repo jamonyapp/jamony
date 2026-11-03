@@ -305,7 +305,7 @@ function ChatPanel({ roomId }: { roomId?: string }) {
         <p className="border-t px-3 py-1.5 text-[11px]" style={{ borderColor: "#1A1A1A", color: "#FF9A9A" }}>{rejectTip}</p>
       )}
       <div className="flex items-end gap-1.5 border-t p-2" style={{ borderColor: "#1A1A1A" }}>
-        <textarea ref={chatInputRef} value={draft} rows={1}
+        <textarea ref={chatInputRef} value={draft} rows={1} maxLength={500}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send() } }}
           placeholder={"发条消息…"}
@@ -317,6 +317,11 @@ function ChatPanel({ roomId }: { roomId?: string }) {
           <Send className="h-3.5 w-3.5" />
         </button>
       </div>
+      {/* 1104 欢哥：常驻字数动态提示（直切阿里云文本审核入口收口，单条上限 500） */}
+      <p className="shrink-0 px-3 pb-1.5 text-right text-[10px]"
+        style={{ color: draft.length >= 500 ? "#FF9A9A" : "#5A5A5A" }}>
+        还可输入 {500 - draft.length} 字
+      </p>
     </section>
   )
 }

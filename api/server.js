@@ -361,7 +361,9 @@ function optionalAuth(req, res, next) {
 /* ========== 内容机审（1023 内容安全 A 阶段，lib/moderation.js 引擎）==========
    三态语义: reject=硬拦不放行(不写内容库) / suspect=放行+写 moderation_logs 供 admin 疑似流巡查(零人工) / pass=放行
    fail-open: 引擎异常或日志写入失败一律放行, 绝不阻塞业务发布链路 */
-const { moderateText } = require('./lib/moderation')
+const { moderateText, setWhitelistLoader } = require('./lib/moderation')
+// 1104 白名单层注入: 引擎 5min 缓存 TTL, 后台加词 5 分钟内全站生效(admin 写同库同表)
+setWhitelistLoader(async () => (await pool.query('SELECT word FROM moderation_whitelist')).rows.map((r) => r.word))
 // 1025 迷你雪花: 暴露面主实体显式发号(15-16位长数字,JS安全域); 日志类表保留SERIAL
 const { nextId } = require('./lib/snowflake')
 const { probeMaxVolumeDb, probeVolumeDb } = require('./lib/probe-volume')
@@ -394,11 +396,24 @@ async function moderatePublishText(kind, targetId, userId, nickname, text) {
   let verdict = 'pass'
   let hits = []
   try {
-    const r = moderateText(text)
+    const r = await moderateText(text)
     verdict = r.verdict
     hits = r.hits
   } catch (e) {
     console.error('[moderation] 引擎异常, fail-open 放行:', e.message)
+    return true
+  }
+  // 1104 自建白名单层: 云审命中词全在白名单 → 放行但留痕(verdict='whitelist' 不进 suspect/reject 升级计数;
+  // 留痕既为证据也为白名单调优——每个词救了多少条, 后台疑似流可见)
+  if (verdict === 'pass' && hits[0] && hits[0].category === 'whitelist') {
+    try {
+      await pool.query(
+        `INSERT INTO moderation_logs (kind, target_id, user_id, nickname, content, verdict, hits, channel)
+         VALUES ($1,$2,$3,$4,$5,'whitelist',$6,$7)`,
+        [kind, String(targetId == null ? '' : targetId), userId || null, nickname || '', String(text || ''), JSON.stringify(hits), channel]
+      )
+      console.log(`[moderation] 白名单放行 kind=${kind} ch=${channel} user=${userId}(${nickname}) ${hits[0].word}`)
+    } catch (e) { console.error('[moderation] 白名单留痕写入失败(仍放行):', e.message) }
     return true
   }
   if (verdict === 'reject') {
@@ -486,7 +501,7 @@ async function moderateImage(kind, filePath, userId, nickname) {
       const sub = d.subImages || []
       ocrText = (String(d.content || '') || sub.flatMap((s) => (s.wideBlocks || []).map((b) => b.words)).join(' ')).slice(0, 300)
       if (ocrText) {
-        const r = moderateText(ocrText)
+        const r = await moderateText(ocrText)
         ocrVerdict = r.verdict
         ocrHits = r.hits
       }
@@ -569,7 +584,7 @@ async function submitWorkAudioReview(workId) {
     }
     // 转写文本→词库(与文本线同引擎)
     let verdict = 'pass', hits = []
-    if (text) { const r = moderateText(text); verdict = r.verdict; hits = r.hits }
+    if (text) { const r = await moderateText(text); verdict = r.verdict; hits = r.hits }
     const channel = CHANNEL_OF_KIND['work_audio'] || 'publish'
     if (verdict === 'reject') {
       await pool.query("UPDATE works SET status='taken_down', audio_review='rejected', audio_transcript=$2, audio_reviewed_at=NOW(), asr_task_id=$3 WHERE id=$1 AND audio_review='pending'", [workId, text.slice(0, 400), String(sub.TaskId || '')])
@@ -819,7 +834,7 @@ app.post('/api/appeals', requireAuthAllowBanned, appealUpload.single('screenshot
   try {
     const reason = String(req.body?.reason ?? '').trim()
     if (reason.length < 10) return res.status(400).json({ ok: false, msg: '请写清申诉理由（至少 10 个字）' })
-    if (reason.length > 1000) return res.status(400).json({ ok: false, msg: '申诉理由过长（≤1000 字）' })
+    if (reason.length > 500) return res.status(400).json({ ok: false, msg: '申诉理由过长（≤500 字）' })
 
     // 可申诉态: restricted/demoted/banned(watch 无功能限制, 无可申诉之实)
     const u = await pool.query('SELECT nickname, restriction, restricted_at, restricted_until FROM users WHERE id=$1', [req.userId])
@@ -1440,6 +1455,10 @@ app.patch('/api/users/:id', requireAuth, async (req, res) => {
       // 品牌保护与注册同规(1018): 改名同样拦截 jamony 保留字(此前仅注册检查, 改名可绕过——1023 补)
       if (String(nickname).toLowerCase().includes('jamony')) {
         return res.status(409).json({ ok: false, msg: '该昵称已被注册' })
+      }
+      // 1104 欢哥定稿: 昵称 16 字(前端已拦, 此处防御直打)
+      if (String(nickname).trim().length > 16) {
+        return res.status(400).json({ ok: false, msg: '昵称最多 16 字' })
       }
       sets.push(`nickname = $${idx++}`); params.push(nickname)
     }
@@ -3418,6 +3437,12 @@ app.post('/api/rooms/:code/sessions/:sid/publish', requireAuth, upload.fields([{
       return res.status(400).json({ ok: false, msg: '缺少必填字段' })
     }
     if (!(await guardCanPublish(publisher_user_id, res))) return
+    // 1104 欢哥定稿: 作品五字段限长(前端已拦, 此处防御直打)
+    if (String(title || '').trim().length > 20) return res.status(400).json({ ok: false, msg: '作品标题最多 20 字' })
+    if (String(cover_song || '').trim().length > 30) return res.status(400).json({ ok: false, msg: '原曲名最多 30 字' })
+    if (String(cover_author || '').trim().length > 30) return res.status(400).json({ ok: false, msg: '原作者最多 30 字' })
+    if (String(source || '').trim().length > 50) return res.status(400).json({ ok: false, msg: '素材来源最多 50 字' })
+    if (String(description || '').trim().length > 100) return res.status(400).json({ ok: false, msg: '作品简介最多 100 字' })
     const publishText = [title, description, cover_song, cover_author, source].filter(v => typeof v === 'string' && v.trim()).join('\n')
     if (!(await moderatePublishText('work', null, publisher_user_id, req.nickname, publishText))) {
       return res.status(400).json({ ok: false, msg: MODERATION_REJECT_MSG })
@@ -3990,6 +4015,7 @@ app.post('/api/works/:id/comments/:commentId/report', requireAuth, async (req, r
   try {
     const { commentId } = req.params
     const { reason } = req.body
+    if (String(reason || '').trim().length > 100) return res.status(400).json({ ok: false, msg: '举报理由最多 100 字' })
     const userId = req.userId
     await pool.query(
       'INSERT INTO comment_reports (comment_id, reporter_user_id, reason) VALUES ($1, $2, $3)',
@@ -4378,6 +4404,7 @@ app.post('/api/notices/:id/comments/:commentId/report', requireAuth, async (req,
   try {
     const { commentId } = req.params
     const { reason } = req.body
+    if (String(reason || '').trim().length > 100) return res.status(400).json({ ok: false, msg: '举报理由最多 100 字' })
     const userId = req.userId
     await pool.query(
       'INSERT INTO notice_comment_reports (comment_id, reporter_user_id, reason) VALUES ($1, $2, $3)',
@@ -4395,6 +4422,7 @@ app.post('/api/notices/:id/report', requireAuth, async (req, res) => {
   try {
     const { id } = req.params
     const { reason } = req.body
+    if (String(reason || '').trim().length > 100) return res.status(400).json({ ok: false, msg: '举报理由最多 100 字' })
     const userId = req.userId
     await pool.query(
       'INSERT INTO notice_reports (notice_id, reporter_user_id, reason) VALUES ($1, $2, $3)',
@@ -4619,6 +4647,8 @@ app.post('/api/messages/conversations/:id', requireAuth, async (req, res) => {
     const cid = parseInt(req.params.id)
     const { content } = req.body
     if (!content || !content.trim()) return res.status(400).json({ ok: false, msg: '内容不能为空' })
+    // 1104 欢哥定稿: 私信 500 字(前端已拦, 此处防御直打)
+    if (String(content).trim().length > 500) return res.status(400).json({ ok: false, msg: '私信最多 500 字' })
     const c = await pool.query('SELECT * FROM conversations WHERE id=$1 AND (user_a_id=$2 OR user_b_id=$2)', [cid, req.userId])
     if (c.rows.length === 0) return res.status(403).json({ ok: false, msg: '无权访问' })
     const otherId = c.rows[0].user_a_id === req.userId ? c.rows[0].user_b_id : c.rows[0].user_a_id
@@ -5009,7 +5039,7 @@ app.post('/api/feedback', optionalAuth, async (req, res) => {
   const content = String(req.body?.content ?? '').trim()
   const clientVersion = String(req.body?.client_version ?? '').slice(0, 20)
   if (content.length < 5) return res.status(400).json({ ok: false, msg: '写点具体内容吧（至少 5 个字）' })
-  if (content.length > 1000) return res.status(400).json({ ok: false, msg: '内容过长（≤1000 字）' })
+  if (content.length > 500) return res.status(400).json({ ok: false, msg: '内容过长（≤500 字）' })
   const ip = req.ip || ''
   if (Date.now() - (feedbackRate.get(ip) || 0) < 60000) {
     return res.status(429).json({ ok: false, msg: '操作太频繁，请稍后再试' })
@@ -5649,6 +5679,10 @@ io.on("connection", (socket) => {
 
   socket.on("chat-message", async (data) => {
     const { roomId, message } = data
+    // 1104 欢哥定稿: 聊天 500 字(前端 maxLength+常驻计数已拦, 此处防御直打——同时是阿里云文本审核 600 字符上限的入口收口)
+    if (message && String(message).trim().length > 500) {
+      socket.emit('chat-rejected', { msg: '单条消息最多 500 字' }); return
+    }
     // 1024 Step6 欢哥定稿: 聊天事前审(聊天建在jamony主窗口走api, 可实时监管非事后审)——
     // 拒绝级不广播不落库仅发送者收提示; 疑似放行+interact渠道计数, 违规同样进五级阶梯
     if (roomId && socket.userId && message) {
@@ -6394,7 +6428,7 @@ async function sampleRoomStream(room) {
     sampleId = ins.rows[0].id
     const text = await streamTranscribe('http://123.57.33.130/stream-samples/' + filePath.split('/').pop(), keys)
     let verdict = 'pass', hits = []
-    if (text) { const r = moderateText(text); verdict = r.verdict; hits = r.hits }
+    if (text) { const r = await moderateText(text); verdict = r.verdict; hits = r.hits }
     await pool.query('UPDATE stream_samples SET verdict=$2, transcript=$3 WHERE id=$1', [sampleId, verdict, String(text).slice(0, 400)])
     if (verdict === 'reject') {
       await handleStreamViolation(room, sampleId, presentIds, text, hits)

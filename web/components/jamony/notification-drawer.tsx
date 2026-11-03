@@ -197,7 +197,7 @@ export function NotificationDrawer({ open, onClose, onOpenNotice, versionDrift, 
                   ))}
                 </div>
                 <div className="flex gap-2 border-t p-3" style={{ borderColor: "#1A1A1A" }}>
-                  <input value={msgInput} onChange={(e) => setMsgInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !msgSending) handleSend() }} placeholder="输入消息…" className="flex-1 rounded-[10px] border border-[#2A2A2A] bg-[#0D0D0D] px-3 py-2 text-sm text-white outline-none focus:border-[#9933FF]" />
+                  <input value={msgInput} maxLength={500} onChange={(e) => setMsgInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !msgSending) handleSend() }} placeholder="输入消息…" className="flex-1 rounded-[10px] border border-[#2A2A2A] bg-[#0D0D0D] px-3 py-2 text-sm text-white outline-none focus:border-[#9933FF]" />
                   <button onClick={handleSend} disabled={!msgInput.trim() || msgSending} className="rounded-[10px] px-4 py-2 text-sm font-medium text-white disabled:opacity-30" style={{ background: "linear-gradient(135deg,#00AAFF,#9933FF)" }}>发送</button>
                 </div>
               </div>

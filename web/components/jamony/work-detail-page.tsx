@@ -739,6 +739,7 @@ function WorkDetailInner() {
               {reportReason === "其他" && (
                 <input
                   value={reportCustom}
+                  maxLength={100}
                   onChange={(e) => setReportCustom(e.target.value)}
                   placeholder="请说明举报理由"
                   className="mt-3 w-full rounded-lg border border-[#2A2A2A] bg-black px-3 py-2 text-xs text-white outline-none placeholder:text-[#666] focus:border-[#00AAFF]"

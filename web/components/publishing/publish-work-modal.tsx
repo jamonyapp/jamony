@@ -1097,6 +1097,7 @@ export default function PublishWorkModal({
                     <div className="mt-1.5 flex gap-2">
                       <input
                         value={coverName}
+                        maxLength={30}
                         onChange={(e) => setCoverName(e.target.value)}
                         className="jamony-input w-full rounded-lg border px-3 py-2 text-xs text-white transition-all duration-200"
                         style={{ backgroundColor: "#141414", borderColor: "#2A2A2A" }}
@@ -1104,6 +1105,7 @@ export default function PublishWorkModal({
                       />
                       <input
                         value={coverAuthor}
+                        maxLength={30}
                         onChange={(e) => setCoverAuthor(e.target.value)}
                         className="jamony-input w-full rounded-lg border px-3 py-2 text-xs text-white transition-all duration-200"
                         style={{ backgroundColor: "#141414", borderColor: "#2A2A2A" }}
@@ -1119,6 +1121,7 @@ export default function PublishWorkModal({
                     </p>
                     <input
                       value={remixSource}
+                      maxLength={50}
                       onChange={(e) => setRemixSource(e.target.value)}
                       className="jamony-input mt-1.5 w-full rounded-lg border px-3 py-2 text-xs text-white transition-all duration-200"
                       style={{ backgroundColor: "#141414", borderColor: "#2A2A2A" }}
@@ -1136,7 +1139,7 @@ export default function PublishWorkModal({
                     <textarea
                       value={intro}
                       onChange={(e) => setIntro(e.target.value)}
-                      maxLength={50}
+                      maxLength={100}
                       rows={2}
                       className="jamony-input w-full resize-none rounded-lg border px-3 py-2 text-xs text-white transition-all duration-200"
                       style={{ backgroundColor: "#141414", borderColor: "#2A2A2A" }}

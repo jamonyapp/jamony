@@ -172,7 +172,7 @@ export function SettingsPage() {
         <div className="mt-6 space-y-5">
           <div>
             <FieldLabel>昵称</FieldLabel>
-            <input type="text" className={inputClass} style={{ background: "#141414", borderColor: "#2A2A2A" }} value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder="给自己取个名字" />
+            <input type="text" className={inputClass} maxLength={16} style={{ background: "#141414", borderColor: "#2A2A2A" }} value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder="给自己取个名字" />
           </div>
           <div>
             <FieldLabel hint={`${signature.length}/40`}>签名</FieldLabel>
