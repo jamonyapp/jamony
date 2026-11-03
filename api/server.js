@@ -2081,6 +2081,13 @@ app.post('/api/rooms', requireAuth, async (req, res) => {
         return res.status(400).json({ ok: false, msg: `创建房间过于频繁，请于 ${waitMin} 分钟后再试。` })
       }
     }
+    // 1103 内测反馈第4条: 字数上限前端已拦(maxLength), 此处防御直打(API 不经前端时给人话而非裸500)——欢哥定稿 20/100
+    if (String(name || '').trim().length > 20) {
+      return res.status(400).json({ ok: false, msg: '房间名称最多 20 字' })
+    }
+    if (String(description || '').trim().length > 100) {
+      return res.status(400).json({ ok: false, msg: '房间描述最多 100 字' })
+    }
     const roomText = [name, description, style].filter(v => typeof v === 'string' && v.trim()).join('\n')
     if (!(await moderatePublishText('room', null, hostId, req.nickname, roomText))) {
       return res.status(400).json({ ok: false, msg: MODERATION_REJECT_MSG })

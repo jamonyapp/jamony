@@ -44,9 +44,14 @@ export function RoomCard({ room, onSelect }: { room: Room; onSelect?: () => void
         </span>
         <span className="flex items-center gap-1 tabular-nums" style={{ color: "#FF33AA" }}><Headphones className="h-3.5 w-3.5" />{room.listener_count ?? 0}</span>
       </div>
-      <div className="flex items-center gap-2">
-        <span aria-hidden className="text-xl">{room.emoji}</span>
-        <h3 className="text-lg font-bold leading-tight text-foreground">{room.name}</h3>
+      {/* 1103 欢哥：房名单行截断+悬停气泡全文（named group 隔离——卡片整卡 hover 不误触，只悬停本行才弹；样式与鼓机/右栏同款纯黑） */}
+      <div className="group/tt relative flex items-center gap-2">
+        <span aria-hidden className="shrink-0 text-xl">{room.emoji}</span>
+        <h3 className="min-w-0 truncate text-lg font-bold leading-tight text-foreground">{room.name}</h3>
+        <div className="pointer-events-none absolute inset-x-0 top-full z-50 mt-1 rounded-[8px] border px-3 py-2 text-xs leading-relaxed text-white/90 opacity-0 shadow-xl transition-opacity duration-75 group-hover/tt:opacity-100"
+          style={{ borderColor: "#333", background: "#000" }}>
+          {room.name}
+        </div>
       </div>
       <div className="flex items-center gap-2">
         <span className="inline-block rounded-full px-2.5 py-0.5 text-xs text-white/90"
@@ -55,7 +60,15 @@ export function RoomCard({ room, onSelect }: { room: Room; onSelect?: () => void
         </span>
         <span className={`text-xs font-medium ${latencyColor}`}>延迟 ≈ {room.latency}ms</span>
       </div>
-      <p className="truncate text-sm text-muted-foreground">{room.description}</p>
+      <div className="group/tt relative">
+        <p className="truncate text-sm text-muted-foreground">{room.description}</p>
+        {room.description && (
+          <div className="pointer-events-none absolute inset-x-0 top-full z-50 mt-1 rounded-[8px] border px-3 py-2 text-xs leading-relaxed text-white/90 opacity-0 shadow-xl transition-opacity duration-75 group-hover/tt:opacity-100"
+            style={{ borderColor: "#333", background: "#000" }}>
+            {room.description}
+          </div>
+        )}
+      </div>
       <div className="flex items-center gap-2">
         <Avatar nickname={room.owner.name} avatarUrl={room.owner.avatarUrl} size={20} />
         <span className="text-sm font-medium text-foreground">{room.owner.name}</span>

@@ -104,13 +104,24 @@ export function RightColumn({ roomId, room, refreshTrigger, realtimeMembers, cur
         <div className="flex items-start gap-3">
           <div className="min-w-0 flex-1">
             <div className="flex items-center flex-wrap gap-x-2 gap-y-1">
-              <span className="text-sm font-semibold text-white">{room.name}</span>
+              <span className="min-w-0 max-w-full truncate text-sm font-semibold text-white" title={room.name}>{room.name}</span>
               <span className="rounded-[6px] px-1.5 py-[1px] text-[10px]" style={{ background: "rgba(255,255,255,0.06)", color: "#8A8A8A" }}>
                 {room.style || "通用"}
               </span>
               <ProficiencyBadge proficiency={room.proficiency} />
             </div>
-            <p className="mt-1.5 text-xs leading-relaxed" style={{ color: "#8A8A8A" }}>{room.description}</p>
+            {/* 1103 欢哥（内测反馈第4条定稿）：描述单行截断；悬停显示全文。
+                原生 title tooltip 在 Electron/macOS 反复悬停会「弹几次后失灵」（Chromium 同元素节流怪癖，欢哥实测），
+                换 CSS group-hover 气泡：立即显示、可反复触发、纯黑底与 jamony 统一 */}
+            <div className="group relative mt-1.5">
+              <p className="cursor-default truncate text-xs leading-relaxed" style={{ color: "#8A8A8A" }}>{room.description}</p>
+              {room.description && (
+                <div className="pointer-events-none absolute inset-x-0 top-full z-50 mt-1 rounded-[8px] border px-3 py-2 text-xs leading-relaxed text-white/90 opacity-0 shadow-xl transition-opacity duration-75 group-hover:opacity-100"
+                  style={{ borderColor: "#333", background: "#000" }}>
+                  {room.description}
+                </div>
+              )}
+            </div>
             <p className="mt-1.5 flex items-center gap-1 text-[11px]" style={{ color: "#8A8A8A" }}>
               房主 <Avatar nickname={hostName} avatarUrl={hostAvatar} size={16} /> <span className="text-white">{hostName}</span>
             </p>
@@ -238,6 +249,14 @@ function ChatPanel({ roomId }: { roomId?: string }) {
   const { user } = useAuth()
   const { messages, sendMessage, connected, chatRejected } = useChatSocket(roomId, user?.nickname)
   const [draft, setDraft] = useState("")
+  const chatInputRef = useRef<HTMLTextAreaElement>(null)
+  // 1103 欢哥（内测反馈第3条）：输入框单行→微信式多行——自动折行+随内容长高，封顶（约5行）后内部滚动回看
+  useEffect(() => {
+    const el = chatInputRef.current
+    if (!el) return
+    el.style.height = "auto"
+    el.style.height = `${Math.min(el.scrollHeight, 96)}px`
+  }, [draft])
 
   // 1024 Step6: 事前审被拒提示(4s 自动消失)
   const [rejectTip, setRejectTip] = useState("")
@@ -285,11 +304,13 @@ function ChatPanel({ roomId }: { roomId?: string }) {
       {rejectTip && (
         <p className="border-t px-3 py-1.5 text-[11px]" style={{ borderColor: "#1A1A1A", color: "#FF9A9A" }}>{rejectTip}</p>
       )}
-      <div className="flex items-center gap-1.5 border-t p-2" style={{ borderColor: "#1A1A1A" }}>
-        <input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") send() }}
+      <div className="flex items-end gap-1.5 border-t p-2" style={{ borderColor: "#1A1A1A" }}>
+        <textarea ref={chatInputRef} value={draft} rows={1}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send() } }}
           placeholder={"发条消息…"}
-          className="min-w-0 flex-1 rounded-[8px] px-2.5 py-1.5 text-xs outline-none" style={{ background: "#141414", color: "#FFF" }}
-        />
+          className="min-w-0 flex-1 resize-none rounded-[8px] px-2.5 py-1.5 text-xs outline-none scrollbar-thin"
+          style={{ background: "#141414", color: "#FFF", height: 28, maxHeight: 96 }} />
         <button onClick={send}
           className="grid h-7 w-7 shrink-0 place-items-center rounded-[8px] text-white transition-opacity hover:opacity-90"
           style={{ background: "#9933FF" }}>

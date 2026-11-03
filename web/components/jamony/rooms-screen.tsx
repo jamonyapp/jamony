@@ -89,9 +89,14 @@ function RoomCard({ room, angle, latency, onJoin }: { room: Room; angle: number;
       </div>
 
       <div className="flex flex-col gap-1">
-        <div className="flex items-center gap-1.5">
-          <span className="text-lg">{STYLE_EMOJI[room.style] || "🎵"}</span>
-          <h3 className="text-[15px] font-bold text-white">{room.name}</h3>
+        {/* 1103 欢哥：房名单行截断+悬停气泡全文（named group 隔离卡片整卡 hover；样式与鼓机/右栏同款纯黑） */}
+        <div className="group/tt relative flex items-center gap-1.5">
+          <span className="shrink-0 text-lg">{STYLE_EMOJI[room.style] || "🎵"}</span>
+          <h3 className="min-w-0 truncate text-[15px] font-bold text-white">{room.name}</h3>
+          <div className="pointer-events-none absolute inset-x-0 top-full z-50 mt-1 rounded-[8px] border px-3 py-2 text-xs leading-relaxed text-white/90 opacity-0 shadow-xl transition-opacity duration-75 group-hover/tt:opacity-100"
+            style={{ borderColor: "#333", background: "#000" }}>
+            {room.name}
+          </div>
         </div>
         <div className="flex items-center gap-2 text-xs">
           <span className="rounded-full px-2 py-0.5" style={{ background: "rgba(110,150,255,0.12)", color: "#9AB8FF" }}>{room.style}</span>
@@ -99,7 +104,15 @@ function RoomCard({ room, angle, latency, onJoin }: { room: Room; angle: number;
         </div>
       </div>
 
-      <p className="truncate text-[13px]" style={{ color: "#8A8A8A" }}>{room.description}</p>
+      <div className="group/tt relative">
+        <p className="truncate text-[13px]" style={{ color: "#8A8A8A" }}>{room.description}</p>
+        {room.description && (
+          <div className="pointer-events-none absolute inset-x-0 top-full z-50 mt-1 rounded-[8px] border px-3 py-2 text-xs leading-relaxed text-white/90 opacity-0 shadow-xl transition-opacity duration-75 group-hover/tt:opacity-100"
+            style={{ borderColor: "#333", background: "#000" }}>
+            {room.description}
+          </div>
+        )}
+      </div>
 
       <div className="flex items-center gap-2">
         <Avatar nickname={room.host_name} avatarUrl={room.host_avatar_url} size={20} />

@@ -117,18 +117,22 @@ export function CreateRoomModal({
           <div>
             <label className="mb-1.5 block text-xs font-medium" style={{ color: "#9A9A9A" }}>房间名称 *</label>
             <input type="text" value={name} onChange={(e) => setName(e.target.value)}
+              maxLength={20}
               placeholder="给你的房间取个名字"
               className="w-full rounded-[10px] border px-4 py-2.5 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
               style={{ background: "#141414", borderColor: "#2A2A2A" }} />
+            {name.length >= 20 && <p className="mt-1 text-[11px]" style={{ color: "#FF9A9A" }}>房间名称最多 20 字（已到上限）</p>}
           </div>
 
           <div>
             <label className="mb-1.5 block text-xs font-medium" style={{ color: "#9A9A9A" }}>房间描述</label>
             <textarea value={description} onChange={(e) => setDescription(e.target.value)}
+              maxLength={100}
               placeholder="简单介绍一下你的房间..."
               rows={2}
               className="w-full rounded-[10px] border px-4 py-2.5 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF] resize-none"
               style={{ background: "#141414", borderColor: "#2A2A2A" }} />
+            {description.length >= 100 && <p className="mt-1 text-[11px]" style={{ color: "#FF9A9A" }}>房间描述最多 100 字（已到上限）</p>}
           </div>
 
           <div className="flex gap-4">
