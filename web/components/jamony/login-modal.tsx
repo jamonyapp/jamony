@@ -30,14 +30,16 @@ function AgreementCheck({ agreed, onToggle, onOpen }: { agreed: boolean; onToggl
         {agreed && <Check className="h-3 w-3 text-white" />}
       </button>
       <span className="text-xs leading-relaxed" style={{ color: "#8A8A8A" }}>
-        我已阅读并同意
-        <button type="button" className={link} style={{ color: "#00AAFF" }} onClick={() => onOpen("user")}>
-          《jamony用户协议》
-        </button>
-        和
-        <button type="button" className={link} style={{ color: "#00AAFF" }} onClick={() => onOpen("privacy")}>
-          《jamony隐私政策》
-        </button>
+        <span className="block">我已阅读并同意:</span>
+        <span className="block">
+          <button type="button" className={link} style={{ color: "#00AAFF" }} onClick={() => onOpen("user")}>
+            《jamony用户协议》
+          </button>
+          和
+          <button type="button" className={link} style={{ color: "#00AAFF" }} onClick={() => onOpen("privacy")}>
+            《jamony隐私政策》
+          </button>
+        </span>
       </span>
     </div>
   )
@@ -276,9 +278,9 @@ export function LoginModal() {
         ) : mode === "sms" ? (
           <>
             <div className="mb-4">
-              <h2 className="text-xl font-bold text-white">验证码登录</h2>
+              <h2 className="text-xl font-bold text-white">验证码注册/登录</h2>
               <p className="mt-1 text-sm" style={{ color: "#8A8A8A" }}>
-                输入手机号验证码即可登录
+                注册/登录后可使用jamony功能
               </p>
             </div>
 
@@ -434,7 +436,7 @@ export function LoginModal() {
             <div className="mb-4">
               <h2 className="text-xl font-bold text-white">请登录</h2>
               <p className="mt-1 text-sm" style={{ color: "#8A8A8A" }}>
-                登录后即可创建房间、发布公告、参与合奏等
+                登录后可使用jamony功能
               </p>
             </div>
 
@@ -483,7 +485,11 @@ export function LoginModal() {
               </button>
 
               <p className="text-center text-xs" style={{ color: "#8A8A8A" }}>
-                新用户请切换到「验证码登录」，验证后自动注册
+                新用户？
+                <button type="button" className="font-medium underline-offset-2 hover:underline" style={{ color: "#00AAFF" }} onClick={() => switchMode("sms")}>
+                  立即注册
+                </button>
+                （使用手机号验证码，注册后自动登录）
               </p>
             </form>
           </>
