@@ -187,7 +187,7 @@ export function SettingsPage() {
             </div>
             <div>
               <FieldLabel>性别</FieldLabel>
-              <FilterSelect variant="field" label="选择性别" value={gender} onChange={setGender}
+              <FilterSelect variant="field" label="选择性别" value={gender} onChange={setGender} className="!py-2.5"
                 options={[{ value: "", label: "未设置" }, { value: "male", label: "♂ 男" }, { value: "female", label: "♀ 女" }, { value: "secret", label: "保密" }]} />
             </div>
             <div>
