@@ -140,8 +140,8 @@ export function UserCluster({ onRefresh }: { onRefresh?: () => void }) {
 
   return (
     <div ref={clusterRef} className="flex items-center gap-3">
-      {/* 刷新按钮 */}
-      {onRefresh && (
+      {/* 刷新按钮(1104二轮: 一并纳入ready门控——整簇原子出现, 单独先显会漏出「孤按钮→整簇」跳变) */}
+      {ready && onRefresh && (
         <button
           onClick={handleRefresh}
           disabled={refreshing}
