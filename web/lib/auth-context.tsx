@@ -44,11 +44,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [showLoginModal, setShowLoginModal] = useState(false)
 
   // 页面加载：先从 localStorage 读缓存（快速展示，避免未登录态闪烁），再调 /api/me 校验 httpOnly cookie 凭证
+  // 1104: ready=「缓存态已应用」即翻true(毫秒级)——右上角登录按钮据此门控, 杜绝SSR静态HTML/首帧的「登录/注册」漏显; me校验在后台纠正终值
   useEffect(() => {
     try {
       const saved = localStorage.getItem("jamony_user")
       if (saved) setUser(JSON.parse(saved))
     } catch { /* ignore */ }
+    setReady(true)
     fetch("/api/me", { credentials: "include" })
       .then(async r => {
         // ⑧banned 拦截(1023): 会话仍有效但账号被封 → 跳拦截页(申诉入口在那); 已在拦截页则不再跳(防刷新死循环)
@@ -69,9 +71,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUser(null)
           localStorage.removeItem("jamony_user")
         }
-        setReady(true)
       })
-      .catch(() => setReady(true))
+      .catch(() => { /* 网络错误保持缓存态 */ })
   }, [])
 
   const login = useCallback(async (account: string, password: string, versions?: { agreementVersion?: string; privacyVersion?: string }): Promise<string | null> => {

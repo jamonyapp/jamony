@@ -33,7 +33,7 @@ export function UserCluster({ onRefresh }: { onRefresh?: () => void }) {
   const dialog = useJamonyDialog()
   const [globalNotice, setGlobalNotice] = useState<Notice | null>(null)
   const clusterRef = useRef<HTMLDivElement>(null)
-  const { loggedIn, setShowLoginModal, logout, user } = useAuth()
+  const { loggedIn, ready, setShowLoginModal, logout, user } = useAuth()
   const { unreadCount, refreshUnread } = useNotifications()
   const { session, disconnectRoom } = useRoomSession()
 
@@ -152,7 +152,8 @@ export function UserCluster({ onRefresh }: { onRefresh?: () => void }) {
         </button>
       )}
 
-      {loggedIn ? (
+      {/* 1104: ready门控——登录态恢复前不渲染登录按钮(SSR静态HTML/首帧=user null, 杜绝「登录/注册」漏显约1s的廉价感) */}
+      {!ready ? null : loggedIn ? (
         <>
           {/* 漫游态房间出口（10-06）：回到房间 / 离开房间 */}
           {showRoomButtons && (
