@@ -6723,6 +6723,16 @@ async function cleanupOldChatMessages() {
 cleanupOldChatMessages()
 setInterval(cleanupOldChatMessages, 6 * 3600 * 1000)
 
+// 1104批次2步骤四: 验证码过期清理——发一条码留一行, consumed+过期永留=纯垃圾; 过期超1天连consumed一起清(留1天缓冲供排查)
+async function cleanupSmsCodes() {
+  try {
+    const r = await pool.query("DELETE FROM sms_codes WHERE expires_at < NOW() - INTERVAL '1 day'")
+    if (r.rowCount > 0) console.log(`[sms-cleanup] 清理过期验证码 ${r.rowCount} 行`)
+  } catch (e) { console.error('Sms cleanup error:', e.message) }
+}
+cleanupSmsCodes()
+setInterval(cleanupSmsCodes, 6 * 3600 * 1000).unref()
+
 // 乐手会话僵尸清扫：5 分钟无心跳即闭（时长冻结在 last_seen；钩子漏网+崩溃进程的兜底）
 async function closeZombieMusicianSessions() {
   try {
