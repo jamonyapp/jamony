@@ -16,7 +16,10 @@ type PopoverUser = {
   nickname: string
   primary_instrument: string
   instrument_category: string
+  secondary_instrument?: string
   city: string
+  signature?: string
+  gender?: string | null // 1105: by-nickname 仅 male/female 外显, secret/未填=null
   level: number
   points: number
   is_following?: boolean
@@ -56,7 +59,8 @@ export function UserPopover({
     return () => document.removeEventListener("mousedown", onClick)
   }, [pos])
 
-  const handleClick = async () => {
+  const handleClick = async (e: React.MouseEvent) => {
+    e.stopPropagation() // 1105修: trigger 嵌在整卡<button>内时(公告卡/作品卡)防连开两层
     if (pos) { close(); return }
     // position relative to the trigger element
     const rect = triggerRef.current?.getBoundingClientRect()
@@ -83,6 +87,10 @@ export function UserPopover({
   const cat = user?.instrument_category || ""
   const icon = instrumentIcon[cat] || "🎵"
 
+  // 1105修: 匿名乐手/空昵称无真身可查(by-nickname 404→假"加载失败"), 不包交互直接渲染
+  const isAnonymous = !nickname || nickname === "匿名乐手"
+  if (isAnonymous) return <>{children}</>
+
   return (
     <>
       <span ref={triggerRef} onClick={handleClick} className="inline cursor-pointer hover:opacity-80 transition-opacity">
@@ -108,10 +116,19 @@ export function UserPopover({
                   <Avatar nickname={user.nickname} avatarUrl={user.avatar_url} size={52} />
                 </button>
                 <div className="min-w-0 flex-1">
-                  <p className="text-[15px] font-bold text-white truncate">{user.nickname}</p>
-                  <p className="mt-0.5 flex items-center gap-1 text-[13px]" style={{ color: "#B0B0B0" }}>
-                    {icon} {user.primary_instrument}
+                  <p className="flex items-center gap-1 text-[15px] font-bold text-white truncate">
+                    {user.nickname}
+                    {user.gender === "male" && <span className="shrink-0 text-[14px]" style={{ color: "#00AAFF" }}>♂</span>}
+                    {user.gender === "female" && <span className="shrink-0 text-[14px]" style={{ color: "#FF33AA" }}>♀</span>}
                   </p>
+                  <p className="mt-0.5 flex items-center gap-1 truncate text-[13px]" style={{ color: "#B0B0B0" }}>
+                    {icon} {user.primary_instrument}{user.city ? ` · ${user.city}` : ""}
+                  </p>
+                  {user.signature && (
+                    <p className="mt-0.5 truncate text-[12px] italic" style={{ color: "#8A8A8A" }}>
+                      “{user.signature}”
+                    </p>
+                  )}
                   <p className="mt-0.5 text-[12px]" style={{ color: "#8A8A8A" }}>
                     Lv.{user.level} · {user.points.toLocaleString()} 积分
                   </p>

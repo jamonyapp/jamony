@@ -61,6 +61,8 @@ export function SettingsPage() {
   const [pwdSaved, setPwdSaved] = useState(false)
   const [phoneTip, setPhoneTip] = useState(false)
   const [followListPrivate, setFollowListPrivate] = useState(false)
+  const [gender, setGender] = useState("")
+  const [birthday, setBirthday] = useState("")
 
   useEffect(() => {
     if (!ready) return
@@ -73,6 +75,8 @@ export function SettingsPage() {
     setCity(user?.city || "")
     setInstrument(user?.primaryInstrument || "原声吉他")
     setStyles(user?.styles || [])
+    setGender(user?.gender || "")
+    setBirthday(user?.birthday || "")
     if (user?.id) fetch(`/api/users/${user.id}`).then(r => r.json()).then(d => { if (d.ok) setFollowListPrivate(!!d.user?.follow_list_private) }).catch(() => {})
   }, [ready, loggedIn, user, setShowLoginModal])
 
@@ -114,6 +118,8 @@ export function SettingsPage() {
           instrumentCategory: cat,
           styles,
           followListPrivate,
+          gender,
+          birthday,
         }),
       })
       const data = await res.json()
@@ -209,6 +215,28 @@ export function SettingsPage() {
                 )
               })}
             </div>
+          </div>
+        </div>
+
+        {/* 1105 画像: 性别(男♂蓝/女♀粉/保密)+生日(仅本人可见) */}
+        <div className="mt-6 space-y-5">
+          <div>
+            <FieldLabel>性别</FieldLabel>
+            <div className="flex gap-2">
+              {([["male", "♂ 男"], ["female", "♀ 女"], ["secret", "保密"]] as const).map(([v, label]) => (
+                <button key={v} type="button" onClick={() => setGender(v)}
+                  className={`rounded-full border px-4 py-1.5 text-xs font-medium transition-colors ${gender === v ? "border-transparent" : "hover:border-[#3A3A3A] hover:text-white"}`}
+                  style={gender === v
+                    ? { color: v === "male" ? "#00AAFF" : v === "female" ? "#FF33AA" : "#B0B0B0", backgroundColor: v === "male" ? "rgba(0,170,255,0.12)" : v === "female" ? "rgba(255,51,170,0.12)" : "rgba(255,255,255,0.06)" }
+                    : { borderColor: "#2A2A2A", color: "#B0B0B0" }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <FieldLabel hint="仅自己可见">生日</FieldLabel>
+            <input type="date" className={inputClass} style={{ background: "#141414", borderColor: "#2A2A2A" }} value={birthday} onChange={(e) => setBirthday(e.target.value)} />
           </div>
         </div>
 

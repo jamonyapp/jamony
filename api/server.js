@@ -1107,6 +1107,7 @@ app.post('/api/login', async (req, res) => {
         points: user.points,
         phoneMasked: maskPhone(user.phone), // 1104批次2
         hasPassword: !!user.password_hash,
+        gender: user.gender || '',
       }
       setAuthCookie(res, smsPayload)
       return res.json({ ok: true, user: smsPayload })
@@ -1158,6 +1159,7 @@ app.post('/api/login', async (req, res) => {
       points: user.points,
       phoneMasked: maskPhone(user.phone), // 1104批次2
       hasPassword: !!user.password_hash,
+      gender: user.gender || '',
     }
     setAuthCookie(res, userPayload)
     res.json({ ok: true, user: userPayload })
@@ -1229,7 +1231,7 @@ app.get('/api/my-active-room', requireAuth, async (req, res) => {
 app.get('/api/me', requireAuth, async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT id, nickname, avatar_index, avatar_url, bio, signature, styles, city, primary_instrument, instrument_category, secondary_instrument, level, points, restriction, phone, (password_hash IS NOT NULL) AS has_password FROM users WHERE id=$1',
+      'SELECT id, nickname, avatar_index, avatar_url, bio, signature, styles, city, primary_instrument, instrument_category, secondary_instrument, level, points, restriction, phone, gender, to_char(birthday, \'YYYY-MM-DD\') AS birthday, (password_hash IS NOT NULL) AS has_password FROM users WHERE id=$1',
       [req.userId]
     )
     if (result.rows.length === 0) return res.status(401).json({ ok: false, msg: '用户不存在' })
@@ -1253,6 +1255,8 @@ app.get('/api/me', requireAuth, async (req, res) => {
         restriction: u.restriction || 'normal', // 1024: 申诉tab据此显示提交表单
         phoneMasked: maskPhone(u.phone), // 1104批次2: 设置页本人展示脱敏号
         hasPassword: !!u.has_password, // false=短信注册号, 设置页「设置密码」免旧密
+        gender: u.gender || '', // 1105 画像: male|female|secret|空(本人原值)
+        birthday: u.birthday || '', // 1105 画像: 仅本人可见(by-nickname不下发)
       }
     })
   } catch (err) {
@@ -1305,13 +1309,15 @@ app.get('/api/users/by-nickname/:nickname', optionalAuth, async (req, res) => {
               (SELECT COUNT(*) FROM follows WHERE followee_id = u.id)::int AS followers_count,
               (SELECT COUNT(*) FROM follows WHERE follower_id = u.id)::int AS following_count,
               EXISTS(SELECT 1 FROM follows WHERE follower_id = $2 AND followee_id = u.id) AS is_following,
-              u.follow_list_private
+              u.follow_list_private, u.gender
        FROM users u WHERE u.nickname = $1`, [nickname, req.userId]
     )
     if (result.rows.length === 0) {
       return res.status(404).json({ ok: false, msg: '用户不存在' })
     }
     const userRow = result.rows[0]
+    // 1105 画像: 性别仅 male/female 外显(secret/未填=不下发); 生日绝不进他人视图
+    userRow.gender = (userRow.gender === 'male' || userRow.gender === 'female') ? userRow.gender : null
     if (userRow.avatar_url) userRow.avatar_url = userRow.avatar_url.replace('/var/jamony/avatars', '/avatars')
     if (userRow.follow_list_private && req.userId !== userRow.id) {
       userRow.followers_count = null
@@ -1603,7 +1609,7 @@ app.patch('/api/users/:id', requireAuth, async (req, res) => {
     if (parseInt(id) !== req.userId) {
       return res.status(403).json({ ok: false, msg: '只能修改自己的资料' })
     }
-    const { nickname, bio, signature, city, primaryInstrument, instrumentCategory, styles, avatarIndex, email, followListPrivate } = req.body
+    const { nickname, bio, signature, city, primaryInstrument, instrumentCategory, styles, avatarIndex, email, followListPrivate, gender, birthday } = req.body
 
     const sets = []
     const params = []
@@ -1628,6 +1634,24 @@ app.patch('/api/users/:id', requireAuth, async (req, res) => {
     if (avatarIndex !== undefined) { sets.push(`avatar_index = $${idx++}`); params.push(avatarIndex) }
     if (email !== undefined) { sets.push(`email = $${idx++}`); params.push(email) }
     if (followListPrivate !== undefined) { sets.push(`follow_list_private = $${idx++}`); params.push(!!followListPrivate) }
+    // 1105 画像: 性别枚举(空串=清除)+生日(空串=清除, 格式与年份合理性校验); 枚举/日期不进机审
+    if (gender !== undefined) {
+      if (!['male', 'female', 'secret', ''].includes(gender)) {
+        return res.status(400).json({ ok: false, msg: '性别参数无效' })
+      }
+      sets.push(`gender = $${idx++}`); params.push(gender || null)
+    }
+    if (birthday !== undefined) {
+      const b = String(birthday || '').trim()
+      if (b === '') {
+        sets.push(`birthday = $${idx++}`); params.push(null)
+      } else {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(b)) return res.status(400).json({ ok: false, msg: '生日格式应为 YYYY-MM-DD' })
+        const y = Number(b.slice(0, 4))
+        if (y < 1900 || y > new Date().getFullYear()) return res.status(400).json({ ok: false, msg: '生日年份不合理' })
+        sets.push(`birthday = $${idx++}`); params.push(b)
+      }
+    }
     if (styles !== undefined) {
       sets.push(`styles = $${idx++}`)
       params.push('{' + styles.join(',') + '}')
@@ -1647,7 +1671,7 @@ app.patch('/api/users/:id', requireAuth, async (req, res) => {
     sets.push(`updated_at = NOW()`)
     params.push(id)
     const result = await pool.query(
-      `UPDATE users SET ${sets.join(', ')} WHERE id = $${idx} RETURNING id, nickname, avatar_index, avatar_url, bio, signature, styles, city, primary_instrument, instrument_category, secondary_instrument, level, points, follow_list_private`,
+      `UPDATE users SET ${sets.join(', ')} WHERE id = $${idx} RETURNING id, nickname, avatar_index, avatar_url, bio, signature, styles, city, primary_instrument, instrument_category, secondary_instrument, level, points, follow_list_private, gender, to_char(birthday, 'YYYY-MM-DD') AS birthday`,
       params
     )
 
@@ -1673,6 +1697,8 @@ app.patch('/api/users/:id', requireAuth, async (req, res) => {
         level: u.level,
         points: u.points,
         followListPrivate: !!u.follow_list_private,
+        gender: u.gender || '',
+        birthday: u.birthday || '',
       }
     })
   } catch (err) {
