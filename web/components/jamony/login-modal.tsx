@@ -1,121 +1,59 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { X, Loader2 } from "lucide-react"
-import { FilterSelect } from "@/components/jamony/filter-select"
 import { useAuth } from "@/lib/auth-context"
 
 // 10-23 欢哥定稿：遮罩点外关闭须「按下+松开都在遮罩」——click 派发到公共祖先，单判 target 会被拖出松开误关
 const downOnOverlay = { current: false }
 
-const INSTRUMENTS = [
-  "原声吉他", "电吉他", "贝斯", "打击乐器", "键盘乐器",
-  "主唱", "弦乐", "管乐", "民乐",
-  "其他", "听众",
-]
+// 1104 短信注册登录(欢哥定稿): 双 tab——默认「账户+密码」(账户=手机号或昵称)+「验证码登录」(注册登录合一);
+// 忘记密码=账户 tab 下的子视图(手机号验证码重置); 旧「注册」tab 退役
+const PHONE_RE = /^1[3-9]\d{9}$/
 
-// 选择了这些大类后，弹出输入框让用户细化
-const INSTRUMENT_NEEDS_INPUT = ["弦乐", "管乐", "民乐", "其他"]
-
-type Mode = "login" | "register"
-
-// jamony 1018: 密码强度——字符类别(小写/大写/数字/符号)取类别数-1(0..3) + 长度档(≥8/≥12) → 弱/一般/强
-function pwdStrengthLevel(p: string): 1 | 2 | 3 {
-  let classes = 0
-  if (/[a-z]/.test(p)) classes++
-  if (/[A-Z]/.test(p)) classes++
-  if (/\d/.test(p)) classes++
-  if (/[^a-zA-Z0-9]/.test(p)) classes++
-  let score = Math.max(0, classes - 1)
-  if (p.length >= 8) score++
-  if (p.length >= 12) score++
-  return score <= 1 ? 1 : score <= 3 ? 2 : 3
-}
-const PWD_STRENGTH_COLORS = ["", "#FF5C5C", "#FFC107", "#BBEE00"] as const
-const PWD_STRENGTH_LABELS = ["", "弱", "一般", "强"] as const
+type Mode = "account" | "sms" | "forgot"
 
 export function LoginModal() {
-  const { showLoginModal, setShowLoginModal, login, register } = useAuth()
-  const [mode, setMode] = useState<Mode>("login")
+  const { showLoginModal, setShowLoginModal, login, loginWithSms, sendSmsCode, resetPassword } = useAuth()
+  const [mode, setMode] = useState<Mode>("account")
 
-  // 登录态
-  const [nickname, setNickname] = useState("")
+  // 账户+密码
+  const [account, setAccount] = useState("")
   const [password, setPassword] = useState("")
-  // 注册态
-  const [regNickname, setRegNickname] = useState("")
-  const [regPassword, setRegPassword] = useState("")
-  const [regConfirm, setRegConfirm] = useState("")
-  const [regInstrument, setRegInstrument] = useState("")
-  const [regOtherInstrument, setRegOtherInstrument] = useState("")
+  // 验证码登录 / 忘记密码共用
+  const [phone, setPhone] = useState("")
+  const [code, setCode] = useState("")
+  const [newPassword, setNewPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
 
+  const [countdown, setCountdown] = useState(0)
+  const [codeSending, setCodeSending] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
+  const [notice, setNotice] = useState("")
+
+  useEffect(() => {
+    if (countdown <= 0) return
+    const t = setTimeout(() => setCountdown((c) => c - 1), 1000)
+    return () => clearTimeout(t)
+  }, [countdown])
 
   if (!showLoginModal) return null
 
   const reset = () => {
-    setNickname("")
+    setAccount("")
     setPassword("")
-    setRegNickname("")
-    setRegPassword("")
-    setRegConfirm("")
-    setRegInstrument("")
-    setRegOtherInstrument("")
+    setPhone("")
+    setCode("")
+    setNewPassword("")
+    setConfirmPassword("")
     setError("")
+    setNotice("")
   }
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!nickname.trim() || !password.trim()) {
-      setError("请输入用户名和密码")
-      return
-    }
-    setLoading(true)
-    setError("")
-    const err = await login(nickname.trim(), password)
-    setLoading(false)
-    if (err) {
-      setError(err)
-    } else {
-      reset()
-      setShowLoginModal(false)
-    }
-  }
-
-  const handleRegister = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!regNickname.trim() || !regPassword || !regConfirm || !regInstrument) {
-      setError("请填写所有字段")
-      return
-    }
-    if (regNickname.trim().length < 2 || regNickname.trim().length > 16) {
-      setError("昵称需要 2-16 个字符")
-      return
-    }
-    if (regPassword.length < 8) {
-      setError("密码至少 8 位")
-      return
-    }
-    if (regPassword !== regConfirm) {
-      setError("两次密码输入不一致")
-      return
-    }
-    if (INSTRUMENT_NEEDS_INPUT.includes(regInstrument) && !regOtherInstrument.trim()) {
-      setError("请输入你的具体乐器")
-      return
-    }
-    setLoading(true)
-    setError("")
-    const finalInstrument = INSTRUMENT_NEEDS_INPUT.includes(regInstrument) ? regOtherInstrument.trim() : regInstrument
-    const finalCategory = regInstrument
-    const err = await register(regNickname.trim(), regPassword, finalInstrument, finalCategory)
-    setLoading(false)
-    if (err) {
-      setError(err)
-    } else {
-      reset()
-      setShowLoginModal(false)
-    }
+  const close = () => {
+    reset()
+    setShowLoginModal(false)
   }
 
   const switchMode = (m: Mode) => {
@@ -123,11 +61,107 @@ export function LoginModal() {
     setMode(m)
   }
 
+  const handleSendCode = async () => {
+    const p = phone.trim()
+    if (!PHONE_RE.test(p)) {
+      setError("请输入正确的手机号")
+      return
+    }
+    setCodeSending(true)
+    setError("")
+    setNotice("")
+    const err = await sendSmsCode(p, mode === "forgot" ? "reset_password" : "login")
+    setCodeSending(false)
+    if (err) {
+      setError(err)
+      return
+    }
+    setNotice("验证码已发送，5分钟内有效")
+    setCountdown(60)
+  }
+
+  const handleAccountLogin = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!account.trim() || !password) {
+      setError("请输入账户和密码")
+      return
+    }
+    setLoading(true)
+    setError("")
+    const err = await login(account.trim(), password)
+    setLoading(false)
+    if (err) {
+      setError(err)
+    } else {
+      close()
+    }
+  }
+
+  const handleSmsLogin = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!PHONE_RE.test(phone.trim())) {
+      setError("请输入正确的手机号")
+      return
+    }
+    if (!/^\d{6}$/.test(code.trim())) {
+      setError("请输入6位验证码")
+      return
+    }
+    setLoading(true)
+    setError("")
+    const err = await loginWithSms(phone.trim(), code.trim())
+    setLoading(false)
+    if (err) {
+      setError(err)
+    } else {
+      close()
+    }
+  }
+
+  const handleForgot = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!PHONE_RE.test(phone.trim())) {
+      setError("请输入正确的手机号")
+      return
+    }
+    if (!/^\d{6}$/.test(code.trim())) {
+      setError("请输入6位验证码")
+      return
+    }
+    if (newPassword.length < 8) {
+      setError("新密码至少 8 位")
+      return
+    }
+    if (newPassword !== confirmPassword) {
+      setError("两次密码输入不一致")
+      return
+    }
+    setLoading(true)
+    setError("")
+    const err = await resetPassword(phone.trim(), code.trim(), newPassword)
+    setLoading(false)
+    if (err) {
+      setError(err)
+      return
+    }
+    const p = phone.trim()
+    reset()
+    setAccount(p) // 顺手回填账户框, 直接用新密码登录
+    setMode("account")
+    setNotice("密码已重置，请使用新密码登录")
+  }
+
+  const inputCls = "w-full rounded-xl border px-4 py-1.5 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
+  const inputStyle = { background: "#141414", borderColor: "#2A2A2A" }
+  const labelCls = "mb-1.5 block text-xs font-medium"
+  const submitCls = "flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-bold text-white transition-opacity disabled:opacity-50"
+  const submitStyle = { background: "linear-gradient(90deg, #9933FF, #FF33AA)" }
+
   return (
     <div
       className="fixed inset-0 z-[70] flex items-center justify-center p-4"
       style={{ background: "rgba(0,0,0,0.6)" }}
-      onMouseDown={(e) => { downOnOverlay.current = e.target === e.currentTarget }} onClick={(e) => { if (e.target === e.currentTarget && downOnOverlay.current) { reset(); setShowLoginModal(false) } }}
+      onMouseDown={(e) => { downOnOverlay.current = e.target === e.currentTarget }} onClick={(e) => { if (e.target === e.currentTarget && downOnOverlay.current) close() }}
     >
       <div
         className="relative w-full max-w-sm rounded-2xl border p-6 shadow-2xl"
@@ -138,31 +172,184 @@ export function LoginModal() {
         <button
           aria-label="关闭"
           className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-lg text-white transition-colors hover:bg-white/10"
-          onClick={() => { reset(); setShowLoginModal(false) }}
+          onClick={close}
         >
           <X className="h-5 w-5" />
         </button>
 
-        {/* Tab 切换 */}
+        {/* Tab 切换: 默认「账户+密码」(1104 欢哥定稿) */}
         <div className="mb-6 flex gap-4 border-b border-[#1A1A1A]">
           <button
-            onClick={() => switchMode("login")}
-            className={`relative pb-2 text-sm font-semibold transition-colors ${mode === "login" ? "text-white" : "text-[#666]"}`}
+            onClick={() => switchMode("account")}
+            className={`relative pb-2 text-sm font-semibold transition-colors ${mode !== "sms" ? "text-white" : "text-[#666]"}`}
           >
-            登录
-            {/* jamony 1018: 指示线重上——补 relative 修原错位到卡底边的bug,与注册tab同款贴线 */}
-            {mode === "login" && <span className="absolute -bottom-px left-0 right-0 h-0.5 rounded-full" style={{ background: "#00AAFF" }} />}
+            账户+密码
+            {mode !== "sms" && <span className="absolute -bottom-px left-0 right-0 h-0.5 rounded-full" style={{ background: "#00AAFF" }} />}
           </button>
           <button
-            onClick={() => switchMode("register")}
-            className={`relative pb-2 text-sm font-semibold transition-colors ${mode === "register" ? "text-white" : "text-[#666]"}`}
+            onClick={() => switchMode("sms")}
+            className={`relative pb-2 text-sm font-semibold transition-colors ${mode === "sms" ? "text-white" : "text-[#666]"}`}
           >
-            注册
-            {mode === "register" && <span className="absolute -bottom-px left-0 right-0 h-0.5 rounded-full" style={{ background: "#00AAFF" }} />}
+            验证码登录
+            {mode === "sms" && <span className="absolute -bottom-px left-0 right-0 h-0.5 rounded-full" style={{ background: "#00AAFF" }} />}
           </button>
         </div>
 
-        {mode === "login" ? (
+        {mode === "sms" ? (
+          <>
+            <div className="mb-4">
+              <h2 className="text-xl font-bold text-white">验证码登录</h2>
+              <p className="mt-1 text-sm" style={{ color: "#8A8A8A" }}>
+                输入手机号验证码即可登录
+              </p>
+            </div>
+
+            <form onSubmit={handleSmsLogin} className="flex flex-col gap-4">
+              <div>
+                <label className={labelCls} style={{ color: "#9A9A9A" }}>
+                  手机号
+                </label>
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 11))}
+                  placeholder="输入手机号"
+                  className={inputCls}
+                  style={inputStyle}
+                />
+              </div>
+
+              <div>
+                <label className={labelCls} style={{ color: "#9A9A9A" }}>
+                  验证码
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    placeholder="6位验证码"
+                    className={`${inputCls} flex-1`}
+                    style={inputStyle}
+                  />
+                  <button
+                    type="button"
+                    disabled={countdown > 0 || codeSending}
+                    onClick={handleSendCode}
+                    className="shrink-0 rounded-xl border px-3 text-xs font-medium text-white transition-opacity disabled:opacity-50"
+                    style={{ background: "#141414", borderColor: "#2A2A2A" }}
+                  >
+                    {codeSending ? "发送中..." : countdown > 0 ? `${countdown}s后重发` : "获取验证码"}
+                  </button>
+                </div>
+              </div>
+
+              {notice && <p className="text-sm" style={{ color: "#00AAFF" }}>{notice}</p>}
+              {error && <p className="text-sm" style={{ color: "#FF33AA" }}>{error}</p>}
+
+              <button type="submit" disabled={loading} className={submitCls} style={submitStyle}>
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                {loading ? "登录中..." : "登录 / 注册"}
+              </button>
+
+              <p className="text-center text-xs" style={{ color: "#8A8A8A" }}>
+                未注册的手机号验证通过后将自动注册
+              </p>
+            </form>
+          </>
+        ) : mode === "forgot" ? (
+          <>
+            <div className="mb-4">
+              <h2 className="text-xl font-bold text-white">重置密码</h2>
+              <p className="mt-1 text-sm" style={{ color: "#8A8A8A" }}>
+                使用注册手机号验证并设置新密码
+              </p>
+            </div>
+
+            <form onSubmit={handleForgot} className="flex flex-col gap-4">
+              <div>
+                <label className={labelCls} style={{ color: "#9A9A9A" }}>
+                  手机号
+                </label>
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 11))}
+                  placeholder="输入注册时的手机号"
+                  className={inputCls}
+                  style={inputStyle}
+                />
+              </div>
+
+              <div>
+                <label className={labelCls} style={{ color: "#9A9A9A" }}>
+                  验证码
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    placeholder="6位验证码"
+                    className={`${inputCls} flex-1`}
+                    style={inputStyle}
+                  />
+                  <button
+                    type="button"
+                    disabled={countdown > 0 || codeSending}
+                    onClick={handleSendCode}
+                    className="shrink-0 rounded-xl border px-3 text-xs font-medium text-white transition-opacity disabled:opacity-50"
+                    style={{ background: "#141414", borderColor: "#2A2A2A" }}
+                  >
+                    {codeSending ? "发送中..." : countdown > 0 ? `${countdown}s后重发` : "获取验证码"}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className={labelCls} style={{ color: "#9A9A9A" }}>
+                  新密码
+                </label>
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="至少8位"
+                  className={inputCls}
+                  style={inputStyle}
+                />
+              </div>
+
+              <div>
+                <label className={labelCls} style={{ color: "#9A9A9A" }}>
+                  确认新密码
+                </label>
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="再次输入新密码"
+                  className={inputCls}
+                  style={inputStyle}
+                />
+              </div>
+
+              {notice && <p className="text-sm" style={{ color: "#00AAFF" }}>{notice}</p>}
+              {error && <p className="text-sm" style={{ color: "#FF33AA" }}>{error}</p>}
+
+              <button type="submit" disabled={loading} className={submitCls} style={submitStyle}>
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                {loading ? "重置中..." : "重置密码"}
+              </button>
+
+              <button type="button" className="text-center text-xs" style={{ color: "#8A8A8A" }} onClick={() => switchMode("account")}>
+                返回登录
+              </button>
+            </form>
+          </>
+        ) : (
           <>
             <div className="mb-4">
               <h2 className="text-xl font-bold text-white">请登录</h2>
@@ -171,149 +358,51 @@ export function LoginModal() {
               </p>
             </div>
 
-            <form onSubmit={handleLogin} className="flex flex-col gap-4">
+            <form onSubmit={handleAccountLogin} className="flex flex-col gap-4">
               <div>
-                <label className="mb-1.5 block text-xs font-medium" style={{ color: "#9A9A9A" }}>
-                  用户名
+                <label className={labelCls} style={{ color: "#9A9A9A" }}>
+                  账户
                 </label>
                 <input
                   type="text"
-                  value={nickname}
-                  onChange={(e) => setNickname(e.target.value)}
-                  placeholder="输入用户名"
-                  className="w-full rounded-xl border px-4 py-1.5 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
-                  style={{ background: "#141414", borderColor: "#2A2A2A" }}
+                  value={account}
+                  onChange={(e) => setAccount(e.target.value)}
+                  placeholder="手机号或昵称"
+                  className={inputCls}
+                  style={inputStyle}
                 />
               </div>
 
               <div>
-                <label className="mb-1.5 block text-xs font-medium" style={{ color: "#9A9A9A" }}>
-                  密码
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className={labelCls} style={{ color: "#9A9A9A" }}>
+                    密码
+                  </label>
+                  <button type="button" className="text-xs" style={{ color: "#00AAFF" }} onClick={() => switchMode("forgot")}>
+                    忘记密码?
+                  </button>
+                </div>
                 <input
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="输入密码"
-                  className="w-full rounded-xl border px-4 py-1.5 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
-                  style={{ background: "#141414", borderColor: "#2A2A2A" }}
+                  className={inputCls}
+                  style={inputStyle}
                 />
               </div>
 
+              {notice && <p className="text-sm" style={{ color: "#00AAFF" }}>{notice}</p>}
               {error && <p className="text-sm" style={{ color: "#FF33AA" }}>{error}</p>}
 
-              <button
-                type="submit"
-                disabled={loading}
-                className="flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-bold text-white transition-opacity disabled:opacity-50"
-                style={{ background: "linear-gradient(90deg, #9933FF, #FF33AA)" }}
-              >
+              <button type="submit" disabled={loading} className={submitCls} style={submitStyle}>
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                 {loading ? "登录中..." : "登录"}
               </button>
-            </form>
-          </>
-        ) : (
-          <>
-            <div className="mb-4">
-              <h2 className="text-xl font-bold text-white">加入 jamony</h2>
-              <p className="mt-1 text-sm" style={{ color: "#8A8A8A" }}>
-                注册后即可开始你的音乐之旅
+
+              <p className="text-center text-xs" style={{ color: "#8A8A8A" }}>
+                新用户请切换到「验证码登录」，验证后自动注册
               </p>
-            </div>
-
-            <form onSubmit={handleRegister} className="flex flex-col gap-4">
-              <div>
-                <label className="mb-1.5 block text-xs font-medium" style={{ color: "#9A9A9A" }}>
-                  用户名 *
-                </label>
-                <input
-                  type="text"
-                  value={regNickname}
-                  onChange={(e) => setRegNickname(e.target.value)}
-                  placeholder="给自己取个名字"
-                  className="w-full rounded-xl border px-4 py-1.5 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
-                  style={{ background: "#141414", borderColor: "#2A2A2A" }}
-                />
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-xs font-medium" style={{ color: "#9A9A9A" }}>
-                  密码 *
-                </label>
-                <input
-                  type="password"
-                  value={regPassword}
-                  onChange={(e) => setRegPassword(e.target.value)}
-                  placeholder="至少8位，建议大小写字母+数字+特殊符号"
-                  className="w-full rounded-xl border px-4 py-1.5 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
-                  style={{ background: "#141414", borderColor: "#2A2A2A" }}
-                />
-                {/* jamony 1018: 密码强度实时提醒(欢哥口述)——字符类别(小写/大写/数字/符号)+长度打分,三段色条+文案 */}
-                {regPassword.length > 0 && (
-                  <div className="mt-2 flex items-center gap-2">
-                    <div className="flex flex-1 gap-1">
-                      {[0, 1, 2].map((i) => (
-                        <span key={i} className="h-1 flex-1 rounded-full transition-colors"
-                          style={{ background: i < pwdStrengthLevel(regPassword) ? PWD_STRENGTH_COLORS[pwdStrengthLevel(regPassword)] : "#2A2A2A" }} />
-                      ))}
-                    </div>
-                    <span className="text-xs font-medium" style={{ color: PWD_STRENGTH_COLORS[pwdStrengthLevel(regPassword)] }}>
-                      {PWD_STRENGTH_LABELS[pwdStrengthLevel(regPassword)]}
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-xs font-medium" style={{ color: "#9A9A9A" }}>
-                  确认密码 *
-                </label>
-                <input
-                  type="password"
-                  value={regConfirm}
-                  onChange={(e) => setRegConfirm(e.target.value)}
-                  placeholder="再次输入密码"
-                  className="w-full rounded-xl border px-4 py-1.5 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
-                  style={{ background: "#141414", borderColor: "#2A2A2A" }}
-                />
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-xs font-medium" style={{ color: "#9A9A9A" }}>
-                  主力乐器 *
-                </label>
-                <FilterSelect
-                  variant="field"
-                  label="选择你的乐器"
-                  value={regInstrument}
-                  onChange={(v) => { setRegInstrument(v); setRegOtherInstrument("") }}
-                  options={INSTRUMENTS.map((ins) => ({ value: ins, label: ins }))}
-                />
-                {INSTRUMENT_NEEDS_INPUT.includes(regInstrument) && (
-                  <input
-                    type="text"
-                    value={regOtherInstrument}
-                    onChange={(e) => setRegOtherInstrument(e.target.value)}
-                    placeholder={regInstrument === "其他" ? "请输入你的乐器" : regInstrument === "弦乐" ? "例如：小提琴、大提琴..." : regInstrument === "管乐" ? "例如：萨克斯、小号、电吹管" : "例如：古筝、二胡、琵琶..."}
-                    autoFocus
-                    className="mt-2 w-full rounded-xl border px-4 py-1.5 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
-                    style={{ background: "#141414", borderColor: "#2A2A2A" }}
-                  />
-                )}
-              </div>
-
-              {error && <p className="text-sm" style={{ color: "#FF33AA" }}>{error}</p>}
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-bold text-white transition-opacity disabled:opacity-50"
-                style={{ background: "linear-gradient(90deg, #9933FF, #FF33AA)" }}
-              >
-                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                {loading ? "注册中..." : "注册"}
-              </button>
             </form>
           </>
         )}

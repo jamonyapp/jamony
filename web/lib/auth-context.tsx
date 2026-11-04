@@ -23,8 +23,11 @@ type AuthContextType = {
   user: UserInfo | null
   loggedIn: boolean
   ready: boolean
-  login: (nickname: string, password: string) => Promise<string | null>
-  register: (nickname: string, password: string, primaryInstrument: string, instrumentCategory?: string) => Promise<string | null>
+  login: (account: string, password: string) => Promise<string | null>
+  // 1104 短信: 验证码登录(注册登录合一) + 发码 + 忘记密码; register 已退役(注册唯一入口=验证码)
+  loginWithSms: (phone: string, code: string) => Promise<string | null>
+  sendSmsCode: (phone: string, scene: "login" | "reset_password") => Promise<string | null>
+  resetPassword: (phone: string, code: string, newPassword: string) => Promise<string | null>
   logout: () => void
   updateUser: (data: Partial<UserInfo>) => void
   showLoginModal: boolean
@@ -69,12 +72,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .catch(() => setReady(true))
   }, [])
 
-  const login = useCallback(async (nickname: string, password: string): Promise<string | null> => {
+  const login = useCallback(async (account: string, password: string): Promise<string | null> => {
     try {
       const res = await fetch("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nickname, password }),
+        body: JSON.stringify({ account, password }),
         credentials: "include",
       })
       const data = await res.json()
@@ -89,18 +92,52 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const register = useCallback(async (nickname: string, password: string, primaryInstrument: string, instrumentCategory?: string): Promise<string | null> => {
+  // 1104 验证码登录: 未注册手机号验证通过=自动注册(注册登录合一)
+  const loginWithSms = useCallback(async (phone: string, code: string): Promise<string | null> => {
     try {
-      const res = await fetch("/api/register", {
+      const res = await fetch("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nickname, password, primaryInstrument, instrumentCategory }),
+        body: JSON.stringify({ phone, code }),
         credentials: "include",
       })
       const data = await res.json()
-      if (!data.ok) return data.msg || "注册失败"
+      if (!data.ok) return data.msg || "登录失败"
+      if (data.banned) { window.location.href = "/banned"; return null }
       setUser(data.user)
       localStorage.setItem("jamony_user", JSON.stringify(data.user))
+      return null
+    } catch {
+      return "网络错误，请检查服务器"
+    }
+  }, [])
+
+  const sendSmsCode = useCallback(async (phone: string, scene: "login" | "reset_password"): Promise<string | null> => {
+    try {
+      const res = await fetch("/api/sms/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone, scene }),
+        credentials: "include",
+      })
+      const data = await res.json()
+      if (!data.ok) return data.msg || "验证码发送失败"
+      return null
+    } catch {
+      return "网络错误，请检查服务器"
+    }
+  }, [])
+
+  const resetPassword = useCallback(async (phone: string, code: string, newPassword: string): Promise<string | null> => {
+    try {
+      const res = await fetch("/api/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone, code, newPassword }),
+        credentials: "include",
+      })
+      const data = await res.json()
+      if (!data.ok) return data.msg || "重置失败"
       return null
     } catch {
       return "网络错误，请检查服务器"
@@ -130,7 +167,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [user])
 
   return (
-    <AuthContext.Provider value={{ user, loggedIn: !!user, ready, login, register, updateUser, logout, showLoginModal, setShowLoginModal }}>
+    <AuthContext.Provider value={{ user, loggedIn: !!user, ready, login, loginWithSms, sendSmsCode, resetPassword, updateUser, logout, showLoginModal, setShowLoginModal }}>
       {children}
     </AuthContext.Provider>
   )

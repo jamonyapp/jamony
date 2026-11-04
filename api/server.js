@@ -362,6 +362,7 @@ function optionalAuth(req, res, next) {
    三态语义: reject=硬拦不放行(不写内容库) / suspect=放行+写 moderation_logs 供 admin 疑似流巡查(零人工) / pass=放行
    fail-open: 引擎异常或日志写入失败一律放行, 绝不阻塞业务发布链路 */
 const { moderateText, setWhitelistLoader } = require('./lib/moderation')
+const { sendSmsCode } = require('./lib/sms') // 1104 短信验证码
 // 1104 白名单层注入: 引擎 5min 缓存 TTL, 后台加词 5 分钟内全站生效(admin 写同库同表)
 setWhitelistLoader(async () => (await pool.query('SELECT word FROM moderation_whitelist')).rows.map((r) => r.word))
 // 1025 迷你雪花: 暴露面主实体显式发号(15-16位长数字,JS安全域); 日志类表保留SERIAL
@@ -920,35 +921,158 @@ app.get('/api/my-appeals', requireAuthAllowBanned, async (req, res) => {
   }
 })
 
+// ========== 1104 短信验证码(注册登录合一) ==========
+const PHONE_RE = /^1[3-9]\d{9}$/
+const SMS_CODE_TTL_MIN = 5
+const SMS_MAX_ATTEMPTS = 5
+
+function smsCodeHash(phone, code) {
+  // 验证码只存哈希: 手机号+JWT_SECRET 双盐, DB 泄露也难以暴力枚举
+  return crypto.createHash('sha256').update(`${code}:${JWT_SECRET}:${phone}`).digest('hex')
+}
+
+async function issueSmsCode(phone, scene) {
+  const code = String(Math.floor(100000 + Math.random() * 900000))
+  await sendSmsCode(phone, code) // 先发后存: 宁可白收一条码, 不给一条打不出去的库存码
+  await pool.query(
+    `INSERT INTO sms_codes (id, phone, code_hash, scene, expires_at)
+     VALUES ($1, $2, $3, $4, NOW() + interval '${SMS_CODE_TTL_MIN} minutes')`,
+    [nextId(), phone, smsCodeHash(phone, code), scene]
+  )
+}
+
+async function verifySmsCode(phone, scene, code) {
+  const r = await pool.query(
+    `SELECT id, code_hash, attempts FROM sms_codes
+     WHERE phone = $1 AND scene = $2 AND consumed = false AND expires_at > NOW()
+     ORDER BY created_at DESC LIMIT 1`,
+    [phone, scene]
+  )
+  const row = r.rows[0]
+  if (!row) return { ok: false, msg: '验证码无效或已过期，请重新获取' }
+  if (row.attempts >= SMS_MAX_ATTEMPTS) return { ok: false, msg: '错误次数过多，请重新获取验证码' }
+  if (smsCodeHash(phone, code) !== row.code_hash) {
+    await pool.query('UPDATE sms_codes SET attempts = attempts + 1 WHERE id = $1', [row.id])
+    return { ok: false, msg: '验证码错误' }
+  }
+  await pool.query('UPDATE sms_codes SET consumed = true WHERE id = $1', [row.id])
+  return { ok: true }
+}
+
+app.post('/api/sms/send', async (req, res) => {
+  try {
+    const phone = String(req.body.phone || '').trim()
+    const scene = req.body.scene === 'reset_password' ? 'reset_password' : 'login'
+    if (!PHONE_RE.test(phone)) {
+      return res.status(400).json({ ok: false, msg: '手机号格式不正确' })
+    }
+    // 频控矩阵: 单号 60s/1时5条/1天10条 + 单IP 1时10条(防短信轰炸刷钱)
+    if (!rateCheck(`sms:60s:${phone}`, 1, 60 * 1000)) {
+      return res.status(429).json({ ok: false, msg: '发送过于频繁，请1分钟后再试' })
+    }
+    if (!rateCheck(`sms:1h:${phone}`, 5, 3600 * 1000)) {
+      return res.status(429).json({ ok: false, msg: '该手机号本小时发送次数已达上限' })
+    }
+    if (!rateCheck(`sms:1d:${phone}`, 10, 24 * 3600 * 1000)) {
+      return res.status(429).json({ ok: false, msg: '该手机号今日发送次数已达上限' })
+    }
+    if (!rateCheck(`sms:ip:${req.ip}`, 10, 3600 * 1000)) {
+      return res.status(429).json({ ok: false, msg: '操作过于频繁，请稍后再试' })
+    }
+    if (scene === 'reset_password') {
+      const u = await pool.query('SELECT id FROM users WHERE phone = $1', [phone])
+      if (u.rows.length === 0) {
+        return res.status(404).json({ ok: false, msg: '该手机号未注册' })
+      }
+    }
+    await issueSmsCode(phone, scene)
+    res.json({ ok: true, msg: '验证码已发送' })
+  } catch (err) {
+    console.error('SMS send error:', err.message)
+    res.status(500).json({ ok: false, msg: '短信发送失败，请稍后再试' })
+  }
+})
+
 // ========== 登录 ==========
 app.post('/api/login', async (req, res) => {
   try {
     if (!rateCheck(`login:${req.ip}`, 10, 3600 * 1000)) {
       return res.status(429).json({ ok: false, msg: '尝试过于频繁，请1小时后再试' })
     }
-    const { nickname, password } = req.body
-    if (!nickname || !password) {
-      return res.status(400).json({ ok: false, msg: '请输入用户名和密码' })
+    const { nickname, password, phone, code } = req.body
+
+    // ---- 1104 验证码登录(注册登录合一): 未注册手机号验证通过=自动建号 ----
+    if (phone !== undefined || code !== undefined) {
+      const p = String(phone || '').trim()
+      if (!PHONE_RE.test(p) || !/^\d{6}$/.test(String(code || ''))) {
+        return res.status(400).json({ ok: false, msg: '请输入正确的手机号和6位验证码' })
+      }
+      const v = await verifySmsCode(p, 'login', String(code))
+      if (!v.ok) return res.status(401).json({ ok: false, msg: v.msg })
+      const found = await pool.query('SELECT * FROM users WHERE phone = $1', [p])
+      let user = found.rows[0]
+      if (!user) {
+        // 自动注册: 昵称=用户+8位随机(1104 欢哥定稿), 生成时查重重试
+        let nick = ''
+        for (let i = 0; i < 5; i++) {
+          const cand = '用户' + String(Math.floor(10000000 + Math.random() * 90000000))
+          const ex = await pool.query('SELECT id FROM users WHERE nickname = $1', [cand])
+          if (ex.rows.length === 0) { nick = cand; break }
+        }
+        if (!nick) return res.status(500).json({ ok: false, msg: '注册失败，请重试' })
+        const newUserId = nextId()
+        const ins = await pool.query(
+          `INSERT INTO users (id, nickname, phone, avatar_index, bio, city, level, points)
+           VALUES ($1, $2, $3, $4, '', '', 1, 0) RETURNING *`,
+          [newUserId, nick, p, Math.floor(Math.random() * 30) + 1]
+        )
+        user = ins.rows[0]
+        console.log(`[sms-register] ${p} 自动注册 ${nick}(id=${newUserId})`)
+      } else if (user.restriction === 'banned') {
+        setAuthCookie(res, { id: user.id, nickname: user.nickname })
+        return res.json({ ok: true, banned: true, msg: '该账号已被封禁，相关功能已被冻结。您仍可提交申诉。' })
+      }
+      const smsPayload = {
+        id: user.id,
+        nickname: user.nickname,
+        avatarIndex: user.avatar_index,
+        avatarUrl: user.avatar_url ? user.avatar_url.replace('/var/jamony/avatars', '/avatars') : '',
+        bio: user.bio,
+        city: user.city,
+        primaryInstrument: user.primary_instrument,
+        instrumentCategory: user.instrument_category || '',
+        secondaryInstrument: user.secondary_instrument || '',
+        level: user.level,
+        points: user.points,
+      }
+      setAuthCookie(res, smsPayload)
+      return res.json({ ok: true, user: smsPayload })
     }
-    if (isAccountLocked(nickname)) {
-      const f = loginFailBuckets.get(nickname)
+
+    // ---- 账户+密码登录(账户=昵称或手机号) ----
+    const account = String(nickname || req.body.account || '').trim()
+    if (!account || !password) {
+      return res.status(400).json({ ok: false, msg: '请输入账户和密码' })
+    }
+    if (isAccountLocked(account)) {
+      const f = loginFailBuckets.get(account)
       const min = Math.ceil((f.lockUntil - Date.now()) / 60000)
       return res.status(429).json({ ok: false, msg: `账号已锁定，${min}分钟后重试` })
     }
 
-    const result = await pool.query('SELECT * FROM users WHERE nickname = $1', [nickname])
+    const result = await pool.query('SELECT * FROM users WHERE nickname = $1 OR phone = $1', [account])
     if (result.rows.length === 0) {
-      recordLoginFail(nickname)
-      return res.status(401).json({ ok: false, msg: '用户名或密码错误' })
+      recordLoginFail(account)
+      return res.status(401).json({ ok: false, msg: '账户或密码错误' })
     }
 
     const user = result.rows[0]
-    if (!(await verifyPassword(password, user.password_hash))) {
-      recordLoginFail(nickname)
-      return res.status(401).json({ ok: false, msg: '用户名或密码错误' })
+    if (!user.password_hash || !(await verifyPassword(password, user.password_hash))) {
+      recordLoginFail(account)
+      return res.status(401).json({ ok: false, msg: '账户或密码错误' })
     }
 
-    clearLoginFail(nickname)
+    clearLoginFail(account)
     // ⑦封号申诉权(1023): banned 照发会话(申诉端点放行), 响应带 banned 标记 → web 跳拦截页(其余端点已被 requireAuth 拦死)
     const banRow = await pool.query('SELECT restriction FROM users WHERE id=$1', [user.id])
     if (banRow.rows[0] && banRow.rows[0].restriction === 'banned') {
@@ -976,74 +1100,39 @@ app.post('/api/login', async (req, res) => {
   }
 })
 
-// ========== 注册 ==========
-app.post('/api/register', async (req, res) => {
+// ========== 1104 忘记密码(登录卡片「忘记密码?」: 手机号验证码重置) ==========
+app.post('/api/forgot-password', async (req, res) => {
   try {
-    if (!rateCheck(`register:${req.ip}`, 5, 3600 * 1000)) {
-      return res.status(429).json({ ok: false, msg: '注册过于频繁，请1小时后再试' })
+    if (!rateCheck(`forgot:${req.ip}`, 5, 3600 * 1000)) {
+      return res.status(429).json({ ok: false, msg: '操作过于频繁，请1小时后再试' })
     }
-    const { nickname, password, primaryInstrument, instrumentCategory } = req.body
-    if (!nickname || !password || !primaryInstrument) {
-      return res.status(400).json({ ok: false, msg: '请填写所有必填项' })
+    const phone = String(req.body.phone || '').trim()
+    const code = String(req.body.code || '')
+    const newPassword = String(req.body.newPassword || '')
+    if (!PHONE_RE.test(phone) || !/^\d{6}$/.test(code)) {
+      return res.status(400).json({ ok: false, msg: '请输入正确的手机号和6位验证码' })
     }
-    if (nickname.length < 2 || nickname.length > 16) {
-      return res.status(400).json({ ok: false, msg: '昵称长度 2-16 个字符' })
+    if (newPassword.length < 8) {
+      return res.status(400).json({ ok: false, msg: '新密码至少 8 位' })
     }
-    // jamony 1018: 注册密码下限 6→8(欢哥:更安全;改密码端点同步)
-    if (password.length < 8) {
-      return res.status(400).json({ ok: false, msg: '密码至少 8 位' })
-    }
-
-    // jamony 10-18 欢哥拍板: 官方品牌保护——昵称包含 jamony(不分大小写)一律拒绝,
-    // 提示语与重名规则一致(不暴露封禁原因,防冒充官方); jamony-looper 等系统用户名同受此规则覆盖
-    if (nickname.toLowerCase().includes('jamony')) {
-      return res.status(409).json({ ok: false, msg: '该昵称已被注册' })
-    }
-
-    // 机审：注册昵称过词库闸（1023 内容安全；拒绝级直接拒，疑似级放行+标记）
-    if (!(await moderatePublishText('profile', null, null, nickname, nickname))) {
-      return res.status(400).json({ ok: false, msg: '昵称包含违规信息，请更换' })
-    }
-
-    // 查重
-    const exist = await pool.query('SELECT id FROM users WHERE nickname = $1', [nickname])
-    if (exist.rows.length > 0) {
-      return res.status(409).json({ ok: false, msg: '该昵称已被注册' })
-    }
-
-    const hash = await hashPassword(password)
-    const avatar = Math.floor(Math.random() * 30) + 1
-
-    const cat = instrumentCategory || primaryInstrument
-    const newUserId = nextId() // 1025 雪花: 显式发号
-    const result = await pool.query(
-      `INSERT INTO users (id, nickname, password_hash, primary_instrument, instrument_category, avatar_index, bio, city, level, points)
-       VALUES ($6, $1, $2, $3, $5, $4, '', '', 1, 0)
-       RETURNING nickname, avatar_index, avatar_url, bio, city, primary_instrument, instrument_category, level, points`,
-      [nickname, hash, primaryInstrument, avatar, cat, newUserId]
+    const v = await verifySmsCode(phone, 'reset_password', code)
+    if (!v.ok) return res.status(401).json({ ok: false, msg: v.msg })
+    const hash = await hashPassword(newPassword)
+    const u = await pool.query(
+      'UPDATE users SET password_hash = $1 WHERE phone = $2 RETURNING id, nickname',
+      [hash, phone]
     )
-
-    const user = { id: newUserId, ...result.rows[0] }
-    const userPayload = {
-      id: user.id,
-      nickname: user.nickname,
-      avatarIndex: user.avatar_index,
-      avatarUrl: user.avatar_url ? user.avatar_url.replace('/var/jamony/avatars', '/avatars') : '', // 08-30 修复: 与 login 同步补头像
-      bio: user.bio || '',
-      city: user.city || '',
-      primaryInstrument: user.primary_instrument,
-      instrumentCategory: user.instrument_category || '',
-      secondaryInstrument: '',
-      level: user.level,
-      points: user.points,
+    if (u.rows.length === 0) {
+      return res.status(404).json({ ok: false, msg: '该手机号未注册' })
     }
-    setAuthCookie(res, userPayload)
-    res.json({ ok: true, user: userPayload })
+    res.json({ ok: true, msg: '密码已重置，请使用新密码登录' })
   } catch (err) {
-    console.error('Register error:', err)
+    console.error('Forgot password error:', err)
     res.status(500).json({ ok: false, msg: '服务器错误' })
   }
 })
+
+// 1104 注册端点已删除(欢哥定案:全新用户系统,注册唯一入口=验证码登录自动建号)
 
 // ========== 登出（清 cookie）==========
 app.post('/api/logout', (req, res) => {
@@ -1532,10 +1621,10 @@ app.post('/api/users/:id/password', requireAuth, async (req, res) => {
     }
     const { oldPassword, newPassword } = req.body
 
-    if (!oldPassword || !newPassword) {
+    if (!newPassword) {
       return res.status(400).json({ ok: false, msg: '请填写完整' })
     }
-    if (newPassword.length < 6) {
+    if (newPassword.length < 8) {
       return res.status(400).json({ ok: false, msg: '新密码至少 8 位' })
     }
 
@@ -1545,8 +1634,11 @@ app.post('/api/users/:id/password', requireAuth, async (req, res) => {
     }
 
     const user = result.rows[0]
-    if (!(await verifyPassword(oldPassword, user.password_hash))) {
-      return res.status(401).json({ ok: false, msg: '旧密码错误' })
+    // 1104: 短信注册号无密码 → 首次设置免旧密码; 有密码的必须验旧
+    if (user.password_hash) {
+      if (!oldPassword || !(await verifyPassword(oldPassword, user.password_hash))) {
+        return res.status(401).json({ ok: false, msg: '旧密码错误' })
+      }
     }
 
     const hash = await hashPassword(newPassword)
