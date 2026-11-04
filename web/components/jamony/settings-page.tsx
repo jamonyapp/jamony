@@ -196,8 +196,8 @@ export function SettingsPage() {
             </div>
           </div>
           <div>
-            <FieldLabel hint={`${signature.length}/40`}>签名</FieldLabel>
-            <input type="text" className={inputClass} style={{ background: "#141414", borderColor: "#2A2A2A" }} value={signature} onChange={(e) => setSignature(e.target.value)} placeholder="一句个性签名..." maxLength={40} />
+            <FieldLabel hint={`${signature.length}/30`}>签名</FieldLabel>
+            <input type="text" className={inputClass} style={{ background: "#141414", borderColor: "#2A2A2A" }} value={signature} onChange={(e) => setSignature(e.target.value)} placeholder="一句个性签名..." maxLength={30} />
           </div>
           <div>
             <FieldLabel>城市</FieldLabel>

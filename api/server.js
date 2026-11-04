@@ -1627,7 +1627,11 @@ app.patch('/api/users/:id', requireAuth, async (req, res) => {
       sets.push(`nickname = $${idx++}`); params.push(nickname)
     }
     if (bio !== undefined) { sets.push(`bio = $${idx++}`); params.push(bio) }
-    if (signature !== undefined) { sets.push(`signature = $${idx++}`); params.push(signature) }
+    // 1105 欢哥定稿: 签名上限 40→30(此前后端无长度校验, 前端maxLength可被直打绕过——顺手补硬闸)
+    if (signature !== undefined) {
+      if (String(signature).length > 30) return res.status(400).json({ ok: false, msg: '签名最多 30 字' })
+      sets.push(`signature = $${idx++}`); params.push(signature)
+    }
     if (city !== undefined) { sets.push(`city = $${idx++}`); params.push(city) }
     if (primaryInstrument !== undefined) { sets.push(`primary_instrument = $${idx++}`); params.push(primaryInstrument) }
     if (instrumentCategory !== undefined) { sets.push(`instrument_category = $${idx++}`); params.push(instrumentCategory) }
