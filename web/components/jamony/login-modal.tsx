@@ -247,7 +247,7 @@ export function LoginModal() {
             onClick={() => switchMode("account")}
             className={`relative pb-2 text-sm font-semibold transition-colors ${mode !== "sms" ? "text-white" : "text-[#666]"}`}
           >
-            账户+密码
+            账户密码登录
             {mode !== "sms" && <span className="absolute -bottom-px left-0 right-0 h-0.5 rounded-full" style={{ background: "#00AAFF" }} />}
           </button>
           <button
