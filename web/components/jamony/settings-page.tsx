@@ -180,9 +180,20 @@ export function SettingsPage() {
         <AvatarUpload />
 
         <div className="mt-6 space-y-5">
-          <div>
-            <FieldLabel>昵称</FieldLabel>
-            <input type="text" className={inputClass} maxLength={16} style={{ background: "#141414", borderColor: "#2A2A2A" }} value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder="给自己取个名字" />
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <FieldLabel>昵称</FieldLabel>
+              <input type="text" className={inputClass} maxLength={16} style={{ background: "#141414", borderColor: "#2A2A2A" }} value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder="给自己取个名字" />
+            </div>
+            <div>
+              <FieldLabel>性别</FieldLabel>
+              <FilterSelect variant="field" label="选择性别" value={gender} onChange={setGender}
+                options={[{ value: "", label: "未设置" }, { value: "male", label: "♂ 男" }, { value: "female", label: "♀ 女" }, { value: "secret", label: "保密" }]} />
+            </div>
+            <div>
+              <FieldLabel hint="仅自己可见">生日</FieldLabel>
+              <input type="date" className={inputClass} style={{ background: "#141414", borderColor: "#2A2A2A" }} value={birthday} onChange={(e) => setBirthday(e.target.value)} />
+            </div>
           </div>
           <div>
             <FieldLabel hint={`${signature.length}/40`}>签名</FieldLabel>
@@ -215,28 +226,6 @@ export function SettingsPage() {
                 )
               })}
             </div>
-          </div>
-        </div>
-
-        {/* 1105 画像: 性别(男♂蓝/女♀粉/保密)+生日(仅本人可见) */}
-        <div className="mt-6 space-y-5">
-          <div>
-            <FieldLabel>性别</FieldLabel>
-            <div className="flex gap-2">
-              {([["male", "♂ 男"], ["female", "♀ 女"], ["secret", "保密"]] as const).map(([v, label]) => (
-                <button key={v} type="button" onClick={() => setGender(v)}
-                  className={`rounded-full border px-4 py-1.5 text-xs font-medium transition-colors ${gender === v ? "border-transparent" : "hover:border-[#3A3A3A] hover:text-white"}`}
-                  style={gender === v
-                    ? { color: v === "male" ? "#00AAFF" : v === "female" ? "#FF33AA" : "#B0B0B0", backgroundColor: v === "male" ? "rgba(0,170,255,0.12)" : v === "female" ? "rgba(255,51,170,0.12)" : "rgba(255,255,255,0.06)" }
-                    : { borderColor: "#2A2A2A", color: "#B0B0B0" }}>
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <FieldLabel hint="仅自己可见">生日</FieldLabel>
-            <input type="date" className={inputClass} style={{ background: "#141414", borderColor: "#2A2A2A" }} value={birthday} onChange={(e) => setBirthday(e.target.value)} />
           </div>
         </div>
 
