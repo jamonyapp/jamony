@@ -19,5 +19,8 @@ CREATE INDEX IF NOT EXISTS idx_sms_codes_phone ON sms_codes(phone, created_at DE
 -- 新建表须授权 api 角色(0718 判例)
 GRANT SELECT, INSERT, UPDATE ON sms_codes TO jamony_api;
 
--- ③ rainbowtube(user 1)接管: 手机号届时由欢哥提供后执行
+-- ③ 密码可选化(E2E 实锤: 短信注册号无密码, 非空约束会 500)
+ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
+
+-- ④ rainbowtube(user 1)接管: 手机号届时由欢哥提供后执行
 -- UPDATE users SET phone='13xxxxxxxxx' WHERE id=1;
