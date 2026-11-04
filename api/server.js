@@ -929,6 +929,49 @@ const SMS_MAX_ATTEMPTS = 5
 // 1104批次2: 明文手机号永不出库, 前端只拿脱敏号(设置页本人展示)
 const maskPhone = (p) => (p ? `${p.slice(0, 3)}****${p.slice(-4)}` : '')
 
+// ========== 1104批次2步骤三: 用户协议(版本库+签署落档·法务证据) ==========
+let currentAgreement = null
+let agreementLoadedAt = 0
+async function getCurrentAgreement() {
+  if (currentAgreement && Date.now() - agreementLoadedAt < 60000) return currentAgreement
+  const r = await pool.query("SELECT version, to_char(effective_date, 'YYYY-MM-DD') AS effective_date, content FROM agreements ORDER BY id DESC LIMIT 1")
+  currentAgreement = r.rows[0] || null
+  agreementLoadedAt = Date.now()
+  return currentAgreement
+}
+
+// 登录硬闸+落档: 已签当前版的老号放行(换设备免重弹); 未签且未带版本=403; 签署落档幂等(唯一索引)
+async function enforceAgreement(req, res, user) {
+  const agr = await getCurrentAgreement()
+  if (!agr) return true
+  const signed = await pool.query('SELECT 1 FROM agreement_acceptances WHERE user_id = $1 AND agreement_version = $2', [user.id, agr.version])
+  if (!signed.rows[0] && String(req.body.agreementVersion || '') !== agr.version) {
+    res.status(403).json({ ok: false, code: 'AGREEMENT_REQUIRED', version: agr.version, msg: '请先阅读并同意《jamony用户协议》' })
+    return false
+  }
+  if (!signed.rows[0]) {
+    await pool.query(
+      `INSERT INTO agreement_acceptances (id, user_id, agreement_version, ip, user_agent)
+       VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING`,
+      [nextId(), user.id, agr.version, String(req.ip || '').slice(0, 45), String(req.headers['user-agent'] || '').slice(0, 500)]
+    )
+    console.log(`[agreement] user ${user.id} 签署协议 ${agr.version}`)
+  }
+  return true
+}
+
+// 协议正文(公开): 前端登录弹窗/terms页共用, admin 发布新版后 60s 内全端跟进
+app.get('/api/agreement', async (req, res) => {
+  try {
+    const agr = await getCurrentAgreement()
+    if (!agr) return res.status(404).json({ ok: false, msg: '暂无协议' })
+    res.json({ ok: true, version: agr.version, effectiveDate: agr.effective_date, content: agr.content })
+  } catch (err) {
+    console.error('Agreement error:', err.message)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
 function smsCodeHash(phone, code) {
   // 验证码只存哈希: 手机号+JWT_SECRET 双盐, DB 泄露也难以暴力枚举
   return crypto.createHash('sha256').update(`${code}:${JWT_SECRET}:${phone}`).digest('hex')
@@ -1035,6 +1078,8 @@ app.post('/api/login', async (req, res) => {
         setAuthCookie(res, { id: user.id, nickname: user.nickname })
         return res.json({ ok: true, banned: true, msg: '该账号已被封禁，相关功能已被冻结。您仍可提交申诉。' })
       }
+      // 1104批次2步骤三: 协议硬闸+签署落档(注册=签; 未签且未带agreementVersion → 403)
+      if (!(await enforceAgreement(req, res, user))) return
       const smsPayload = {
         id: user.id,
         nickname: user.nickname,
@@ -1084,6 +1129,8 @@ app.post('/api/login', async (req, res) => {
       setAuthCookie(res, { id: user.id, nickname: user.nickname })
       return res.json({ ok: true, banned: true, msg: '该账号已被封禁，相关功能已被冻结。您仍可提交申诉。' })
     }
+    // 1104批次2步骤三: 协议硬闸+签署落档(存量老号补签; 未签且未带agreementVersion → 403)
+    if (!(await enforceAgreement(req, res, user))) return
     const userPayload = {
       id: user.id,
       nickname: user.nickname,

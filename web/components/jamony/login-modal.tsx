@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { X, Loader2 } from "lucide-react"
+import { X, Loader2, Check } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
 
 // 10-23 欢哥定稿：遮罩点外关闭须「按下+松开都在遮罩」——click 派发到公共祖先，单判 target 会被拖出松开误关
@@ -10,6 +10,33 @@ const downOnOverlay = { current: false }
 // 1104 短信注册登录(欢哥定稿): 双 tab——默认「账户+密码」(账户=手机号或昵称)+「验证码登录」(注册登录合一);
 // 忘记密码=账户 tab 下的子视图(手机号验证码重置); 旧「注册」tab 退役
 const PHONE_RE = /^1[3-9]\d{9}$/
+
+// 1104批次2步骤三: 协议正文 markdown 轻渲染(剥标题井号+加粗星号, 协议纯文本结构够用)
+const plainText = (md: string) => md.replace(/^#{1,6}\s*/gm, "").replace(/\*\*/g, "")
+
+// 协议勾选行(两 tab 共用)——必选: 前端拦截+后端 403 硬闸双保险, 勾选即随登录带 agreementVersion 落档
+function AgreementCheck({ agreed, onToggle, onOpen }: { agreed: boolean; onToggle: () => void; onOpen: () => void }) {
+  return (
+    <div className="flex items-start gap-2">
+      <button
+        type="button"
+        role="checkbox"
+        aria-checked={agreed}
+        onClick={onToggle}
+        className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors"
+        style={{ borderColor: agreed ? "#9933FF" : "#3A3A3A", background: agreed ? "#9933FF" : "transparent" }}
+      >
+        {agreed && <Check className="h-3 w-3 text-white" />}
+      </button>
+      <span className="text-xs leading-relaxed" style={{ color: "#8A8A8A" }}>
+        我已阅读并同意
+        <button type="button" className="font-medium underline-offset-2 hover:underline" style={{ color: "#00AAFF" }} onClick={onOpen}>
+          《jamony用户协议》
+        </button>
+      </span>
+    </div>
+  )
+}
 
 type Mode = "account" | "sms" | "forgot"
 
@@ -32,6 +59,26 @@ export function LoginModal() {
   const [error, setError] = useState("")
   const [notice, setNotice] = useState("")
 
+  // 1104批次2步骤三: 协议勾选 + 全文子视图 + 当前版本(打开弹窗拉取; 登录失败刷新=应对 admin 刚发新版)
+  const [agreed, setAgreed] = useState(false)
+  const [showTerms, setShowTerms] = useState(false)
+  const [agreementVersion, setAgreementVersion] = useState("")
+  const [agreementText, setAgreementText] = useState("")
+
+  const fetchAgreement = async () => {
+    try {
+      const r = await fetch("/api/agreement")
+      const d = await r.json()
+      if (d.ok) {
+        setAgreementVersion(d.version)
+        setAgreementText(d.content)
+      }
+    } catch { /* ignore */ }
+  }
+  useEffect(() => {
+    if (showLoginModal && !agreementVersion) fetchAgreement()
+  }, [showLoginModal, agreementVersion])
+
   useEffect(() => {
     if (countdown <= 0) return
     const t = setTimeout(() => setCountdown((c) => c - 1), 1000)
@@ -49,6 +96,7 @@ export function LoginModal() {
     setConfirmPassword("")
     setError("")
     setNotice("")
+    setAgreed(false) // 协议确认=每次登录独立确认, 切 tab/重开弹窗重新勾
   }
 
   const close = () => {
@@ -86,12 +134,17 @@ export function LoginModal() {
       setError("请输入账户和密码")
       return
     }
+    if (!agreed) {
+      setError("请先勾选同意《jamony用户协议》")
+      return
+    }
     setLoading(true)
     setError("")
-    const err = await login(account.trim(), password)
+    const err = await login(account.trim(), password, agreementVersion || undefined)
     setLoading(false)
     if (err) {
       setError(err)
+      fetchAgreement()
     } else {
       close()
     }
@@ -107,12 +160,17 @@ export function LoginModal() {
       setError("请输入6位验证码")
       return
     }
+    if (!agreed) {
+      setError("请先勾选同意《jamony用户协议》")
+      return
+    }
     setLoading(true)
     setError("")
-    const err = await loginWithSms(phone.trim(), code.trim())
+    const err = await loginWithSms(phone.trim(), code.trim(), agreementVersion || undefined)
     setLoading(false)
     if (err) {
       setError(err)
+      fetchAgreement()
     } else {
       close()
     }
@@ -177,7 +235,8 @@ export function LoginModal() {
           <X className="h-5 w-5" />
         </button>
 
-        {/* Tab 切换: 默认「账户+密码」(1104 欢哥定稿) */}
+        {/* Tab 切换: 默认「账户+密码」(1104 欢哥定稿); 协议全文视图时隐藏 */}
+        {!showTerms && (
         <div className="mb-6 flex gap-4 border-b border-[#1A1A1A]">
           <button
             onClick={() => switchMode("account")}
@@ -194,8 +253,19 @@ export function LoginModal() {
             {mode === "sms" && <span className="absolute -bottom-px left-0 right-0 h-0.5 rounded-full" style={{ background: "#00AAFF" }} />}
           </button>
         </div>
+        )}
 
-        {mode === "sms" ? (
+        {showTerms ? (
+          <div className="flex h-[70vh] flex-col">
+            <h2 className="mb-3 text-base font-bold text-white">jamony用户协议{agreementVersion ? `（${agreementVersion}）` : ""}</h2>
+            <div className="flex-1 overflow-y-auto rounded-xl border p-4 text-xs leading-relaxed" style={{ borderColor: "#1A1A1A", color: "#B0B0B0" }}>
+              {agreementText ? plainText(agreementText) : "加载中..."}
+            </div>
+            <button type="button" onClick={() => setShowTerms(false)} className="mt-3 self-center text-xs" style={{ color: "#00AAFF" }}>
+              返回
+            </button>
+          </div>
+        ) : mode === "sms" ? (
           <>
             <div className="mb-4">
               <h2 className="text-xl font-bold text-white">验证码登录</h2>
@@ -247,6 +317,8 @@ export function LoginModal() {
 
               {notice && <p className="text-sm" style={{ color: "#00AAFF" }}>{notice}</p>}
               {error && <p className="text-sm" style={{ color: "#FF33AA" }}>{error}</p>}
+
+              <AgreementCheck agreed={agreed} onToggle={() => setAgreed((v) => !v)} onOpen={() => setShowTerms(true)} />
 
               <button type="submit" disabled={loading} className={submitCls} style={submitStyle}>
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -394,6 +466,8 @@ export function LoginModal() {
 
               {notice && <p className="text-sm" style={{ color: "#00AAFF" }}>{notice}</p>}
               {error && <p className="text-sm" style={{ color: "#FF33AA" }}>{error}</p>}
+
+              <AgreementCheck agreed={agreed} onToggle={() => setAgreed((v) => !v)} onOpen={() => setShowTerms(true)} />
 
               <button type="submit" disabled={loading} className={submitCls} style={submitStyle}>
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
