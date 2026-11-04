@@ -17,8 +17,8 @@ export function middleware(req: NextRequest) {
     /^10\./.test(host)
 
   if (isElectron || isLocal) return NextResponse.next()
-  // 1104批次2: 协议页对外豁免——浏览器可看(登录勾选链接的对外锚点)
-  if (req.nextUrl.pathname === '/terms') return NextResponse.next()
+  // 1104批次2: 协议/政策页对外豁免——浏览器可看(登录勾选链接的对外锚点)
+  if (req.nextUrl.pathname === '/terms' || req.nextUrl.pathname === '/privacy') return NextResponse.next()
 
   return NextResponse.redirect(OFFICIAL_SITE, 302)
 }

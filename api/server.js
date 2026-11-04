@@ -929,45 +929,58 @@ const SMS_MAX_ATTEMPTS = 5
 // 1104批次2: 明文手机号永不出库, 前端只拿脱敏号(设置页本人展示)
 const maskPhone = (p) => (p ? `${p.slice(0, 3)}****${p.slice(-4)}` : '')
 
-// ========== 1104批次2步骤三: 用户协议(版本库+签署落档·法务证据) ==========
-let currentAgreement = null
-let agreementLoadedAt = 0
-async function getCurrentAgreement() {
-  if (currentAgreement && Date.now() - agreementLoadedAt < 60000) return currentAgreement
-  const r = await pool.query("SELECT version, to_char(effective_date, 'YYYY-MM-DD') AS effective_date, content FROM agreements ORDER BY id DESC LIMIT 1")
-  currentAgreement = r.rows[0] || null
-  agreementLoadedAt = Date.now()
-  return currentAgreement
+// ========== 1104批次2步骤三: 协议体系(用户协议+隐私政策并轨, type区分) ==========
+const AGREEMENT_TYPES = {
+  user_agreement: { param: 'agreementVersion', title: '《jamony用户协议》' },
+  privacy: { param: 'privacyVersion', title: '《jamony隐私政策》' },
+}
+const agreementCache = {} // type -> { data, at }
+async function getCurrentAgreement(type = 'user_agreement') {
+  const c = agreementCache[type]
+  if (c && Date.now() - c.at < 60000) return c.data
+  const r = await pool.query(
+    "SELECT version, to_char(effective_date, 'YYYY-MM-DD') AS effective_date, content FROM agreements WHERE type = $1 ORDER BY id DESC LIMIT 1",
+    [type]
+  )
+  agreementCache[type] = { data: r.rows[0] || null, at: Date.now() }
+  return agreementCache[type].data
 }
 
-// 登录硬闸+落档: 已签当前版的老号放行(换设备免重弹); 未签且未带版本=403; 签署落档幂等(唯一索引)
+// 登录硬闸+落档(双协议): 已签当前版的老号放行(换设备免重弹); 任一未签且未带版本=403(required只列缺的); 落档幂等(唯一索引)
 async function enforceAgreement(req, res, user) {
-  const agr = await getCurrentAgreement()
-  if (!agr) return true
-  const signed = await pool.query('SELECT 1 FROM agreement_acceptances WHERE user_id = $1 AND agreement_version = $2', [user.id, agr.version])
-  if (!signed.rows[0] && String(req.body.agreementVersion || '') !== agr.version) {
-    res.status(403).json({ ok: false, code: 'AGREEMENT_REQUIRED', version: agr.version, msg: '请先阅读并同意《jamony用户协议》' })
-    return false
-  }
-  if (!signed.rows[0]) {
+  const missing = []
+  for (const [type, meta] of Object.entries(AGREEMENT_TYPES)) {
+    const agr = await getCurrentAgreement(type)
+    if (!agr) continue
+    const signed = await pool.query('SELECT 1 FROM agreement_acceptances WHERE user_id = $1 AND type = $2 AND agreement_version = $3', [user.id, type, agr.version])
+    if (signed.rows[0]) continue
+    if (String(req.body[meta.param] || '') !== agr.version) {
+      missing.push({ type, param: meta.param, version: agr.version, title: meta.title })
+      continue
+    }
     await pool.query(
-      `INSERT INTO agreement_acceptances (id, user_id, agreement_version, ip, user_agent)
-       VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING`,
-      [nextId(), user.id, agr.version, String(req.ip || '').slice(0, 45), String(req.headers['user-agent'] || '').slice(0, 500)]
+      `INSERT INTO agreement_acceptances (id, user_id, type, agreement_version, ip, user_agent)
+       VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING`,
+      [nextId(), user.id, type, agr.version, String(req.ip || '').slice(0, 45), String(req.headers['user-agent'] || '').slice(0, 500)]
     )
-    console.log(`[agreement] user ${user.id} 签署协议 ${agr.version}`)
+    console.log(`[agreement] user ${user.id} 签署 ${type} ${agr.version}`)
+  }
+  if (missing.length) {
+    const required = {}
+    for (const m of missing) required[m.param] = m.version
+    res.status(403).json({ ok: false, code: 'AGREEMENT_REQUIRED', required, msg: `请先阅读并同意${missing.map((m) => m.title).join('和')}` })
+    return false
   }
   return true
 }
 
-// 协议正文(公开): 前端登录弹窗/terms页共用, admin 发布新版后 60s 内全端跟进
-app.get('/api/agreement', async (req, res) => {
+// 协议正文(公开·双份): 前端登录弹窗/terms/privacy页共用, admin 发布新版后 60s 内全端跟进
+app.get('/api/agreements', async (req, res) => {
   try {
-    const agr = await getCurrentAgreement()
-    if (!agr) return res.status(404).json({ ok: false, msg: '暂无协议' })
-    res.json({ ok: true, version: agr.version, effectiveDate: agr.effective_date, content: agr.content })
+    const [ua, pp] = await Promise.all([getCurrentAgreement('user_agreement'), getCurrentAgreement('privacy')])
+    res.json({ ok: true, userAgreement: ua, privacy: pp })
   } catch (err) {
-    console.error('Agreement error:', err.message)
+    console.error('Agreements error:', err.message)
     res.status(500).json({ ok: false, msg: '服务器错误' })
   }
 })

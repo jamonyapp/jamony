@@ -14,8 +14,9 @@ const PHONE_RE = /^1[3-9]\d{9}$/
 // 1104批次2步骤三: 协议正文 markdown 轻渲染(剥标题井号+加粗星号, 协议纯文本结构够用)
 const plainText = (md: string) => md.replace(/^#{1,6}\s*/gm, "").replace(/\*\*/g, "")
 
-// 协议勾选行(两 tab 共用)——必选: 前端拦截+后端 403 硬闸双保险, 勾选即随登录带 agreementVersion 落档
-function AgreementCheck({ agreed, onToggle, onOpen }: { agreed: boolean; onToggle: () => void; onOpen: () => void }) {
+// 协议勾选行(两 tab 共用)——必选: 一个勾+两个链接(用户协议+隐私政策, 行业惯例), 勾选即随登录带两版本落档
+function AgreementCheck({ agreed, onToggle, onOpen }: { agreed: boolean; onToggle: () => void; onOpen: (doc: "user" | "privacy") => void }) {
+  const link = "font-medium underline-offset-2 hover:underline"
   return (
     <div className="flex items-start gap-2">
       <button
@@ -30,8 +31,12 @@ function AgreementCheck({ agreed, onToggle, onOpen }: { agreed: boolean; onToggl
       </button>
       <span className="text-xs leading-relaxed" style={{ color: "#8A8A8A" }}>
         我已阅读并同意
-        <button type="button" className="font-medium underline-offset-2 hover:underline" style={{ color: "#00AAFF" }} onClick={onOpen}>
+        <button type="button" className={link} style={{ color: "#00AAFF" }} onClick={() => onOpen("user")}>
           《jamony用户协议》
+        </button>
+        和
+        <button type="button" className={link} style={{ color: "#00AAFF" }} onClick={() => onOpen("privacy")}>
+          《jamony隐私政策》
         </button>
       </span>
     </div>
@@ -59,25 +64,25 @@ export function LoginModal() {
   const [error, setError] = useState("")
   const [notice, setNotice] = useState("")
 
-  // 1104批次2步骤三: 协议勾选 + 全文子视图 + 当前版本(打开弹窗拉取; 登录失败刷新=应对 admin 刚发新版)
+  // 1104批次2步骤三(+补·隐私政策并轨): 一勾两文档; 打开弹窗拉取双份; 登录失败刷新=应对 admin 刚发新版
   const [agreed, setAgreed] = useState(false)
-  const [showTerms, setShowTerms] = useState(false)
-  const [agreementVersion, setAgreementVersion] = useState("")
-  const [agreementText, setAgreementText] = useState("")
+  const [showDoc, setShowDoc] = useState<"user" | "privacy" | null>(null)
+  const [userDoc, setUserDoc] = useState<{ version: string; content: string } | null>(null)
+  const [privacyDoc, setPrivacyDoc] = useState<{ version: string; content: string } | null>(null)
 
-  const fetchAgreement = async () => {
+  const fetchAgreements = async () => {
     try {
-      const r = await fetch("/api/agreement")
+      const r = await fetch("/api/agreements")
       const d = await r.json()
       if (d.ok) {
-        setAgreementVersion(d.version)
-        setAgreementText(d.content)
+        if (d.userAgreement) setUserDoc({ version: d.userAgreement.version, content: d.userAgreement.content })
+        if (d.privacy) setPrivacyDoc({ version: d.privacy.version, content: d.privacy.content })
       }
     } catch { /* ignore */ }
   }
   useEffect(() => {
-    if (showLoginModal && !agreementVersion) fetchAgreement()
-  }, [showLoginModal, agreementVersion])
+    if (showLoginModal && !userDoc) fetchAgreements()
+  }, [showLoginModal, userDoc])
 
   useEffect(() => {
     if (countdown <= 0) return
@@ -135,16 +140,16 @@ export function LoginModal() {
       return
     }
     if (!agreed) {
-      setError("请先勾选同意《jamony用户协议》")
+      setError("请先勾选同意《jamony用户协议》和《jamony隐私政策》")
       return
     }
     setLoading(true)
     setError("")
-    const err = await login(account.trim(), password, agreementVersion || undefined)
+    const err = await login(account.trim(), password, { agreementVersion: userDoc?.version, privacyVersion: privacyDoc?.version })
     setLoading(false)
     if (err) {
       setError(err)
-      fetchAgreement()
+      fetchAgreements()
     } else {
       close()
     }
@@ -161,16 +166,16 @@ export function LoginModal() {
       return
     }
     if (!agreed) {
-      setError("请先勾选同意《jamony用户协议》")
+      setError("请先勾选同意《jamony用户协议》和《jamony隐私政策》")
       return
     }
     setLoading(true)
     setError("")
-    const err = await loginWithSms(phone.trim(), code.trim(), agreementVersion || undefined)
+    const err = await loginWithSms(phone.trim(), code.trim(), { agreementVersion: userDoc?.version, privacyVersion: privacyDoc?.version })
     setLoading(false)
     if (err) {
       setError(err)
-      fetchAgreement()
+      fetchAgreements()
     } else {
       close()
     }
@@ -236,7 +241,7 @@ export function LoginModal() {
         </button>
 
         {/* Tab 切换: 默认「账户+密码」(1104 欢哥定稿); 协议全文视图时隐藏 */}
-        {!showTerms && (
+        {!showDoc && (
         <div className="mb-6 flex gap-4 border-b border-[#1A1A1A]">
           <button
             onClick={() => switchMode("account")}
@@ -255,13 +260,16 @@ export function LoginModal() {
         </div>
         )}
 
-        {showTerms ? (
+        {showDoc ? (
           <div className="flex h-[70vh] flex-col">
-            <h2 className="mb-3 text-base font-bold text-white">jamony用户协议{agreementVersion ? `（${agreementVersion}）` : ""}</h2>
+            <h2 className="mb-3 text-base font-bold text-white">
+              {showDoc === "user" ? "jamony用户协议" : "jamony隐私政策"}
+              {(showDoc === "user" ? userDoc?.version : privacyDoc?.version) ? `（${showDoc === "user" ? userDoc?.version : privacyDoc?.version}）` : ""}
+            </h2>
             <div className="flex-1 overflow-y-auto rounded-xl border p-4 text-xs leading-relaxed" style={{ borderColor: "#1A1A1A", color: "#B0B0B0" }}>
-              {agreementText ? plainText(agreementText) : "加载中..."}
+              {(showDoc === "user" ? userDoc?.content : privacyDoc?.content) ? plainText((showDoc === "user" ? userDoc?.content : privacyDoc?.content) || "") : "加载中..."}
             </div>
-            <button type="button" onClick={() => setShowTerms(false)} className="mt-3 self-center text-xs" style={{ color: "#00AAFF" }}>
+            <button type="button" onClick={() => setShowDoc(null)} className="mt-3 self-center text-xs" style={{ color: "#00AAFF" }}>
               返回
             </button>
           </div>
@@ -318,7 +326,7 @@ export function LoginModal() {
               {notice && <p className="text-sm" style={{ color: "#00AAFF" }}>{notice}</p>}
               {error && <p className="text-sm" style={{ color: "#FF33AA" }}>{error}</p>}
 
-              <AgreementCheck agreed={agreed} onToggle={() => setAgreed((v) => !v)} onOpen={() => setShowTerms(true)} />
+              <AgreementCheck agreed={agreed} onToggle={() => setAgreed((v) => !v)} onOpen={(d) => setShowDoc(d)} />
 
               <button type="submit" disabled={loading} className={submitCls} style={submitStyle}>
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -467,7 +475,7 @@ export function LoginModal() {
               {notice && <p className="text-sm" style={{ color: "#00AAFF" }}>{notice}</p>}
               {error && <p className="text-sm" style={{ color: "#FF33AA" }}>{error}</p>}
 
-              <AgreementCheck agreed={agreed} onToggle={() => setAgreed((v) => !v)} onOpen={() => setShowTerms(true)} />
+              <AgreementCheck agreed={agreed} onToggle={() => setAgreed((v) => !v)} onOpen={(d) => setShowDoc(d)} />
 
               <button type="submit" disabled={loading} className={submitCls} style={submitStyle}>
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}

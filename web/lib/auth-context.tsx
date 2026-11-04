@@ -25,9 +25,9 @@ type AuthContextType = {
   user: UserInfo | null
   loggedIn: boolean
   ready: boolean
-  login: (account: string, password: string, agreementVersion?: string) => Promise<string | null>
+  login: (account: string, password: string, versions?: { agreementVersion?: string; privacyVersion?: string }) => Promise<string | null>
   // 1104 短信: 验证码登录(注册登录合一) + 发码 + 忘记密码; register 已退役(注册唯一入口=验证码)
-  loginWithSms: (phone: string, code: string, agreementVersion?: string) => Promise<string | null>
+  loginWithSms: (phone: string, code: string, versions?: { agreementVersion?: string; privacyVersion?: string }) => Promise<string | null>
   sendSmsCode: (phone: string, scene: "login" | "reset_password") => Promise<string | null>
   resetPassword: (phone: string, code: string, newPassword: string) => Promise<string | null>
   logout: () => void
@@ -74,12 +74,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .catch(() => setReady(true))
   }, [])
 
-  const login = useCallback(async (account: string, password: string, agreementVersion?: string): Promise<string | null> => {
+  const login = useCallback(async (account: string, password: string, versions?: { agreementVersion?: string; privacyVersion?: string }): Promise<string | null> => {
     try {
       const res = await fetch("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ account, password, ...(agreementVersion ? { agreementVersion } : {}) }),
+        body: JSON.stringify({ account, password, ...(versions || {}) }),
         credentials: "include",
       })
       const data = await res.json()
@@ -95,12 +95,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   // 1104 验证码登录: 未注册手机号验证通过=自动注册(注册登录合一)
-  const loginWithSms = useCallback(async (phone: string, code: string, agreementVersion?: string): Promise<string | null> => {
+  const loginWithSms = useCallback(async (phone: string, code: string, versions?: { agreementVersion?: string; privacyVersion?: string }): Promise<string | null> => {
     try {
       const res = await fetch("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, code, ...(agreementVersion ? { agreementVersion } : {}) }),
+        body: JSON.stringify({ phone, code, ...(versions || {}) }),
         credentials: "include",
       })
       const data = await res.json()
