@@ -86,6 +86,8 @@ export function SettingsPage() {
 
   const showCustomInput = instrument in CUSTOM_INSTRUMENT_PLACEHOLDER
   const pwdMismatch = confirmPwd.length > 0 && newPwd !== confirmPwd
+  // 1104批次2: undefined兜底true——localStorage老缓存无此字段, /api/me校验后全量替换自动纠正
+  const hasPwd = user?.hasPassword ?? true
 
   const toggleStyle = (s: string) => {
     setStyles((prev) => {
@@ -129,7 +131,8 @@ export function SettingsPage() {
   }
 
   const handleChangePassword = async () => {
-    if (pwdMismatch || !newPwd || !oldPwd) return
+    // 1104批次2: 无密码号(短信注册)首设免旧密; 有密码号照旧必验旧
+    if (pwdMismatch || !newPwd || (hasPwd && !oldPwd)) return
     setPwdError("")
     try {
       const res = await fetch(`/api/users/${user.id}/password`, {
@@ -142,6 +145,7 @@ export function SettingsPage() {
         setPwdError(data.msg || "修改失败")
         return
       }
+      updateUser({ hasPassword: true }) // 1104批次2: 首设成功即时切换「修改密码」态
       setPwdSaved(true)
       setOldPwd("")
       setNewPwd("")
@@ -242,20 +246,28 @@ export function SettingsPage() {
           <div>
             <FieldLabel>手机号</FieldLabel>
             <div className="flex items-center justify-between rounded-[10px] border px-3 py-2.5" style={{ borderColor: "#2A2A2A", background: "#141414" }}>
-              <span className="text-sm" style={{ color: "#B0B0B0" }}>未绑定</span>
-              <div className="relative">
-                <button type="button" onClick={() => { setPhoneTip(true); setTimeout(() => setPhoneTip(false), 2000) }}
-                  className="cursor-not-allowed rounded-lg border px-3 py-1.5 text-xs" style={{ borderColor: "#2A2A2A", color: "#6A6A6A" }}>
-                  绑定手机号
-                </button>
-                {phoneTip && (
-                  <span className="absolute -top-8 right-0 whitespace-nowrap rounded-lg px-2.5 py-1 text-xs shadow-lg" style={{ background: "#0D0D0D", color: "#B0B0B0", boxShadow: "0 0 0 1px #2A2A2A" }}>
-                    暂未开放
-                  </span>
-                )}
-              </div>
+              {user.phoneMasked ? (
+                <span className="text-sm text-white">{user.phoneMasked}</span>
+              ) : (
+                <>
+                  <span className="text-sm" style={{ color: "#B0B0B0" }}>未绑定</span>
+                  <div className="relative">
+                    <button type="button" onClick={() => { setPhoneTip(true); setTimeout(() => setPhoneTip(false), 2000) }}
+                      className="cursor-not-allowed rounded-lg border px-3 py-1.5 text-xs" style={{ borderColor: "#2A2A2A", color: "#6A6A6A" }}>
+                      绑定手机号
+                    </button>
+                    {phoneTip && (
+                      <span className="absolute -top-8 right-0 whitespace-nowrap rounded-lg px-2.5 py-1 text-xs shadow-lg" style={{ background: "#0D0D0D", color: "#B0B0B0", boxShadow: "0 0 0 1px #2A2A2A" }}>
+                        暂未开放
+                      </span>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
-            <p className="mt-1.5 text-xs" style={{ color: "#6A6A6A" }}>短信服务暂未开通，绑定功能即将上线。</p>
+            <p className="mt-1.5 text-xs" style={{ color: "#6A6A6A" }}>
+              {user.phoneMasked ? "手机号已验证，可用于登录和找回密码。" : "绑定手机号功能即将开放。"}
+            </p>
           </div>
           <div>
             <FieldLabel hint="选填">邮箱</FieldLabel>
@@ -271,9 +283,9 @@ export function SettingsPage() {
 
         <Divider />
 
-        <h3 className="mb-4 text-sm font-semibold" style={{ color: "#B0B0B0" }}>修改密码</h3>
+        <h3 className="mb-4 text-sm font-semibold" style={{ color: "#B0B0B0" }}>{hasPwd ? "修改密码" : "设置密码"}</h3>
         <div className="space-y-4">
-          <div><FieldLabel>旧密码</FieldLabel><input type="password" className={inputClass} style={{ background: "#141414", borderColor: "#2A2A2A" }} value={oldPwd} onChange={(e) => setOldPwd(e.target.value)} placeholder="请输入当前密码" /></div>
+          {hasPwd && <div><FieldLabel>旧密码</FieldLabel><input type="password" className={inputClass} style={{ background: "#141414", borderColor: "#2A2A2A" }} value={oldPwd} onChange={(e) => setOldPwd(e.target.value)} placeholder="请输入当前密码" /></div>}
           <div><FieldLabel>新密码</FieldLabel><input type="password" className={inputClass} style={{ background: "#141414", borderColor: "#2A2A2A" }} value={newPwd} onChange={(e) => setNewPwd(e.target.value)} placeholder="设置新密码" /></div>
           <div>
             <FieldLabel>确认新密码</FieldLabel>
@@ -287,7 +299,7 @@ export function SettingsPage() {
               onClick={handleChangePassword}
               className="flex h-9 items-center gap-1.5 rounded-[10px] px-4 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
               style={{ background: "#FF33AA" }}>
-              {pwdSaved ? <><Check className="h-4 w-4" />已修改</> : "修改密码"}
+              {pwdSaved ? <><Check className="h-4 w-4" />{hasPwd ? "已修改" : "已设置"}</> : hasPwd ? "修改密码" : "设置密码"}
             </button>
           </div>
         </div>

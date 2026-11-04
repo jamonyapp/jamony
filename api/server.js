@@ -926,6 +926,9 @@ const PHONE_RE = /^1[3-9]\d{9}$/
 const SMS_CODE_TTL_MIN = 5
 const SMS_MAX_ATTEMPTS = 5
 
+// 1104批次2: 明文手机号永不出库, 前端只拿脱敏号(设置页本人展示)
+const maskPhone = (p) => (p ? `${p.slice(0, 3)}****${p.slice(-4)}` : '')
+
 function smsCodeHash(phone, code) {
   // 验证码只存哈希: 手机号+JWT_SECRET 双盐, DB 泄露也难以暴力枚举
   return crypto.createHash('sha256').update(`${code}:${JWT_SECRET}:${phone}`).digest('hex')
@@ -1044,6 +1047,8 @@ app.post('/api/login', async (req, res) => {
         secondaryInstrument: user.secondary_instrument || '',
         level: user.level,
         points: user.points,
+        phoneMasked: maskPhone(user.phone), // 1104批次2
+        hasPassword: !!user.password_hash,
       }
       setAuthCookie(res, smsPayload)
       return res.json({ ok: true, user: smsPayload })
@@ -1091,6 +1096,8 @@ app.post('/api/login', async (req, res) => {
       secondaryInstrument: user.secondary_instrument || '',
       level: user.level,
       points: user.points,
+      phoneMasked: maskPhone(user.phone), // 1104批次2
+      hasPassword: !!user.password_hash,
     }
     setAuthCookie(res, userPayload)
     res.json({ ok: true, user: userPayload })
@@ -1162,7 +1169,7 @@ app.get('/api/my-active-room', requireAuth, async (req, res) => {
 app.get('/api/me', requireAuth, async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT id, nickname, avatar_index, avatar_url, bio, signature, styles, city, primary_instrument, instrument_category, secondary_instrument, level, points, restriction FROM users WHERE id=$1',
+      'SELECT id, nickname, avatar_index, avatar_url, bio, signature, styles, city, primary_instrument, instrument_category, secondary_instrument, level, points, restriction, phone, (password_hash IS NOT NULL) AS has_password FROM users WHERE id=$1',
       [req.userId]
     )
     if (result.rows.length === 0) return res.status(401).json({ ok: false, msg: '用户不存在' })
@@ -1184,6 +1191,8 @@ app.get('/api/me', requireAuth, async (req, res) => {
         level: u.level,
         points: u.points,
         restriction: u.restriction || 'normal', // 1024: 申诉tab据此显示提交表单
+        phoneMasked: maskPhone(u.phone), // 1104批次2: 设置页本人展示脱敏号
+        hasPassword: !!u.has_password, // false=短信注册号, 设置页「设置密码」免旧密
       }
     })
   } catch (err) {

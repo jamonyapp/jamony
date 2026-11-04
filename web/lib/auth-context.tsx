@@ -17,6 +17,8 @@ export type UserInfo = {
   level: number
   points: number
   restriction?: string // 1024: normal|watch|restricted|demoted|banned——申诉tab据此显示提交表单
+  phoneMasked?: string // 1104批次2: 服务端脱敏号, 设置页本人展示(明文永不出库)
+  hasPassword?: boolean // 1104批次2: false=短信注册号无密码, 设置页「设置密码」免旧密
 }
 
 type AuthContextType = {
