@@ -84,7 +84,7 @@ export function NoticeDetailModal({
             <Meta label="发布人" value={<UserPopover nickname={notice.author}><span className="text-white">{notice.author}</span></UserPopover>} />
             <Meta label="发布时间" value={notice.time} />
             <Meta label="风格" value={notice.style} />
-            <Meta label="城市" value={notice.city} />
+            <Meta label="地区" value={notice.city} />
           </dl>
 
           {!expired && <CommentSection subjectType="notice" subjectId={notice.id} fallbackCount={notice.comments} />}

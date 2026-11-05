@@ -4,3 +4,4 @@ node_modules/
 out/
 public/soundfont/
 public/alphatab/
+lib/regions-data.json

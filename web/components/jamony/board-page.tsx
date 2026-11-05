@@ -198,14 +198,14 @@ export function BoardPage() {
             ]}
           />
           <FilterSelect
-            label="城市"
+            label="地区"
             value={cityFilter}
             onChange={(v) => {
               setCityFilter(v)
               resetPaging()
             }}
             allValue="all"
-            options={[{ value: "all", label: "城市" }, ...cities.map((c) => ({ value: c, label: c }))]}
+            options={[{ value: "all", label: "地区" }, ...cities.map((c) => ({ value: c, label: c }))]}
           />
           <FilterSelect
             label="风格"

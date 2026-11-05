@@ -368,6 +368,7 @@ setWhitelistLoader(async () => (await pool.query('SELECT word FROM moderation_wh
 // 1025 迷你雪花: 暴露面主实体显式发号(15-16位长数字,JS安全域); 日志类表保留SERIAL
 const { nextId } = require('./lib/snowflake')
 const { probeMaxVolumeDb, probeVolumeDb } = require('./lib/probe-volume')
+const { isValidRegion, lookupByIp } = require('./lib/regions') // 1105 地区白名单+IP猜测(城市→地区改造)
 
 /* ⭐ 能量检测审计（1031 欢哥立宪：「每道闸的能量检测都必须留档——第几次检测、哪个阶段、
  * 检测了哪些分轨、检测数据、是否放行」）。attempt=同session同gate检测序号。
@@ -1265,6 +1266,14 @@ app.get('/api/me', requireAuth, async (req, res) => {
   }
 })
 
+// ========== IP 猜你所在(1105 地区改造): 设置页「猜你所在:广东 深圳,点击使用」 ==========
+// 公开端点(泄露的只是请求者自己 IP 的归属地); 纯内存查询零频控; 内网/回环 available:false
+app.get('/api/ip-location', (req, res) => {
+  const xff = req.headers['x-forwarded-for']
+  const ip = (typeof xff === 'string' && xff.trim() ? xff.split(',')[0].trim() : '') || req.socket.remoteAddress || ''
+  res.json({ ok: true, ...lookupByIp(ip) })
+})
+
 // ========== 获取单个用户 ==========
 app.get('/api/users/:id', optionalAuth, async (req, res) => {
   try {
@@ -1632,7 +1641,13 @@ app.patch('/api/users/:id', requireAuth, async (req, res) => {
       if (String(signature).length > 30) return res.status(400).json({ ok: false, msg: '签名最多 30 字' })
       sets.push(`signature = $${idx++}`); params.push(signature)
     }
-    if (city !== undefined) { sets.push(`city = $${idx++}`); params.push(city) }
+    // 1105 地区改造: 白名单硬闸(欢哥拍板——前端下拉只防君子, 直打 API 塞垃圾全拒); 空=未设置落NULL
+    if (city !== undefined) {
+      if (!isValidRegion(city)) {
+        return res.status(400).json({ ok: false, msg: '地区参数无效' })
+      }
+      sets.push(`city = $${idx++}`); params.push(city || null)
+    }
     if (primaryInstrument !== undefined) { sets.push(`primary_instrument = $${idx++}`); params.push(primaryInstrument) }
     if (instrumentCategory !== undefined) { sets.push(`instrument_category = $${idx++}`); params.push(instrumentCategory) }
     if (avatarIndex !== undefined) { sets.push(`avatar_index = $${idx++}`); params.push(avatarIndex) }
@@ -4289,6 +4304,11 @@ app.post('/api/notices', requireAuth, async (req, res) => {
     }
 
     const bg = (Number.isInteger(bg_index) && bg_index >= 1 && bg_index <= 17) ? bg_index : Math.floor(Math.random() * 17) + 1
+    // 1105 地区改造: 公告城市白名单硬闸(与用户资料同一份; 空=落「其他」; 「其他」放行作兜底值)
+    const cityVal = (city || '').trim()
+    if (cityVal !== '' && cityVal !== '其他' && !isValidRegion(cityVal)) {
+      return res.status(400).json({ ok: false, msg: '地区参数无效' })
+    }
     // 自动时效：线上24h，线下15天
     const expireAt = new Date(Date.now() + (type === 'online' ? 24 : 15 * 24) * 3600000).toISOString()
 
@@ -4297,7 +4317,7 @@ app.post('/api/notices', requireAuth, async (req, res) => {
        VALUES ($15,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
        RETURNING *`,
       [req.userId, req.nickname, type, category || null, String(title).trim(), String(body).trim(),
-       (city || '').trim() || '其他', (style || '').trim() || '未分类', jam_time || null, level || null,
+       cityVal || '其他', (style || '').trim() || '未分类', jam_time || null, level || null,
        needed_count || null, bg, image_url || null, expireAt, nextId()]
     )
     const notice = result.rows[0]
@@ -4374,7 +4394,14 @@ app.patch('/api/notices/:id', requireAuth, async (req, res) => {
     const add = (col, val) => { if (val !== undefined) { params.push(val); sets.push(`${col}=$${params.length}`) } }
     add('title', typeof title === 'string' && title.trim() ? title.trim() : undefined)
     add('body', typeof body === 'string' && body.trim() ? body.trim() : undefined)
-    add('city', typeof city === 'string' ? (city.trim() || '其他') : undefined)
+    // 1105 地区改造: 编辑同款白名单硬闸(空=「其他」; 「其他」放行兜底)
+    if (city !== undefined) {
+      const cv = typeof city === 'string' ? city.trim() : ''
+      if (cv !== '' && cv !== '其他' && !isValidRegion(cv)) {
+        return res.status(400).json({ ok: false, msg: '地区参数无效' })
+      }
+      add('city', cv || '其他')
+    }
     add('style', typeof style === 'string' ? (style.trim() || '未分类') : undefined)
     add('category', category === undefined ? undefined : (category || null))
     add('jam_time', jam_time === undefined ? undefined : (jam_time || null))

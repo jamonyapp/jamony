@@ -12,10 +12,11 @@ import {
   NOTICE_TYPE_COLOR,
   BG_COUNT,
   NOTICE_CATEGORIES,
-  CITIES,
   STYLE_OPTIONS,
 } from "@/lib/jamony-data"
 import { useAuth } from "@/lib/auth-context"
+import { RegionPicker } from "@/components/jamony/region-picker"
+import { splitRegion } from "@/lib/regions"
 import { useRestrictedDialog } from "@/components/jamony/restricted-dialog"
 import { mapNotice } from "@/lib/notice-mappers"
 
@@ -38,7 +39,8 @@ export function PublishNoticeModal({ open, onClose, onPublished, initialNotice }
   const [category, setCategory] = useState<string>("")
   const [title, setTitle] = useState("")
   const [body, setBody] = useState("")
-  const [city, setCity] = useState("")
+  const [regionL1, setRegionL1] = useState("") // 1105 地区改造: 两级(与设置页同一套)
+  const [regionL2, setRegionL2] = useState("")
   const [style, setStyle] = useState("")
   const [jamTime, setJamTime] = useState("")
   const [level, setLevel] = useState("不限")
@@ -64,7 +66,10 @@ export function PublishNoticeModal({ open, onClose, onPublished, initialNotice }
       setCategory(initialNotice.category || "")
       setTitle(initialNotice.title)
       setBody(initialNotice.body)
-      setCity(initialNotice.city === "其他" ? "" : initialNotice.city)
+      // 1105 地区改造: 编辑回填拆两级; 旧格式(「北京」/「线上」无空格)拆不了=置空重选(欢哥定稿不做兼容)
+      const [el1, el2] = splitRegion(initialNotice.city === "其他" ? "" : initialNotice.city) ?? ["", ""]
+      setRegionL1(el1)
+      setRegionL2(el2)
       setStyle(initialNotice.style === "未分类" ? "" : initialNotice.style)
       setJamTime(initialNotice.jamTime || "")
       setLevel(initialNotice.level || "不限")
@@ -82,7 +87,7 @@ export function PublishNoticeModal({ open, onClose, onPublished, initialNotice }
   if (!open) return null
 
   const reset = () => {
-    setType(null); setCategory(""); setTitle(""); setBody(""); setCity(""); setStyle("")
+    setType(null); setCategory(""); setTitle(""); setBody(""); setRegionL1(""); setRegionL2(""); setStyle("")
     setJamTime(""); setLevel("不限"); setNeededCount("")
     setImageFile(null); setImagePreview(null); setImageRemoved(false); setError(null)
   }
@@ -126,11 +131,17 @@ export function PublishNoticeModal({ open, onClose, onPublished, initialNotice }
       }
 
       // 2) POST 新建 / PATCH 编辑
+      // 1105 地区改造: 一级选了二级必须选; 存完整串(与设置页/白名单同一套), 空落「其他」
+      if (regionL1 && !regionL2) {
+        setSubmitting(false)
+        setError("地区请选择完整的省/地区 + 城市")
+        return
+      }
       const payload: any = {
         type,
         title: title.trim(),
         body: body.trim(),
-        city: city.trim() || "其他",
+        city: regionL1 && regionL2 ? `${regionL1} ${regionL2}` : "其他",
         style: style.trim() || "未分类",
         image_url: imageUrl,
       }
@@ -280,18 +291,15 @@ export function PublishNoticeModal({ open, onClose, onPublished, initialNotice }
             {body.length >= 400 && <p className="mt-1 text-[11px]" style={{ color: "#FF9A9A" }}>公告正文最多 400 字（已到上限）</p>}
           </div>
 
-          {/* 城市 + 风格 */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="mb-2 block text-sm font-medium text-white">城市</label>
-              <FilterSelect variant="field" label="选择城市" value={city} onChange={setCity}
-                options={CITIES.map((c) => ({ value: c, label: c }))} />
-            </div>
-            <div>
-              <label className="mb-2 block text-sm font-medium text-white">风格</label>
-              <FilterSelect variant="field" label="选择风格" value={style} onChange={setStyle}
-                options={STYLE_OPTIONS.map((s) => ({ value: s, label: s }))} />
-            </div>
+          {/* 地区 + 风格 (1105 地区改造: 两级选择器一行两级, 风格独占一行) */}
+          <div>
+            <label className="mb-2 block text-sm font-medium text-white">地区</label>
+            <RegionPicker l1={regionL1} l2={regionL2} onL1={setRegionL1} onL2={setRegionL2} />
+          </div>
+          <div>
+            <label className="mb-2 block text-sm font-medium text-white">风格</label>
+            <FilterSelect variant="field" label="选择风格" value={style} onChange={setStyle}
+              options={STYLE_OPTIONS.map((s) => ({ value: s, label: s }))} />
           </div>
 
           {/* 上传图片 */}

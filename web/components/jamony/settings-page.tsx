@@ -6,8 +6,8 @@ import { Check, LogOut } from "lucide-react"
 import { FilterSelect } from "@/components/jamony/filter-select"
 import { useAuth } from "@/lib/auth-context"
 import { AvatarUpload } from "@/components/jamony/avatar-upload"
-
-const CITIES = ["北京", "上海", "广州", "深圳", "成都", "杭州", "重庆", "武汉", "西安", "南京", "苏州", "天津", "长沙", "郑州", "东莞", "青岛", "沈阳", "宁波", "昆明", "大连", "厦门", "合肥", "佛山", "福州", "哈尔滨", "济南", "温州", "长春", "石家庄", "常州", "泉州", "南宁", "贵阳", "南昌", "太原", "烟台", "嘉兴", "南通", "金华", "徐州", "海口", "乌鲁木齐", "呼和浩特", "银川", "西宁", "兰州", "拉萨", "三亚", "丽江", "大理"]
+import { RegionPicker } from "@/components/jamony/region-picker"
+import { splitRegion } from "@/lib/regions"
 
 const INSTRUMENTS = ["原声吉他", "电吉他", "贝斯", "打击乐器", "键盘乐器", "主唱", "弦乐", "管乐", "民乐", "其他", "听众"]
 
@@ -49,7 +49,9 @@ export function SettingsPage() {
   const [pwdError, setPwdError] = useState("")
   const [nickname, setNickname] = useState("")
   const [signature, setSignature] = useState("")
-  const [city, setCity] = useState("")
+  const [regionL1, setRegionL1] = useState("") // 1105 地区改造: 两级(广东省|深圳市), 提交拼完整串
+  const [regionL2, setRegionL2] = useState("")
+  const [ipGuess, setIpGuess] = useState<{ l1: string; l2: string | null } | null>(null)
   const [instrument, setInstrument] = useState("原声吉他")
   const [customInstrument, setCustomInstrument] = useState("")
   const [styles, setStyles] = useState<string[]>([])
@@ -72,13 +74,22 @@ export function SettingsPage() {
     }
     setNickname(user?.nickname || "")
     setSignature(user?.signature || "")
-    setCity(user?.city || "")
+    const [gl1, gl2] = splitRegion(user?.city || "") ?? ["", ""] // 旧格式(无空格)拆不了=置空(欢哥定稿不做兼容)
+    setRegionL1(gl1)
+    setRegionL2(gl2)
     setInstrument(user?.primaryInstrument || "原声吉他")
     setStyles(user?.styles || [])
     setGender(user?.gender || "")
     setBirthday(user?.birthday || "")
     if (user?.id) fetch(`/api/users/${user.id}`).then(r => r.json()).then(d => { if (d.ok) setFollowListPrivate(!!d.user?.follow_list_private) }).catch(() => {})
   }, [ready, loggedIn, user, setShowLoginModal])
+
+  // 1105 地区改造: IP 猜你所在(ip2region 离线库, 内网/库外 available:false 静默不显示)
+  useEffect(() => {
+    fetch("/api/ip-location").then((r) => r.json()).then((d) => {
+      if (d?.available) setIpGuess({ l1: d.l1, l2: d.l2 ?? null })
+    }).catch(() => {})
+  }, [])
 
   if (!ready) {
     return <div className="min-h-[60vh] bg-black text-white" />
@@ -105,6 +116,12 @@ export function SettingsPage() {
     setSaveError("")
     const finalInstrument = showCustomInput ? customInstrument : instrument
     const cat = instrument
+    // 1105 地区改造: 一级选了二级必须选(海外一级即完成, 其二级=国家/地区)
+    if (regionL1 && !regionL2) {
+      setSaveError("地区请选择完整的省/地区 + 城市")
+      return
+    }
+    const city = regionL1 && regionL2 ? `${regionL1} ${regionL2}` : "" // 存储完整串(白名单对齐)
 
     try {
       const res = await fetch(`/api/users/${user.id}`, {
@@ -200,9 +217,8 @@ export function SettingsPage() {
             <input type="text" className={inputClass} style={{ background: "#141414", borderColor: "#2A2A2A" }} value={signature} onChange={(e) => setSignature(e.target.value)} placeholder="一句个性签名..." maxLength={30} />
           </div>
           <div>
-            <FieldLabel>城市</FieldLabel>
-            <FilterSelect variant="field" label="选择所在城市" value={city} onChange={setCity}
-              options={CITIES.map((c) => ({ value: c, label: c }))} />
+            <FieldLabel>地区</FieldLabel>
+            <RegionPicker l1={regionL1} l2={regionL2} onL1={setRegionL1} onL2={setRegionL2} guess={ipGuess} />
           </div>
           <div>
             <FieldLabel>主力乐器</FieldLabel>
