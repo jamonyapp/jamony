@@ -75,7 +75,7 @@ export function NoticeDetailModal({
               </button>
             )}
             {!expired && !isOwner && (
-              <button onClick={() => requireAuth(() => setReportOpen(true))} className="jamony-tip-host rounded-full p-1.5 text-white transition-opacity hover:opacity-90" style={{ background: "linear-gradient(135deg, #00AAFF, #9933FF)" }} aria-label="举报">
+              <button onClick={() => requireAuth(() => setReportOpen(true))} className="jamony-tip-host rounded-full border border-[#2A2A2A] bg-[#0D0D0D] p-1.5 text-[#B0B0B0] transition-colors hover:bg-[#1A1A1A] hover:text-white" aria-label="举报">
                 <Flag className="h-4 w-4" />
                 <span className="jamony-tip left-0 top-full mt-1.5">举报该公告</span>
               </button>
