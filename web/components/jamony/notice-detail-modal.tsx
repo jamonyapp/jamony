@@ -66,18 +66,18 @@ export function NoticeDetailModal({
       <div className="jamony-modal-enter w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl border" style={{ backgroundColor: "#0D0D0D", borderColor: "#1A1A1A" }} onClick={(e) => e.stopPropagation()}>
         <div className="relative h-44 w-full bg-cover bg-center" style={{ backgroundImage: `url('${notice.imageUrl || `/images/jamony-board-bg-${String(notice.bgIndex).padStart(2, "0")}.webp`}')` }}>
           <span className="absolute inset-0 bg-gradient-to-t from-[#0D0D0D] to-transparent" />
-          {/* 1106欢哥令: 举报+收藏上移卡片左上角(原在底部需滚动才见);与右上角关闭钮对称风格 */}
+          {/* 1106欢哥令: 收藏(左)+举报(右)上移封面左上角;实底黑+描边防被背景图淹没(原半透明被淹没) */}
           <div className="absolute left-3 top-3 flex gap-2">
-            {!expired && !isOwner && (
-              <button onClick={() => requireAuth(() => setReportOpen(true))} className="jamony-tip-host rounded-full bg-black/50 p-1.5 text-white transition-colors hover:bg-black/70" aria-label="举报">
-                <Flag className="h-4 w-4" />
-                <span className="jamony-tip left-0 top-full mt-1.5">举报该公告</span>
-              </button>
-            )}
             {!expired && (
-              <button onClick={() => requireAuth(handleToggleFavorite)} className="jamony-tip-host rounded-full bg-black/50 p-1.5 transition-colors hover:bg-black/70" aria-label="收藏" style={{ color: isFav ? "#FF33AA" : "#fff" }}>
+              <button onClick={() => requireAuth(handleToggleFavorite)} className="jamony-tip-host rounded-full border border-[#2A2A2A] bg-[#0D0D0D] p-1.5 transition-colors hover:bg-[#1A1A1A]" aria-label="收藏" style={{ color: isFav ? "#FF33AA" : "#fff" }}>
                 <Heart className="h-4 w-4" fill={isFav ? "#FF33AA" : "none"} />
                 <span className="jamony-tip left-0 top-full mt-1.5">{isFav ? "取消收藏" : "收藏"}</span>
+              </button>
+            )}
+            {!expired && !isOwner && (
+              <button onClick={() => requireAuth(() => setReportOpen(true))} className="jamony-tip-host rounded-full border border-[#2A2A2A] bg-[#0D0D0D] p-1.5 text-white transition-colors hover:bg-[#1A1A1A]" aria-label="举报">
+                <Flag className="h-4 w-4" />
+                <span className="jamony-tip left-0 top-full mt-1.5">举报该公告</span>
               </button>
             )}
           </div>
