@@ -8,6 +8,7 @@ import { FollowButton } from "@/components/jamony/follow-button"
 import { Avatar } from "@/components/jamony/avatar"
 import { useDM } from "@/lib/dm-context"
 import { useAuth } from "@/lib/auth-context"
+import { displayShort, splitRegion } from "@/lib/regions"
 
 // 10-23 欢哥定稿：遮罩点外关闭须「按下+松开都在遮罩」——click 派发到公共祖先，单判 target 会被拖出松开误关
 const downOnOverlay = { current: false }
@@ -24,11 +25,21 @@ type PopoverUser = {
   level: number
   points: number
   created_at: string
+  works_count?: number
+  total_likes?: number
   is_following?: boolean
   avatar_url?: string
 }
 
 type PopoverPos = { top: number; left: number } | null
+
+// 1105欢哥定稿: 卡片地区短显——国内「广东省 深圳市」→「广东·深圳」(直辖市→「北京」);海外原样完整串(装逼选海外的就让他超长截断)
+const regionDisplay = (city: string) => {
+  if (!city) return ""
+  const parts = splitRegion(city)
+  if (!parts || parts[0] === "海外") return city
+  return parts.filter(Boolean).map(displayShort).join("·")
+}
 
 export function UserPopover({
   nickname,
@@ -177,7 +188,7 @@ export function UserPopover({
                   {/* 乐器·地区: 原位单行截断(1105欢哥: 右端=签名右端,截断带…),截断悬停全文 */}
                   <p className="jamony-tip-host mt-0.5 flex items-center gap-1 text-[12px]" style={{ color: "#B0B0B0" }}>
                     <span className="shrink-0">{icon}</span>
-                    <span ref={instrRef} className="min-w-0 truncate">{user.primary_instrument}{user.city ? ` · ${user.city}` : ""}</span>
+                    <span ref={instrRef} className="min-w-0 truncate">{user.primary_instrument}{user.city ? ` · ${regionDisplay(user.city)}` : ""}</span>
                     {instrClamped && (
                       <span className="jamony-tip left-0 top-full mt-1.5">
                         {icon} {user.primary_instrument}{user.city ? ` · ${user.city}` : ""}
@@ -196,10 +207,15 @@ export function UserPopover({
 
               {/* 签名:整宽两行截断(1105欢哥: 不斜体、无引号) */}
               {user.signature && (
-                <p className="line-clamp-2 px-4 pb-2.5 text-[12px] leading-relaxed" style={{ color: "#8A8A8A" }}>
+                <p className="line-clamp-2 px-4 pb-2 text-[12px] leading-relaxed" style={{ color: "#8A8A8A" }}>
                   {user.signature}
                 </p>
               )}
+
+              {/* 作品·获赞(1105欢哥定稿: 数字后置; 0也显示=透明; 1106改"参与作品"=work_authors口径更严谨) */}
+              <p className="px-4 pb-2.5 text-[12px] tabular-nums" style={{ color: "#8A8A8A" }}>
+                参与作品{user.works_count ?? 0} · 获赞{user.total_likes ?? 0}
+              </p>
 
               {/* 操作排:一排三小按钮(关注=FollowButton小pill,私信/主页=描边ghost) */}
               <div className="flex items-center gap-2 border-t px-4 py-2.5" style={{ borderColor: "#1A1A1A" }}>
