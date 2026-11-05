@@ -66,6 +66,21 @@ export function NoticeDetailModal({
       <div className="jamony-modal-enter w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl border" style={{ backgroundColor: "#0D0D0D", borderColor: "#1A1A1A" }} onClick={(e) => e.stopPropagation()}>
         <div className="relative h-44 w-full bg-cover bg-center" style={{ backgroundImage: `url('${notice.imageUrl || `/images/jamony-board-bg-${String(notice.bgIndex).padStart(2, "0")}.webp`}')` }}>
           <span className="absolute inset-0 bg-gradient-to-t from-[#0D0D0D] to-transparent" />
+          {/* 1106欢哥令: 举报+收藏上移卡片左上角(原在底部需滚动才见);与右上角关闭钮对称风格 */}
+          <div className="absolute left-3 top-3 flex gap-2">
+            {!expired && !isOwner && (
+              <button onClick={() => requireAuth(() => setReportOpen(true))} className="jamony-tip-host rounded-full bg-black/50 p-1.5 text-white transition-colors hover:bg-black/70" aria-label="举报">
+                <Flag className="h-4 w-4" />
+                <span className="jamony-tip left-0 top-full mt-1.5">举报该公告</span>
+              </button>
+            )}
+            {!expired && (
+              <button onClick={() => requireAuth(handleToggleFavorite)} className="jamony-tip-host rounded-full bg-black/50 p-1.5 transition-colors hover:bg-black/70" aria-label="收藏" style={{ color: isFav ? "#FF33AA" : "#fff" }}>
+                <Heart className="h-4 w-4" fill={isFav ? "#FF33AA" : "none"} />
+                <span className="jamony-tip left-0 top-full mt-1.5">{isFav ? "取消收藏" : "收藏"}</span>
+              </button>
+            )}
+          </div>
           <button onClick={onClose} className="absolute right-3 top-3 rounded-full bg-black/50 p-1.5 text-white transition-colors hover:bg-black/70" aria-label="关闭"><X className="h-5 w-5" /></button>
         </div>
 
@@ -89,36 +104,21 @@ export function NoticeDetailModal({
 
           {!expired && <CommentSection subjectType="notice" subjectId={notice.id} fallbackCount={notice.comments} />}
 
-          <div className="mt-6 flex gap-3">
-            {expired ? (
-              isOwner && onDelete && (
+          {/* 1106: 举报+收藏已上移封面左上角;此处仅 owner 编辑/删除 */}
+          {isOwner && (expired ? onDelete : (onEdit || onDelete)) && (
+            <div className="mt-6 flex gap-3">
+              {!expired && onEdit && (
+                <button className="flex flex-1 items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90" style={{ background: "linear-gradient(90deg, #9933FF, #FF33AA)" }} onClick={() => onEdit(notice)}>
+                  <Pencil className="h-4 w-4" />编辑
+                </button>
+              )}
+              {onDelete && (
                 <button className="flex items-center justify-center gap-2 rounded-lg border px-5 py-2.5 text-sm transition-colors hover:bg-[#141414]" style={{ borderColor: "#2A2A2A", color: "#FF5C5C" }} onClick={() => onDelete(notice)}>
                   <Trash2 className="h-4 w-4" />删除
                 </button>
-              )
-            ) : (
-              <>
-                {isOwner && onEdit && (
-                  <button className="flex flex-1 items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90" style={{ background: "linear-gradient(90deg, #9933FF, #FF33AA)" }} onClick={() => onEdit(notice)}>
-                    <Pencil className="h-4 w-4" />编辑
-                  </button>
-                )}
-                {isOwner && onDelete && (
-                  <button className="flex items-center justify-center gap-2 rounded-lg border px-5 py-2.5 text-sm transition-colors hover:bg-[#141414]" style={{ borderColor: "#2A2A2A", color: "#FF5C5C" }} onClick={() => onDelete(notice)}>
-                    <Trash2 className="h-4 w-4" />删除
-                  </button>
-                )}
-                {!isOwner && (
-                  <button className="flex flex-1 items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90" style={{ background: "linear-gradient(90deg, #9933FF, #FF33AA)" }} onClick={() => requireAuth(() => setReportOpen(true))}>
-                    <Flag className="h-4 w-4" />举报
-                  </button>
-                )}
-                <button className="flex items-center justify-center gap-2 rounded-lg border px-5 py-2.5 text-sm transition-colors hover:bg-[#141414]" style={{ borderColor: isFav ? "#FF33AA" : "#2A2A2A", color: isFav ? "#FF33AA" : "#fff" }} onClick={() => requireAuth(handleToggleFavorite)}>
-                  <Heart className="h-4 w-4" fill={isFav ? "#FF33AA" : "none"} />{isFav ? "已收藏" : "收藏"}
-                </button>
-              </>
-            )}
-          </div>
+              )}
+            </div>
+          )}
 
           {reportOpen && (
             <div className="fixed inset-0 z-[70] flex items-center justify-center p-6" style={{ background: "rgba(0,0,0,0.6)" }} onMouseDown={(e) => { downOnOverlay.current = e.target === e.currentTarget }} onClick={(e) => { if (e.target === e.currentTarget && downOnOverlay.current) { setReportOpen(false); setReportReason(""); setReportCustom("") } }}>
