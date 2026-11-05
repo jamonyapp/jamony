@@ -222,7 +222,7 @@ export function UserPopover({
                 <FollowButton targetUserId={user.id} initialIsFollowing={!!user.is_following} size="small" />
                 {me?.id !== user.id && (
                   <button
-                    onClick={() => openConversation(user.id)}
+                    onClick={() => { close(); openConversation(user.id) }} // 1106欢哥令: 点私信先关用户卡,抽屉独占前台
                     className="rounded-full border px-3 py-1 text-[11px] font-medium transition-colors hover:border-[#4A4A4A] hover:text-white"
                     style={{ borderColor: "#2A2A2A", color: "#C9C9C9" }}
                   >
