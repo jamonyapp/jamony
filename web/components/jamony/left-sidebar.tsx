@@ -227,6 +227,10 @@ function FeedbackModal({ onClose }: { onClose: () => void }) {
           className="mt-4 w-full resize-none rounded-xl border bg-transparent p-3 text-[14px] text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
           style={{ borderColor: "#1A1A1A" }}
         />
+        {/* 1106欢哥令: 剩余可输入字数提醒(上限500) */}
+        <p className="mt-1.5 text-right text-[11px] tabular-nums" style={{ color: value.length >= 480 ? "#FF5C5C" : "#8A8A8A" }}>
+          还可输入 {500 - value.length} 字
+        </p>
 
         {sent && (
           <p className="mt-3 text-[13px] font-medium" style={{ color: "#3FCF6E" }}>

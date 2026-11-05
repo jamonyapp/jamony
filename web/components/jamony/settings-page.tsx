@@ -193,8 +193,17 @@ export function SettingsPage() {
         {/* ===== 编辑个人资料 ===== */}
         <SectionTitle>编辑个人资料</SectionTitle>
 
-        {/* 头像 */}
-        <AvatarUpload />
+        {/* 头像 + 保存修改(1106欢哥令: 按钮上移到头像行居右,替1018居中版) */}
+        <div className="flex items-center justify-between gap-4">
+          <AvatarUpload />
+          <button type="button" onClick={handleSave}
+            className="flex h-10 shrink-0 items-center justify-center rounded-[10px] px-6 text-sm font-medium text-white transition-opacity hover:opacity-90"
+            style={{ background: "linear-gradient(90deg, #9933FF, #FF33AA)" }}
+          >
+            {saved ? <span className="flex items-center gap-1.5"><Check className="h-4 w-4" />已保存</span> : "保存修改"}
+          </button>
+        </div>
+        {saveError && <p className="mt-3 text-right text-xs" style={{ color: "#FF5C5C" }}>{saveError}</p>}
 
         <div className="mt-6 space-y-5">
           <div className="grid grid-cols-3 gap-4">
@@ -260,17 +269,6 @@ export function SettingsPage() {
           </button>
         </div>
 
-        {/* jamony 1018: 保存/改密两按钮 行右对齐→页面居中(欢哥口述) */}
-        <div className="mt-7 flex justify-center">
-          <button type="button" onClick={handleSave}
-            className="flex h-10 items-center justify-center rounded-[10px] px-6 text-sm font-medium text-white transition-opacity hover:opacity-90"
-            style={{ background: "linear-gradient(90deg, #9933FF, #FF33AA)" }}
-          >
-            {saved ? <span className="flex items-center gap-1.5"><Check className="h-4 w-4" />已保存</span> : "保存修改"}
-          </button>
-        </div>
-        {saveError && <p className="mt-3 text-right text-xs" style={{ color: "#FF5C5C" }}>{saveError}</p>}
-
         <Divider />
 
         {/* ===== 账号安全 ===== */}
@@ -316,7 +314,16 @@ export function SettingsPage() {
 
         <Divider />
 
-        <h3 className="mb-4 text-sm font-semibold" style={{ color: "#B0B0B0" }}>{hasPwd ? "修改密码" : "设置密码"}</h3>
+        {/* 1106欢哥令: 改密按钮上移到标题行居右,替1018居中版 */}
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-sm font-semibold" style={{ color: "#B0B0B0" }}>{hasPwd ? "修改密码" : "设置密码"}</h3>
+          <button type="button" disabled={pwdMismatch || newPwd.length === 0}
+            onClick={handleChangePassword}
+            className="flex h-9 shrink-0 items-center gap-1.5 rounded-[10px] px-4 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+            style={{ background: "#FF33AA" }}>
+            {pwdSaved ? <><Check className="h-4 w-4" />{hasPwd ? "已修改" : "已设置"}</> : hasPwd ? "修改密码" : "设置密码"}
+          </button>
+        </div>
         <div className="space-y-4">
           {hasPwd && <div><FieldLabel>旧密码</FieldLabel><input type="password" className={inputClass} style={{ background: "#141414", borderColor: "#2A2A2A" }} value={oldPwd} onChange={(e) => setOldPwd(e.target.value)} placeholder="请输入当前密码" /></div>}
           <div><FieldLabel>新密码</FieldLabel><input type="password" className={inputClass} style={{ background: "#141414", borderColor: "#2A2A2A" }} value={newPwd} onChange={(e) => setNewPwd(e.target.value)} placeholder="设置新密码" /></div>
@@ -325,15 +332,6 @@ export function SettingsPage() {
             <input type="password" className={`${inputClass} ${pwdMismatch ? "!border-[#FF5C5C]" : ""}`} style={{ background: "#141414", borderColor: pwdMismatch ? "#FF5C5C" : "#2A2A2A" }} value={confirmPwd} onChange={(e) => setConfirmPwd(e.target.value)} placeholder="再次输入新密码" />
             {pwdMismatch && <p className="mt-1.5 text-xs" style={{ color: "#FF5C5C" }}>两次输入的密码不一致</p>}
             {pwdError && <p className="mt-1.5 text-xs" style={{ color: "#FF5C5C" }}>{pwdError}</p>}
-          </div>
-          {/* jamony 1018: 居中+品牌红#FF33AA填充(欢哥口述:品牌色里偏红),替原描边款 */}
-          <div className="flex justify-center">
-            <button type="button" disabled={pwdMismatch || newPwd.length === 0}
-              onClick={handleChangePassword}
-              className="flex h-9 items-center gap-1.5 rounded-[10px] px-4 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-              style={{ background: "#FF33AA" }}>
-              {pwdSaved ? <><Check className="h-4 w-4" />{hasPwd ? "已修改" : "已设置"}</> : hasPwd ? "修改密码" : "设置密码"}
-            </button>
           </div>
         </div>
 
