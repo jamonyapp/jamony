@@ -4921,6 +4921,21 @@ app.post('/api/messages/conversations/:id', requireAuth, async (req, res) => {
     const c = await pool.query('SELECT * FROM conversations WHERE id=$1 AND (user_a_id=$2 OR user_b_id=$2)', [cid, req.userId])
     if (c.rows.length === 0) return res.status(403).json({ ok: false, msg: '无权访问' })
     const otherId = c.rows[0].user_a_id === req.userId ? c.rows[0].user_b_id : c.rows[0].user_a_id
+    // 1106欢哥令·业界规矩(B站/微博同款): 非互关限1条打招呼——对方回复或回关后解锁,互关无限制
+    const mutual = await pool.query(
+      `SELECT (EXISTS(SELECT 1 FROM follows WHERE follower_id=$1 AND followee_id=$2)
+               AND EXISTS(SELECT 1 FROM follows WHERE follower_id=$2 AND followee_id=$1)) AS m`,
+      [req.userId, otherId]
+    )
+    if (!mutual.rows[0].m) {
+      const [otherReplied, mySent] = await Promise.all([
+        pool.query('SELECT 1 FROM messages WHERE conversation_id=$1 AND sender_id=$2 LIMIT 1', [cid, otherId]),
+        pool.query('SELECT COUNT(*)::int AS n FROM messages WHERE conversation_id=$1 AND sender_id=$2', [cid, req.userId]),
+      ])
+      if (otherReplied.rows.length === 0 && mySent.rows[0].n >= 1) {
+        return res.status(423).json({ ok: false, msg: '对方回复或关注你后，才能继续发送私信' })
+      }
+    }
     // 1024 收尾: 私信事前审(欢哥定稿: 私信更不能是法外之地, 违规骚扰重灾区)——
     // 拒级发不出发件人收提示, 疑似放行+interact渠道计数(channel=message 预留转正)
     if (!(await moderatePublishText('message', null, req.userId, req.nickname, content.trim().slice(0, 1000)))) {

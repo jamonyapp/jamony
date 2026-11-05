@@ -36,6 +36,7 @@ export function NotificationDrawer({ open, onClose, onOpenNotice, versionDrift, 
   const [conversations, setConversations] = useState<any[]>([])
   const [messages, setMessages] = useState<any[]>([])
   const [msgInput, setMsgInput] = useState("")
+  const [sendBlocked, setSendBlocked] = useState("") // 1106私信规矩: 非互关限1条,423提示文案(空=可发)
   const [msgSending, setMsgSending] = useState(false)
 
   useEffect(() => {
@@ -58,7 +59,13 @@ export function NotificationDrawer({ open, onClose, onOpenNotice, versionDrift, 
   useEffect(() => {
     if (activeCid) {
       setTab("message")
-      fetch(`/api/messages/conversations/${activeCid}`, { credentials: "include" }).then(r => r.json()).then(d => { if (d.ok) setMessages(d.messages || []) })
+      setSendBlocked("") // 切会话清发送限制提示
+      fetch(`/api/messages/conversations/${activeCid}`, { credentials: "include" }).then(r => r.json()).then(d => {
+        if (!d.ok) return
+        setMessages(d.messages || [])
+        // 1106私信规矩: 对方已回复=已解锁,清限制提示(重进会话自动恢复发送)
+        if ((d.messages || []).some((m: any) => m.sender_id !== user?.id)) setSendBlocked("")
+      })
       fetch(`/api/messages/conversations/${activeCid}/read`, { method: "PATCH", credentials: "include" }).then(() => {
         refreshUnread()
         fetchList().then(setList)
@@ -81,8 +88,12 @@ export function NotificationDrawer({ open, onClose, onOpenNotice, versionDrift, 
       const r = await fetch(`/api/messages/conversations/${activeCid}`, { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ content: msgInput.trim() }) })
       const d = await r.json()
       if (d.ok) {
+        setSendBlocked("")
         setMessages(prev => [...prev, { id: d.message.id, sender_id: user?.id, content: msgInput.trim(), created_at: d.message.created_at }])
         setMsgInput("")
+      } else if (d.msg) {
+        // 1106私信规矩: 非互关限1条打招呼,423提示展示(对方回复或回关后解锁)
+        setSendBlocked(d.msg)
       }
     } catch { /* ignore */ }
     setMsgSending(false)
@@ -196,9 +207,12 @@ export function NotificationDrawer({ open, onClose, onOpenNotice, versionDrift, 
                     </div>
                   ))}
                 </div>
-                <div className="flex gap-2 border-t p-3" style={{ borderColor: "#1A1A1A" }}>
-                  <input value={msgInput} maxLength={500} onChange={(e) => setMsgInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !msgSending) handleSend() }} placeholder="输入消息…" className="flex-1 rounded-[10px] border border-[#2A2A2A] bg-[#0D0D0D] px-3 py-2 text-sm text-white outline-none focus:border-[#9933FF]" />
-                  <button onClick={handleSend} disabled={!msgInput.trim() || msgSending} className="rounded-[10px] px-4 py-2 text-sm font-medium text-white disabled:opacity-30" style={{ background: "linear-gradient(135deg,#00AAFF,#9933FF)" }}>发送</button>
+                <div className="border-t p-3" style={{ borderColor: "#1A1A1A" }}>
+                  {sendBlocked && <p className="mb-2 text-[11px]" style={{ color: "#FF5C5C" }}>{sendBlocked}</p>}
+                  <div className="flex gap-2">
+                    <input value={msgInput} maxLength={500} onChange={(e) => setMsgInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !msgSending) handleSend() }} placeholder="输入消息…" className="flex-1 rounded-[10px] border border-[#2A2A2A] bg-[#0D0D0D] px-3 py-2 text-sm text-white outline-none focus:border-[#9933FF]" />
+                    <button onClick={handleSend} disabled={!msgInput.trim() || msgSending || !!sendBlocked} className="rounded-[10px] px-4 py-2 text-sm font-medium text-white disabled:opacity-30" style={{ background: "linear-gradient(135deg,#00AAFF,#9933FF)" }}>发送</button>
+                  </div>
                 </div>
               </div>
             ) : conversations.length === 0 ? (
