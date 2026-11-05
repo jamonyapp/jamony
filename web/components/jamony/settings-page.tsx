@@ -7,7 +7,7 @@ import { FilterSelect } from "@/components/jamony/filter-select"
 import { useAuth } from "@/lib/auth-context"
 import { AvatarUpload } from "@/components/jamony/avatar-upload"
 import { RegionPicker } from "@/components/jamony/region-picker"
-import { splitRegion } from "@/lib/regions"
+import { splitRegion, isRegionComplete, joinRegion } from "@/lib/regions"
 
 const INSTRUMENTS = ["原声吉他", "电吉他", "贝斯", "打击乐器", "键盘乐器", "主唱", "弦乐", "管乐", "民乐", "其他", "听众"]
 
@@ -116,12 +116,12 @@ export function SettingsPage() {
     setSaveError("")
     const finalInstrument = showCustomInput ? customInstrument : instrument
     const cat = instrument
-    // 1105 地区改造: 一级选了二级必须选(海外一级即完成, 其二级=国家/地区)
-    if (regionL1 && !regionL2) {
+    // 1105 地区改造: 一级有二级时必须选到二级(直辖市一级即完成, 欢哥定稿)
+    if (!isRegionComplete(regionL1, regionL2)) {
       setSaveError("地区请选择完整的省/地区 + 城市")
       return
     }
-    const city = regionL1 && regionL2 ? `${regionL1} ${regionL2}` : "" // 存储完整串(白名单对齐)
+    const city = joinRegion(regionL1, regionL2) // 完整串/直辖市单值(白名单对齐)
 
     try {
       const res = await fetch(`/api/users/${user.id}`, {

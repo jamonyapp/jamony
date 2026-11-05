@@ -16,7 +16,7 @@ import {
 } from "@/lib/jamony-data"
 import { useAuth } from "@/lib/auth-context"
 import { RegionPicker } from "@/components/jamony/region-picker"
-import { splitRegion } from "@/lib/regions"
+import { splitRegion, isRegionComplete, joinRegion } from "@/lib/regions"
 import { useRestrictedDialog } from "@/components/jamony/restricted-dialog"
 import { mapNotice } from "@/lib/notice-mappers"
 
@@ -131,8 +131,8 @@ export function PublishNoticeModal({ open, onClose, onPublished, initialNotice }
       }
 
       // 2) POST 新建 / PATCH 编辑
-      // 1105 地区改造: 一级选了二级必须选; 存完整串(与设置页/白名单同一套), 空落「其他」
-      if (regionL1 && !regionL2) {
+      // 1105 地区改造: 一级有二级时必须选到二级(直辖市一级即完成); 存储串与白名单同一套, 空落「其他」
+      if (!isRegionComplete(regionL1, regionL2)) {
         setSubmitting(false)
         setError("地区请选择完整的省/地区 + 城市")
         return
@@ -141,7 +141,7 @@ export function PublishNoticeModal({ open, onClose, onPublished, initialNotice }
         type,
         title: title.trim(),
         body: body.trim(),
-        city: regionL1 && regionL2 ? `${regionL1} ${regionL2}` : "其他",
+        city: joinRegion(regionL1, regionL2) || "其他",
         style: style.trim() || "未分类",
         image_url: imageUrl,
       }

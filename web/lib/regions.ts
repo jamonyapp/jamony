@@ -18,11 +18,13 @@ export function getRegionChildren(l1: string): string[] {
   return REGIONS.find((l) => l.name === l1)?.children ?? []
 }
 
-// 完整串「广东省 深圳市」拆解(空格分隔; 无空格=旧值/无效)
+// 完整串拆解: 「广东省 深圳市」→[一级,二级]; 直辖市单值「北京市」→[北京市,""](1105 定稿); 旧格式(「北京」「线上」)→null 置空重选
 export function splitRegion(value: string): [string, string] | null {
   if (!value) return null
   const i = value.indexOf(" ")
-  if (i < 0) return null
+  if (i < 0) {
+    return REGION_L1.includes(value) && getRegionChildren(value).length === 0 ? [value, ""] : null
+  }
   return [value.slice(0, i), value.slice(i + 1)]
 }
 
@@ -31,4 +33,17 @@ export function displayShort(name: string): string {
   return name
     .replace(/(壮族自治区|回族自治区|维吾尔自治区|自治区|特别行政区|省|市)$/, "")
     .replace(/^中国/, "")
+}
+
+// 是否选完整(保存闸): 空=未设置合法; 直辖市无二级一级即完成(1105 欢哥定稿); 其余必须到二级
+export function isRegionComplete(l1: string, l2: string): boolean {
+  if (!l1) return true
+  return getRegionChildren(l1).length > 0 ? !!l2 : true
+}
+
+// 拼存储串: 完整时「一级 二级」或直辖市单值「北京市」; 未完成返回空串
+export function joinRegion(l1: string, l2: string): string {
+  if (!isRegionComplete(l1, l2)) return ""
+  if (!l1) return ""
+  return getRegionChildren(l1).length > 0 ? `${l1} ${l2}` : l1
 }

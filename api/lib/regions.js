@@ -6,10 +6,12 @@
  */
 const data = require('./regions-data.json')
 
+// children 为空的一级(1105 欢哥定稿: 直辖市到市为止不选区县)=单值合法「北京市」
 const VALID = new Set()
-const CHILDREN = new Map() // 一级名 → Set(二级)
+const CHILDREN = new Map() // 一级名 → Set(二级)(直辖市为空集=一级即完成)
 for (const level of data.levels) {
   CHILDREN.set(level.name, new Set(level.children))
+  if (level.children.length === 0) VALID.add(level.name)
   for (const child of level.children) VALID.add(`${level.name} ${child}`)
 }
 
