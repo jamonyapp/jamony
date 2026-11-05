@@ -63,6 +63,11 @@ const appealsDir = '/var/jamony/appeals'
 try { if (!fs.existsSync(appealsDir)) fs.mkdirSync(appealsDir, { recursive: true }) } catch (e) { console.error('Appeals dir error:', e) }
 const appealUpload = multer({ dest: appealsDir, limits: { fileSize: 10 * 1024 * 1024 } })
 
+/* multer — 用户举报证据图（1105 欢哥令: 可选单图; 机密取证目录, 不挂公开静态路由, 后台经鉴权端点取——照 appeals 模式） */
+const userReportsDir = '/var/jamony/user-reports'
+try { if (!fs.existsSync(userReportsDir)) fs.mkdirSync(userReportsDir, { recursive: true }) } catch (e) { console.error('User reports dir error:', e) }
+const userReportUpload = multer({ dest: userReportsDir, limits: { fileSize: 10 * 1024 * 1024 } })
+
 /* multer — 公告牌图片上传（不裁剪，直接存原图，前端 CSS object-fit 适配卡片） */
 const noticesDir = '/var/jamony/notices'
 try { if (!fs.existsSync(noticesDir)) fs.mkdirSync(noticesDir, { recursive: true }) } catch (e) { console.error('Notices dir error:', e) }
@@ -4665,6 +4670,37 @@ app.post('/api/works/:id/report', requireAuth, async (req, res) => {
     res.json({ ok: true })
   } catch (err) {
     console.error('Work report error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// 举报用户（1105 用户卡入口; 分类=个人信息违规/扰乱房间内秩序/其他+描述; 可选证据图; 一人一目标一票幂等, 重复提交吞文件防孤儿）
+// 1105欢哥令: 提交时冻结被举报人资料快照入 snapshot JSONB——核实看犯罪现场, 非庭审现场(事后洗白不改档案)
+app.post('/api/users/:id/report', requireAuth, userReportUpload.single('evidence'), async (req, res) => {
+  try {
+    const id = parseInt(req.params.id)
+    const discardFile = () => { if (req.file) { try { fs.unlinkSync(req.file.path) } catch {} } }
+    if (!id) { discardFile(); return res.status(400).json({ ok: false, msg: '参数错误' }) }
+    const r = (req.body.reason || '').trim().slice(0, 300)
+    if (!r) { discardFile(); return res.status(400).json({ ok: false, msg: '请填写举报理由' }) }
+    if (id === req.userId) { discardFile(); return res.status(400).json({ ok: false, msg: '不能举报自己' }) }
+    const target = await pool.query(
+      'SELECT nickname, avatar_url, gender, city, primary_instrument, instrument_category, signature, created_at FROM users WHERE id = $1', [id]
+    )
+    if (target.rows.length === 0) { discardFile(); return res.status(404).json({ ok: false, msg: '用户不存在' }) }
+    const dup = await pool.query('SELECT 1 FROM user_reports WHERE reported_user_id=$1 AND reporter_user_id=$2', [id, req.userId])
+    if (dup.rows.length > 0) { discardFile(); return res.json({ ok: true, msg: 'duplicated' }) }
+    // 快照性别口径同 by-nickname: 仅 male/female 外显
+    const t = target.rows[0]
+    const snapshot = { ...t, gender: (t.gender === 'male' || t.gender === 'female') ? t.gender : null }
+    await pool.query(
+      'INSERT INTO user_reports (reported_user_id, reporter_user_id, reason, image_url, snapshot) VALUES ($1,$2,$3,$4,$5)',
+      [id, req.userId, r, req.file ? `${userReportsDir}/${req.file.filename}` : null, JSON.stringify(snapshot)]
+    )
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('User report error:', err)
+    if (req.file) { try { fs.unlinkSync(req.file.path) } catch {} }
     res.status(500).json({ ok: false, msg: '服务器错误' })
   }
 })

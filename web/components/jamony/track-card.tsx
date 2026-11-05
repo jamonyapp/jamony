@@ -274,6 +274,7 @@ export function TrackCard({
                   onChange={(e) => setFeedbackText(e.target.value)}
                   placeholder="请输入举报理由…"
                   rows={3}
+                  maxLength={100}
                   className="w-full resize-none rounded-lg border border-[#1A1A1A] bg-black px-3 py-2 text-[13px] text-white outline-none placeholder:text-[#666] transition-colors focus:border-[#00AAFF]"
                 />
                 <div className="flex justify-end gap-2">
