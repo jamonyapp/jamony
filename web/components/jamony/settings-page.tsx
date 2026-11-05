@@ -48,6 +48,11 @@ export function SettingsPage() {
   const [saveError, setSaveError] = useState("")
   const [pwdError, setPwdError] = useState("")
   const [nickname, setNickname] = useState("")
+  // 1106欢哥令: 昵称1年1改(微信同款)——冷却中输入框禁编,标题右侧提示剩余天数
+  const NICK_COOLDOWN_MS = 365 * 86400000
+  const nickLastAt = user?.nicknameUpdatedAt ? new Date(user.nicknameUpdatedAt).getTime() : 0
+  const nickLocked = nickLastAt > 0 && Date.now() - nickLastAt < NICK_COOLDOWN_MS
+  const nickLockedDays = nickLocked ? Math.ceil((nickLastAt + NICK_COOLDOWN_MS - Date.now()) / 86400000) : 0
   const [signature, setSignature] = useState("")
   const [regionL1, setRegionL1] = useState("") // 1105 地区改造: 两级(广东省|深圳市), 提交拼完整串
   const [regionL2, setRegionL2] = useState("")
@@ -208,8 +213,10 @@ export function SettingsPage() {
         <div className="mt-6 space-y-5">
           <div className="grid grid-cols-3 gap-4">
             <div>
-              <FieldLabel>昵称</FieldLabel>
-              <input type="text" className={inputClass} maxLength={16} style={{ background: "#141414", borderColor: "#2A2A2A" }} value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder="给自己取个名字" />
+              <FieldLabel hint={
+                nickLocked ? `${nickLockedDays}天后可修改` : "昵称1年内允许修改1次。"
+              }>昵称</FieldLabel>
+              <input type="text" className={`${inputClass} ${nickLocked ? "cursor-not-allowed opacity-50" : ""}`} maxLength={16} disabled={nickLocked} style={{ background: "#141414", borderColor: "#2A2A2A" }} value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder="给自己取个名字" />
             </div>
             <div>
               <FieldLabel>性别</FieldLabel>

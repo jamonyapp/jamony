@@ -5,6 +5,7 @@ import { createContext, useContext, useState, useEffect, useCallback, type React
 export type UserInfo = {
   id: number
   nickname: string
+  nicknameUpdatedAt?: string | null // 1106欢哥令: 昵称1年1改——上次改名时间,冷却中设置页禁编
   avatarIndex: number
   avatarUrl?: string
   bio: string

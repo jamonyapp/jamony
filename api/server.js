@@ -1237,16 +1237,19 @@ app.get('/api/my-active-room', requireAuth, async (req, res) => {
 app.get('/api/me', requireAuth, async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT id, nickname, avatar_index, avatar_url, bio, signature, styles, city, primary_instrument, instrument_category, secondary_instrument, level, points, restriction, phone, gender, to_char(birthday, \'YYYY-MM-DD\') AS birthday, (password_hash IS NOT NULL) AS has_password FROM users WHERE id=$1',
+      'SELECT id, nickname, nickname_updated_at, avatar_index, avatar_url, bio, signature, styles, city, primary_instrument, instrument_category, secondary_instrument, level, points, restriction, phone, gender, to_char(birthday, \'YYYY-MM-DD\') AS birthday, (password_hash IS NOT NULL) AS has_password FROM users WHERE id=$1',
       [req.userId]
     )
     if (result.rows.length === 0) return res.status(401).json({ ok: false, msg: '用户不存在' })
     const u = result.rows[0]
+    // 1106欢哥令: 昵称1年1改(微信同款)——me 下发上次改名时间,前端锁定输入框
+    u.nickname_updated_at = u.nickname_updated_at || null
     res.json({
       ok: true,
       user: {
         id: u.id,
         nickname: u.nickname,
+        nicknameUpdatedAt: u.nickname_updated_at || null, // 1106: 昵称冷却(改名保存即锁,前端即时禁编)
         avatarIndex: u.avatar_index,
         avatarUrl: u.avatar_url ? u.avatar_url.replace('/var/jamony/avatars', '/avatars') : '',
         bio: u.bio || '',
@@ -1638,6 +1641,17 @@ app.patch('/api/users/:id', requireAuth, async (req, res) => {
       if (String(nickname).trim().length > 16) {
         return res.status(400).json({ ok: false, msg: '昵称最多 16 字' })
       }
+      // 1106欢哥令: 昵称1年1改(微信同款)——实际变更才校验/计时(未变更的保存不受影响);硬闸防直打
+      const cur = await pool.query('SELECT nickname, nickname_updated_at FROM users WHERE id = $1', [req.userId])
+      const curRow = cur.rows[0]
+      if (curRow && String(nickname).trim() !== curRow.nickname) {
+        const last = curRow.nickname_updated_at ? new Date(curRow.nickname_updated_at).getTime() : 0
+        if (last && Date.now() - last < 365 * 86400000) {
+          const days = Math.ceil((last + 365 * 86400000 - Date.now()) / 86400000)
+          return res.status(423).json({ ok: false, msg: `昵称${days}天后可修改（1年内允许修改1次）` })
+        }
+        sets.push(`nickname_updated_at = NOW()`)
+      }
       sets.push(`nickname = $${idx++}`); params.push(nickname)
     }
     if (bio !== undefined) { sets.push(`bio = $${idx++}`); params.push(bio) }
@@ -1695,7 +1709,7 @@ app.patch('/api/users/:id', requireAuth, async (req, res) => {
     sets.push(`updated_at = NOW()`)
     params.push(id)
     const result = await pool.query(
-      `UPDATE users SET ${sets.join(', ')} WHERE id = $${idx} RETURNING id, nickname, avatar_index, avatar_url, bio, signature, styles, city, primary_instrument, instrument_category, secondary_instrument, level, points, follow_list_private, gender, to_char(birthday, 'YYYY-MM-DD') AS birthday`,
+      `UPDATE users SET ${sets.join(', ')} WHERE id = $${idx} RETURNING id, nickname, nickname_updated_at, avatar_index, avatar_url, bio, signature, styles, city, primary_instrument, instrument_category, secondary_instrument, level, points, follow_list_private, gender, to_char(birthday, 'YYYY-MM-DD') AS birthday`,
       params
     )
 
@@ -1709,6 +1723,7 @@ app.patch('/api/users/:id', requireAuth, async (req, res) => {
       user: {
         id: u.id,
         nickname: u.nickname,
+        nicknameUpdatedAt: u.nickname_updated_at || null, // 1106: 昵称冷却(改名保存即锁,前端即时禁编)
         avatarIndex: u.avatar_index,
         avatarUrl: u.avatar_url ? u.avatar_url.replace('/var/jamony/avatars', '/avatars') : '',
         bio: u.bio || '',
