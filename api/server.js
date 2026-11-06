@@ -868,7 +868,8 @@ app.post('/api/appeals', requireAuthAllowBanned, appealUpload.single('screenshot
       if (c.taken_down_at && new Date(c.taken_down_at).getTime() < Date.now() - cfg.appealDays * 24 * 3600 * 1000) {
         return res.status(403).json({ ok: false, msg: `申诉期为下架后${cfg.appealDays}天内，您的申诉期已过` })
       }
-      // 防滥用: 同作品全局仅一条在审(先到先代表全体) + 每天一次(个人全局)
+      // 防滥用: 同作品全局仅一条在审(先到先代表全体) + 每作品每天一次
+      // 1107欢哥令: 限频跟对象走——多作品同日下架各持申诉权, 不互占额度
       const dup = await pool.query(
         `SELECT id FROM appeals WHERE status='pending' AND work_id=$1`,
         [contentId]
@@ -880,8 +881,8 @@ app.post('/api/appeals', requireAuthAllowBanned, appealUpload.single('screenshot
         [contentId, c.taken_down_at]
       )
       if (hist.rows.length > 0) return res.status(429).json({ ok: false, msg: '该作品本次下架已有申诉记录，申诉结果为终审' })
-      const recentC = await pool.query(`SELECT id FROM appeals WHERE user_id=$1 AND created_at > NOW() - INTERVAL '1 day'`, [req.userId])
-      if (recentC.rows.length > 0) return res.status(429).json({ ok: false, msg: '每天仅可提交一次申诉，请明天再试' })
+      const recentC = await pool.query(`SELECT id FROM appeals WHERE user_id=$1 AND work_id=$2 AND created_at > NOW() - INTERVAL '1 day'`, [req.userId, contentId])
+      if (recentC.rows.length > 0) return res.status(429).json({ ok: false, msg: '每个作品每天仅可提交一次申诉，请明天再试' })
 
       let screenshotPathC = null
       if (req.file) {
@@ -920,14 +921,15 @@ app.post('/api/appeals', requireAuthAllowBanned, appealUpload.single('screenshot
 
     // 防滥用按"处罚周期"计(1024 欢哥抓漏): 只数本轮处罚(restricted_at)之后的申诉——
     // 解禁后再犯=新周期=新申诉权, 旧周期的申诉不占额度; restricted_at 为空(历史数据)退化为全局判定
+    // 1107: 只数账号处罚申诉(work_id IS NULL)——作品申诉是独立对象, 不占账号申诉额度(限频跟对象走)
     const since = user.restricted_at || null
     const pend = await pool.query(
-      `SELECT id FROM appeals WHERE user_id=$1 AND status='pending' AND (created_at > $2 OR $2 IS NULL)`,
+      `SELECT id FROM appeals WHERE user_id=$1 AND status='pending' AND work_id IS NULL AND (created_at > $2 OR $2 IS NULL)`,
       [req.userId, since]
     )
     if (pend.rows.length > 0) return res.status(429).json({ ok: false, msg: '本轮处罚您已有一条申诉在审核中，请耐心等待处理' })
     const recent = await pool.query(
-      `SELECT id FROM appeals WHERE user_id=$1 AND created_at > NOW() - INTERVAL '1 day' AND (created_at > $2 OR $2 IS NULL)`,
+      `SELECT id FROM appeals WHERE user_id=$1 AND work_id IS NULL AND created_at > NOW() - INTERVAL '1 day' AND (created_at > $2 OR $2 IS NULL)`,
       [req.userId, since]
     )
     if (recent.rows.length > 0) return res.status(429).json({ ok: false, msg: '每天仅可提交一次申诉，请明天再试' })
