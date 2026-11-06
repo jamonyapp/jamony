@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react"
 import { AlertTriangle, ArrowRight, Flag, ImagePlus } from "lucide-react"
-import { FilterSelect } from "@/components/jamony/filter-select"
 import { useRouter } from "next/navigation"
 import { FollowButton } from "@/components/jamony/follow-button"
 import { Avatar } from "@/components/jamony/avatar"
@@ -41,6 +40,19 @@ const regionDisplay = (city: string) => {
   return parts.filter(Boolean).map(displayShort).join("·")
 }
 
+// 用户举报分类 v2(1106欢哥拍板): 存code不存文案——label随便改统计不裂;「其他」互斥
+// ⚠️三端共用码表: api/server.js USER_REPORT_CATEGORIES + jamony-admin/src/features/reports/user-reports.tsx 同步维护
+const REPORT_CATEGORIES: { code: string; label: string; def: string }[] = [
+  { code: "porn", label: "色情低俗", def: "头像、昵称、签名或言行涉色情低俗" },
+  { code: "spam", label: "广告营销", def: "资料或私信发广告、导流、拉人头" },
+  { code: "abuse", label: "辱骂攻击", def: "聊天或私信中辱骂、人身攻击、挑衅引战" },
+  { code: "harass", label: "骚扰纠缠", def: "私信骚扰、反复纠缠、不受欢迎的接触" },
+  { code: "disrupt", label: "扰乱房间", def: "房间内故意捣乱：噪音轰炸、乱弹抢拍、破坏合奏" },
+  { code: "impersonate", label: "冒充身份", def: "仿冒他人乐手、假扮官方" },
+  { code: "illegal", label: "违法违规", def: "赌博、诈骗、违禁品、政治有害等" },
+  { code: "other", label: "其他", def: "上述之外的违规行为（需详细说明）" },
+]
+
 export function UserPopover({
   nickname,
   children,
@@ -61,10 +73,11 @@ export function UserPopover({
   const [nameClamped, setNameClamped] = useState(false)
   const instrRef = useRef<HTMLSpanElement>(null)
   const [instrClamped, setInstrClamped] = useState(false)
-  // 举报(1105欢哥令: 用户卡举报入口; 三分类+可选证据图; 一人一目标一票)
+  // 举报 v2(1106欢哥拍板): 8分类多选(存code,「其他」互斥)+说明100~400字+B对A每天1票(打开即预查)
   const [reportOpen, setReportOpen] = useState(false)
-  const [reportReason, setReportReason] = useState("")
-  const [reportCustom, setReportCustom] = useState("")
+  const [reportCats, setReportCats] = useState<string[]>([])
+  const [reportText, setReportText] = useState("")
+  const [todayReported, setTodayReported] = useState<boolean | null>(null) // null=查询中
   const [reportFile, setReportFile] = useState<File | null>(null)
   const [reportPreview, setReportPreview] = useState("")
   const [reportBusy, setReportBusy] = useState(false)
@@ -72,9 +85,30 @@ export function UserPopover({
   const [reportError, setReportError] = useState("")
 
   const resetReport = () => {
-    setReportReason(""); setReportCustom(""); setReportFile(null)
+    setReportCats([]); setReportText(""); setReportFile(null)
     if (reportPreview) URL.revokeObjectURL(reportPreview)
     setReportPreview(""); setReportDone(false); setReportError("")
+  }
+
+  // 打开弹窗即预查「今日是否已举报」——写100字被拒=灾难体验(1106欢哥令)
+  useEffect(() => {
+    if (!reportOpen || !user) return
+    let alive = true
+    setTodayReported(null)
+    fetch(`/api/users/${user.id}/report-status`, { credentials: "include" })
+      .then((r) => r.json())
+      .then((d) => { if (alive) setTodayReported(!!d.reportedToday) })
+      .catch(() => { if (alive) setTodayReported(false) }) // 预查失败不拦提交,后端硬闸兜底
+    return () => { alive = false }
+  }, [reportOpen, user])
+
+  // 「其他」互斥: 勾其他=独占; 勾具体类=先踢掉其他
+  const toggleCat = (code: string) => {
+    setReportCats((prev) => {
+      if (code === "other") return prev.includes("other") ? [] : ["other"]
+      const next = prev.filter((c) => c !== "other")
+      return next.includes(code) ? next.filter((c) => c !== code) : [...next, code]
+    })
   }
 
   const submitReport = async () => {
@@ -82,11 +116,12 @@ export function UserPopover({
     setReportBusy(true); setReportError("")
     try {
       const fd = new FormData()
-      fd.append("reason", reportReason === "其他" ? reportCustom.trim() : reportReason)
+      fd.append("categories", JSON.stringify(reportCats))
+      fd.append("reason", reportText.trim())
       if (reportFile) fd.append("evidence", reportFile)
       const res = await fetch(`/api/users/${user.id}/report`, { method: "POST", body: fd, credentials: "include" })
       const data = await res.json()
-      if (data.ok) { setReportDone(true); setTimeout(() => { setReportOpen(false); resetReport() }, 2000) }
+      if (data.ok) { setReportDone(true); setTodayReported(true); setTimeout(() => { setReportOpen(false); resetReport() }, 2000) }
       else setReportError(data.msg || "提交失败，请重试")
     } catch {
       setReportError("网络异常，请重试")
@@ -288,25 +323,62 @@ export function UserPopover({
                 <p className="text-sm text-white">举报 <span className="font-semibold">{user.nickname}</span></p>
                 <p className="mt-1.5 flex items-center gap-1.5 text-[11px]" style={{ color: "#FF5C5C" }}>
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                  无故举报他人属于严重违规行为，请谨慎举报。
+                  无端或恶意举报他人属于严重违规行为，请谨慎举报。
                 </p>
+                {todayReported === true && (
+                  <p className="mt-2 rounded-lg border px-3 py-2 text-[11px]" style={{ color: "#FF5C5C", borderColor: "rgba(255,92,92,0.3)", background: "rgba(255,92,92,0.08)" }}>
+                    你今天已举报过TA，明天可再次举报。
+                  </p>
+                )}
                 <div className="mt-3">
                   <label className="mb-1.5 block text-xs font-medium" style={{ color: "#8A8A8A" }}>
-                    <span style={{ color: "#FF5C5C" }}>* </span>举报类型
+                    <span style={{ color: "#FF5C5C" }}>* </span>举报类型（可多选）
                   </label>
-                  <FilterSelect variant="field" label="选择举报类型" value={reportReason} onChange={setReportReason}
-                    options={["个人信息违规", "扰乱房间内秩序", "其他"].map((r) => ({ value: r, label: r }))} />
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {REPORT_CATEGORIES.map((c) => (
+                      <button
+                        key={c.code}
+                        type="button"
+                        onClick={() => toggleCat(c.code)}
+                        className="jamony-tip-host relative flex items-center gap-1.5 rounded-lg border px-2 py-1.5 text-left text-[11px] transition-colors"
+                        style={{
+                          borderColor: reportCats.includes(c.code) ? "#9933FF" : "#1A1A1A",
+                          color: reportCats.includes(c.code) ? "#FFFFFF" : "#9A9A9A",
+                          background: reportCats.includes(c.code) ? "rgba(153,51,255,0.12)" : "transparent",
+                        }}
+                      >
+                        <span
+                          className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border text-[9px] font-bold"
+                          style={{
+                            borderColor: reportCats.includes(c.code) ? "#9933FF" : "#3A3A3A",
+                            background: reportCats.includes(c.code) ? "#9933FF" : "transparent",
+                            color: "#FFFFFF",
+                          }}
+                        >
+                          {reportCats.includes(c.code) ? "✓" : ""}
+                        </span>
+                        {c.label}
+                        <span className="jamony-tip left-1/2 top-full z-10 mt-1.5 -translate-x-1/2 whitespace-nowrap">{c.def}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                {reportReason === "其他" && (
+                <div className="mt-3">
+                  <label className="mb-1.5 block text-xs font-medium" style={{ color: "#8A8A8A" }}>
+                    <span style={{ color: "#FF5C5C" }}>* </span>详细说明（至少 100 字）
+                  </label>
                   <textarea
-                    value={reportCustom}
-                    onChange={(e) => setReportCustom(e.target.value)}
-                    placeholder="说明原因…（300字以内）"
-                    rows={2}
-                    maxLength={300}
-                    className="mt-2 w-full resize-none rounded-lg border border-[#1A1A1A] bg-black px-3 py-2 text-xs text-white outline-none focus:border-[#00AAFF]"
+                    value={reportText}
+                    onChange={(e) => setReportText(e.target.value)}
+                    placeholder="请认真描述对方的违规行为：什么时间、在哪里、做了什么……"
+                    rows={4}
+                    maxLength={400}
+                    className="w-full resize-none rounded-lg border border-[#1A1A1A] bg-black px-3 py-2 text-xs text-white outline-none placeholder:text-[#555] focus:border-[#00AAFF]"
                   />
-                )}
+                  <p className="mt-1 text-right text-[10px] tabular-nums" style={{ color: reportText.trim().length >= 380 ? "#FF5C5C" : "#8A8A8A" }}>
+                    已输入 {reportText.trim().length} 字 · 100~400
+                  </p>
+                </div>
                 {/* 证据图(可选单图) */}
                 <div className="mt-3">
                   {reportFile ? (
@@ -334,7 +406,7 @@ export function UserPopover({
                   <button type="button" onClick={() => { setReportOpen(false); resetReport() }} className="px-4 py-1.5 text-xs text-[#9A9A9A] transition-colors hover:text-white">取消</button>
                   <button
                     type="button"
-                    disabled={reportBusy || !reportReason || (reportReason === "其他" && !reportCustom.trim())}
+                    disabled={reportBusy || todayReported === true || reportCats.length === 0 || reportText.trim().length < 100}
                     onClick={submitReport}
                     className="rounded-full px-4 py-1.5 text-xs font-medium text-white disabled:opacity-30"
                     style={{ background: "linear-gradient(135deg, #FF33AA, #9933FF)" }}

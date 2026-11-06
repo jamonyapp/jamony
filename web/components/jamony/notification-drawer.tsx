@@ -1,16 +1,17 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { X, CheckCheck, Trash2 } from "lucide-react"
 import { useNotifications, type Notif } from "@/lib/notifications-context"
 import { useDM } from "@/lib/dm-context"
 import { useAuth } from "@/lib/auth-context"
 import { Avatar } from "@/components/jamony/avatar"
+import { AppealForm } from "@/components/jamony/appeal-form"
 
 const TABS = [
   { key: "comment", label: "评论", types: ["comment_reply", "work_comment", "work_comment_reply"] as string[] },
-  { key: "notice", label: "通知", types: ["like", "follow", "system", "restriction", "appeal_result"] as string[] },
+  { key: "notice", label: "通知", types: ["like", "follow", "system", "restriction", "appeal_result", "report_result", "content_takedown"] as string[] },
   { key: "message", label: "私信", types: ["message"] as string[] },
 ] as const
 
@@ -37,6 +38,9 @@ export function NotificationDrawer({ open, onClose, onOpenNotice, versionDrift, 
   const [messages, setMessages] = useState<any[]>([])
   const [msgInput, setMsgInput] = useState("")
   const [sendBlocked, setSendBlocked] = useState("") // 1106私信规矩: 非互关限1条,423提示文案(空=可发)
+  // 1106: 通知点击弹申诉窗(content_takedown→内容申诉preset; restriction→账号申诉)
+  const [appealFor, setAppealFor] = useState<{ type: "work_takedown" | "notice_takedown" | "restriction"; workId?: number; noticeId?: number } | null>(null)
+  const appealDownOnOverlay = useRef(false) // 遮罩拖出误关范式(1023)
   const [msgSending, setMsgSending] = useState(false)
 
   useEffect(() => {
@@ -114,6 +118,12 @@ export function NotificationDrawer({ open, onClose, onOpenNotice, versionDrift, 
     else if (n.type === "follow" && n.actor_nickname) { onClose(); router.push(`/profile?nickname=${encodeURIComponent(n.actor_nickname)}`) }
     // 1023 七件套⑤: 申诉回执点击 → 直达个人主页申诉 tab 看进度/驳回理由
     else if (n.type === "appeal_result" && user?.nickname) { onClose(); router.push(`/profile?nickname=${encodeURIComponent(user.nickname)}&tab=appeals`) }
+    // 1106欢哥令: 通知即申诉入口——内容下架通知/账号处罚通知点击直接弹申诉窗
+    else if (n.type === "content_takedown") {
+      setAppealFor(n.work_id ? { type: "work_takedown", workId: n.work_id! } : { type: "notice_takedown", noticeId: n.notice_id! })
+    } else if (n.type === "restriction") {
+      setAppealFor({ type: "restriction" })
+    }
     else if (n.type === "message") setTab("message")
   }
 
@@ -264,21 +274,21 @@ export function NotificationDrawer({ open, onClose, onOpenNotice, versionDrift, 
                 className="group flex cursor-pointer items-start gap-3 border-b px-4 py-3 transition-colors hover:bg-white/5"
                 style={{ borderColor: "#1A1A1A", background: n.read_at ? "transparent" : "rgba(153,51,255,0.15)" }}>
                 {/* jamony 1018: 系统通知无 actor——用 jamony logo 替字母兜底头像(欢哥拍板);其余用户照旧真人头像
-                    1023: restriction(处罚)/appeal_result(申诉回执)同属系统通知, 同款渲染 */}
-                {(n.type === "system" || n.type === "restriction" || n.type === "appeal_result") ? (
+                    1023: restriction(处罚)/appeal_result(申诉回执)同属系统通知, 同款渲染; 1106: report_result(举报结论)同款 */}
+                {(n.type === "system" || n.type === "restriction" || n.type === "appeal_result" || n.type === "report_result" || n.type === "content_takedown") ? (
                   <img src="/jamony_logo.png" alt="jamony" className="h-[32px] w-[32px] flex-shrink-0 rounded-full object-cover" />
                 ) : (
                   <Avatar nickname={n.actor_nickname || "U"} size={32} avatarUrl={n.actor_avatar_url || undefined} />
                 )}
                 <div className="min-w-0 flex-1">
                   <p className="text-sm text-white">
-                    {(n.type === "system" || n.type === "restriction" || n.type === "appeal_result") ? (n.message || "系统通知")
-                      : n.type === "like" ? `${n.actor_nickname}${n.count > 1 ? ` 等${n.count}人` : ""} 赞了你的作品「${n.work_title || ""}」`
-                      : n.type === "follow" ? `${n.actor_nickname}${n.count > 1 ? ` 等${n.count}人` : ""} 关注了你`
-                      : n.type === "work_comment" ? `${n.actor_nickname}${n.count > 1 ? ` 等${n.count}人` : ""} 评论了你的作品「${n.work_title || ""}」`
-                      : n.type === "work_comment_reply" ? `${n.actor_nickname} 回复了你在作品「${n.work_title || ""}」的评论`
-                      : n.type === "message" ? `${n.actor_nickname} 给你发了一条私信`
-                      : `${n.actor_nickname}${n.count > 1 ? ` 等${n.count}人` : ""} 回复了你的公告「${n.notice_title || ""}」`}
+                    {(n.type === "system" || n.type === "restriction" || n.type === "appeal_result" || n.type === "report_result" || n.type === "content_takedown") ? (n.message || "系统通知")
+                      : n.type === "like" ? `${n.actor_nickname}${n.count > 1 ? ` 等${n.count}人` : ""} 赞了您的作品「${n.work_title || ""}」`
+                      : n.type === "follow" ? `${n.actor_nickname}${n.count > 1 ? ` 等${n.count}人` : ""} 关注了您`
+                      : n.type === "work_comment" ? `${n.actor_nickname}${n.count > 1 ? ` 等${n.count}人` : ""} 评论了您的作品「${n.work_title || ""}」`
+                      : n.type === "work_comment_reply" ? `${n.actor_nickname} 回复了您在作品「${n.work_title || ""}」的评论`
+                      : n.type === "message" ? `${n.actor_nickname} 给您发了一条私信`
+                      : `${n.actor_nickname}${n.count > 1 ? ` 等${n.count}人` : ""} 回复了您的公告「${n.notice_title || ""}」`}
                   </p>
                   {(n.comment_content || n.work_comment_content) && (
                     <p className="mt-1 border-l-2 pl-2 text-xs" style={{ color: "#C8C8C8", borderColor: "#9933FF" }}>
@@ -286,7 +296,7 @@ export function NotificationDrawer({ open, onClose, onOpenNotice, versionDrift, 
                     </p>
                   )}
                   {myReplies[n.id] && (
-                    <p className="mt-1 border-l-2 pl-2 text-xs" style={{ color: "#7BE495", borderColor: "#7BE495" }}>你：{myReplies[n.id]}</p>
+                    <p className="mt-1 border-l-2 pl-2 text-xs" style={{ color: "#7BE495", borderColor: "#7BE495" }}>您：{myReplies[n.id]}</p>
                   )}
                   <p className="mt-0.5 text-xs" style={{ color: "#8A8A8A" }}>{new Date(n.updated_at).toLocaleString("zh-CN")}</p>
                   {n.type === "comment_reply" && (
@@ -317,6 +327,34 @@ export function NotificationDrawer({ open, onClose, onOpenNotice, versionDrift, 
           )}
         </div>
       </div>
+
+      {/* 1106: 通知点击弹申诉窗——内容下架/账号处罚; 遮罩按下+松开都在遮罩才关(1023遮罩拖出判例) */}
+      {appealFor && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center p-6"
+          style={{ background: "rgba(0,0,0,0.7)" }}
+          onMouseDown={(e) => { appealDownOnOverlay.current = e.target === e.currentTarget }}
+          onClick={(e) => { if (e.target === e.currentTarget && appealDownOnOverlay.current) setAppealFor(null) }}
+        >
+          <div className="w-full max-w-md rounded-2xl border p-5" style={{ background: "#0D0D0D", borderColor: "#1A1A1A" }} onClick={(e) => e.stopPropagation()}>
+            <p className="text-sm font-semibold text-white">
+              {appealFor.type === "work_takedown" ? "作品下架申诉" : appealFor.type === "notice_takedown" ? "公告下架申诉" : "账号处罚申诉"}
+            </p>
+            <p className="mt-1 text-[11px]" style={{ color: "#8A8A8A" }}>
+              {appealFor.type === "restriction" ? "请说明您的情况，处理结果将通过站内信通知您。" : "请说明内容为何被误判，审核通过后将自动恢复展示。"}
+            </p>
+            <div className="mt-3">
+              <AppealForm
+                preset={appealFor.type === "restriction" ? undefined : { type: appealFor.type, workId: appealFor.workId, noticeId: appealFor.noticeId } as import("@/components/jamony/appeal-form").AppealPreset}
+                onSuccess={() => setTimeout(() => setAppealFor(null), 1800)}
+              />
+            </div>
+            <button type="button" onClick={() => setAppealFor(null)} className="mt-2 w-full py-1 text-center text-xs text-[#9A9A9A] transition-colors hover:text-white">
+              关闭
+            </button>
+          </div>
+        </div>
+      )}
     </>
   )
 }

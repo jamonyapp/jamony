@@ -211,8 +211,9 @@ function WorkDetailInner() {
   // 举报评论
   const handleReport = async () => {
     if (!user || !track || !pendingReport) return
-    const reason = reportReason === "其他" ? reportCustom.trim() : reportReason
-    if (!reason) return
+    const desc = reportCustom.trim()
+    if (desc.length < 20) return
+    const reason = reportReason === "其他" ? desc : `${reportReason}：${desc}`
     try {
       await fetch(`/api/works/${track.id}/comments/${pendingReport.id}/report`, {
         method: 'POST',
@@ -230,8 +231,9 @@ function WorkDetailInner() {
   // 举报作品本体(1024 举报系统: 详情页此前零通道——评论能举报而作品不能)
   const handleReportWork = async () => {
     if (!user || !track) return
-    const reason = reportReason === "其他" ? reportCustom.trim() : reportReason
-    if (!reason) return
+    const desc = reportCustom.trim()
+    if (desc.length < 20) return
+    const reason = reportReason === "其他" ? desc : `${reportReason}：${desc}`
     try {
       await fetch(`/api/works/${track.id}/report`, {
         method: 'POST',
@@ -736,15 +738,15 @@ function WorkDetailInner() {
                   </button>
                 ))}
               </div>
-              {reportReason === "其他" && (
-                <input
-                  value={reportCustom}
-                  maxLength={100}
-                  onChange={(e) => setReportCustom(e.target.value)}
-                  placeholder="请说明举报理由"
-                  className="mt-3 w-full rounded-lg border border-[#2A2A2A] bg-black px-3 py-2 text-xs text-white outline-none placeholder:text-[#666] focus:border-[#00AAFF]"
-                />
-              )}
+              <textarea
+                value={reportCustom}
+                onChange={(e) => setReportCustom(e.target.value)}
+                placeholder="请具体说明违规情况（至少 20 字）"
+                rows={3}
+                maxLength={90}
+                className="mt-3 w-full resize-none rounded-lg border border-[#2A2A2A] bg-black px-3 py-2 text-xs text-white outline-none placeholder:text-[#666] focus:border-[#00AAFF]"
+              />
+              <p className="mt-1 text-right text-[10px] tabular-nums" style={{ color: reportCustom.trim().length >= 80 ? "#FF5C5C" : "#8A8A8A" }}>已输入 {reportCustom.trim().length} 字 · 20~90</p>
               <div className="mt-4 flex justify-end gap-2">
                 <button
                   type="button"
@@ -755,7 +757,7 @@ function WorkDetailInner() {
                 </button>
                 <button
                   type="button"
-                  disabled={!reportReason || (reportReason === "其他" && !reportCustom.trim())}
+                  disabled={!reportReason || reportCustom.trim().length < 20}
                   onClick={handleReportWork}
                   className="rounded-full px-4 py-1.5 text-xs font-medium text-white disabled:opacity-30"
                   style={{ background: "linear-gradient(135deg, #FF33AA, #9933FF)" }}
@@ -834,16 +836,15 @@ function WorkDetailInner() {
                   </button>
                 ))}
               </div>
-              {reportReason === "其他" && (
-                <textarea
-                  value={reportCustom}
-                  onChange={(e) => setReportCustom(e.target.value)}
-                  placeholder="说明原因…"
-                  rows={2}
-                  maxLength={100}
-                  className="mt-2 w-full resize-none rounded-lg border border-[#1A1A1A] bg-black px-3 py-2 text-xs text-white outline-none focus:border-[#00AAFF]"
-                />
-              )}
+              <textarea
+                value={reportCustom}
+                onChange={(e) => setReportCustom(e.target.value)}
+                placeholder="请具体说明违规情况（至少 20 字）"
+                rows={3}
+                maxLength={90}
+                className="mt-2 w-full resize-none rounded-lg border border-[#1A1A1A] bg-black px-3 py-2 text-xs text-white outline-none placeholder:text-[#555] focus:border-[#00AAFF]"
+              />
+              <p className="mt-1 text-right text-[10px] tabular-nums" style={{ color: reportCustom.trim().length >= 80 ? "#FF5C5C" : "#8A8A8A" }}>已输入 {reportCustom.trim().length} 字 · 20~90</p>
               <div className="mt-4 flex justify-end gap-2">
                 <button
                   type="button"
@@ -854,7 +855,7 @@ function WorkDetailInner() {
                 </button>
                 <button
                   type="button"
-                  disabled={!reportReason || (reportReason === "其他" && !reportCustom.trim())}
+                  disabled={!reportReason || reportCustom.trim().length < 20}
                   onClick={handleReport}
                   className="rounded-full px-4 py-1.5 text-xs font-medium text-white disabled:opacity-30"
                   style={{ background: "linear-gradient(135deg, #FF33AA, #9933FF)" }}

@@ -3,10 +3,13 @@
 import { useRef, useState } from "react"
 
 // 申诉表单（1023 七件套③）: 理由必填(≥10字) + 截图可选(单图≤10M)
-// 复用三处: 受限 Dialog 内嵌 / banned 拦截页
+// 复用四处: 受限 Dialog 内嵌 / banned 拦截页 / 通知点击弹窗(1106 内容+账号申诉入口)
 // 成功态文案统一——提交后进度走「个人主页-申诉」+ 站内信回执(⑤)
 
-export function AppealForm({ onSuccess }: { onSuccess?: () => void }) {
+// 1106: preset=通知点击入口带来的申诉类型与内容引用(账号处罚申诉不传)
+export type AppealPreset = { type: 'work_takedown' | 'notice_takedown'; workId?: number; noticeId?: number }
+
+export function AppealForm({ onSuccess, preset }: { onSuccess?: () => void; preset?: AppealPreset }) {
   const [reason, setReason] = useState("")
   const [file, setFile] = useState<File | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -17,12 +20,17 @@ export function AppealForm({ onSuccess }: { onSuccess?: () => void }) {
   const submit = async () => {
     const r = reason.trim()
     if (r.length < 10) { setErr("请写清申诉理由（至少 10 个字）"); return }
-    if (r.length > 1000) { setErr("申诉理由过长（≤1000 字）"); return }
+    if (r.length > 400) { setErr("申诉理由过长（≤400 字）"); return }
     setErr("")
     setSubmitting(true)
     try {
       const fd = new FormData()
       fd.append("reason", r)
+      if (preset) {
+        fd.append("type", preset.type)
+        if (preset.workId) fd.append("workId", String(preset.workId))
+        if (preset.noticeId) fd.append("noticeId", String(preset.noticeId))
+      }
       if (file) fd.append("screenshot", file)
       const res = await fetch("/api/appeals", { method: "POST", body: fd, credentials: "include" })
       const data = await res.json()
@@ -48,12 +56,15 @@ export function AppealForm({ onSuccess }: { onSuccess?: () => void }) {
     <div className="space-y-3">
       <textarea
         value={reason}
-        maxLength={500}
+        maxLength={400}
         onChange={(e) => setReason(e.target.value)}
         rows={4}
         placeholder="请说明您的情况，例如：内容为什么被误判、当时的实际语境…（至少 10 个字）"
         className="w-full resize-none rounded-[10px] border border-[#2A2A2A] bg-[#0D0D0D] px-3 py-2 text-sm text-white outline-none focus:border-[#9933FF]"
       />
+      <p className="mt-1.5 text-right text-[11px] tabular-nums" style={{ color: reason.length >= 380 ? "#FF5C5C" : "#8A8A8A" }}>
+        还可输入 {400 - reason.length} 字
+      </p>
       {/* 截图可选（欢哥 1023 拍板：文字是申诉的实质，截图只是加速器） */}
       <div className="flex items-center gap-2">
         <input

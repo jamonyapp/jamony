@@ -594,14 +594,14 @@ async function submitWorkAudioReview(workId) {
     if (text) { const r = await moderateText(text); verdict = r.verdict; hits = r.hits }
     const channel = CHANNEL_OF_KIND['work_audio'] || 'publish'
     if (verdict === 'reject') {
-      await pool.query("UPDATE works SET status='taken_down', audio_review='rejected', audio_transcript=$2, audio_reviewed_at=NOW(), asr_task_id=$3 WHERE id=$1 AND audio_review='pending'", [workId, text.slice(0, 400), String(sub.TaskId || '')])
+      await pool.query("UPDATE works SET status='taken_down', taken_down_at=NOW(), audio_review='rejected', audio_transcript=$2, audio_reviewed_at=NOW(), asr_task_id=$3 WHERE id=$1 AND audio_review='pending'", [workId, text.slice(0, 400), String(sub.TaskId || '')])
       try {
         await pool.query(`INSERT INTO moderation_logs (kind, target_id, user_id, nickname, content, verdict, hits, channel) VALUES ('work_audio',$1,$2,$3,$4,'reject',$5,$6)`,
           [String(workId), row.publisher_user_id, '', `[音频转写]${text.slice(0, 200)}`, JSON.stringify(hits), channel])
       } catch (e) { console.error('[moderation] 音频日志写入失败:', e.message) }
       const u = await pool.query('SELECT nickname FROM users WHERE id=$1', [row.publisher_user_id])
       const cfg = await getModerationConfig()
-      await createNotification({ recipientId: row.publisher_user_id, type: 'restriction', message: `您的作品《${row.title}》因音频内容违规已被自动下架。如认为误判，您可以到个人主页-申诉进行申诉（处罚生效后${cfg.appealDays}天内有效）。请您注意在jamony的行为规范。` })
+      await notifyContentOwner('works', workId, `您参与的作品《${row.title}》因音频内容违规已被自动下架。如有异议，请点击本条通知提交申诉（${cfg.appealDays}天内有效）。请您注意在jamony的行为规范。`, { type: 'content_takedown' })
       console.log(`[moderation] 作品${workId}音频审核拒绝→自动下架(发布者${row.publisher_user_id}${u.rows[0] ? '(' + u.rows[0].nickname + ')' : ''})`)
       emitWorksChanged('audio-reject')  // 1030 实时化：自动下架，作品库/高光即时消失
       await checkRejectEscalation(row.publisher_user_id, channel)
@@ -713,8 +713,8 @@ async function applyDemoteEscalation(userId, days, cfg, actor, isAuto) {
   const until = row.restricted_until ? new Date(row.restricted_until) : null
   const dateStr = until ? `${until.getMonth() + 1}月${until.getDate()}日` : ''
   const appealTail = until
-    ? `，将于${dateStr}自动解除。您可以到个人主页-申诉进行申诉（处罚生效后${cfg.appealDays}天内有效）`
-    : `。此处罚不会自动解除，如有异议请前往个人主页-申诉进行申诉（处罚生效后${cfg.appealDays}天内有效）`
+    ? `，将于${dateStr}自动解除。如有异议，请点击本条通知提交申诉（${cfg.appealDays}天内有效）`
+    : `。此处罚不会自动解除，如有异议，请点击本条通知提交申诉（${cfg.appealDays}天内有效）`
   const prefix = isAuto ? '由于您在发布限制解除后再次违规，' : '因为违规，'
   await createNotification({ recipientId: userId, type: 'restriction', message: `${prefix}您已被降级为听众，只能以听众身份进入房间，发布功能已被限制${appealTail}。请您注意在jamony的行为规范。` })
   console.log(`[moderation] 用户${userId}降级(${isAuto ? '二进宫自动' : '人工'}${until ? `, ${days}天` : ', 无期限'}) by ${actor}`)
@@ -757,7 +757,7 @@ async function checkSuspectEscalation(userId, channel = 'publish') {
       // ①处罚站内信: restricted 档, 文案与 403 同源+申诉提示(日期取 DB RETURNING, 单一事实源)
       const until = new Date(upd.rows[0].restricted_until)
       const dateStr = `${until.getMonth() + 1}月${until.getDate()}日`
-      await createNotification({ recipientId: userId, type: 'restriction', message: `因发布内容违规频繁，系统已限制您的部分功能，将于${dateStr}自动解除。您可以到个人主页-申诉进行申诉（处罚生效后${cfg.appealDays}天内有效）。请您注意在jamony的行为规范。` })
+      await createNotification({ recipientId: userId, type: 'restriction', message: `因发布内容违规频繁，系统已限制您的部分功能，将于${dateStr}自动解除。如有异议，请点击本条通知提交申诉（${cfg.appealDays}天内有效）。请您注意在jamony的行为规范。` })
     }
   } catch (e) {
     console.error('[moderation] 升级检查失败(不影响发布):', e.message)
@@ -790,7 +790,7 @@ async function checkRejectEscalation(userId, channel = 'publish') {
     restrictionCache.set(userId, { v: 'restricted', at: Date.now() })
     const until = new Date(upd.rows[0].restricted_until)
     const dateStr = `${until.getMonth() + 1}月${until.getDate()}日`
-    await createNotification({ recipientId: userId, type: 'restriction', message: `因多次尝试发布严重违规内容，系统已限制您的部分功能，将于${dateStr}自动解除。您可以到个人主页-申诉进行申诉（处罚生效后${cfg.appealDays}天内有效）。请您注意在jamony的行为规范。` })
+    await createNotification({ recipientId: userId, type: 'restriction', message: `因多次尝试发布严重违规内容，系统已限制您的部分功能，将于${dateStr}自动解除。如有异议，请点击本条通知提交申诉（${cfg.appealDays}天内有效）。请您注意在jamony的行为规范。` })
   } catch (e) {
     console.error('[moderation] 拒绝升级检查失败(不影响拦截):', e.message)
   }
@@ -818,14 +818,14 @@ async function guardCanPublish(userId, res) {
     if (r.rows.length === 0) return true
     const row = r.rows[0]
     // 1024 欢哥: 所有提醒文案带申诉有效期(处罚生效后N天, 配置中心取), 不让用户过期了才知道
-    const appealHint = `您可以到个人主页-申诉进行申诉（处罚生效后${cfg.appealDays}天内有效）。`
+    const appealHint = `如有异议，请点击本条通知提交申诉（${cfg.appealDays}天内有效）。`
     if (row.restriction === 'restricted' && row.restricted_until) {
       const d = new Date(row.restricted_until)
       const dateStr = `${d.getMonth() + 1}月${d.getDate()}日`
       res.status(403).json({ ok: false, code: 'RESTRICTED', msg: `因发布内容违规频繁，系统已限制您的部分功能，将于${dateStr}自动解除。${appealHint}请您注意在jamony的行为规范。` })
     } else if (!row.restricted_until) {
       // 1024 欢哥: 无期限处罚必须明示"不会自动解除", 不让用户误以为有期限只是没告知
-      const noAutoHint = `此处罚不会自动解除，如有异议请前往个人主页-申诉进行申诉（处罚生效后${cfg.appealDays}天内有效）。`
+      const noAutoHint = `此处罚不会自动解除，如有异议，请点击本条通知提交申诉（${cfg.appealDays}天内有效）。`
       res.status(403).json({ ok: false, code: 'RESTRICTED', msg: `因发布违规内容，您的部分功能已被限制。${noAutoHint}请您注意在jamony的行为规范。` })
     } else {
       res.status(403).json({ ok: false, code: 'RESTRICTED', msg: `因发布违规内容，您的部分功能已被限制。${appealHint}请您注意在jamony的行为规范。` })
@@ -843,6 +843,68 @@ app.post('/api/appeals', requireAuthAllowBanned, appealUpload.single('screenshot
     if (reason.length < 10) return res.status(400).json({ ok: false, msg: '请写清申诉理由（至少 10 个字）' })
     if (reason.length > 500) return res.status(400).json({ ok: false, msg: '申诉理由过长（≤500 字）' })
 
+    const cfg = await getModerationConfig()
+
+    // ===== 内容申诉(1106欢哥令: 通知即申诉入口): 仅作品(公告/评论=终局不支持申诉, 欢哥1106: 展示窗短+重发成本低) =====
+    const aType = String(req.body?.type || 'restriction')
+    if (aType === 'notice_takedown') {
+      return res.status(400).json({ ok: false, msg: '公告下架不支持申诉，如有需要可重新发布' })
+    }
+    if (aType === 'work_takedown') {
+      const u0 = await pool.query('SELECT nickname FROM users WHERE id=$1', [req.userId])
+      if (u0.rows.length === 0) return res.status(400).json({ ok: false, msg: '用户不存在' })
+      const contentId = parseInt(req.body?.workId)
+      if (!Number.isInteger(contentId)) return res.status(400).json({ ok: false, msg: '参数错误' })
+      const cr = await pool.query(
+        'SELECT id, title, status, taken_down_at FROM works WHERE id=$1',
+        [contentId]
+      )
+      const c = cr.rows[0]
+      // 1106欢哥令: 举报针对作品不针对人——全体参与者(署名+匿名,looper除外)均有申诉权(署名即责任共同体)
+      const mem = await pool.query('SELECT 1 FROM work_authors WHERE work_id=$1 AND user_id=$2 AND user_id<>0', [contentId, req.userId])
+      if (!c || mem.rows.length === 0) return res.status(403).json({ ok: false, msg: '仅参与该作品的用户可申诉' })
+      if (c.status !== 'taken_down') return res.status(400).json({ ok: false, msg: '该作品当前未被下架，无需申诉' })
+      // 申诉期=下架后 appeal_days 天(作品长期展示, 纯3天)
+      if (c.taken_down_at && new Date(c.taken_down_at).getTime() < Date.now() - cfg.appealDays * 24 * 3600 * 1000) {
+        return res.status(403).json({ ok: false, msg: `申诉期为下架后${cfg.appealDays}天内，您的申诉期已过` })
+      }
+      // 防滥用: 同作品全局仅一条在审(先到先代表全体) + 每天一次(个人全局)
+      const dup = await pool.query(
+        `SELECT id FROM appeals WHERE status='pending' AND work_id=$1`,
+        [contentId]
+      )
+      if (dup.rows.length > 0) return res.status(429).json({ ok: false, msg: '该作品已有一条申诉在审核中，请耐心等待处理' })
+      // 1106欢哥令: 受理即终审——每次下架事件全作品仅一次申诉(不分人不分结果); 再犯重下架=新事件(taken_down_at更新)=新申诉权
+      const hist = await pool.query(
+        `SELECT id FROM appeals WHERE work_id=$1 AND created_at > $2`,
+        [contentId, c.taken_down_at]
+      )
+      if (hist.rows.length > 0) return res.status(429).json({ ok: false, msg: '该作品本次下架已有申诉记录，申诉结果为终审' })
+      const recentC = await pool.query(`SELECT id FROM appeals WHERE user_id=$1 AND created_at > NOW() - INTERVAL '1 day'`, [req.userId])
+      if (recentC.rows.length > 0) return res.status(429).json({ ok: false, msg: '每天仅可提交一次申诉，请明天再试' })
+
+      let screenshotPathC = null
+      if (req.file) {
+        if (!/^image\//.test(req.file.mimetype || '')) {
+          try { fs.unlinkSync(req.file.path) } catch (e) {}
+          return res.status(400).json({ ok: false, msg: '截图仅支持图片文件' })
+        }
+        const m = (req.file.originalname || '').toLowerCase().match(/\.(png|jpe?g|webp|gif)$/)
+        const ext = m ? m[1].replace('jpeg', 'jpg') : 'png'
+        const fp = `${req.file.path}.${ext}`
+        try { fs.renameSync(req.file.path, fp) } catch (e) {}
+        screenshotPathC = fp
+      }
+      const snapC = { type: aType, title: c.title, taken_down_at: c.taken_down_at }
+      const insC = await pool.query(
+        `INSERT INTO appeals (user_id, nickname, reason, screenshot_path, snapshot, type, work_id) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, created_at`,
+        [req.userId, u0.rows[0].nickname, reason, screenshotPathC, JSON.stringify(snapC), aType, contentId]
+      )
+      console.log(`[appeal] 内容申诉 ${aType}#${contentId}《${c.title}》 by ${req.nickname}`)
+      return res.json({ ok: true, appeal: insC.rows[0] })
+    }
+
+    // ===== 账号处罚申诉(1023 原路径) =====
     // 可申诉态: restricted/demoted/banned(watch 无功能限制, 无可申诉之实)
     const u = await pool.query('SELECT nickname, restriction, restricted_at, restricted_until FROM users WHERE id=$1', [req.userId])
     if (u.rows.length === 0) return res.status(400).json({ ok: false, msg: '用户不存在' })
@@ -852,7 +914,6 @@ app.post('/api/appeals', requireAuthAllowBanned, appealUpload.single('screenshot
     }
 
     // 申诉期 = 处罚生效时刻起 appeal_days 天(默认3, 欢哥 1023 拍板: 与惩罚时长解耦); restricted_at 为空(历史处置)从宽放行
-    const cfg = await getModerationConfig()
     if (user.restricted_at && new Date(user.restricted_at).getTime() < Date.now() - cfg.appealDays * 24 * 3600 * 1000) {
       return res.status(403).json({ ok: false, msg: `申诉期为处罚生效后${cfg.appealDays}天内，您的申诉期已过` })
     }
@@ -908,8 +969,10 @@ app.post('/api/appeals', requireAuthAllowBanned, appealUpload.single('screenshot
 app.get('/api/my-appeals', requireAuthAllowBanned, async (req, res) => {
   try {
     const r = await pool.query(
-      `SELECT id, status, reason, (screenshot_path IS NOT NULL) AS has_screenshot, reject_reason, created_at, handled_at
-       FROM appeals WHERE user_id=$1 ORDER BY created_at DESC LIMIT 20`,
+      `SELECT a.id, a.status, a.reason, (a.screenshot_path IS NOT NULL) AS has_screenshot, a.reject_reason, a.created_at, a.handled_at,
+              a.type, a.work_id, a.notice_id, COALESCE(w.title, n.title, '') AS target_title
+       FROM appeals a LEFT JOIN works w ON w.id = a.work_id LEFT JOIN notices n ON n.id = a.notice_id
+       WHERE a.user_id=$1 ORDER BY a.created_at DESC LIMIT 20`,
       [req.userId]
     )
     let punishment = null
@@ -2700,7 +2763,7 @@ app.post('/api/rooms/:code/join', requireAuth, async (req, res) => {
     // (定稿: ②拿发言权/③拿演奏权/④拿账号; 进房+身份切换全走本端点, 一处卡点全拦; 已在房中让其演完本场)
     if (acceptedRole === 'musician' && (await getUserRestriction(userId)) === 'demoted') {
       const mcfg = await getModerationConfig()
-      return res.status(403).json({ ok: false, code: 'DEMOTE_LISTENER', msg: `因为违规，您已被降级为听众，只能以听众身份进入房间。您可以到个人主页-申诉进行申诉（处罚生效后${mcfg.appealDays}天内有效）。` })
+      return res.status(403).json({ ok: false, code: 'DEMOTE_LISTENER', msg: `因为违规，您已被降级为听众，只能以听众身份进入房间。如有异议，请点击处罚通知提交申诉（${mcfg.appealDays}天内有效）。` })
     }
 
     // 按 room_code 查房间
@@ -4240,12 +4303,17 @@ app.post('/api/works/:id/comments/:commentId/like', requireAuth, async (req, res
 app.post('/api/works/:id/comments/:commentId/report', requireAuth, async (req, res) => {
   try {
     const { commentId } = req.params
-    const { reason } = req.body
-    if (String(reason || '').trim().length > 100) return res.status(400).json({ ok: false, msg: '举报理由最多 100 字' })
-    const userId = req.userId
+    // 1106 v2: 产物类成本闸 20~100 字(欢哥拍板) + 提交时冻结评论现场(评论被删证据仍在)
+    const reason = String(req.body?.reason || '').trim()
+    if (reason.length < 20) return res.status(400).json({ ok: false, msg: '请填写举报理由（至少 20 字）' })
+    if (reason.length > 100) return res.status(400).json({ ok: false, msg: '举报理由最多 100 字' })
+    const c = await pool.query(
+      'SELECT c.content, c.nickname, c.reply_to_nickname, c.created_at, w.title AS work_title FROM work_comments c JOIN works w ON w.id = c.work_id WHERE c.id = $1', [commentId])
+    if (c.rows.length === 0) return res.status(404).json({ ok: false, msg: '评论不存在或已删除' })
+    const t = c.rows[0]
     await pool.query(
-      'INSERT INTO comment_reports (comment_id, reporter_user_id, reason) VALUES ($1, $2, $3)',
-      [commentId, userId, (reason || '').slice(0, 100)]
+      'INSERT INTO comment_reports (comment_id, reporter_user_id, reason, snapshot) VALUES ($1, $2, $3, $4)',
+      [commentId, req.userId, reason, JSON.stringify({ content: t.content, nickname: t.nickname, reply_to: t.reply_to_nickname || null, work_title: t.work_title, created_at: t.created_at })]
     )
     res.json({ ok: true })
   } catch (err) {
@@ -4470,7 +4538,8 @@ app.delete('/api/notices/:id', requireAuth, async (req, res) => {
 // 通知生成（写时聚合：同 recipient+type+entity+未读+1h内 → count+1 合并，否则新建；不通知自己）
 // 例外(1023 七件套①⑤): restriction(处罚)/appeal_result(申诉回执)不聚合——每次都是独立事件且文案各异,
 // 合并会保留旧文案吞掉新事件(watch→restricted 连续升级时解封日期文案曾因此丢失, 实测抓到)
-const NO_AGGREGATE_TYPES = new Set(['restriction', 'appeal_result'])
+// 1106判例: system也须独立成条——恢复展示等系统通知被聚合吞文案(同1023家族bug); system语义=离散消息从不该聚合
+const NO_AGGREGATE_TYPES = new Set(['restriction', 'system', 'appeal_result', 'report_result', 'content_takedown'])
 async function createNotification({ recipientId, type, noticeId, commentId, workId, workCommentId, actorId, actorNickname, message }) {
   if (!recipientId || recipientId === actorId) return
   try {
@@ -4641,12 +4710,17 @@ app.post('/api/notices/:id/comments/:commentId/like', requireAuth, async (req, r
 app.post('/api/notices/:id/comments/:commentId/report', requireAuth, async (req, res) => {
   try {
     const { commentId } = req.params
-    const { reason } = req.body
-    if (String(reason || '').trim().length > 100) return res.status(400).json({ ok: false, msg: '举报理由最多 100 字' })
-    const userId = req.userId
+    // 1106 v2: 产物类成本闸 20~100 字 + 冻结评论现场
+    const reason = String(req.body?.reason || '').trim()
+    if (reason.length < 20) return res.status(400).json({ ok: false, msg: '请填写举报理由（至少 20 字）' })
+    if (reason.length > 100) return res.status(400).json({ ok: false, msg: '举报理由最多 100 字' })
+    const c = await pool.query(
+      'SELECT c.content, c.nickname, c.reply_to_nickname, c.created_at, n.title AS notice_title FROM notice_comments c JOIN notices n ON n.id = c.notice_id WHERE c.id = $1', [commentId])
+    if (c.rows.length === 0) return res.status(404).json({ ok: false, msg: '评论不存在或已删除' })
+    const t = c.rows[0]
     await pool.query(
-      'INSERT INTO notice_comment_reports (comment_id, reporter_user_id, reason) VALUES ($1, $2, $3)',
-      [commentId, userId, (reason || '').slice(0, 100)]
+      'INSERT INTO notice_comment_reports (comment_id, reporter_user_id, reason, snapshot) VALUES ($1, $2, $3, $4)',
+      [commentId, req.userId, reason, JSON.stringify({ content: t.content, nickname: t.nickname, reply_to: t.reply_to_nickname || null, notice_title: t.notice_title, created_at: t.created_at })]
     )
     res.json({ ok: true })
   } catch (err) {
@@ -4655,16 +4729,19 @@ app.post('/api/notices/:id/comments/:commentId/report', requireAuth, async (req,
   }
 })
 
-// 举报公告（违规内容举报，后台审核）
+// 举报公告（违规内容举报，后台审核; 1106 v2: 20~100字闸+冻结公告现场）
 app.post('/api/notices/:id/report', requireAuth, async (req, res) => {
   try {
     const { id } = req.params
-    const { reason } = req.body
-    if (String(reason || '').trim().length > 100) return res.status(400).json({ ok: false, msg: '举报理由最多 100 字' })
-    const userId = req.userId
+    const reason = String(req.body?.reason || '').trim()
+    if (reason.length < 20) return res.status(400).json({ ok: false, msg: '请填写举报理由（至少 20 字）' })
+    if (reason.length > 100) return res.status(400).json({ ok: false, msg: '举报理由最多 100 字' })
+    const n = await pool.query('SELECT title, body, nickname, type, category, city, style, status, created_at FROM notices WHERE id = $1', [id])
+    if (n.rows.length === 0) return res.status(404).json({ ok: false, msg: '公告不存在' })
+    const t = n.rows[0]
     await pool.query(
-      'INSERT INTO notice_reports (notice_id, reporter_user_id, reason) VALUES ($1, $2, $3)',
-      [id, userId, (reason || '').slice(0, 100)]
+      'INSERT INTO notice_reports (notice_id, reporter_user_id, reason, snapshot) VALUES ($1, $2, $3, $4)',
+      [id, req.userId, reason, JSON.stringify(t)]
     )
     res.json({ ok: true })
   } catch (err) {
@@ -4673,14 +4750,20 @@ app.post('/api/notices/:id/report', requireAuth, async (req, res) => {
   }
 })
 
-// 举报作品(1024 举报系统: 作品本体此前零举报通道——评论能举报而作品不能)
+// 举报作品(1024 举报系统: 作品本体此前零举报通道——评论能举报而作品不能; 1106 v2: 20~100字闸+冻结作品现场)
 app.post('/api/works/:id/report', requireAuth, async (req, res) => {
   try {
     const { id } = req.params
-    const { reason } = req.body
+    const reason = String(req.body?.reason || '').trim()
+    if (reason.length < 20) return res.status(400).json({ ok: false, msg: '请填写举报理由（至少 20 字）' })
+    if (reason.length > 100) return res.status(400).json({ ok: false, msg: '举报理由最多 100 字' })
+    const w = await pool.query(
+      'SELECT w.title, w.description, w.cover_song, w.cover_author, w.style, w.duration, w.status, w.created_at, u.nickname AS publisher FROM works w LEFT JOIN users u ON u.id = w.publisher_user_id WHERE w.id = $1', [id])
+    if (w.rows.length === 0) return res.status(404).json({ ok: false, msg: '作品不存在' })
+    const t = w.rows[0]
     await pool.query(
-      'INSERT INTO work_reports (work_id, reporter_user_id, reason) VALUES ($1, $2, $3)',
-      [id, req.userId, (reason || '').slice(0, 100)]
+      'INSERT INTO work_reports (work_id, reporter_user_id, reason, snapshot) VALUES ($1, $2, $3, $4)',
+      [id, req.userId, reason, JSON.stringify(t)]
     )
     res.json({ ok: true })
   } catch (err) {
@@ -4691,26 +4774,69 @@ app.post('/api/works/:id/report', requireAuth, async (req, res) => {
 
 // 举报用户（1105 用户卡入口; 分类=个人信息违规/扰乱房间内秩序/其他+描述; 可选证据图; 一人一目标一票幂等, 重复提交吞文件防孤儿）
 // 1105欢哥令: 提交时冻结被举报人资料快照入 snapshot JSONB——核实看犯罪现场, 非庭审现场(事后洗白不改档案)
+// ===== 用户举报 v2(1106欢哥拍板): 分类多选(存code)+说明100~400字+B对A每天1票(自然日)+每次冻结快照 =====
+// ⚠️分类码表三端共用: web/components/jamony/user-popover.tsx + jamony-admin/src/features/reports/user-reports.tsx 同步维护
+const USER_REPORT_CATEGORIES = {
+  porn: '色情低俗',
+  spam: '广告营销',
+  abuse: '辱骂攻击',
+  harass: '骚扰纠缠',
+  disrupt: '扰乱房间',
+  impersonate: '冒充身份',
+  illegal: '违法违规',
+  other: '其他',
+}
+// 当日零点(Asia/Shanghai 自然日; 显式双转换不依赖会话时区)
+const USER_REPORT_DAY_START = `(date_trunc('day', NOW() AT TIME ZONE 'Asia/Shanghai') AT TIME ZONE 'Asia/Shanghai')`
+
+// 预查: 弹窗打开时查「今日是否已举报该用户」(1106: 写100字被拒=灾难体验)
+app.get('/api/users/:id/report-status', requireAuth, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id)
+    if (!id) return res.status(404).json({ ok: false, msg: '用户不存在' })
+    const r = await pool.query(
+      `SELECT 1 FROM user_reports WHERE reported_user_id=$1 AND reporter_user_id=$2 AND created_at >= ${USER_REPORT_DAY_START}`,
+      [id, req.userId]
+    )
+    res.json({ ok: true, reportedToday: r.rows.length > 0 })
+  } catch (err) {
+    console.error('User report status error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
 app.post('/api/users/:id/report', requireAuth, userReportUpload.single('evidence'), async (req, res) => {
   try {
     const id = parseInt(req.params.id)
     const discardFile = () => { if (req.file) { try { fs.unlinkSync(req.file.path) } catch {} } }
     if (!id) { discardFile(); return res.status(400).json({ ok: false, msg: '参数错误' }) }
-    const r = (req.body.reason || '').trim().slice(0, 300)
-    if (!r) { discardFile(); return res.status(400).json({ ok: false, msg: '请填写举报理由' }) }
     if (id === req.userId) { discardFile(); return res.status(400).json({ ok: false, msg: '不能举报自己' }) }
+    // 分类: multipart 里是 JSON 串; 白名单去重 + 「其他」互斥
+    let cats = req.body.categories
+    if (typeof cats === 'string') { try { cats = JSON.parse(cats) } catch { cats = null } }
+    if (!Array.isArray(cats) || cats.length === 0) { discardFile(); return res.status(400).json({ ok: false, msg: '请选择举报类型' }) }
+    cats = [...new Set(cats.map(String))]
+    if (cats.some(c => !USER_REPORT_CATEGORIES[c])) { discardFile(); return res.status(400).json({ ok: false, msg: '举报类型不合法' }) }
+    if (cats.includes('other') && cats.length > 1) { discardFile(); return res.status(400).json({ ok: false, msg: '「其他」不可与具体类型同时勾选' }) }
+    // 说明: 意见反馈同款口径 trim().length, 100~400 双闸
+    const reason = String(req.body.reason || '').trim()
+    if (reason.length < 100) { discardFile(); return res.status(400).json({ ok: false, msg: '请认真描述违规情况（至少 100 字）' }) }
+    if (reason.length > 400) { discardFile(); return res.status(400).json({ ok: false, msg: '描述过长（最多 400 字）' }) }
     const target = await pool.query(
       'SELECT nickname, avatar_url, gender, city, primary_instrument, instrument_category, signature, created_at FROM users WHERE id = $1', [id]
     )
     if (target.rows.length === 0) { discardFile(); return res.status(404).json({ ok: false, msg: '用户不存在' }) }
-    const dup = await pool.query('SELECT 1 FROM user_reports WHERE reported_user_id=$1 AND reporter_user_id=$2', [id, req.userId])
-    if (dup.rows.length > 0) { discardFile(); return res.json({ ok: true, msg: 'duplicated' }) }
+    const dup = await pool.query(
+      `SELECT 1 FROM user_reports WHERE reported_user_id=$1 AND reporter_user_id=$2 AND created_at >= ${USER_REPORT_DAY_START}`,
+      [id, req.userId]
+    )
+    if (dup.rows.length > 0) { discardFile(); return res.status(429).json({ ok: false, msg: '你今天已举报过该用户，明天可再次举报' }) }
     // 快照性别口径同 by-nickname: 仅 male/female 外显
     const t = target.rows[0]
     const snapshot = { ...t, gender: (t.gender === 'male' || t.gender === 'female') ? t.gender : null }
     await pool.query(
-      'INSERT INTO user_reports (reported_user_id, reporter_user_id, reason, image_url, snapshot) VALUES ($1,$2,$3,$4,$5)',
-      [id, req.userId, r, req.file ? `${userReportsDir}/${req.file.filename}` : null, JSON.stringify(snapshot)]
+      'INSERT INTO user_reports (reported_user_id, reporter_user_id, categories, reason, image_url, snapshot) VALUES ($1,$2,$3,$4,$5,$6)',
+      [id, req.userId, cats, reason, req.file ? `${userReportsDir}/${req.file.filename}` : null, JSON.stringify(snapshot)]
     )
     res.json({ ok: true })
   } catch (err) {
@@ -6515,12 +6641,12 @@ async function scanExpiredNotices() {
     // 线下提前1天提醒
     const remind = await pool.query("UPDATE notices SET remind_notified=TRUE WHERE type='offline' AND status='active' AND expire_at > NOW() AND expire_at < NOW() + INTERVAL '1 day' AND remind_notified=FALSE RETURNING *")
     for (const n of remind.rows) {
-      await createNotification({ recipientId: n.user_id, type: 'system', noticeId: n.id, message: `你的线下公告「${n.title}」明天过期` })
+      await createNotification({ recipientId: n.user_id, type: 'system', noticeId: n.id, message: `您的线下公告「${n.title}」明天过期` })
     }
     // 过期通知（线上+线下）
     const expired = await pool.query("UPDATE notices SET expire_notified=TRUE WHERE status='active' AND expire_at < NOW() AND expire_notified=FALSE RETURNING *")
     for (const n of expired.rows) {
-      await createNotification({ recipientId: n.user_id, type: 'system', noticeId: n.id, message: `你的公告「${n.title}」已过期` })
+      await createNotification({ recipientId: n.user_id, type: 'system', noticeId: n.id, message: `您的公告「${n.title}」已过期` })
     }
   } catch (e) { console.error('Expire scan error:', e) }
 }
@@ -6969,34 +7095,47 @@ async function setTakedownStatus(kind, id, action) {
   const noun = kind === 'works' ? '作品' : '公告'
   if (action === 'take_down') {
     const r = await pool.query(
-      `UPDATE ${table} SET status='taken_down' WHERE id=$1 AND status='${liveStatus}' RETURNING id`,
+      `UPDATE ${table} SET status='taken_down', taken_down_at=NOW() WHERE id=$1 AND status='${liveStatus}' RETURNING id, title`,
       [id]
     )
     if (r.rows.length === 0) return { ok: false, msg: '内容不存在或当前状态不可下架' }
-    // 1024 欢哥: 人工下架不再静默——用户必须知情+有救济通道(纯内容下架无处罚态, 申诉tab不开放, 指路意见反馈)
-    notifyContentOwner(kind, id, `您的${noun}已被下架。如有异议，请通过左侧「意见反馈」联系我们，我们会尽快处理。`)
+    // 1024 欢哥: 人工下架不再静默; 1106: 作品=您参与的+全员申诉入口(署名即责任共同体), 公告=终局不支持申诉(展示窗短+重发成本低)
+    if (kind === 'works') {
+      notifyContentOwner(kind, id, `您参与的作品《${r.rows[0].title}》因涉嫌违规已被下架。如有异议，请点击本条通知提交申诉。`, { type: 'content_takedown' })
+    } else {
+      notifyContentOwner(kind, id, `您的公告《${r.rows[0].title}》因涉嫌违规已被下架。本次处理不支持申诉。`, { type: 'system' })
+    }
     return { ok: true }
   }
   if (action === 'restore') {
     const r = await pool.query(
-      `UPDATE ${table} SET status='${liveStatus}' WHERE id=$1 AND status='taken_down' RETURNING id`,
+      `UPDATE ${table} SET status='${liveStatus}', taken_down_at=NULL WHERE id=$1 AND status='taken_down' RETURNING id, title`,
       [id]
     )
     if (r.rows.length === 0) return { ok: false, msg: '内容不存在或未被下架' }
-    notifyContentOwner(kind, id, `您的${noun}已恢复展示。`)
+    notifyContentOwner(kind, id, kind === 'works' ? `您参与的作品《${r.rows[0].title}》已恢复展示。` : `您的公告《${r.rows[0].title}》已恢复展示。`, { type: 'system' })
     return { ok: true }
   }
   return { ok: false, msg: '未知操作' }
 }
 
-async function notifyContentOwner(kind, id, message) {
+async function notifyContentOwner(kind, id, message, opts = {}) {
   try {
-    const q = kind === 'works'
-      ? 'SELECT publisher_user_id AS uid FROM works WHERE id=$1'
-      : 'SELECT user_id AS uid FROM notices WHERE id=$1'
-    const r = await pool.query(q, [id])
-    if (r.rows[0] && r.rows[0].uid) {
-      await createNotification({ recipientId: r.rows[0].uid, type: 'restriction', message })
+    // 1106欢哥令: 举报针对作品不针对人——作品下架通知全体参与者(署名+匿名, jamony-looper uid=0 除外),
+    // 全员有申诉权; 公告=作者单人。content_takedown 带workId——通知点击即申诉入口
+    if (kind === 'works') {
+      const r = await pool.query('SELECT user_id FROM work_authors WHERE work_id=$1 AND user_id<>0', [id])
+      for (const row of r.rows) {
+        if (!row.user_id) continue
+        const n = { recipientId: row.user_id, type: opts.type || 'restriction', message }
+        if (opts.type === 'content_takedown') n.workId = id
+        await createNotification(n)
+      }
+    } else {
+      const r = await pool.query('SELECT user_id AS uid FROM notices WHERE id=$1', [id])
+      if (r.rows[0] && r.rows[0].uid) {
+        await createNotification({ recipientId: r.rows[0].uid, type: opts.type || 'restriction', message })
+      }
     }
   } catch (e) { console.error('[moderation] 下架通知发送失败:', e.message) }
 }
@@ -7051,12 +7190,18 @@ app.post('/api/admin-internal/appeals/:id/resolve', requireAdminInternal, async 
     return res.status(400).json({ ok: false, msg: '驳回必须填理由' })
   }
   try {
-    const ap = await pool.query('SELECT id, user_id, status FROM appeals WHERE id=$1', [appealId])
+    const ap = await pool.query('SELECT id, user_id, status, type, work_id, notice_id FROM appeals WHERE id=$1', [appealId])
     if (!ap.rows[0]) return res.status(404).json({ ok: false, msg: '申诉不存在' })
     if (ap.rows[0].status !== 'pending') return res.status(409).json({ ok: false, msg: '该申诉已处理过' })
     const userId = ap.rows[0].user_id
     if (action === 'approve') {
       await pool.query(`UPDATE appeals SET status='approved', handled_at=NOW() WHERE id=$1`, [appealId])
+      if (ap.rows[0].type === 'work_takedown' || ap.rows[0].type === 'notice_takedown') {
+        // 1106 内容申诉: 通过=自动恢复展示(欢哥拍板,与账号申诉自动解限对称)——setTakedownStatus 内含恢复通知
+        const cid = ap.rows[0].work_id ?? ap.rows[0].notice_id
+        await setTakedownStatus(ap.rows[0].type === 'work_takedown' ? 'works' : 'notices', cid, 'restore')
+        await createNotification({ recipientId: userId, type: 'appeal_result', message: '您的申诉已通过，相关内容已恢复展示，刷新页面即可看到。请您继续遵守jamony的行为规范。' })
+      } else {
       // 只解除自动处罚态(restricted); demoted/banned 是人工更重决定, 不被旧申诉翻案
       const rel = await pool.query(
         `UPDATE users SET restriction='normal', restricted_until=NULL, restricted_at=NULL
@@ -7065,6 +7210,7 @@ app.post('/api/admin-internal/appeals/:id/resolve', requireAdminInternal, async 
       )
       if (rel.rows[0]) restrictionCache.set(userId, { v: 'normal', at: Date.now() })
       await createNotification({ recipientId: userId, type: 'appeal_result', message: '您的申诉已通过，相关限制已解除，刷新页面即时生效。请您继续遵守jamony的行为规范。' })
+      }
     } else {
       await pool.query(`UPDATE appeals SET status='rejected', reject_reason=$2, handled_at=NOW() WHERE id=$1`, [appealId, rejectReason])
       await createNotification({ recipientId: userId, type: 'appeal_result', message: `您的申诉未通过。理由：${rejectReason}。请您注意在jamony的行为规范。` })
@@ -7073,6 +7219,174 @@ app.post('/api/admin-internal/appeals/:id/resolve', requireAdminInternal, async 
     res.json({ ok: true })
   } catch (err) {
     console.error('admin-internal appeal resolve error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// 用户举报裁决(1106 verdict): 只盖章不处罚——结论≠结果, 与A的处置完全解耦; 章可改(覆盖); 每次翻牌必通知举报人
+// 1106晚欢哥令: 通知带被举报人昵称(「昵称」,快照优先)——举报人分得清是哪一票的反馈
+app.post('/api/admin-internal/user-reports/:id/verdict', requireAdminInternal, async (req, res) => {
+  const rid = parseInt(req.params.id)
+  const verdict = req.body?.verdict
+  const actor = req.headers['x-admin-actor'] || 'admin'
+  if (!Number.isInteger(rid) || (verdict !== 'verified' && verdict !== 'rejected')) {
+    return res.status(400).json({ ok: false, msg: '参数不合法' })
+  }
+  try {
+    const r = await pool.query(
+      'SELECT ur.id, ur.reporter_user_id, ur.reported_user_id, ur.status, ur.snapshot, ur.categories, u.nickname FROM user_reports ur JOIN users u ON u.id = ur.reported_user_id WHERE ur.id = $1', [rid])
+    if (!r.rows[0]) return res.status(404).json({ ok: false, msg: '举报不存在' })
+    if (r.rows[0].status === verdict) return res.status(409).json({ ok: false, msg: '该举报已是此状态' })
+    await pool.query('UPDATE user_reports SET status = $2, verdict_at = NOW() WHERE id = $1', [rid, verdict])
+    // 1106欢哥令: 教育通知——成立即告知违规类别令自查整改; 不指认具体字段(自查逻辑: 位置在说明与裁决里, 违规者自己知道做了什么)
+    if (verdict === 'verified') {
+      const catNames = (r.rows[0].categories ?? []).map((c) => USER_REPORT_CATEGORIES[c] ?? c).join('、')
+      await createNotification({
+        recipientId: r.rows[0].reported_user_id, type: 'system',
+        message: `经核实，您存在「${catNames}」类违规行为。请立即自查并整改相关资料或行为；再次违规，jamony 将按社区规范处置。`,
+      })
+    }
+    // 文案1106欢哥定稿: 结论≠结果——永不提处罚; 不成立带规则陈述(每次都带,不做阈值触发); 标识=快照优先
+    const nick = reportClip(r.rows[0].snapshot?.nickname ?? r.rows[0].nickname ?? '', 20)
+    const msg = verdict === 'verified'
+      ? `您举报的用户「${nick}」经核实存在违规行为，感谢您的监督。`
+      : `您举报的用户「${nick}」经核实未发现违规，感谢您的反馈。系统提醒：频繁无端或恶意举报将被视为严重违规行为。`
+    await createNotification({ recipientId: r.rows[0].reporter_user_id, type: 'report_result', message: msg })
+    console.log(`[admin-internal] 用户举报#${rid} 裁决=${verdict} by ${actor}`)
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('admin-internal user report verdict error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// ===== 四类内容举报裁决(1106 v2 全站闭环): 通知带内容标识; 快照优先回退当前值(旧举报) =====
+const reportClip = (s, n = 20) => {
+  const t = String(s ?? '').trim()
+  return t.length > n ? t.slice(0, n) + '…' : t
+}
+const CONTENT_REPORT_KINDS = {
+  work: {
+    table: 'work_reports',
+    idCol: 'work_id',
+    snap: (s) => (s?.title ? `作品《${reportClip(s.title)}》` : null),
+    db: async (rid) => {
+      const r = await pool.query('SELECT w.title FROM work_reports x JOIN works w ON w.id = x.work_id WHERE x.id = $1', [rid])
+      return r.rows[0]?.title ? `作品《${reportClip(r.rows[0].title)}》` : '作品（已不存在）'
+    },
+  },
+  comment: {
+    table: 'comment_reports',
+    idCol: 'comment_id',
+    snap: (s) => (s?.content != null ? `评论「${reportClip(s.content, 15)}」` : null),
+    db: async (rid) => {
+      const r = await pool.query('SELECT c.content FROM comment_reports x JOIN work_comments c ON c.id = x.comment_id WHERE x.id = $1', [rid])
+      return r.rows[0]?.content != null ? `评论「${reportClip(r.rows[0].content, 15)}」` : '评论（已删除）'
+    },
+  },
+  notice: {
+    table: 'notice_reports',
+    idCol: 'notice_id',
+    snap: (s) => (s?.title ? `公告《${reportClip(s.title)}》` : null),
+    db: async (rid) => {
+      const r = await pool.query('SELECT n.title FROM notice_reports x JOIN notices n ON n.id = x.notice_id WHERE x.id = $1', [rid])
+      return r.rows[0]?.title ? `公告《${reportClip(r.rows[0].title)}》` : '公告（已不存在）'
+    },
+  },
+  notice_comment: {
+    table: 'notice_comment_reports',
+    idCol: 'comment_id',
+    snap: (s) => (s?.content != null ? `评论「${reportClip(s.content, 15)}」` : null),
+    db: async (rid) => {
+      const r = await pool.query('SELECT c.content FROM notice_comment_reports x JOIN notice_comments c ON c.id = x.comment_id WHERE x.id = $1', [rid])
+      return r.rows[0]?.content != null ? `评论「${reportClip(r.rows[0].content, 15)}」` : '评论（已删除）'
+    },
+  },
+}
+
+app.post('/api/admin-internal/content-reports/:kind/:id/verdict', requireAdminInternal, async (req, res) => {
+  const kind = req.params.kind
+  const rid = parseInt(req.params.id)
+  const verdict = req.body?.verdict
+  const actor = req.headers['x-admin-actor'] || 'admin'
+  const K = CONTENT_REPORT_KINDS[kind]
+  if (!K || !Number.isInteger(rid) || (verdict !== 'verified' && verdict !== 'rejected')) {
+    return res.status(400).json({ ok: false, msg: '参数不合法' })
+  }
+  try {
+    const r = await pool.query(`SELECT id, reporter_user_id, status, snapshot, ${K.idCol} AS target_id FROM ${K.table} WHERE id = $1`, [rid])
+    if (!r.rows[0]) return res.status(404).json({ ok: false, msg: '举报不存在' })
+    if (r.rows[0].status === verdict) return res.status(409).json({ ok: false, msg: '该举报已是此状态' })
+    const ident = K.snap(r.rows[0].snapshot) ?? (await K.db(rid))
+    await pool.query(`UPDATE ${K.table} SET status = $2, verdict_at = NOW() WHERE id = $1`, [rid, verdict])
+    // 1106欢哥令: 成立=承认违规=必然处置(耦合)——一次点击=翻牌+下架/删除+双方通知, 从根源消灭第三状态
+    // 幂等: 内容已下架/已删则处置跳过(不重复通知owner), verdict照翻
+    if (verdict === 'verified' && r.rows[0].target_id != null) {
+      const tid = r.rows[0].target_id
+      if (kind === 'work' || kind === 'notice') {
+        const t = await setTakedownStatus(kind === 'work' ? 'works' : 'notices', tid, 'take_down')
+        if (t.ok) {
+          if (kind === 'work') emitWorksChanged('admin-take_down')
+          else emitBoardChanged('admin-take_down')
+        }
+      } else {
+        await adminDeleteCommentByKind(kind === 'comment' ? 'work' : 'notice', tid)
+        if (kind === 'comment') emitWorksChanged('admin-comment-delete')
+      }
+    }
+    const msg = verdict === 'verified'
+      ? `您举报的${ident}经核实存在违规行为，感谢您的监督。`
+      : `您举报的${ident}经核实未发现违规，感谢您的反馈。系统提醒：频繁无端或恶意举报将被视为严重违规行为。`
+    await createNotification({ recipientId: r.rows[0].reporter_user_id, type: 'report_result', message: msg })
+    console.log(`[admin-internal] 内容举报 ${kind}#${rid} 裁决=${verdict} by ${actor}`)
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('admin-internal content report verdict error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// admin 删除评论共用体(1106): 通知作者(终局文案,1106欢哥亲笔)+硬删+顶层计数器-1——被耦合裁决与独立端点共用
+async function adminDeleteCommentByKind(kind, cid) {
+  const cq = kind === 'work'
+    ? 'SELECT c.user_id, c.parent_id, w.title, w.id AS container_id FROM work_comments c JOIN works w ON w.id = c.work_id WHERE c.id = $1'
+    : 'SELECT c.user_id, c.parent_id, n.title, n.id AS container_id FROM notice_comments c JOIN notices n ON n.id = c.notice_id WHERE c.id = $1'
+  const c = await pool.query(cq, [cid])
+  if (!c.rows[0]) return { ok: false, msg: '评论不存在' }
+  const noun = kind === 'work' ? '作品' : '公告'
+  // 1024宪法「处置不静默」: 作者必须知情; 评论=终局不支持申诉(1106欢哥令)
+  await createNotification({
+    recipientId: c.rows[0].user_id, type: 'restriction',
+    message: `您在${noun}《${c.rows[0].title}》下的评论因涉嫌违规已被删除。本次处理不支持申诉。`,
+  })
+  if (kind === 'work') {
+    await pool.query('DELETE FROM work_comments WHERE id = $1', [cid])
+    if (!c.rows[0].parent_id) {
+      await pool.query('UPDATE works SET comments = GREATEST(COALESCE(comments, 0) - 1, 0) WHERE id = $1', [c.rows[0].container_id])
+    }
+  } else {
+    await pool.query('DELETE FROM notice_comments WHERE id = $1', [cid])
+    if (!c.rows[0].parent_id) {
+      await pool.query('UPDATE notices SET comments = GREATEST(COALESCE(comments, 0) - 1, 0) WHERE id = $1', [c.rows[0].container_id])
+    }
+  }
+  return { ok: true }
+}
+
+// admin 删除评论(1106 v2: 评论举报成立的处置口——此前断链)
+app.post('/api/admin-internal/comments/:kind/:id/delete', requireAdminInternal, async (req, res) => {
+  const kind = req.params.kind
+  const cid = parseInt(req.params.id)
+  const actor = req.headers['x-admin-actor'] || 'admin'
+  if ((kind !== 'work' && kind !== 'notice') || !Number.isInteger(cid)) {
+    return res.status(400).json({ ok: false, msg: '参数不合法' })
+  }
+  try {
+    const r = await adminDeleteCommentByKind(kind, cid)
+    if (r.ok) console.log(`[admin-internal] 删除${kind === 'work' ? '作品' : '公告'}评论#${cid} by ${actor}`)
+    res.status(r.ok ? 200 : 404).json(r)
+  } catch (err) {
+    console.error('admin-internal comment delete error:', err)
     res.status(500).json({ ok: false, msg: '服务器错误' })
   }
 })

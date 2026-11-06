@@ -106,6 +106,8 @@ export function TrackCard({
 
   function sendFeedback() {
     // 1024 举报系统: v0假按钮转正——反馈给作者是从未实现的占位, 按欢哥定稿改为举报作品(写work_reports)
+    // 1106 v2: 产物类成本闸 20~100 字(欢哥拍板)
+    if (feedbackText.trim().length < 20) return
     fetch(`/api/works/${track.id}/report`, {
       method: "POST",
       credentials: "include",
@@ -272,11 +274,12 @@ export function TrackCard({
                   autoFocus
                   value={feedbackText}
                   onChange={(e) => setFeedbackText(e.target.value)}
-                  placeholder="请输入举报理由…"
+                  placeholder="请具体说明违规情况（至少 20 字）"
                   rows={3}
                   maxLength={100}
                   className="w-full resize-none rounded-lg border border-[#1A1A1A] bg-black px-3 py-2 text-[13px] text-white outline-none placeholder:text-[#666] transition-colors focus:border-[#00AAFF]"
                 />
+                <p className="text-right text-[10px] tabular-nums" style={{ color: feedbackText.trim().length >= 90 ? "#FF5C5C" : "#8A8A8A" }}>已输入 {feedbackText.trim().length} 字 · 20~100</p>
                 <div className="flex justify-end gap-2">
                   <button
                     type="button"
@@ -287,7 +290,7 @@ export function TrackCard({
                   </button>
                   <button
                     type="button"
-                    disabled={!feedbackText.trim()}
+                    disabled={feedbackText.trim().length < 20}
                     onClick={sendFeedback}
                     className="rounded-md px-4 py-1.5 text-[12px] font-medium text-white transition-opacity disabled:opacity-30"
                     style={{ background: "linear-gradient(135deg, #00AAFF, #9933FF)" }}

@@ -48,8 +48,9 @@ export function NoticeDetailModal({
   }
 
   const handleReportNotice = async () => {
-    const reason = reportReason === "其他" ? reportCustom.trim() : reportReason
-    if (!reason || !notice) return
+    const desc = reportCustom.trim()
+    if (desc.length < 20 || !notice) return
+    const reason = reportReason === "其他" ? desc : `${reportReason}：${desc}`
     try {
       await fetch(`/api/notices/${notice.id}/report`, {
         method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
@@ -129,12 +130,11 @@ export function NoticeDetailModal({
                     <button key={r} type="button" onClick={() => setReportReason(r)} className="rounded-full px-3 py-1 text-xs transition-colors" style={reportReason === r ? { background: "linear-gradient(135deg, #FF33AA, #9933FF)", color: "#fff" } : { background: "#161616", color: "#8A8A8A" }}>{r}</button>
                   ))}
                 </div>
-                {reportReason === "其他" && (
-                  <textarea value={reportCustom} onChange={(e) => setReportCustom(e.target.value)} placeholder="说明原因…" rows={2} maxLength={100} className="mt-2 w-full resize-none rounded-lg border border-[#1A1A1A] bg-black px-3 py-2 text-xs text-white outline-none focus:border-[#00AAFF]" />
-                )}
+                <textarea value={reportCustom} onChange={(e) => setReportCustom(e.target.value)} placeholder="请具体说明违规情况（至少 20 字）" rows={3} maxLength={90} className="mt-2 w-full resize-none rounded-lg border border-[#1A1A1A] bg-black px-3 py-2 text-xs text-white outline-none placeholder:text-[#555] focus:border-[#00AAFF]" />
+                <p className="mt-1 text-right text-[10px] tabular-nums" style={{ color: reportCustom.trim().length >= 80 ? "#FF5C5C" : "#8A8A8A" }}>已输入 {reportCustom.trim().length} 字 · 20~90</p>
                 <div className="mt-4 flex justify-end gap-2">
                   <button type="button" onClick={() => { setReportOpen(false); setReportReason(""); setReportCustom("") }} className="px-4 py-1.5 text-xs text-[#9A9A9A] transition-colors hover:text-white">取消</button>
-                  <button type="button" disabled={!reportReason || (reportReason === "其他" && !reportCustom.trim())} onClick={handleReportNotice} className="rounded-full px-4 py-1.5 text-xs font-medium text-white disabled:opacity-30" style={{ background: "linear-gradient(135deg, #FF33AA, #9933FF)" }}>提交举报</button>
+                  <button type="button" disabled={!reportReason || reportCustom.trim().length < 20} onClick={handleReportNotice} className="rounded-full px-4 py-1.5 text-xs font-medium text-white disabled:opacity-30" style={{ background: "linear-gradient(135deg, #FF33AA, #9933FF)" }}>提交举报</button>
                 </div>
               </div>
             </div>

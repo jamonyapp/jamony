@@ -424,10 +424,12 @@ function DetailModal({ item, onClose }: { item: Highlight; onClose: () => void }
               autoFocus
               value={feedbackText}
               onChange={(e) => setFeedbackText(e.target.value)}
-              placeholder="请输入举报理由…"
+              placeholder="请具体说明违规情况（至少 20 字）"
               rows={2}
+              maxLength={100}
               className="w-full resize-none rounded-md border border-[#1A1A1A] bg-black px-2.5 py-1.5 text-[12px] text-white outline-none placeholder:text-[#666] focus:border-[#00AAFF]"
             />
+            <p className="text-right text-[10px] tabular-nums" style={{ color: feedbackText.trim().length >= 90 ? "#FF5C5C" : "#8A8A8A" }}>已输入 {feedbackText.trim().length} 字 · 20~100</p>
             <div className="flex justify-end gap-2">
               <button
                 type="button"
@@ -438,9 +440,9 @@ function DetailModal({ item, onClose }: { item: Highlight; onClose: () => void }
               </button>
               <button
                 type="button"
-                disabled={!feedbackText.trim()}
+                disabled={feedbackText.trim().length < 20}
                 onClick={() => {
-                  if (item.trackId) {
+                  if (item.trackId && feedbackText.trim().length >= 20) {
                     fetch(`/api/works/${item.trackId}/report`, {
                       method: "POST",
                       credentials: "include",
