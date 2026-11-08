@@ -9,7 +9,6 @@ import { LikeButton } from "@/components/jamony/like-button"
 import { CommentCount } from "@/components/jamony/comment-count"
 import { formatCount, type Track } from "@/lib/jamony-data"
 import { useAuth } from "@/lib/auth-context"
-import { UserPopover } from "@/components/jamony/user-popover"
 
 function WaveBars() {
   return (
@@ -310,7 +309,7 @@ export function TrackCard({
           {track.title}
         </h3>
         <span className="text-[12px]" style={{ color: "#D0D0D0" }}>
-          <UserPopover nickname={track.author}>{track.author}</UserPopover>
+          {track.author}
         </span>
         <div className={`flex items-center gap-2 ${statClass} text-white`}>
           <span className="flex items-center gap-0.5">

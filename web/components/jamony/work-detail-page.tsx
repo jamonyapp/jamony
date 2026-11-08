@@ -523,7 +523,7 @@ function WorkDetailInner() {
             <div className="mt-3 flex flex-wrap gap-x-6 gap-y-4">
               {workAuthors.filter((a: any) => !a.is_anonymous).map((a: any, i: number) => (
                 <div key={a.user_id || `anon-${i}`} className="flex items-center gap-2">
-                  <Avatar nickname={a.nickname} avatarUrl={a.avatar_url} size={36} />
+                  <UserPopover nickname={a.nickname}><Avatar nickname={a.nickname} avatarUrl={a.avatar_url} size={36} /></UserPopover>
                   <span className="text-sm text-white"><UserPopover nickname={a.nickname}>{a.nickname}</UserPopover></span>
                 </div>
               ))}
@@ -594,7 +594,7 @@ function WorkDetailInner() {
                 {comments.map((c) => (
                   <li key={c.id} className="border-b border-white/10 px-4 py-3 last:border-b-0">
                     <div className="flex items-start gap-2.5">
-                      <Avatar nickname={c.nickname} avatarUrl={c.avatar_url} size={28} />
+                      <UserPopover nickname={c.nickname}><Avatar nickname={c.nickname} avatarUrl={c.avatar_url} size={28} /></UserPopover>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-baseline gap-2">
                           <span className="text-sm font-medium text-white"><UserPopover nickname={c.nickname}>{c.nickname}</UserPopover></span>
@@ -645,7 +645,7 @@ function WorkDetailInner() {
                           <div className="mt-2 space-y-2 border-l border-white/10 pl-3">
                             {c.replies.map((r) => (
                               <div key={r.id} className="flex items-start gap-2">
-                                <Avatar nickname={r.nickname} avatarUrl={r.avatar_url} size={22} />
+                                <UserPopover nickname={r.nickname}><Avatar nickname={r.nickname} avatarUrl={r.avatar_url} size={22} /></UserPopover>
                                 <div className="min-w-0 flex-1">
                                   <div className="flex items-baseline gap-2">
                                     <span className="text-xs font-medium text-white"><UserPopover nickname={r.nickname}>{r.nickname}</UserPopover></span>

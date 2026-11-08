@@ -393,7 +393,7 @@ export function ProfilePage({ nickname }: { nickname: string }) {
                               <p className="truncate text-sm font-medium text-white">{n.title}</p>
                               <p className="text-xs" style={{ color: '#8A8A8A' }}>{NOTICE_TYPE_LABEL[n.type]} · {n.city} · {n.time}</p>
                               <p className="mt-0.5 flex items-center gap-1 text-xs" style={{ color: '#8A8A8A' }}>
-                                <Avatar nickname={n.author} avatarUrl={n.authorAvatar} size={14} />
+                                <UserPopover nickname={n.author}><Avatar nickname={n.author} avatarUrl={n.authorAvatar} size={14} /></UserPopover>
                                 <UserPopover nickname={n.author}>{n.author}</UserPopover>
                               </p>
                             </div>

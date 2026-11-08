@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
+import { useRouter } from "next/navigation"
 import {
   Pause,
   Play,
@@ -16,7 +17,6 @@ import {
 } from "lucide-react"
 import { usePlayer, REPEAT_MODE_LABEL, type RepeatMode } from "@/components/jamony/player-context"
 import { usePathname } from "next/navigation"
-import { formatCount } from "@/lib/jamony-data"
 import { useRoomSession } from "@/lib/room-session"
 import { Headphones } from "lucide-react"
 
@@ -31,6 +31,7 @@ function RepeatIcon({ mode }: { mode: RepeatMode }) {
 }
 
 export function PlayerBar() {
+  const router = useRouter()
   const {
     current,
     isPlaying,
@@ -167,13 +168,19 @@ export function PlayerBar() {
                       className={`group flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-white/5 ${
                         active ? "bg-white/5" : ""
                       }`}
-                      onClick={() => playTrack(t)}
+                      onClick={() => (active ? togglePlay() : playTrack(t))}
                     >
                       <div
-                        className="h-10 w-10 shrink-0 rounded-md"
-                        style={{ background: t.gradient }}
+                        className="h-10 w-10 shrink-0 cursor-pointer overflow-hidden rounded-md transition-opacity hover:opacity-80"
+                        style={t.coverImage ? undefined : { background: t.gradient }}
                         aria-hidden
-                      />
+                        onClick={(e) => { e.stopPropagation(); router.push(`/library/${t.id}`) }}
+                      >
+                        {t.coverImage ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={t.coverImage} alt="" className="h-full w-full object-cover" />
+                        ) : null}
+                      </div>
                       <div className="min-w-0 flex-1">
                         <p
                           className="truncate text-sm font-medium"
@@ -181,10 +188,23 @@ export function PlayerBar() {
                         >
                           {t.title}
                         </p>
-                        <p className="truncate text-xs text-[#9A9A9A]">
-                          {t.author} · {formatCount(t.plays)} 播放
+                        <p
+                          className="cursor-pointer truncate text-xs text-[#9A9A9A] transition-colors hover:text-white"
+                          onClick={(e) => { e.stopPropagation(); router.push(`/library/${t.id}`) }}
+                        >
+                          {t.author}
                         </p>
                       </div>
+                      {active && (
+                        <button
+                          type="button"
+                          aria-label={isPlaying ? "暂停" : "播放"}
+                          onClick={(e) => { e.stopPropagation(); togglePlay() }}
+                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white transition-all hover:bg-white/10"
+                        >
+                          {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                        </button>
+                      )}
                       <span className="shrink-0 text-xs tabular-nums text-[#9A9A9A]">
                         {t.duration}
                       </span>
@@ -215,8 +235,9 @@ export function PlayerBar() {
         <div className="mx-auto flex h-full max-w-[1280px] items-center gap-4 px-4 md:px-6">
           {/* 左侧：色块 + 信息 */}
           <div className="flex min-w-0 items-center gap-3">
+            {/* 1109 欢哥定稿: 播放条=纯预览层不挂用户卡;点封面或作者行直跳作品详情(识人路径=详情页作者区) */}
             <div
-              className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-md"
+              className={`flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-md transition-opacity${current ? " cursor-pointer hover:opacity-80" : ""}`}
               style={{
                 background: current
                   ? current.coverImage
@@ -225,6 +246,7 @@ export function PlayerBar() {
                   : "#1A1A1A",
               }}
               aria-hidden
+              onClick={current ? () => router.push(`/library/${current.id}`) : undefined}
             >
               {current?.coverImage ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -237,7 +259,10 @@ export function PlayerBar() {
               <p className="truncate text-sm font-bold text-white">
                 {current ? current.title : "未在播放"}
               </p>
-              <p className="truncate text-xs text-[#9A9A9A]">
+              <p
+                className={`truncate text-xs transition-colors${current ? " cursor-pointer text-[#9A9A9A] hover:text-white" : " text-[#9A9A9A]"}`}
+                onClick={current ? () => router.push(`/library/${current.id}`) : undefined}
+              >
                 {current ? current.author : "选择一个作品开始播放"}
               </p>
             </div>

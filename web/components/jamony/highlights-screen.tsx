@@ -5,6 +5,8 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { useRealtime } from "@/hooks/useRealtime"
 import { useRouter } from "next/navigation"
 import { SectionHeader } from "./section-header"
+import { UserPopover } from "@/components/jamony/user-popover"
+import { Avatar } from "@/components/jamony/avatar"
 import { useAuth } from "@/lib/auth-context"
 import { usePlayer } from "@/components/jamony/player-context"
 import { LikeButton } from "@/components/jamony/like-button"
@@ -25,7 +27,8 @@ type Highlight = {
   duration: string
   gradient: string
   date: string
-  members: { name: string; instrument: string }[]
+  members: { name: string; instrument: string; avatarUrl?: string }[]
+  anonymousCount?: number
   style: string
   trackId: string
   mp3Url?: string
@@ -282,16 +285,17 @@ function DetailModal({ item, onClose }: { item: Highlight; onClose: () => void }
               {item.style}
             </span>
 
-            {/* 作者 + 成员 同一行 */}
-            <div className="flex flex-wrap items-center gap-1 text-[12px] sm:text-[13px]" style={{ color: "#8A8A8A" }}>
-              <span>作者</span>
+            {/* 参与乐手 — 1109 欢哥定稿: 与作品详情页同构(精简版): 头像+昵称双触发挂卡+匿名尾巴 */}
+            <div className="flex flex-wrap items-center gap-1.5 text-[12px] sm:text-[13px]" style={{ color: "#8A8A8A" }}>
+              <span>参与乐手</span>
               {item.members.map((m, i) => (
                 <span key={i} className="flex items-center gap-1 text-white">
                   {i > 0 && <span className="text-[#333]">·</span>}
-                  <span>{m.instrument}</span>
-                  <span>{m.name}</span>
+                  <UserPopover nickname={m.name}><Avatar nickname={m.name} avatarUrl={m.avatarUrl} size={20} /></UserPopover>
+                  <UserPopover nickname={m.name}>{m.name}</UserPopover>
                 </span>
               ))}
+              {!!item.anonymousCount && <span>· {item.anonymousCount}位匿名乐手</span>}
             </div>
 
             {/* 播放量(纯展示) / 点赞量(可点) / 评论量(可点→详情页) — 作者下一行 */}
@@ -489,6 +493,7 @@ function HighlightsInner() {
           const members = namedAuthors.map((a: any) => ({
             name: a.nickname,
             instrument: instrumentEmojis[a.instrument_category] || "🎵",
+            avatarUrl: a.avatar_url, // 1109: 系统轨(jamony-looper)的 avatar_url=官方logo,后端下发,与作品详情页同源
           }))
           return {
             id: String(w.id),
@@ -502,6 +507,7 @@ function HighlightsInner() {
             gradient: w.coverGradient || GRADIENTS[i % GRADIENTS.length],
             date: w.date || "",
             members,
+            anonymousCount: authors.length - namedAuthors.length,
             style: w.styles?.[0] || "",
             trackId: String(w.id),
             mp3Url: w.mp3Url || "",

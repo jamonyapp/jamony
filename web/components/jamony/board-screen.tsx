@@ -2,7 +2,6 @@
 
 import { type Notice } from "@/lib/jamony-data"
 import { mapNotice } from "@/lib/notice-mappers"
-import { UserPopover } from "@/components/jamony/user-popover"
 import { Avatar } from "@/components/jamony/avatar"
 import { NoticeDetailModal } from "@/components/jamony/notice-detail-modal"
 import { useState } from "react"
@@ -108,7 +107,7 @@ function NoteCard({ notice, index, onOpen }: { notice: Notice; index: number; on
             </span>
           </div>
           <p className="mt-3 flex items-center justify-end gap-1.5 text-right text-[13px]" style={{ color: "#CCCCCC" }}>
-            <Avatar nickname={notice.author} avatarUrl={notice.authorAvatar} size={20} /><UserPopover nickname={notice.author}>{notice.author}</UserPopover>
+            <Avatar nickname={notice.author} avatarUrl={notice.authorAvatar} size={20} />{notice.author}
           </p>
           <p className="mt-0.5 text-right text-[11px]" style={{ color: "#9A9A9A" }}>{notice.time}</p>
         </div>

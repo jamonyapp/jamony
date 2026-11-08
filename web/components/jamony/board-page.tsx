@@ -15,7 +15,6 @@ import {
 import { mapNotice } from "@/lib/notice-mappers"
 import { PublishNoticeModal } from "@/components/jamony/publish-notice-modal"
 import { useAuth } from "@/lib/auth-context"
-import { UserPopover } from "@/components/jamony/user-popover"
 import { Avatar } from "@/components/jamony/avatar"
 import { useJamonyDialog } from "@/components/jamony/dialog"
 import { NoticeDetailModal } from "@/components/jamony/notice-detail-modal"
@@ -325,7 +324,7 @@ function NoticeCard({ notice, onClick }: { notice: Notice; onClick: () => void }
           </div>
           <p className="mt-2 flex items-center gap-1 text-xs" style={{ color: "#B0B0B0" }}>
             <Avatar nickname={notice.author} avatarUrl={notice.authorAvatar} size={14} />
-            <UserPopover nickname={notice.author}>{notice.author}</UserPopover>
+            {notice.author}
           </p>
         </div>
       </div>
