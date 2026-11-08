@@ -5,6 +5,7 @@ import { Send, Users, Signal, Crown, Headphones, UserCheck, UserX, Share2 } from
 import { useChatSocket } from "@/lib/chat-socket"
 import { useAuth } from "@/lib/auth-context"
 import { Avatar } from "@/components/jamony/avatar"
+import { UserPopover } from "@/components/jamony/user-popover"
 import { ProficiencyBadge } from "@/components/proficiency-badge"
 import { ListenersModal } from "@/components/playing/listeners-modal"
 import { copyShareText } from "@/lib/share-room"
@@ -123,7 +124,7 @@ export function RightColumn({ roomId, room, refreshTrigger, realtimeMembers, cur
               )}
             </div>
             <p className="mt-1.5 flex items-center gap-1 text-[11px]" style={{ color: "#8A8A8A" }}>
-              房主 <Avatar nickname={hostName} avatarUrl={hostAvatar} size={16} /> <span className="text-white">{hostName}</span>
+              房主 <UserPopover nickname={hostName}><Avatar nickname={hostName} avatarUrl={hostAvatar} size={24} /></UserPopover> <span className="text-xs text-white"><UserPopover nickname={hostName}>{hostName}</UserPopover></span>
             </p>
             <div className="relative mt-2.5">
               {copied && (
@@ -160,22 +161,16 @@ export function RightColumn({ roomId, room, refreshTrigger, realtimeMembers, cur
           <div className="overflow-y-auto" style={{ maxHeight: "120px" }}>
           <div className="flex flex-wrap gap-x-3 gap-y-1.5">
             {musicians.map((m) => {
-              const iconMap: Record<string, string> = {
-                "原声吉他": "🎸", "电吉他": "🎸", "贝斯": "🎸",
-                "打击乐器": "🥁", "键盘乐器": "🎹", "主唱": "🎤",
-                "弦乐": "🎻", "管乐": "🎷", "民乐": "🪕", "其他": "🎵", "听众": "🎧",
-              }
-              const icon = iconMap[m.instrument_category || ""] || "🎵"
+              // 1109 欢哥定稿: 乐手行乐器emoji退役(用户卡里有乐器)
               return (
               <div key={m.id} className="flex items-center gap-1.5">
                 <span className="relative inline-flex">
-                  <Avatar nickname={m.nickname} avatarUrl={m.avatar_url} size={24} />
+                  <UserPopover nickname={m.nickname}><Avatar nickname={m.nickname} avatarUrl={m.avatar_url} size={24} /></UserPopover>
                   {m.audio_status === "connected" && (
                     <span className="absolute -bottom-[1px] -right-[1px] h-2 w-2 rounded-full border" style={{ background: "#BBEE00", borderColor: "#0D0D0D" }} />
                   )}
                 </span>
-                <span className="text-xs text-white">{m.nickname}</span>
-                <span className="text-xs">{icon}</span>
+                <span className="text-xs text-white"><UserPopover nickname={m.nickname}>{m.nickname}</UserPopover></span>
                 {m.user_id === hostId && (
                   <Crown className="h-3 w-3" style={{ color: "#ffb84d" }} />
                 )}
@@ -197,8 +192,8 @@ export function RightColumn({ roomId, room, refreshTrigger, realtimeMembers, cur
           <div className="flex flex-wrap gap-x-3 gap-y-1.5">
             {listeners.map((m) => (
               <div key={m.id} className="flex items-center gap-1.5">
-                <Avatar nickname={m.nickname} avatarUrl={m.avatar_url} size={20} />
-                <span className="text-xs" style={{ color: "#B0B0B0" }}>{m.nickname}</span>
+                <UserPopover nickname={m.nickname}><Avatar nickname={m.nickname} avatarUrl={m.avatar_url} size={20} /></UserPopover>
+                <span className="text-xs" style={{ color: "#B0B0B0" }}><UserPopover nickname={m.nickname}>{m.nickname}</UserPopover></span>
                 {canKick(m) && <KickBtn m={m} />}
               </div>
             ))}
@@ -282,18 +277,19 @@ function ChatPanel({ roomId }: { roomId?: string }) {
           {connected ? "● 已连接" : "○ 未连接"}
         </span>
       </div>
-      <div className="flex-1 space-y-2 overflow-y-auto px-3 py-2 scrollbar-thin">
+      <div className="flex-1 space-y-1.5 overflow-y-auto px-3 py-2 scrollbar-thin">
         {messages.length === 0 && (
           <p className="text-center text-xs" style={{ color: "#666" }}>{'暂无消息'}</p>
         )}
         {messages.map((msg) => (
-          <div key={msg.id} className={`flex gap-1.5 ${msg.isSelf ? "flex-row-reverse" : "flex-row"}`}>
-            <Avatar nickname={msg.author} avatarUrl={msg.avatarUrl} size={20} className="mt-3 shrink-0" />
-            <div className={`flex flex-col ${msg.isSelf ? "items-end" : "items-start"}`}>
-              <div className="flex items-center gap-1.5 text-[10px]" style={{ color: "#8A8A8A" }}>
-                <span>{msg.author}</span><span>{msg.time}</span>
+          <div key={msg.id} className={`flex items-start gap-1.5 ${msg.isSelf ? "flex-row-reverse" : "flex-row"}`}>
+            <UserPopover nickname={msg.author}><Avatar nickname={msg.author} avatarUrl={msg.avatarUrl} size={20} className="shrink-0" /></UserPopover>
+            <div className={`flex min-w-0 flex-col ${msg.isSelf ? "items-end" : "items-start"}`}>
+              <div className="flex items-baseline gap-1 text-[10px]" style={{ color: "#8A8A8A" }}>
+                <span><UserPopover nickname={msg.author}>{msg.author}</UserPopover></span>
+                <span style={{ color: "#666" }}>{msg.time}</span>
               </div>
-              <div className={`mt-0.5 max-w-[90%] rounded-[8px] px-2.5 py-1.5 text-sm ${msg.isSelf ? "text-white" : "text-white"}`}
+              <div className="mt-0.5 max-w-[85%] whitespace-pre-wrap break-words rounded-[8px] px-2 py-1 text-xs text-white"
                 style={msg.isSelf ? { background: "#9933FF" } : { background: "rgba(255,255,255,0.08)" }}>
                 {msg.content}
               </div>

@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { X, Search, UserX } from "lucide-react"
 import { Avatar } from "@/components/jamony/avatar"
+import { UserPopover } from "@/components/jamony/user-popover"
 
 type Listener = {
   user_id: number
@@ -61,8 +62,8 @@ export function ListenersModal({
               <div className="flex flex-col gap-1.5">
                 {filtered.map((m) => (
                   <div key={m.user_id} className="flex items-center gap-2.5 rounded-lg px-3 py-2" style={{ background: "rgba(255,51,170,0.05)" }}>
-                    <Avatar nickname={m.nickname} avatarUrl={m.avatar_url} size={28} className="shrink-0" />
-                    <span className="flex-1 truncate text-sm text-white">{m.nickname}</span>
+                    <UserPopover nickname={m.nickname}><Avatar nickname={m.nickname} avatarUrl={m.avatar_url} size={28} className="shrink-0" /></UserPopover>
+                    <span className="flex-1 truncate text-sm text-white"><UserPopover nickname={m.nickname}>{m.nickname}</UserPopover></span>
                     {isHost && (
                       <button onClick={() => { onClose(); onKick?.(m) }} title="移出房间"
                         className="transition-colors" style={{ color: "#5A5A5A" }}

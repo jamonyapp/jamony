@@ -523,9 +523,9 @@ export function ProfilePage({ nickname }: { nickname: string }) {
                       <button key={u.id} onClick={() => router.push(`/profile?nickname=${encodeURIComponent(u.nickname)}`)}
                         className="flex items-center gap-3 rounded-lg border px-4 py-3 text-left transition-colors hover:bg-white/5"
                         style={{ borderColor: '#1A1A1A' }}>
-                        <Avatar nickname={u.nickname} avatarUrl={u.avatar_url} size={36} />
+                        <UserPopover nickname={u.nickname}><Avatar nickname={u.nickname} avatarUrl={u.avatar_url} size={36} /></UserPopover>
                         <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium text-white">{u.nickname}</p>
+                          <p className="truncate text-sm font-medium text-white"><UserPopover nickname={u.nickname}>{u.nickname}</UserPopover></p>
                           <p className="text-xs" style={{ color: '#8A8A8A' }}>{u.city}{u.instrument_category ? ` · ${u.instrument_category}` : ''}</p>
                         </div>
                         {currentUser?.id !== u.id && (

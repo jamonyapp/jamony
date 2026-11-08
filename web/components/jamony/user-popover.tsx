@@ -21,6 +21,7 @@ type PopoverUser = {
   city: string
   signature?: string
   gender?: string | null // 1105: by-nickname 仅 male/female 外显, secret/未填=null
+  is_system?: boolean // 1109: 系统用户(如jamony-looper)→官方身份卡分支
   level: number
   points: number
   created_at: string
@@ -199,6 +200,28 @@ export function UserPopover({
           {loading ? (
             <div className="flex items-center justify-center py-10"><span className="text-xs" style={{ color: "#8A8A8A" }}>加载中...</span></div>
           ) : user ? (
+            user.is_system ? (
+              /* 1109 欢哥定稿: 系统用户官方身份卡——无社交按钮/无天数/无性别地区签名,只有官方身份+作品履历 */
+              <div className="p-4">
+                <div className="flex items-center gap-3">
+                  <Avatar nickname={user.nickname} avatarUrl={user.avatar_url} size={52} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[15px] font-bold text-white">{user.nickname}</p>
+                    <div className="mt-1 flex items-center gap-1.5">
+                      <span className="rounded-md px-1.5 py-0.5 text-[10px] font-medium" style={{ color: "#00AAFF", backgroundColor: "rgba(0,170,255,0.10)" }}>
+                        jamony 官方
+                      </span>
+                      <span className="rounded-md px-1.5 py-0.5 text-[10px] font-medium tabular-nums" style={{ color: "#FF33AA", backgroundColor: "rgba(255,51,170,0.10)" }}>
+                        参与作品 {user.works_count ?? 0}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <p className="mt-3 text-[12px] leading-relaxed" style={{ color: "#8A8A8A" }}>
+                  jamony房间乐手，提供鼓机、乐谱、program等分轨辅助。
+                </p>
+              </div>
+            ) : (
             <>
               {/* 顶部个人信息 */}
               <div className="flex items-start gap-3 p-4 pb-2">
@@ -285,6 +308,7 @@ export function UserPopover({
                 )}
               </div>
             </>
+            )
           ) : (
             <div className="px-4 py-6 text-center text-xs" style={{ color: "#8A8A8A" }}>用户信息加载失败</div>
           )}

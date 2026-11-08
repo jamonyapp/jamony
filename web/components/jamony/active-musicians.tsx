@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { FollowButton } from "@/components/jamony/follow-button"
 import { Avatar } from "@/components/jamony/avatar"
+import { UserPopover } from "@/components/jamony/user-popover"
 
 const INSTRUMENT_ICON: Record<string, string> = {
   "电吉他": "🎸",
@@ -134,9 +135,9 @@ export function ActiveMusicians() {
                   }}
                   className="flex shrink-0 flex-col items-center gap-2.5 px-0.5 transition-all duration-500 ease-out"
                 >
-                  <Avatar nickname={m.nickname} avatarUrl={m.avatar_url} size={72} />
+                  <UserPopover nickname={m.nickname}><Avatar nickname={m.nickname} avatarUrl={m.avatar_url} size={72} /></UserPopover>
                   <span className="max-w-full truncate text-[13px] font-medium text-white">
-                    {m.nickname}
+                    <UserPopover nickname={m.nickname}>{m.nickname}</UserPopover>
                   </span>
                   <span className="text-[18px] leading-none text-[#8A8A8A]">
                     {INSTRUMENT_ICON[m.instrument_category] || "🎵"}

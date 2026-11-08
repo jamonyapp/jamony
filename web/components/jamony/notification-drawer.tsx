@@ -7,6 +7,7 @@ import { useNotifications, type Notif } from "@/lib/notifications-context"
 import { useDM } from "@/lib/dm-context"
 import { useAuth } from "@/lib/auth-context"
 import { Avatar } from "@/components/jamony/avatar"
+import { UserPopover } from "@/components/jamony/user-popover"
 import { AppealForm } from "@/components/jamony/appeal-form"
 
 const TABS = [
@@ -230,10 +231,12 @@ export function NotificationDrawer({ open, onClose, onOpenNotice, versionDrift, 
             ) : (
               conversations.map((c) => (
                 <div key={c.id} onClick={() => openExisting(c.id)} className="group flex cursor-pointer items-center gap-3 border-b px-4 py-3 transition-colors hover:bg-white/5" style={{ borderColor: "#1A1A1A", background: c.unread_count > 0 ? "rgba(153,51,255,0.15)" : "transparent" }}>
-                  <Avatar nickname={c.other_nickname || "U"} size={36} avatarUrl={c.other_avatar || undefined} />
+                  {c.other_nickname
+                    ? <UserPopover nickname={c.other_nickname}><Avatar nickname={c.other_nickname} size={36} avatarUrl={c.other_avatar || undefined} /></UserPopover>
+                    : <Avatar nickname="U" size={36} />}
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between">
-                      <p className="truncate text-sm font-medium text-white">{c.other_nickname}</p>
+                      <p className="truncate text-sm font-medium text-white">{c.other_nickname && <UserPopover nickname={c.other_nickname}>{c.other_nickname}</UserPopover>}</p>
                       <span className="text-xs" style={{ color: "#8A8A8A" }}>{c.last_message_at ? new Date(c.last_message_at).toLocaleDateString("zh-CN") : ""}</span>
                     </div>
                     <p className="truncate text-xs" style={{ color: "#8A8A8A" }}>{c.last_message || "开始对话"}</p>

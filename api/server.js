@@ -1385,7 +1385,7 @@ app.get('/api/users/by-nickname/:nickname', optionalAuth, async (req, res) => {
     const { nickname } = req.params
     const result = await pool.query(
       `SELECT u.id, u.nickname, u.bio, u.signature, u.city, u.primary_instrument, u.instrument_category, u.secondary_instrument,
-              u.styles, u.avatar_index, u.avatar_url, u.level, u.points, u.created_at,
+              u.styles, u.avatar_index, u.avatar_url, u.level, u.points, u.created_at, u.is_system,
               (SELECT COUNT(*) FROM work_authors wa WHERE wa.user_id = u.id)::int AS works_count,
               (SELECT COALESCE(SUM(w.likes), 0) FROM works w JOIN work_authors wa ON wa.work_id = w.id WHERE wa.user_id = u.id AND (wa.is_anonymous = FALSE OR $2 = u.id))::int AS total_likes,
               (SELECT COUNT(*) FROM follows WHERE followee_id = u.id)::int AS followers_count,
