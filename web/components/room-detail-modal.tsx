@@ -2,11 +2,12 @@
 
 import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Crown, Headphones, X, UserCheck, User, ShieldAlert } from "lucide-react"
+import { Crown, Headphones, X, UserCheck, User, ShieldAlert, ChevronDown, ChevronUp } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
 import { useRoomSession } from "@/lib/room-session"
 import { waitJamsoulDead } from "@/lib/jamsoul-wait"
 import { Avatar } from "@/components/jamony/avatar"
+import { UserPopover } from "@/components/jamony/user-popover"
 import { RoomPasswordModal } from "@/components/room-password-modal"
 import { SwitchRoomDialog } from "@/components/switch-room-dialog"
 import { useJamonyDialog } from "@/components/jamony/dialog"
@@ -56,6 +57,7 @@ export function RoomDetailModal({
   const [loading, setLoading] = useState(false)
   const [joining, setJoining] = useState(false)
   const [latency, setLatency] = useState(28)
+  const [listenersExpanded, setListenersExpanded] = useState(false) // 1109欢哥定稿: 听众chip前8折叠,点+N展开/收起
   const { user, loggedIn, setShowLoginModal } = useAuth()
   const { session, disconnectRoom } = useRoomSession()
   const [myRole, setMyRole] = useState<"musician" | "listener" | null>(null)
@@ -235,10 +237,10 @@ export function RoomDetailModal({
           {room.description && <p className="mt-3 text-sm leading-relaxed" style={{ color: "#8A8A8A" }}>{room.description}</p>}
 
           <div className="my-5 flex items-center gap-3 rounded-[10px] border p-3" style={{ borderColor: "rgba(255,255,255,0.05)", background: "rgba(255,255,255,0.02)" }}>
-            <Avatar nickname={room.host_name} avatarUrl={room.host_avatar_url} size={40} className="shrink-0" />
+            <UserPopover nickname={room.host_name}><Avatar nickname={room.host_name} avatarUrl={room.host_avatar_url} size={40} className="shrink-0" /></UserPopover>
             <div>
               <div className="flex items-center gap-1.5">
-                <span className="text-sm font-semibold text-white">{room.host_name}</span>
+                <span className="text-sm font-semibold text-white"><UserPopover nickname={room.host_name}>{room.host_name}</UserPopover></span>
                 <span className="flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium" style={{ color: "#ffb84d", backgroundColor: "rgba(255,184,77,0.12)" }}>
                   <Crown className="h-2.5 w-2.5" />房主
                 </span>
@@ -260,8 +262,8 @@ export function RoomDetailModal({
             <div className="mt-3 flex flex-col gap-2">
               {musicians.map((m) => (
                 <div key={m.id} className="flex items-center gap-2.5 rounded-lg px-3 py-2" style={{ background: "rgba(0,170,255,0.05)", border: "1px solid rgba(0,170,255,0.1)" }}>
-                  <Avatar nickname={m.nickname} avatarUrl={m.avatar_url} size={32} className="shrink-0" />
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-white">{m.nickname}</span>
+                  <UserPopover nickname={m.nickname}><Avatar nickname={m.nickname} avatarUrl={m.avatar_url} size={32} className="shrink-0" /></UserPopover>
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-white"><UserPopover nickname={m.nickname}>{m.nickname}</UserPopover></span>
                   <span className="flex items-center gap-1 text-[11px]" style={{ color: m.audio_status === "connected" ? "#BBEE00" : "#8A8A8A" }}>
                     <span className="h-2 w-2 rounded-full" style={{ backgroundColor: m.audio_status === "connected" ? "#BBEE00" : "#555" }} />
                     {m.audio_status === "connected" ? "已连" : "未连"}
@@ -283,17 +285,25 @@ export function RoomDetailModal({
               <UserCheck className="h-4 w-4" style={{ color: "#FF33AA" }} />
               听众 <span className="text-xs font-normal" style={{ color: "#8A8A8A" }}>{listeners.length} 位</span>
             </h3>
-            <div className="mt-2 flex items-center gap-2">
-              <div className="flex items-center">
-                {listeners.slice(0, 8).map((m, i) => (
-                  <span key={m.id} style={{ marginLeft: i === 0 ? 0 : -8 }} className="inline-flex rounded-full ring-2 ring-black">
-                    <Avatar nickname={m.nickname} avatarUrl={m.avatar_url} size={28} />
-                  </span>
-                ))}
-                {listeners.length > 8 && (
-                  <span className="ml-1.5 text-xs" style={{ color: "#B0B0B0" }}>+{listeners.length - 8}</span>
-                )}
-              </div>
+            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+              {(listenersExpanded ? listeners : listeners.slice(0, 8)).map((m) => (
+                <span key={m.id} className="flex items-center gap-1.5">
+                  <UserPopover nickname={m.nickname}><Avatar nickname={m.nickname} avatarUrl={m.avatar_url} size={28} /></UserPopover>
+                  <span className="text-xs text-white"><UserPopover nickname={m.nickname}>{m.nickname}</UserPopover></span>
+                </span>
+              ))}
+              {listeners.length > 8 && (
+                <button
+                  type="button"
+                  onClick={() => setListenersExpanded(v => !v)}
+                  className="flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs transition-colors hover:text-white active:scale-[0.97]"
+                  style={{ color: "#B0B0B0", borderColor: "#2A2A2A" }}
+                >
+                  {listenersExpanded
+                    ? <><ChevronUp className="h-3 w-3" />收起</>
+                    : <><ChevronDown className="h-3 w-3" />+{listeners.length - 8} 位</>}
+                </button>
+              )}
             </div>
           </div>
           )}

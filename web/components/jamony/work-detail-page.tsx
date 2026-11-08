@@ -519,9 +519,9 @@ function WorkDetailInner() {
           <SectionTitle>参与乐手</SectionTitle>
 
           {/* 署名乐手 */}
-          {workAuthors.filter((a: any) => !a.is_anonymous).length > 0 && (
+          {[...workAuthors].sort((a: any, b: any) => Number(a.is_system) - Number(b.is_system)).filter((a: any) => !a.is_anonymous).length > 0 && (
             <div className="mt-3 flex flex-wrap gap-x-6 gap-y-4">
-              {workAuthors.filter((a: any) => !a.is_anonymous).map((a: any, i: number) => (
+              {[...workAuthors].sort((a: any, b: any) => Number(a.is_system) - Number(b.is_system)).filter((a: any) => !a.is_anonymous).map((a: any, i: number) => (
                 <div key={a.user_id || `anon-${i}`} className="flex items-center gap-2">
                   <UserPopover nickname={a.nickname}><Avatar nickname={a.nickname} avatarUrl={a.avatar_url} size={36} /></UserPopover>
                   <span className="text-sm text-white"><UserPopover nickname={a.nickname}>{a.nickname}</UserPopover></span>

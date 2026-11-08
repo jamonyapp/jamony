@@ -489,7 +489,8 @@ function HighlightsInner() {
         if (!data.ok) return
         const mapped: Highlight[] = data.works.map((w: any, i: number) => {
           const authors = w.authors || []
-          const namedAuthors = authors.filter((a: any) => !a.is_anonymous)
+          // 1109 欢哥定稿: 系统轨(jamony-looper)永远排最后,人类保序——展示层排,不依赖插入顺序
+          const namedAuthors = authors.filter((a: any) => !a.is_anonymous).sort((a: any, b: any) => Number(a.is_system) - Number(b.is_system))
           const members = namedAuthors.map((a: any) => ({
             name: a.nickname,
             instrument: instrumentEmojis[a.instrument_category] || "🎵",
