@@ -47,7 +47,8 @@ function AgreementCheck({ agreed, onToggle, onOpen }: { agreed: boolean; onToggl
 
 type Mode = "account" | "sms" | "forgot"
 
-export function LoginModal() {
+// 1109 强登录: embedded=true = /login 整页模式(不随 showLoginModal 门控/无遮罩/无关闭钮, 成功跳 "/"); 默认 = 全局弹窗模式(原行为不变)
+export function LoginModal({ embedded = false }: { embedded?: boolean }) {
   const { showLoginModal, setShowLoginModal, login, loginWithSms, sendSmsCode, resetPassword } = useAuth()
   const [mode, setMode] = useState<Mode>("account")
 
@@ -92,7 +93,7 @@ export function LoginModal() {
     return () => clearTimeout(t)
   }, [countdown])
 
-  if (!showLoginModal) return null
+  if (!embedded && !showLoginModal) return null
 
   const reset = () => {
     setAccount("")
@@ -109,6 +110,12 @@ export function LoginModal() {
   const close = () => {
     reset()
     setShowLoginModal(false)
+  }
+
+  // embedded 整页模式: 登录成功整页跳首页(与 logout 会话边界同款——清全部 Provider/Query 状态, 杜绝半登录态)
+  const finish = () => {
+    if (embedded) { window.location.href = "/"; return }
+    close()
   }
 
   const switchMode = (m: Mode) => {
@@ -153,7 +160,7 @@ export function LoginModal() {
       setError(err)
       fetchAgreements()
     } else {
-      close()
+      finish()
     }
   }
 
@@ -179,7 +186,7 @@ export function LoginModal() {
       setError(err)
       fetchAgreements()
     } else {
-      close()
+      finish()
     }
   }
 
@@ -224,16 +231,17 @@ export function LoginModal() {
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-center justify-center p-4"
-      style={{ background: "rgba(0,0,0,0.6)" }}
-      onMouseDown={(e) => { downOnOverlay.current = e.target === e.currentTarget }} onClick={(e) => { if (e.target === e.currentTarget && downOnOverlay.current) close() }}
+      className={embedded ? "w-full max-w-sm" : "fixed inset-0 z-[70] flex items-center justify-center p-4"}
+      style={embedded ? undefined : { background: "rgba(0,0,0,0.6)" }}
+      onMouseDown={embedded ? undefined : (e) => { downOnOverlay.current = e.target === e.currentTarget }} onClick={embedded ? undefined : (e) => { if (e.target === e.currentTarget && downOnOverlay.current) close() }}
     >
       <div
         className="relative w-full max-w-sm rounded-2xl border p-6 shadow-2xl"
         style={{ background: "#0D0D0D", borderColor: "#1A1A1A" }}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* 关闭 */}
+        {/* 关闭(embedded 整页模式无此钮——门外没有退路正是设计) */}
+        {!embedded && (
         <button
           aria-label="关闭"
           className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-lg text-white transition-colors hover:bg-white/10"
@@ -241,6 +249,7 @@ export function LoginModal() {
         >
           <X className="h-5 w-5" />
         </button>
+        )}
 
         {/* Tab 切换: 默认「账户+密码」(1104 欢哥定稿); 协议全文视图时隐藏 */}
         {!showDoc && (

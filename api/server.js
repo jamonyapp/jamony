@@ -1341,14 +1341,14 @@ app.get('/api/me', requireAuth, async (req, res) => {
 
 // ========== IP 猜你所在(1105 地区改造): 设置页「猜你所在:广东 深圳,点击使用」 ==========
 // 公开端点(泄露的只是请求者自己 IP 的归属地); 纯内存查询零频控; 内网/回环 available:false
-app.get('/api/ip-location', (req, res) => {
+app.get('/api/ip-location', requireAuth, (req, res) => {
   const xff = req.headers['x-forwarded-for']
   const ip = (typeof xff === 'string' && xff.trim() ? xff.split(',')[0].trim() : '') || req.socket.remoteAddress || ''
   res.json({ ok: true, ...lookupByIp(ip) })
 })
 
 // ========== 获取单个用户 ==========
-app.get('/api/users/:id', optionalAuth, async (req, res) => {
+app.get('/api/users/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params
     const result = await pool.query(
@@ -1380,7 +1380,7 @@ app.get('/api/users/:id', optionalAuth, async (req, res) => {
 })
 
 // ========== 按昵称获取用户 ==========
-app.get('/api/users/by-nickname/:nickname', optionalAuth, async (req, res) => {
+app.get('/api/users/by-nickname/:nickname', requireAuth, async (req, res) => {
   try {
     const { nickname } = req.params
     const result = await pool.query(
@@ -1413,7 +1413,7 @@ app.get('/api/users/by-nickname/:nickname', optionalAuth, async (req, res) => {
 })
 
 // ========== 获取用户列表（分页） ==========
-app.get('/api/users', async (req, res) => {
+app.get('/api/users', requireAuth, async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1
     const limit = parseInt(req.query.limit) || 20
@@ -1476,7 +1476,7 @@ app.get('/api/users', async (req, res) => {
 })
 
 // ========== 获取作品列表（分页） ==========
-app.get('/api/tracks', async (req, res) => {
+app.get('/api/tracks', requireAuth, async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1
     const limit = parseInt(req.query.limit) || 20
@@ -1517,7 +1517,7 @@ app.get('/api/tracks', async (req, res) => {
 })
 
 // ========== 获取单个作品 ==========
-app.get('/api/tracks/:id', async (req, res) => {
+app.get('/api/tracks/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params
     const result = await pool.query('SELECT * FROM tracks WHERE id = $1', [id])
@@ -1532,7 +1532,7 @@ app.get('/api/tracks/:id', async (req, res) => {
 })
 
 // ========== 获取某个用户的作品 ==========
-app.get('/api/users/:userId/tracks', async (req, res) => {
+app.get('/api/users/:userId/tracks', requireAuth, async (req, res) => {
   try {
     const { userId } = req.params
     const result = await pool.query(
@@ -1547,7 +1547,7 @@ app.get('/api/users/:userId/tracks', async (req, res) => {
 })
 
 // ========== 获取某用户参与的作品（work_authors → works）==========
-app.get('/api/users/:userId/works', optionalAuth, async (req, res) => {
+app.get('/api/users/:userId/works', requireAuth, async (req, res) => {
   try {
     const { userId } = req.params
     const isSelf = req.userId !== null && String(req.userId) === String(userId)
@@ -1615,7 +1615,7 @@ app.get('/api/users/:userId/works', optionalAuth, async (req, res) => {
 })
 
 // ========== 按作者名获取作品 ==========
-app.get('/api/tracks/by-author/:authorName', async (req, res) => {
+app.get('/api/tracks/by-author/:authorName', requireAuth, async (req, res) => {
   try {
     const { authorName } = req.params
     const result = await pool.query(
@@ -1670,7 +1670,7 @@ app.patch('/api/tracks/:id', async (req, res) => {
 })
 
 // ========== 删除作品 ==========
-app.delete('/api/tracks/:id', async (req, res) => {
+app.delete('/api/tracks/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params
     const result = await pool.query('DELETE FROM tracks WHERE id = $1 RETURNING id', [id])
@@ -1900,7 +1900,7 @@ app.get('/api/me/following', requireAuth, async (req, res) => {
 })
 
 // 某用户的关注列表（带用户详情；受 follow_list_private 隐私控制）
-app.get('/api/users/:id/following', optionalAuth, async (req, res) => {
+app.get('/api/users/:id/following', requireAuth, async (req, res) => {
   try {
     const targetId = parseInt(req.params.id)
     if (!targetId) return res.status(404).json({ ok: false, msg: '用户不存在' })
@@ -1926,7 +1926,7 @@ app.get('/api/users/:id/following', optionalAuth, async (req, res) => {
 })
 
 // 某用户的粉丝列表（带用户详情；受 follow_list_private 隐私控制）
-app.get('/api/users/:id/followers', optionalAuth, async (req, res) => {
+app.get('/api/users/:id/followers', requireAuth, async (req, res) => {
   try {
     const targetId = parseInt(req.params.id)
     if (!targetId) return res.status(404).json({ ok: false, msg: '用户不存在' })
@@ -2175,7 +2175,7 @@ app.delete('/api/rooms/:code/score/shelf', requireAuth, async (req, res) => {
 })
 
 // 投谱文件读取（随机文件名不可枚举即房间内可见性边界；房间解散即删）
-app.get('/api/rooms/:code/score/files/:fname', (req, res) => {
+app.get('/api/rooms/:code/score/files/:fname', requireAuth, (req, res) => {
   const code = String(req.params.code || '').replace(/[^a-zA-Z0-9_-]/g, '')
   const fname = String(req.params.fname || '').replace(/[^a-zA-Z0-9_.-]/g, '')
   if (!code || !fname.includes('.') || fname.startsWith('.')) return res.status(400).json({ ok: false, msg: '参数错误' })
@@ -2342,7 +2342,7 @@ app.get('/api/rooms/:code/program/download/:tid', requireAuth, async (req, res) 
 })
 
 // 伴奏轨文件读取（波形 decode 用；随机文件名即边界，同 score/files 语义）
-app.get('/api/rooms/:code/program/files/:fname', (req, res) => {
+app.get('/api/rooms/:code/program/files/:fname', requireAuth, (req, res) => {
   const code = String(req.params.code || '').replace(/[^a-zA-Z0-9_-]/g, '')
   const fname = String(req.params.fname || '').replace(/[^a-zA-Z0-9_.-]/g, '')
   if (!code || !fname.includes('.') || fname.startsWith('.')) return res.status(400).json({ ok: false, msg: '参数错误' })
@@ -2495,7 +2495,7 @@ app.post('/api/rooms', requireAuth, async (req, res) => {
 })
 
 // 房间列表
-app.get('/api/rooms', async (req, res) => {
+app.get('/api/rooms', requireAuth, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT r.*, u.nickname AS host_name, REPLACE(u.avatar_url, '/var/jamony/avatars', '/avatars') AS host_avatar_url,
@@ -2521,7 +2521,7 @@ app.get('/api/rooms', async (req, res) => {
 })
 
 // 房间详情
-app.get('/api/rooms/:code', optionalAuth, async (req, res) => {
+app.get('/api/rooms/:code', requireAuth, async (req, res) => {
   try {
     const { code } = req.params
     const roomResult = await pool.query(
@@ -3919,7 +3919,7 @@ app.post('/api/rooms/:code/sessions/:sid/publish', requireAuth, upload.fields([{
 })
 
 // ========== 作品列表（works 表，含作者聚合）==========
-app.get('/api/works', async (req, res) => {
+app.get('/api/works', requireAuth, async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1
     const limit = parseInt(req.query.limit) || 20
@@ -3934,7 +3934,8 @@ app.get('/api/works', async (req, res) => {
     const countResult = await pool.query("SELECT COUNT(*) FROM works WHERE status = 'published' AND (audio_review = 'passed' OR audio_review IS NULL)")
     const total = parseInt(countResult.rows[0].count)
 
-    const currentUserId = req.query.userId ? parseInt(req.query.userId) : null
+    // 1109 强登录: is_liked 一律走登录态(req.userId, requireAuth 保证非空), 弃 ?userId= 查询参数(客户端残留参数无害)
+    const currentUserId = req.userId || null
     const result = await pool.query(`
       SELECT w.*, (
         SELECT COALESCE(json_agg(row_to_json(wa_sub) ORDER BY wa_sub.id), '[]'::json)
@@ -4021,10 +4022,11 @@ app.get('/api/works', async (req, res) => {
 })
 
 // ========== 单个作品详情 ==========
-app.get('/api/works/:id', async (req, res) => {
+app.get('/api/works/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params
-    const currentUserId = req.query.userId ? parseInt(req.query.userId) : null
+    // 1109 强登录: is_liked 一律走登录态(req.userId, requireAuth 保证非空), 弃 ?userId= 查询参数(客户端残留参数无害)
+    const currentUserId = req.userId || null
     const result = await pool.query(`
       SELECT w.*, (
         SELECT COALESCE(json_agg(row_to_json(wa_sub) ORDER BY wa_sub.id), '[]'::json)
@@ -4103,7 +4105,7 @@ app.get('/api/works/:id', async (req, res) => {
 })
 
 // ========== 播放计数 ==========
-app.post('/api/works/:id/play', async (req, res) => {
+app.post('/api/works/:id/play', requireAuth, async (req, res) => {
   try {
     const { id } = req.params
     // 1024 音频线: 审核中锁定试听(后端兜底; 前端角标已禁用播放)
@@ -4160,10 +4162,11 @@ app.post('/api/works/:id/like', requireAuth, async (req, res) => {
 
 // ========== 作品评论 ==========
 // 列表（一级评论 + 回复分组，时间倒序）
-app.get('/api/works/:id/comments', async (req, res) => {
+app.get('/api/works/:id/comments', requireAuth, async (req, res) => {
   try {
     const { id } = req.params
-    const currentUserId = req.query.userId ? parseInt(req.query.userId) : null
+    // 1109 强登录: is_liked 一律走登录态(req.userId, requireAuth 保证非空), 弃 ?userId= 查询参数(客户端残留参数无害)
+    const currentUserId = req.userId || null
     const topResult = await pool.query(`
       SELECT c.id, c.user_id, c.nickname, c.content, c.parent_id, c.reply_to_nickname, c.created_at,
         REPLACE(u.avatar_url, '/var/jamony/avatars', '/avatars') AS avatar_url,
@@ -4326,7 +4329,7 @@ app.post('/api/works/:id/comments/:commentId/report', requireAuth, async (req, r
 
 // ========== 公告牌 ==========
 // GET /api/notices 列表（过滤过期 + JOIN 发布者；支持 type/category/city/style/search/sort/page/limit）
-app.get('/api/notices', optionalAuth, async (req, res) => {
+app.get('/api/notices', requireAuth, async (req, res) => {
   try {
     const page = Math.max(1, parseInt(req.query.page) || 1)
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20))
@@ -4422,7 +4425,7 @@ app.post('/api/notices', requireAuth, async (req, res) => {
 })
 
 // GET /api/notices/:id 详情（仅未过期 active；浏览 +1）
-app.get('/api/notices/:id', optionalAuth, async (req, res) => {
+app.get('/api/notices/:id', requireAuth, async (req, res) => {
   try {
     const id = parseInt(req.params.id)
     if (!id) return res.status(404).json({ ok: false, msg: '公告不存在' })
@@ -4444,7 +4447,7 @@ app.get('/api/notices/:id', optionalAuth, async (req, res) => {
 })
 
 // GET /api/users/:id/notices 某用户发布的公告（自己看含过期，别人只看未过期 active）
-app.get('/api/users/:id/notices', optionalAuth, async (req, res) => {
+app.get('/api/users/:id/notices', requireAuth, async (req, res) => {
   try {
     const id = parseInt(req.params.id)
     if (!id) return res.status(404).json({ ok: false, msg: '用户不存在' })
@@ -4567,10 +4570,11 @@ async function createNotification({ recipientId, type, noticeId, commentId, work
 
 // ========== 公告牌评论（克隆 work_comments，work_id→notice_id）==========
 // 列表（一级评论 + 回复分组，时间倒序）
-app.get('/api/notices/:id/comments', async (req, res) => {
+app.get('/api/notices/:id/comments', requireAuth, async (req, res) => {
   try {
     const { id } = req.params
-    const currentUserId = req.query.userId ? parseInt(req.query.userId) : null
+    // 1109 强登录: is_liked 一律走登录态(req.userId, requireAuth 保证非空), 弃 ?userId= 查询参数(客户端残留参数无害)
+    const currentUserId = req.userId || null
     const topResult = await pool.query(`
       SELECT c.id, c.user_id, c.nickname, c.content, c.parent_id, c.reply_to_nickname, c.created_at,
         REPLACE(u.avatar_url, '/var/jamony/avatars', '/avatars') AS avatar_url,
@@ -5129,7 +5133,7 @@ app.patch('/api/works/:id/anonymize', requireAuth, async (req, res) => {
 })
 
 // 读取房间所有 session（含超时懒处理）
-app.get('/api/rooms/:code/sessions', async (req, res) => {
+app.get('/api/rooms/:code/sessions', requireAuth, async (req, res) => {
   try {
     const id = await getRoomIdByCode(req.params.code)
     if (!id) return res.status(404).json({ ok: false, msg: '房间不存在' })
@@ -5281,7 +5285,7 @@ async function startDrumsPlayback(port, midiFile, bpm) {
 }
 
 // 鼓机风格/节奏型列表（魔盒下拉数据源）；find 异步化（原同步 find=打开魔盒全站抖）
-app.get('/api/drums/styles', async (req, res) => {
+app.get('/api/drums/styles', requireAuth, async (req, res) => {
   const styles = {}
   for (const style of DRUM_STYLES) {
     try {
@@ -5325,7 +5329,7 @@ app.post('/api/rooms/:code/drums/start', requireAuth, async (req, res) => {
   }
 })
 
-app.get('/api/rooms/:code/drums/status', async (req, res) => {
+app.get('/api/rooms/:code/drums/status', requireAuth, async (req, res) => {
   try {
     const roomId = await getRoomIdByCode(req.params.code)
     if (!roomId) return res.status(404).json({ ok: false, msg: '房间不存在' })
@@ -5372,7 +5376,7 @@ app.post('/api/rooms/:code/drums/stop', requireAuth, async (req, res) => {
 // 轻量 ping：测纯网络延迟（不查 DB），前端房间卡片延迟用它而非 /api/rooms（后者含 DB 查询会虚高）
 app.get('/api/ping', (req, res) => { res.json({ ok: true }) })
 
-app.get('/api/daily-theme', async (req, res) => {
+app.get('/api/daily-theme', requireAuth, async (req, res) => {
   try {
     // 按北京 0 点换天，不依赖服务器时区设置
     const r = await pool.query("SELECT title, emoji FROM daily_themes WHERE date = (now() AT TIME ZONE 'Asia/Shanghai')::date")
@@ -5383,8 +5387,22 @@ app.get('/api/daily-theme', async (req, res) => {
   res.json({ ok: true, theme: { title: '自由即兴', emoji: '🎶' } })
 })
 
+// 1109 强登录·实时流鉴权: nginx auth_request 子请求(/stream/ Icecast 实时合奏流)——验 cookie JWT + banned 拒
+// 只回 200/401 零数据; nginx internal 调用, 外部直达也无害
+app.get('/api/auth-check', async (req, res) => {
+  const decoded = parseSession(req, res)
+  if (!decoded) return // parseSession 已回 401
+  try {
+    const r = await getUserRestriction(decoded.id)
+    if (r === 'banned') return res.status(401).json({ ok: false, code: 'BANNED' })
+    res.status(200).end()
+  } catch (e) {
+    res.status(401).json({ ok: false })
+  }
+})
+
 // 官方动态（后台配置中心写 site_config；此处公开读，空/失败由前端兜底旧文案）
-app.get('/api/official-update', async (req, res) => {
+app.get('/api/official-update', requireAuth, async (req, res) => {
   try {
     const r = await pool.query(`SELECT value FROM site_config WHERE key = 'official_update'`)
     const v = r.rows[0]?.value
@@ -5447,7 +5465,7 @@ app.get('/api/version/latest', async (req, res) => {
 
 // 用户反馈（配置中心三单之二：公开提交，匿名可发；同 IP 60s 限 1 条；jamony_api 仅 INSERT 无读权限）
 const feedbackRate = new Map() // ip → 上次提交时间戳
-app.post('/api/feedback', optionalAuth, async (req, res) => {
+app.post('/api/feedback', requireAuth, async (req, res) => {
   const content = String(req.body?.content ?? '').trim()
   const clientVersion = String(req.body?.client_version ?? '').slice(0, 20)
   if (content.length < 5) return res.status(400).json({ ok: false, msg: '写点具体内容吧（至少 5 个字）' })

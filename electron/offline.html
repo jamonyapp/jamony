@@ -35,7 +35,8 @@
     // 自动检测网络恢复，恢复后跳转云端
     const WEB_URL = 'https://app.jamonyapp.com' // 1102 域名时代
     function retry() {
-      fetch(WEB_URL + '/api/works?limit=1', { mode: 'no-cors' })
+      // 1109 强登录: 探测端点改白名单 /api/ping(works 已需登录, 虽 no-cors 对 401 仍 resolve, 但口径以公开端点为准)
+      fetch(WEB_URL + '/api/ping', { mode: 'no-cors' })
         .then(() => { location.href = WEB_URL })
         .catch(() => {})
     }

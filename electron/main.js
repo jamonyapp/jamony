@@ -354,7 +354,9 @@ function createWindow() {
   }, 5000)
 
   // #1 断网检测：云端页面加载失败 → 显示断网页
+  // 1109 强登录修正: ERR_ABORTED=导航被新导航中止(登出302链/SPA跳转常见), 不是断网——不过滤会误显「乐器没插线」
   mainWindow.webContents.on('did-fail-load', (e, errorCode, errorDesc, validatedURL) => {
+    if (errorDesc === 'ERR_ABORTED') return
     if (validatedURL && validatedURL.startsWith(WEB_URL)) {
       console.log('[jamony] 云端加载失败，显示断网页:', errorDesc)
       mainWindow.loadFile(path.join(__dirname, 'offline.html'))

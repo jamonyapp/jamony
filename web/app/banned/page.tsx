@@ -31,8 +31,8 @@ export default function BannedPage() {
   useEffect(() => { loadAppeals() }, [])
 
   const logout = () => {
-    fetch("/api/logout", { method: "POST", credentials: "include" }).catch(() => {}).finally(() => {
-      window.location.href = "/"
+    fetch("/api/logout", { method: "POST", credentials: "include", keepalive: true }).catch(() => {}).finally(() => {
+      window.location.href = "/login" // 1109 强登录: 登出直跳登录页(豁免页零302, 与 auth-context 同款)
     })
   }
 

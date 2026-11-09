@@ -54,6 +54,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (saved) setUser(JSON.parse(saved))
     } catch { /* ignore */ }
     setReady(true)
+    // 1109 强登录: 401(非BANNED)=无有效会话 → 推回登录门(500等非401不踢, 网络错误走catch保持缓存态)
+    let kicked = false
     fetch("/api/me", { credentials: "include" })
       .then(async r => {
         // ⑧banned 拦截(1023): 会话仍有效但账号被封 → 跳拦截页(申诉入口在那); 已在拦截页则不再跳(防刷新死循环)
@@ -63,6 +65,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             try { ;(window as unknown as { jamonyAPI?: { killJamsoul?: () => void } }).jamonyAPI?.killJamsoul?.() } catch { /* ignore */ }
             if (!window.location.pathname.startsWith("/banned")) window.location.href = "/banned"; return null
           } } catch { /* ignore */ }
+          kicked = true
         }
         return r.ok ? r.json() : null
       })
@@ -73,6 +76,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } else {
           setUser(null)
           localStorage.removeItem("jamony_user")
+          // 掉线兜底(与 middleware 双闸互补——middleware 拦"无cookie进来", 这里拦"cookie假/过期"); 豁免页不跳防死循环
+          if (kicked && !/^\/(login|banned|terms|privacy|share)/.test(window.location.pathname)) {
+            window.location.href = "/login"
+          }
         }
       })
       .catch(() => { /* 网络错误保持缓存态 */ })
@@ -161,15 +168,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(() => {
     const uId = user?.id
-    fetch("/api/logout", { method: "POST", credentials: "include" }).catch(() => {})
+    // keepalive: 页面卸载后请求仍送达(离房结算不丢)
+    fetch("/api/logout", { method: "POST", credentials: "include", keepalive: true }).catch(() => {})
     setUser(null)
     localStorage.removeItem("jamony_user")
     if (uId) {
-      fetch(`/api/users/${uId}/leave-all-rooms`, { method: "POST", credentials: "include" }).catch(() => {})
+      fetch(`/api/users/${uId}/leave-all-rooms`, { method: "POST", credentials: "include", keepalive: true }).catch(() => {})
     }
-    // 1024 欢哥抓漏: 登出=会话边界, 整页跳回首页——全量重置 React 状态/Query缓存/socket,
-    // 杜绝切账号后停留在旧账号页面(个人主页以URL?nickname=为准, 刷新也"没用"的根因)
-    window.location.href = "/"
+    // 1024 欢哥抓漏: 登出=会话边界, 整页跳转全量重置 React 状态/Query缓存/socket(杜绝停在旧账号页面)
+    // 1109 强登录修正: 直跳 /login(豁免页零302)——原跳 "/" 走 302 链, 与壳 did-fail-load 的 ERR_ABORTED
+    // 导航竞态误触发断网页「乐器没插线」; 直跳免竞态且 cookie 清理时序无关(豁免页不看 cookie)
+    window.location.href = "/login"
   }, [user])
 
   return (

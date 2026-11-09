@@ -5,3 +5,6 @@ out/
 public/soundfont/
 public/alphatab/
 lib/regions-data.json
+
+# 1109: Next16 build 自动生成的 AI 说明文件(构建产物)
+AGENTS.md
