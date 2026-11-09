@@ -378,7 +378,21 @@ function sendToJamsoul(obj) {
 // jamony 09-30 反馈链重做：spawn 成功≠进程活着（Win 缺 DLL/杀软拦截的秒退场景）。
 // 3 秒存活确认后才向网页发 ok:true；启动期 exit/error 发 ok:false + 原因，
 // 并跳过 jamsoul-exited 广播（避免前端同时收到失败回执又走"切听众"分流打架）
-function launchJamsoul(serverIp, port, nickname) {
+// 1110 门帘核对: join-room IPC 可被污染(devtools 可直调任意 host:port)。spawn 前问 api
+// 「当前用户活跃房的 server_port」(net.fetch+默认 session 自动带 httpOnly cookie),与 IPC
+// 传入端口一致才放行——一人一房闸保证活跃房唯一,端口对上=同一间房;伪造 spawn 参数死路。
+function spawnGateCheck(port) {
+  return net.fetch(`${WEB_URL}/api/my-active-room`, { signal: AbortSignal.timeout(3000) })
+    .then(async (res) => {
+      try {
+        const d = await res.json()
+        return !!(d && d.ok && d.room && Number(d.room.server_port) === Number(port))
+      } catch { return false }
+    })
+    .catch(() => false)
+}
+
+async function launchJamsoul(serverIp, port, nickname, ticket) {
   // jamony: 排重——jamsoul 已启动则不重启（避免硬刷新重复启动多个 jamsoul）
   if (jamsoulProcess) {
     console.log('[jamony] jamsoul already running, skip launch')
@@ -386,8 +400,17 @@ function launchJamsoul(serverIp, port, nickname) {
     return jamsoulProcess
   }
   // 使用 jamulus 原生的 --connect 参数自动连接服务器；--clientname 传 jamony 昵称（调音台 fader tag 显示）
+  // 1110 门帘: 端口核对不过=拒拉(无活跃房/不匹配/查询失败全拒,先 /join 再 spawn 是唯一正路)
+  if (!(await spawnGateCheck(port))) {
+    console.error(`[jamony] spawn gate rejected: port=${port}`)
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('jamsoul-launched', { ok: false, reason: 'gate-rejected', message: '房间校验未通过，请重新进入房间' })
+    }
+    return null
+  }
   const args = ['--connect', `${serverIp}:${port}`]
   if (nickname) args.push('--clientname', nickname)
+  if (ticket) args.push('--ticket', ticket) // 1110: 一次性票,连接握手时呈给房间进程验签(UDP直连旁路封堵)
 
   console.log(`[jamony] Launching jamsoul: ${JAMSOUL_BIN} ${args.join(' ')}`)
 
@@ -546,7 +569,7 @@ ipcMain.on('join-room', (_event, payload) => {
     return
   }
 
-  launchJamsoul(payload.serverIp, payload.port, payload.nickname)
+  launchJamsoul(payload.serverIp, payload.port, payload.nickname, payload.ticket)
   // jamony 09-30: 不再无条件报成功——结果由 launchJamsoul 3 秒存活确认后发（真启动成功才 ok:true）
 })
 
@@ -554,6 +577,19 @@ ipcMain.on('join-room', (_event, payload) => {
 ipcMain.on('kill-jamsoul', () => {
   console.log('[jamony] IPC kill-jamsoul received')
   killJamsoul()
+})
+
+// 1110 分享外链: 渲染进程请求跳系统浏览器(微博分享页等)——壳内 webRequest 白名单会拦外域,
+// openExternal 不经渲染进程加载;主进程侧协议+域白名单再验一次,防 IPC 被污染打开任意页
+ipcMain.on('open-external', (_event, url) => {
+  try {
+    const u = new URL(url)
+    const ok = u.protocol === 'https:' &&
+      (u.hostname === 'jamonyapp.com' || u.hostname.endsWith('.jamonyapp.com') ||
+       u.hostname === 'weibo.com' || u.hostname.endsWith('.weibo.com'))
+    if (ok) shell.openExternal(u.toString())
+    else console.log('[jamony] open-external 拒绝非白名单:', url)
+  } catch { console.log('[jamony] open-external URL 解析失败:', url) }
 })
 
 // jamony 08-27 调试: 手动弹 jamsoul 反馈保护弹窗（验收用, testfeedback 指令走 stdin）
