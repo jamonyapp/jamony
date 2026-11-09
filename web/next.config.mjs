@@ -1,10 +1,15 @@
 /** @type {import('next').NextConfig} */
+import path from 'path'
+import { fileURLToPath } from 'url'
+
 const nextConfig = {
   // 2026-09-30 demo 1.0.0: 关闭 ignoreBuildErrors，类型系统重新生效
   //（07-17 修净 6 处后开关一直开着，现 tsc 零错误，CI 守门接棒）
   images: {
     unoptimized: true,
   },
+  // 1110b worktree 构建: node_modules 软链指向主检出,Turbopack 封闭构建须放宽 root 到共同祖先
+  turbopack: { root: path.join(path.dirname(fileURLToPath(import.meta.url)), '../../../..') },
   // 10-09 GP工作站音源自分发：sonivox 版本化文件名 → immutable 一年缓存（升级=文件名变=缓存自动失效）
   // manifest.json 是指针，短缓存；规则自上而下后者覆盖前者，故 manifest 放最后
   async headers() {

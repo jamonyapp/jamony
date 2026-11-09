@@ -23,7 +23,7 @@ import type { RoomScore } from "@/lib/jam-data"
 declare global {
   interface Window {
     jamonyAPI?: {
-      joinRoom: (p: { serverIp: string; port: number; nickname?: string }) => void
+      joinRoom: (p: { serverIp: string; port: number; nickname?: string; ticket?: string }) => void
       killJamsoul: () => void
       enterRoom: (p: { roomCode: string; userId: number }) => void
       leaveRoom: () => void
@@ -224,8 +224,27 @@ export function PlayingPage() {
 
           // 仅合奏者自动调起 jamsoul
           if (role === "musician") {
-            setTimeout(() => {
-              const payload = { serverIp: window.location.hostname, port: roomData.server_port, nickname: user?.nickname }
+            setTimeout(async () => {
+              // 1110b: 已成员自动调起也须先 /join 领一次性 ticket——fb5ae850 漏点:
+              // 房主建房自动进房/强刷保房走此路,无票=强制档 10s 被踢(no-ticket)
+              let ticket: string | undefined
+              try {
+                const r = await fetch(`/api/rooms/${roomId}/join`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ role: "musician" }),
+                })
+                const d = await r.json().catch(() => ({ ok: false }))
+                if (!r.ok || !d.ok) {
+                  await dialog.alert(d.msg || "进入失败")
+                  return
+                }
+                ticket = d.ticket
+              } catch {
+                await dialog.alert("网络异常，请重试")
+                return
+              }
+              const payload = { serverIp: window.location.hostname, port: roomData.server_port, nickname: user?.nickname, ticket }
               if (window.jamonyAPI) {
                 window.jamonyAPI.joinRoom(payload)
               } else {
