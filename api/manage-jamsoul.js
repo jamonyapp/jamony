@@ -55,15 +55,18 @@ if (CMD === 'start') {
   const rpcPort = PORT + 10000
   const recDir = '/var/jamony/recordings/room-' + PORT + '-records/'
   const secretFile = '/var/jamony/rpc-secrets/room-' + PORT + '.txt'
-  execSync('mkdir -p /var/jamony/recordings /var/jamony/rpc-secrets', { stdio: 'pipe' })
+  execSync('mkdir -p /var/jamony/recordings /var/jamony/rpc-secrets /var/jamony/logs', { stdio: 'pipe' })
   fs.writeFileSync(secretFile, rpcSecret)
+  // 1110 ticket 观察模式: headless 的 qWarning([jamony-ticket] REJECT/observe-accept)必须落盘,
+  // 否则 stdio:ignore 把验签日志全扔了——观察期判「零误拒」全靠它;append 追加,每房一文件
+  const roomLogFd = fs.openSync('/var/jamony/logs/room-' + PORT + '.log', 'a')
   const p = spawn(HEADLESS_BIN, [
     '--port', String(PORT), '--server', '--nogui', '--numchannels', String(finalCh),
     '--recording', recDir,
     '--norecord',
     '--jsonrpcport', String(rpcPort),
     '--jsonrpcsecretfile', secretFile,
-  ], { stdio: 'ignore', detached: true })
+  ], { stdio: ['ignore', roomLogFd, roomLogFd], detached: true })
   p.unref()
   var st = getState()
   st[PORT] = Object.assign({}, st[PORT], { headlessPid: p.pid })

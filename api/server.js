@@ -4130,11 +4130,11 @@ app.get('/api/works/:id/public', async (req, res) => {
       SELECT w.id, w.title, w.cover_gradient, w.cover_image_path, w.mp3_path, w.duration,
              w.style, w.copyright_type, w.description, w.cover_song, w.cover_author,
              w.plays, w.likes, w.created_at,
-             (SELECT COALESCE(json_agg(row_to_json(wa_sub) ORDER BY wa_sub.id), '[]'::json)
+             (SELECT COALESCE(json_agg(row_to_json(wa_sub)), '[]'::json)
               FROM (
                 SELECT COALESCE(u.nickname, wa.nickname) AS nickname, wa.instrument_category, wa.is_anonymous, COALESCE(u.is_system, FALSE) AS is_system
                 FROM work_authors wa LEFT JOIN users u ON u.id = wa.user_id WHERE wa.work_id = w.id
-              ) wa_sub) AS authors
+              ) wa_sub) AS authors -- ORDER BY wa.id: 子查询未投影 id,ORDER BY 引基表列保序不外泄
       FROM works w
       WHERE w.id = $1 AND w.status = 'published'
     `, [id])
