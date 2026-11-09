@@ -65,3 +65,4 @@ dist/
 electron/jamsoul.app/
 .asar-work/
 web/tsconfig.tsbuildinfo
+.claude/
