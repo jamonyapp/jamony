@@ -4132,7 +4132,8 @@ app.get('/api/works/:id/public', async (req, res) => {
              w.plays, w.likes, w.created_at,
              (SELECT COALESCE(json_agg(row_to_json(wa_sub)), '[]'::json)
               FROM (
-                SELECT COALESCE(u.nickname, wa.nickname) AS nickname, wa.instrument_category, wa.is_anonymous, COALESCE(u.is_system, FALSE) AS is_system
+                SELECT COALESCE(u.nickname, wa.nickname) AS nickname, wa.instrument_category, wa.is_anonymous, COALESCE(u.is_system, FALSE) AS is_system,
+                       REPLACE(u.avatar_url, '/var/jamony/avatars', '/avatars') AS avatar_url
                 FROM work_authors wa LEFT JOIN users u ON u.id = wa.user_id WHERE wa.work_id = w.id
               ) wa_sub) AS authors -- ORDER BY wa.id: 子查询未投影 id,ORDER BY 引基表列保序不外泄
       FROM works w
@@ -4142,6 +4143,14 @@ app.get('/api/works/:id/public', async (req, res) => {
       return res.status(404).json({ ok: false, msg: '作品不存在或已下架' })
     }
     const row = result.rows[0]
+    // 1110 欢哥指令: 落地页全量下发参与乐手(含 jamony-looper 系统轨+匿名位),署名区带头像
+    const authorsAll = (row.authors || []).map(a => ({
+      nickname: a.nickname || '乐手',
+      avatar: a.avatar_url || '',
+      instrument: a.instrument_category || '',
+      isAnonymous: Boolean(a.is_anonymous),
+      isSystem: Boolean(a.is_system),
+    }))
     const authors = (row.authors || []).filter(a => !a.is_system)
     const namedAuthors = authors.filter(a => !a.is_anonymous)
     let author = ''
@@ -4153,6 +4162,7 @@ app.get('/api/works/:id/public', async (req, res) => {
       id: String(row.id),
       title: row.title,
       author,
+      authors: authorsAll,
       nature,
       style: row.style || '',
       description: row.description || '',

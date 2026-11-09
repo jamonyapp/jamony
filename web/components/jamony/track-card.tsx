@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { MoreHorizontal, Pause, Play, Heart, MessageCircle } from "lucide-react"
 import { VinylRecord } from "@/components/jamony/vinyl-record"
+import { ShareMenu } from "@/components/share/share-menu"
 import { usePlayer } from "@/components/jamony/player-context"
 import { LikeButton } from "@/components/jamony/like-button"
 import { CommentCount } from "@/components/jamony/comment-count"
@@ -48,6 +49,7 @@ export function TrackCard({
   const padClass = compact ? "p-2" : "p-3"
   const centerBtnClass = compact ? "h-11 w-11" : "h-14 w-14"
   const [menuOpen, setMenuOpen] = useState(false)
+  const [shareOpen, setShareOpen] = useState(false) // 1110b 作品库卡片分享入口(⋯菜单→ShareMenu 下拉)
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [feedbackText, setFeedbackText] = useState("")
   const [feedbackSent, setFeedbackSent] = useState(false)
@@ -238,6 +240,13 @@ export function TrackCard({
                 </button>
                 <button
                   type="button"
+                  onClick={() => { setMenuOpen(false); setShareOpen(true) }}
+                  className="block w-full px-3 py-2 text-left text-[13px] text-white transition-colors hover:bg-white/5"
+                >
+                  分享
+                </button>
+                <button
+                  type="button"
                   onClick={() => handleMenuItem("playlist")}
                   className="block w-full px-3 py-2 text-left text-[13px] text-white transition-colors hover:bg-white/5"
                 >
@@ -301,6 +310,8 @@ export function TrackCard({
             )}
           </div>
         )}
+        {/* 1110b 分享下拉(与⋯菜单同锚点;stopPropagation 已在 ShareMenu 内置,不误触卡片播放) */}
+        <ShareMenu open={shareOpen} onClose={() => setShareOpen(false)} workId={track.id} title={track.title} />
       </div>
 
       {/* 文案 */}
