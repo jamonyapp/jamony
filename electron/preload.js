@@ -57,11 +57,6 @@ contextBridge.exposeInMainWorld('jamonyAPI', {
   checkForUpdate: () => {
     ipcRenderer.send('jamony-check-update')
   },
-  // 1110 作品分享: 外链跳系统浏览器（微博分享页等）——壳内 webRequest 白名单会拦外域,
-  // shell.openExternal 不经渲染进程,主进程侧再验一次协议+域
-  openExternal: (url) => {
-    ipcRenderer.send('open-external', url)
-  },
 })
 
 // 拦截网页的 window.postMessage，如果内容是 JOIN_ROOM 则转发到主进程
