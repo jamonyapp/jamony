@@ -556,6 +556,19 @@ ipcMain.on('kill-jamsoul', () => {
   killJamsoul()
 })
 
+// 1110 分享外链: 渲染进程请求跳系统浏览器(微博分享页等)——壳内 webRequest 白名单会拦外域,
+// openExternal 不经渲染进程加载;主进程侧协议+域白名单再验一次,防 IPC 被污染打开任意页
+ipcMain.on('open-external', (_event, url) => {
+  try {
+    const u = new URL(url)
+    const ok = u.protocol === 'https:' &&
+      (u.hostname === 'jamonyapp.com' || u.hostname.endsWith('.jamonyapp.com') ||
+       u.hostname === 'weibo.com' || u.hostname.endsWith('.weibo.com'))
+    if (ok) shell.openExternal(u.toString())
+    else console.log('[jamony] open-external 拒绝非白名单:', url)
+  } catch { console.log('[jamony] open-external URL 解析失败:', url) }
+})
+
 // jamony 08-27 调试: 手动弹 jamsoul 反馈保护弹窗（验收用, testfeedback 指令走 stdin）
 ipcMain.on('test-feedback', () => {
   console.log('[jamony] IPC test-feedback received')
