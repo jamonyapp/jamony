@@ -68,18 +68,21 @@ function authorsDigest(w: PublicWork): string {
   return total ? `${total}位乐手` : "jamony 乐手"
 }
 
+// 1110m 微信卡片定稿(欢哥): 标题只用作品名(不带「- jamony 即鸣」后缀,微信默认卡抓<title>故全层纯名);
+// 描述=固定文案(不动态取署名)
+const SHARE_DESC = "这首作品不错,听听看。可以来jamony,一起玩!"
+
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params
   const w = await fetchWork(id)
   if (!w) return { title: "作品不存在 - jamony 即鸣" }
-  const desc = `${authorsDigest(w)}的合奏作品,来 jamony 一起玩!`
   const img = w.coverUrl ? `${MEDIA_BASE}${w.coverUrl}` : OG_FALLBACK
   return {
-    title: `${w.title} - jamony 即鸣`,
-    description: desc,
+    title: w.title,
+    description: SHARE_DESC,
     openGraph: {
       title: w.title,
-      description: desc,
+      description: SHARE_DESC,
       images: [img],
     },
   }
@@ -109,7 +112,7 @@ export default async function ShareWorkPage({ params }: { params: Promise<{ id: 
 
   return (
     <main className="flex min-h-screen flex-col items-center bg-black px-6 py-10 text-zinc-300">
-      <WechatShare title={w.title} desc={`${authorsDigest(w)}的合奏作品,来 jamony 一起玩!`} coverUrl={cardImage} />
+      <WechatShare title={w.title} desc={SHARE_DESC} coverUrl={cardImage} />
       <div className="w-full max-w-md">
         <div className="relative mx-auto aspect-square w-full max-w-[280px] overflow-hidden rounded-lg">
           {cover}
