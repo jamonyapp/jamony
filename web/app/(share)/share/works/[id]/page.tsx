@@ -1,5 +1,6 @@
 import type { Metadata } from "next"
 import { notFound } from "next/navigation"
+import { Play, Heart } from "lucide-react"
 import { SharePlayer } from "@/components/share/share-player"
 import { WechatShare } from "@/components/share/wechat-share"
 import { VinylRecord } from "@/components/jamony/vinyl-record"
@@ -7,13 +8,11 @@ import { VinylRecord } from "@/components/jamony/vinyl-record"
 // 1110 作品分享落地页(公开免登录,微信/微博/桌面浏览器通吃): 三秒内看到封面听到歌。
 // 不带: 评论/相关推荐/用户卡/登录墙/左栏/桌面壳;状态闸=只渲染 published(下架/删除=404,
 // 防旧链接在微信里继续传播=审核旁门);数据边界=公开端点只回公开字段。
-// 页面经 nginx 官网块以 https://jamonyapp.com/share/works/[id] 对外(JS安全域名=jamonyapp.com),
-// 媒体文件在 app 子域,一律绝对地址(https页面+相对路径会被解析到官网域=404)。
-// 1110b 欢哥验收批: 封面同库(无封面=渐变+黑胶纹 VinylRecord)/乐手全量署名(含系统轨+匿名位+头像)/
-// 统计行上移标题下/下载文案与水印定稿/og+微信卡片图带兜底。
+// 页面在 s.jamonyapp.com 子域(nginx 全站纯代理零改写), 媒体同域自洽。
+// 1110m 欢哥排版定稿批: 描述上移乐手上方+两端对齐; 播放/喜欢=图标+数字(作品卡同款);
+// 署名区=「参与乐手」标题+详情页同构排序(署名在前·系统轨垫署名尾·匿名尾巴最后)+平铺不居中+删官方标。
 
 const API_INTERNAL = process.env.API_INTERNAL || "http://127.0.0.1:3001"
-// 1110 终版: s.jamonyapp.com 分享子域(s nginx 全站纯代理到 app:3000,零改写)——媒体/og 同域自洽
 const MEDIA_BASE = "https://s.jamonyapp.com"
 const OG_FALLBACK = `${MEDIA_BASE}/jamony_logo.png`
 
@@ -101,7 +100,10 @@ export default async function ShareWorkPage({ params }: { params: Promise<{ id: 
     </div>
   )
 
-  const namedAuthors = (w.authors || []).filter(a => !a.isAnonymous)
+  // 1110m 署名排序=详情页同构(work-detail-page:538 同款): is_system 升序(署名在前·系统轨垫署名尾)
+  const namedSorted = [...(w.authors || [])]
+    .filter(a => !a.isAnonymous)
+    .sort((a, b) => Number(a.isSystem) - Number(b.isSystem))
   const anonCount = (w.authors || []).filter(a => a.isAnonymous).length
   const cardImage = w.coverUrl ? `${MEDIA_BASE}${w.coverUrl}` : OG_FALLBACK
 
@@ -116,26 +118,39 @@ export default async function ShareWorkPage({ params }: { params: Promise<{ id: 
           )}
         </div>
         <h1 className="mt-5 text-center text-xl font-semibold text-zinc-100">{w.title}</h1>
-        <div className="mt-2 text-center text-xs text-zinc-500">
-          {w.date}
-          {w.style ? ` · ${w.style}` : ""} · {w.plays}次播放 · {w.likes}次喜欢
+        <div className="mt-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-zinc-500">
+          <span>{w.date}</span>
+          {w.style && <span>· {w.style}</span>}
+          <span className="flex items-center gap-1 text-white">
+            <Play className="h-3 w-3 fill-white" />
+            {w.plays}
+          </span>
+          <span className="flex items-center gap-1 text-white">
+            <Heart className="h-3 w-3 fill-white" />
+            {w.likes}
+          </span>
         </div>
-        <div className="mt-4 flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
-          {namedAuthors.map((a, i) => (
-            <div key={i} className="flex items-center gap-2">
-              {a.avatar ? (
-                // eslint-disable-next-line @next/next/no-img-element -- 外部媒体不走 next/image 优化
-                <img src={`${MEDIA_BASE}${a.avatar}`} alt={a.nickname} className="h-7 w-7 rounded-full object-cover" />
-              ) : (
-                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/10 text-xs text-zinc-300">{a.nickname.slice(0, 1)}</span>
-              )}
-              <span className="text-sm text-zinc-300">{a.nickname}</span>
-              {a.isSystem && <span className="rounded bg-white/10 px-1 text-[10px] text-zinc-400">官方</span>}
-            </div>
-          ))}
-          {anonCount > 0 && (
-            <span className="text-sm text-zinc-500">{anonCount}位匿名乐手</span>
-          )}
+        {w.description && (
+          <p className="mt-5 whitespace-pre-wrap text-justify text-sm leading-6 text-zinc-400">{w.description}</p>
+        )}
+        <div className="mt-5">
+          <div className="text-sm font-medium text-zinc-100">参与乐手</div>
+          <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-4">
+            {namedSorted.map((a, i) => (
+              <div key={i} className="flex items-center gap-2">
+                {a.avatar ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- 外部媒体不走 next/image 优化
+                  <img src={`${MEDIA_BASE}${a.avatar}`} alt={a.nickname} className="h-7 w-7 rounded-full object-cover" />
+                ) : (
+                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/10 text-xs text-zinc-300">{a.nickname.slice(0, 1)}</span>
+                )}
+                <span className="text-sm text-zinc-300">{a.nickname}</span>
+              </div>
+            ))}
+            {anonCount > 0 && (
+              <span className="text-sm text-zinc-500">{anonCount}位匿名乐手</span>
+            )}
+          </div>
         </div>
         {w.nature === "翻唱" && w.coverSong && (
           <div className="mt-2 text-center text-xs text-zinc-500">
@@ -144,7 +159,6 @@ export default async function ShareWorkPage({ params }: { params: Promise<{ id: 
           </div>
         )}
         <SharePlayer src={w.mp3Url ? `${MEDIA_BASE}${w.mp3Url}` : ""} />
-        {w.description && <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-zinc-400">{w.description}</p>}
         <a
           className="mt-8 block rounded-lg bg-zinc-100 py-3 text-center text-sm font-medium text-black active:bg-zinc-300"
           href="https://jamonyapp.com"

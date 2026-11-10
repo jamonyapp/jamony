@@ -19,6 +19,16 @@ const geistMono = localFont({
 export const metadata: Metadata = {
   title: 'jamony 即鸣',
   description: '更低延迟的线上合奏社区',
+  // 1110m 欢哥: 标签页 logo 与官网/后台同款(透明底 icon.svg 优先, 明暗位图兜底)——
+  // 此前 (share) 根布局无 icons 配置 = 落地页在浏览器显示默认方块 J
+  icons: {
+    icon: [
+      { url: '/icon-light-32x32.png', media: '(prefers-color-scheme: light)' },
+      { url: '/icon-dark-32x32.png', media: '(prefers-color-scheme: dark)' },
+      { url: '/icon.svg', type: 'image/svg+xml' },
+    ],
+    apple: '/apple-icon.png',
+  },
 }
 
 export const viewport: Viewport = {
