@@ -272,6 +272,21 @@ function TabButton({ label, active, onClick }: { label: string; active: boolean;
 }
 
 function NoticeCard({ notice, onClick }: { notice: Notice; onClick: () => void }) {
+  // 1110 欢哥: 同首页公告牌双改——标题气泡限真截断才渲染（scrollWidth 实测+ResizeObserver
+  // 跟随，同构 hover-fullname 1016）；正文悬浮气泡删除（三行预览+「... 更多」+详情弹窗已足，
+  // absolute+opacity-0 气泡盒参与文档滚动区计算，超长公告撑出幽灵空白）
+  const titleRef = useRef<HTMLParagraphElement>(null)
+  const [titleClamped, setTitleClamped] = useState(false)
+  useEffect(() => {
+    const el = titleRef.current
+    if (!el) return
+    const measure = () => setTitleClamped(el.scrollWidth > el.clientWidth + 1)
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [notice.title])
+
   return (
     <button
       onClick={onClick}
@@ -304,22 +319,19 @@ function NoticeCard({ notice, onClick }: { notice: Notice; onClick: () => void }
             </span>
             <span style={{ color: "#9A9A9A" }}>{notice.time}</span>
           </div>
-          {/* 1103 欢哥：标题单行截断+悬停气泡全文（named group 隔离整卡 hover，与房间卡片同款纯黑） */}
+          {/* 1103 欢哥：标题单行截断+悬停气泡全文（named group 隔离整卡 hover，与房间卡片同款纯黑）；
+              1110 欢哥：气泡只在真截断时渲染（见 NoticeCard 头部注释） */}
           <div className="group/tt relative">
-            <p className="truncate text-sm font-bold leading-snug text-white">{notice.title}</p>
-            <div className="pointer-events-none absolute inset-x-0 top-full z-50 mt-1 rounded-[8px] border px-3 py-2 text-xs leading-relaxed text-white/90 opacity-0 shadow-xl transition-opacity duration-75 group-hover/tt:opacity-100"
-              style={{ borderColor: "#333", background: "#000" }}>
-              {notice.title}
-            </div>
-          </div>
-          <div className="mt-1">
-            <div className="group/tt relative">
-              <p className="line-clamp-3 text-xs leading-relaxed" style={{ color: "#D0D0D0" }}>{notice.body}</p>
+            <p ref={titleRef} className="truncate text-sm font-bold leading-snug text-white">{notice.title}</p>
+            {titleClamped && (
               <div className="pointer-events-none absolute inset-x-0 top-full z-50 mt-1 rounded-[8px] border px-3 py-2 text-xs leading-relaxed text-white/90 opacity-0 shadow-xl transition-opacity duration-75 group-hover/tt:opacity-100"
                 style={{ borderColor: "#333", background: "#000" }}>
-                {notice.body}
+                {notice.title}
               </div>
-            </div>
+            )}
+          </div>
+          <div className="mt-1">
+            <p className="line-clamp-3 text-xs leading-relaxed" style={{ color: "#D0D0D0" }}>{notice.body}</p>
             <span className="text-[11px]" style={{ color: "#9A9A9A" }}>... 更多</span>
           </div>
           <p className="mt-2 flex items-center gap-1 text-xs" style={{ color: "#B0B0B0" }}>
