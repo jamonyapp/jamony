@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from 'next'
-import { headers } from 'next/headers'
 import localFont from 'next/font/local'
-import './globals.css'
+import '../globals.css'
 import { AuthProvider } from '@/lib/auth-context'
 import { RoomSessionProvider } from '@/lib/room-session'
 import { LoginModal } from '@/components/jamony/login-modal'
@@ -20,12 +19,12 @@ import { CrashRecorder } from '@/components/crash-recorder'
 // 字体本地化：脱离 next/font/google 的 build 时联网依赖（国内服务器拉不到 Google Fonts）
 // Geist Sans + Geist Mono 的 latin 子集 variable woff2，含 100-900 全权重
 const geistSans = localFont({
-  src: './fonts/Geist-Variable.woff2',
+  src: '../fonts/Geist-Variable.woff2',
   variable: '--font-geist-sans',
   display: 'swap',
 })
 const geistMono = localFont({
-  src: './fonts/GeistMono-Variable.woff2',
+  src: '../fonts/GeistMono-Variable.woff2',
   variable: '--font-geist-mono',
   display: 'swap',
 })
@@ -70,56 +69,47 @@ const scrollbarStyle = [
   '*{scrollbar-width:thin;scrollbar-color:#1a1a1a #000}',
 ].join('')
 
-export default async function RootLayout({
+// 1110 route group 终版: (main)=主站根布局(全家桶无条件包裹,恢复静态渲染);
+// (share)=落地页独立极简根布局——两全(公开页轻+主站静态化), 替代此前的 headers()标记头临时方案
+export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
-  // 1110: /share 落地页跳过全家桶——非壳 UA 下全家桶(auth/room-session/electron-gate 按 UA 分支)
-  // 水合挂死=落地页点击失效根因;落地页只要播放器+微信卡片段,轻为上(设计本意:不带桌面壳)
-  // 代价: headers() 使全站转动态渲染(QPS≈0 无感); middleware 对 /share 注入 x-share-page
-  const h = await headers()
-  const isShare = h.get('x-share-page') === '1'
   return (
     <html lang="zh-CN" className={`dark ${geistSans.variable} ${geistMono.variable}`} style={{ background: '#000000' }}>
       <head>
         <style dangerouslySetInnerHTML={{ __html: scrollbarStyle }} />
-        {!isShare && <script src="/lame.min.js" />}
+        <script src="/lame.min.js" />
       </head>
       <body className="font-sans antialiased" style={{ background: '#000000' }}>
-        {isShare ? (
-          children
-        ) : (
-          <>
-          <CrashRecorder />
-          <DialogProvider>
-          <AuthProvider>
-            <RoomSessionProvider>
-            <PlayerProvider>
-              <LikesProvider>
-                <CommentsProvider>
-                  <FollowProvider>
-                    <NotificationsProvider>
-                      <DMProvider>
-                      {/* 1023 七件套②: 受限专用 Dialog——403 RESTRICTED 全局弹出（文案+申诉入口） */}
-                      <RestrictedProvider>
-                      <ElectronGate>
-                        {children}
-                        <PlayerBar />
-                      </ElectronGate>
-                      </RestrictedProvider>
-                      </DMProvider>
-                    </NotificationsProvider>
-                  </FollowProvider>
-                </CommentsProvider>
-              </LikesProvider>
-            </PlayerProvider>
-            </RoomSessionProvider>
-            <LoginModal />
-          </AuthProvider>
-          </DialogProvider>
-          </>
-        )}
+        <CrashRecorder />
+        <DialogProvider>
+        <AuthProvider>
+          <RoomSessionProvider>
+          <PlayerProvider>
+            <LikesProvider>
+              <CommentsProvider>
+                <FollowProvider>
+                  <NotificationsProvider>
+                    <DMProvider>
+                    {/* 1023 七件套②: 受限专用 Dialog——403 RESTRICTED 全局弹出（文案+申诉入口） */}
+                    <RestrictedProvider>
+                    <ElectronGate>
+                      {children}
+                      <PlayerBar />
+                    </ElectronGate>
+                    </RestrictedProvider>
+                    </DMProvider>
+                  </NotificationsProvider>
+                </FollowProvider>
+              </CommentsProvider>
+            </LikesProvider>
+          </PlayerProvider>
+          </RoomSessionProvider>
+          <LoginModal />
+        </AuthProvider>
+        </DialogProvider>
       </body>
     </html>
   )
