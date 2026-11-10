@@ -110,8 +110,14 @@ export function ShareMenu({ open, onClose, workId, title }: { open: boolean; onC
               <div className="grid h-56 w-56 place-items-center rounded-lg bg-white/10 text-xs text-zinc-500">生成中…</div>
             )}
           </div>
-          <div className="mt-3 text-center text-xs text-zinc-400">微信扫一扫,在手机上打开这个作品</div>
-          <div className="mt-1 text-center text-[11px] text-zinc-600">手机上点右上角「…」可转发给好友/朋友圈</div>
+          <div className="mt-3 text-center text-xs text-zinc-400">微信扫一扫,分享给好友。</div>
+          <button
+            type="button"
+            className="mt-3 w-full rounded-lg border border-white/15 py-2 text-sm text-zinc-300 transition-colors hover:bg-white/10 active:bg-white/15"
+            onClick={(e) => { e.stopPropagation(); onClose() }}
+          >
+            关闭
+          </button>
         </div>
       </div>
     )
