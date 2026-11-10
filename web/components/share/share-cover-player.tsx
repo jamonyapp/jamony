@@ -35,7 +35,7 @@ export function ShareCoverPlayer({ src, gradient, children, badge }: {
     }
     const onPlay = () => { setPlaying(true); syncDuration() }
     const onPause = () => setPlaying(false)
-    const onEnd = () => setPlaying(false)
+    const onEnd = () => { setPlaying(false); setCur(0) } // 播完圆点回开头(欢哥批)
     el.addEventListener("timeupdate", onTime)
     el.addEventListener("durationchange", syncDuration)
     el.addEventListener("loadedmetadata", syncDuration)
@@ -130,14 +130,14 @@ export function ShareCoverPlayer({ src, gradient, children, badge }: {
       </button>
       {/* 底部渐变遮罩: 保证进度/时间在任何封面图上可读 */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-black/70 to-transparent" />
-      {/* 时间: 右下角悬浮 */}
-      <div className="pointer-events-none absolute bottom-2 right-2.5 z-10 text-[10px] tabular-nums leading-none text-white/90 drop-shadow">
+      {/* 时间: 进度条上方,与其右端对齐——拖点永不到此(欢哥批) */}
+      <div className="pointer-events-none absolute bottom-3.5 right-3.5 z-10 text-[10px] tabular-nums leading-none text-white/90 drop-shadow">
         {fmt(cur)} / {fmt(total)}
       </div>
-      {/* 进度条: 贴封面底边内侧,纵向居中命中区,可点可拖 */}
+      {/* 进度条: 贴封面底边内侧,左右留边避开圆角弧度(Apple Music 同款处理);纵向居中命中区,可点可拖 */}
       <div
         ref={barRef}
-        className={`absolute inset-x-0 bottom-0 z-20 flex h-5 touch-none items-end cursor-pointer ${dragging ? "select-none" : ""}`}
+        className={`absolute bottom-0 left-3.5 right-3.5 z-20 flex h-5 touch-none items-end cursor-pointer ${dragging ? "select-none" : ""}`}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
