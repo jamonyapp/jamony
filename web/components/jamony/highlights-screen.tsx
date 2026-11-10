@@ -1,6 +1,6 @@
 "use client"
 
-import { Pause, Play, SkipBack, SkipForward, X, ExternalLink, ListMusic, MessageCircle, Volume2 } from "lucide-react"
+import { Pause, Play, SkipBack, SkipForward, X, ExternalLink, ListMusic, MessageCircle, Volume2, Share2 } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useRealtime } from "@/hooks/useRealtime"
 import { useRouter } from "next/navigation"
@@ -12,6 +12,7 @@ import { usePlayer } from "@/components/jamony/player-context"
 import { LikeButton } from "@/components/jamony/like-button"
 import { CommentCount } from "@/components/jamony/comment-count"
 import type { Track } from "@/lib/jamony-data"
+import { ShareMenu } from "@/components/share/share-menu"
 
 // 10-23 欢哥定稿：遮罩点外关闭须「按下+松开都在遮罩」——click 派发到公共祖先，单判 target 会被拖出松开误关
 const downOnOverlay = { current: false }
@@ -151,6 +152,7 @@ function formatHighlightTime(sec: number): string {
 
 function DetailModal({ item, onClose }: { item: Highlight; onClose: () => void }) {
   const [feedbackOpen, setFeedbackOpen] = useState(false)
+  const [shareOpen, setShareOpen] = useState(false) // 1110q 精选卡分享入口(欢哥): 与作品详情页同款
   const [feedbackText, setFeedbackText] = useState("")
   const [feedbackSent, setFeedbackSent] = useState(false)
   const { loggedIn, setShowLoginModal } = useAuth()
@@ -356,6 +358,18 @@ function DetailModal({ item, onClose }: { item: Highlight; onClose: () => void }
                 <ListMusic className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
                 加入播放列表
               </button>
+              {/* 1110q 分享入口(欢哥): 举报前·与详情页同款;baseZ=70 压过精选弹窗 z-[60] */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShareOpen(v => !v)}
+                  className="flex items-center gap-1 rounded-lg border border-[#1A1A1A] px-2.5 py-1 text-[11px] text-white transition-colors hover:bg-white/5 sm:text-[12px]"
+                >
+                  <Share2 className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
+                  分享
+                </button>
+                <ShareMenu open={shareOpen} onClose={() => setShareOpen(false)} workId={item.trackId} title={item.title} baseZ={70} />
+              </div>
               <button
                 type="button"
                 onClick={() => setFeedbackOpen(true)}

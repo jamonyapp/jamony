@@ -13,7 +13,7 @@ import { Check } from "lucide-react"
 //
 // ⏳下一步 TODO(行为位):
 //   ① 微信项=二级 QR 卡片(qrcode 本地生成,内容=shareUrl 同款)——欢哥令先不动
-export function ShareMenu({ open, onClose, workId, title }: { open: boolean; onClose: () => void; workId: string | number; title: string }) {
+export function ShareMenu({ open, onClose, workId, title, baseZ = 40 }: { open: boolean; onClose: () => void; workId: string | number; title: string; baseZ?: number }) {
   // 复制成功浮层:mounted(挂载淡入)与 shown(可见)双态,3s 后 350ms 淡出退场
   const [copiedMounted, setCopiedMounted] = useState(false)
   const [copiedShown, setCopiedShown] = useState(false)
@@ -90,7 +90,8 @@ export function ShareMenu({ open, onClose, workId, title }: { open: boolean; onC
     return (
       <div
         ref={qrOverlayRef}
-        className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+        className="fixed inset-0 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+        style={{ zIndex: baseZ + 30 }}
         onMouseDown={(e) => { qrDownOnOverlay.current = e.target === qrOverlayRef.current }}
         onClick={(e) => {
           e.stopPropagation()
@@ -129,14 +130,16 @@ export function ShareMenu({ open, onClose, workId, title }: { open: boolean; onC
       <>
         {/* 点外部任意处收起菜单(stopPropagation: TrackCard 等容器点击=播放,不可冒泡) */}
         <div
-          className="fixed inset-0 z-40"
+          className="fixed inset-0"
+          style={{ zIndex: baseZ }}
           onClick={(e) => {
             e.stopPropagation()
             onClose()
           }}
         />
         <div
-          className="absolute right-0 top-full z-50 mt-2 w-44 overflow-hidden rounded-xl border border-white/10 bg-[#0D0D0D] py-1 shadow-2xl"
+          className="absolute right-0 top-full mt-2 w-44 overflow-hidden rounded-xl border border-white/10 bg-[#0D0D0D] py-1 shadow-2xl"
+          style={{ zIndex: baseZ + 10 }}
           onClick={(e) => e.stopPropagation()}
         >
           <button
@@ -175,7 +178,8 @@ export function ShareMenu({ open, onClose, workId, title }: { open: boolean; onC
   if (!copiedMounted) return null
   return (
     <div
-      className={`pointer-events-none absolute right-0 top-full z-50 mt-2 flex w-44 items-center gap-3 rounded-xl border border-white/10 bg-[#0D0D0D] px-4 py-2.5 text-sm text-white shadow-2xl transition-opacity duration-300 ${copiedShown ? "opacity-100" : "opacity-0"}`}
+      style={{ zIndex: baseZ + 10 }}
+      className={`pointer-events-none absolute right-0 top-full mt-2 flex w-44 items-center gap-3 rounded-xl border border-white/10 bg-[#0D0D0D] px-4 py-2.5 text-sm text-white shadow-2xl transition-opacity duration-300 ${copiedShown ? "opacity-100" : "opacity-0"}`}
     >
       <Check className="h-4 w-4 shrink-0 text-brand-lime" />
       链接已复制
