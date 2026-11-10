@@ -3,16 +3,16 @@
 import { useEffect, useRef, useState } from "react"
 import { Check } from "lucide-react"
 
-// 1110 夜战 ShareMenu 定稿复活·第二步(欢哥 1110 下午令): 复制链接行为上马——
-// 点击=写剪贴板+菜单即收+「链接已复制 ✓」浮层在**菜单原位**显示 3s 自动淡出
-// (欢哥新定稿:原位浮层,区别于夜战版屏幕下中 toast);壳 clipboard 优先+web 三段兜底。
+// 1110 夜战 ShareMenu 定稿复活·第三步(欢哥 1110 下午令): 微博分享链路上马——
+// 文案定稿「分享{作品名} (分享自 @jamonyapp.com)」+壳 openExternal 优先跳系统浏览器,
+// 119 壳暂无该通道=window.open 兜底(Electron 内=app 新窗,可用;通道随下版壳补上)。
+// 复制链接=1110e 已上:菜单即收+「链接已复制 ✓」浮层在**菜单原位** 3s 自动淡出。
 // 视觉/logo/文案 = 1110c/d/e/f 欢哥验收批定稿原样,logo=simple-icons 官方 path(CC0)。
 // 菜单面板=absolute 定位,调用方把触发按钮包进 relative 容器;点遮罩任意处关闭。
 //
 // ⏳下一步 TODO(行为位):
-//   ① 微信项=二级 QR 卡片(qrcode 本地生成,内容=shareUrl 同款)
-//   ② 微博项=壳 openExternal 跳系统浏览器,文案定稿「分享{作品名} (分享自 @jamonyapp.com)」
-export function ShareMenu({ open, onClose, workId }: { open: boolean; onClose: () => void; workId: string | number }) {
+//   ① 微信项=二级 QR 卡片(qrcode 本地生成,内容=shareUrl 同款)——欢哥令先不动
+export function ShareMenu({ open, onClose, workId, title }: { open: boolean; onClose: () => void; workId: string | number; title: string }) {
   // 复制成功浮层:mounted(挂载淡入)与 shown(可见)双态,3s 后 350ms 淡出退场
   const [copiedMounted, setCopiedMounted] = useState(false)
   const [copiedShown, setCopiedShown] = useState(false)
@@ -31,6 +31,15 @@ export function ShareMenu({ open, onClose, workId }: { open: boolean; onClose: (
       setCopiedShown(false)
       copiedTimer.current = setTimeout(() => setCopiedMounted(false), 350)
     }, 3000)
+  }
+
+  const weibo = () => {
+    // 1110 欢哥定稿文案: 「分享{作品名} (分享自 @jamonyapp.com)」——url 走独立参数,微博自动附链接卡片
+    const url = `https://service.weibo.com/share/share.php?url=${encodeURIComponent(shareUrl)}&title=${encodeURIComponent(`分享${title} (分享自 @jamonyapp.com)`)}`
+    const api = (window as unknown as { jamonyAPI?: { openExternal?: (u: string) => void } }).jamonyAPI
+    if (api?.openExternal) api.openExternal(url)
+    else window.open(url, "_blank", "noopener")
+    onClose()
   }
 
   const copy = async () => {
@@ -86,7 +95,7 @@ export function ShareMenu({ open, onClose, workId }: { open: boolean; onClose: (
           <button
             type="button"
             className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-white transition-colors hover:bg-white/10 active:bg-white/15"
-            onClick={onClose} /* TODO ②openExternal微博 */
+            onClick={weibo}
           >
             <WeiboLogo className="h-5 w-5" />
             分享到微博
