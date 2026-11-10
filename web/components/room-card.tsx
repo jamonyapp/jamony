@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useRef, useState } from "react"
 import { Crown, Lock, User, Headphones } from "lucide-react"
 import type { Room } from "@/lib/rooms-data"
 import { Avatar } from "@/components/jamony/avatar"
@@ -7,6 +8,23 @@ import { ProficiencyBadge } from "@/components/proficiency-badge"
 
 export function RoomCard({ room, onSelect }: { room: Room; onSelect?: () => void }) {
   const isFull = room.current >= room.capacity
+
+  // 1110 欢哥: 标题气泡限真截断才渲染（scrollWidth 实测+ResizeObserver 跟随，同构
+  // hover-fullname 1016 / 公告牌 1110a）；房间描述气泡删除+「... 更多」常驻引导——
+  // 点击卡片开 RoomDetailModal 看详情，描述气泡冗余且 absolute+opacity-0 气泡盒
+  // 参与文档滚动区计算会撑出幽灵空白
+  const titleRef = useRef<HTMLHeadingElement>(null)
+  const [titleClamped, setTitleClamped] = useState(false)
+  useEffect(() => {
+    const el = titleRef.current
+    if (!el) return
+    const measure = () => setTitleClamped(el.scrollWidth > el.clientWidth + 1)
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [room.name])
+
   const isNearFull = !isFull && room.current >= room.capacity - 1
   const latencyColor = room.latency >= 30 ? "text-[#ffb84d]" : "text-brand-lime"
 
@@ -44,14 +62,17 @@ export function RoomCard({ room, onSelect }: { room: Room; onSelect?: () => void
         </span>
         <span className="flex items-center gap-1 tabular-nums" style={{ color: "#FF33AA" }}><Headphones className="h-3.5 w-3.5" />{room.listener_count ?? 0}</span>
       </div>
-      {/* 1103 欢哥：房名单行截断+悬停气泡全文（named group 隔离——卡片整卡 hover 不误触，只悬停本行才弹；样式与鼓机/右栏同款纯黑） */}
+      {/* 1103 欢哥：房名单行截断+悬停气泡全文（named group 隔离——卡片整卡 hover 不误触，只悬停本行才弹；样式与鼓机/右栏同款纯黑）；
+          1110 欢哥：气泡只在真截断时渲染（见组件头部注释） */}
       <div className="group/tt relative flex items-center gap-2">
         <span aria-hidden className="shrink-0 text-xl">{room.emoji}</span>
-        <h3 className="min-w-0 truncate text-lg font-bold leading-tight text-foreground">{room.name}</h3>
-        <div className="pointer-events-none absolute inset-x-0 top-full z-50 mt-1 rounded-[8px] border px-3 py-2 text-xs leading-relaxed text-white/90 opacity-0 shadow-xl transition-opacity duration-75 group-hover/tt:opacity-100"
-          style={{ borderColor: "#333", background: "#000" }}>
-          {room.name}
-        </div>
+        <h3 ref={titleRef} className="min-w-0 truncate text-lg font-bold leading-tight text-foreground">{room.name}</h3>
+        {titleClamped && (
+          <div className="pointer-events-none absolute inset-x-0 top-full z-50 mt-1 rounded-[8px] border px-3 py-2 text-xs leading-relaxed text-white/90 opacity-0 shadow-xl transition-opacity duration-75 group-hover/tt:opacity-100"
+            style={{ borderColor: "#333", background: "#000" }}>
+            {room.name}
+          </div>
+        )}
       </div>
       <div className="flex items-center gap-2">
         <span className="inline-block rounded-full px-2.5 py-0.5 text-xs text-white/90"
@@ -60,14 +81,10 @@ export function RoomCard({ room, onSelect }: { room: Room; onSelect?: () => void
         </span>
         <span className={`text-xs font-medium ${latencyColor}`}>延迟 ≈ {room.latency}ms</span>
       </div>
-      <div className="group/tt relative">
+      <div>
         <p className="truncate text-sm text-muted-foreground">{room.description}</p>
-        {room.description && (
-          <div className="pointer-events-none absolute inset-x-0 top-full z-50 mt-1 rounded-[8px] border px-3 py-2 text-xs leading-relaxed text-white/90 opacity-0 shadow-xl transition-opacity duration-75 group-hover/tt:opacity-100"
-            style={{ borderColor: "#333", background: "#000" }}>
-            {room.description}
-          </div>
-        )}
+        {/* 1110 欢哥：常驻引导（无条件显示，同公告牌卡片定稿）——点击卡片开房间详情 */}
+        <span className="text-[11px]" style={{ color: "#9A9A9A" }}>... 更多</span>
       </div>
       <div className="flex items-center gap-2">
         <Avatar nickname={room.owner.name} avatarUrl={room.owner.avatarUrl} size={20} />

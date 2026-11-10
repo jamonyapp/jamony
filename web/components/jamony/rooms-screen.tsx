@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useRealtime } from "@/hooks/useRealtime"
 import { User, Headphones, Lock } from "lucide-react"
@@ -57,6 +57,21 @@ type Room = {
 }
 
 function RoomCard({ room, angle, latency, onJoin }: { room: Room; angle: number; latency: number; onJoin: () => void }) {
+  // 1110 欢哥: 标题气泡限真截断才渲染（同构 hover-fullname 1016 / 公告牌 1110a）；
+  // 描述气泡删除+「... 更多」常驻引导——点击卡片已开 RoomDetailModal，气泡冗余且
+  // absolute+opacity-0 气泡盒参与文档滚动区计算会撑出幽灵空白
+  const titleRef = useRef<HTMLHeadingElement>(null)
+  const [titleClamped, setTitleClamped] = useState(false)
+  useEffect(() => {
+    const el = titleRef.current
+    if (!el) return
+    const measure = () => setTitleClamped(el.scrollWidth > el.clientWidth + 1)
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [room.name])
+
   return (
     <button
       className="jamony-room-card group relative flex flex-col gap-2 rounded-[10px] border p-4 text-left"
@@ -89,14 +104,17 @@ function RoomCard({ room, angle, latency, onJoin }: { room: Room; angle: number;
       </div>
 
       <div className="flex flex-col gap-1">
-        {/* 1103 欢哥：房名单行截断+悬停气泡全文（named group 隔离卡片整卡 hover；样式与鼓机/右栏同款纯黑） */}
+        {/* 1103 欢哥：房名单行截断+悬停气泡全文（named group 隔离卡片整卡 hover；样式与鼓机/右栏同款纯黑）；
+            1110 欢哥：气泡只在真截断时渲染（见组件头部注释） */}
         <div className="group/tt relative flex items-center gap-1.5">
           <span className="shrink-0 text-lg">{STYLE_EMOJI[room.style] || "🎵"}</span>
-          <h3 className="min-w-0 truncate text-[15px] font-bold text-white">{room.name}</h3>
-          <div className="pointer-events-none absolute inset-x-0 top-full z-50 mt-1 rounded-[8px] border px-3 py-2 text-xs leading-relaxed text-white/90 opacity-0 shadow-xl transition-opacity duration-75 group-hover/tt:opacity-100"
-            style={{ borderColor: "#333", background: "#000" }}>
-            {room.name}
-          </div>
+          <h3 ref={titleRef} className="min-w-0 truncate text-[15px] font-bold text-white">{room.name}</h3>
+          {titleClamped && (
+            <div className="pointer-events-none absolute inset-x-0 top-full z-50 mt-1 rounded-[8px] border px-3 py-2 text-xs leading-relaxed text-white/90 opacity-0 shadow-xl transition-opacity duration-75 group-hover/tt:opacity-100"
+              style={{ borderColor: "#333", background: "#000" }}>
+              {room.name}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2 text-xs">
           <span className="rounded-full px-2 py-0.5" style={{ background: "rgba(110,150,255,0.12)", color: "#9AB8FF" }}>{room.style}</span>
@@ -104,14 +122,10 @@ function RoomCard({ room, angle, latency, onJoin }: { room: Room; angle: number;
         </div>
       </div>
 
-      <div className="group/tt relative">
+      <div>
         <p className="truncate text-[13px]" style={{ color: "#8A8A8A" }}>{room.description}</p>
-        {room.description && (
-          <div className="pointer-events-none absolute inset-x-0 top-full z-50 mt-1 rounded-[8px] border px-3 py-2 text-xs leading-relaxed text-white/90 opacity-0 shadow-xl transition-opacity duration-75 group-hover/tt:opacity-100"
-            style={{ borderColor: "#333", background: "#000" }}>
-            {room.description}
-          </div>
-        )}
+        {/* 1110 欢哥：常驻引导（无条件显示，同公告牌卡片定稿）——点击卡片已开房间详情 */}
+        <span className="text-[11px]" style={{ color: "#BBBBBB" }}>... 更多</span>
       </div>
 
       <div className="flex items-center gap-2">
