@@ -288,7 +288,7 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
           <>
             <div className="mb-4">
               <h2 className="text-xl font-bold text-white">验证码注册/登录</h2>
-              <p className="mt-1 text-xs" style={{ color: "#8A8A8A" }}>
+              <p className="mt-1 text-sm" style={{ color: "#8A8A8A" }}>
                 注册/登录后可使用jamony功能
               </p>
             </div>
@@ -334,8 +334,8 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
                 </div>
               </div>
 
-              {notice && <p className="text-xs" style={{ color: "#00AAFF" }}>{notice}</p>}
-              {error && <p className="text-xs" style={{ color: "#FF33AA" }}>{error}</p>}
+              {notice && <p className="text-sm" style={{ color: "#00AAFF" }}>{notice}</p>}
+              {error && <p className="text-sm" style={{ color: "#FF33AA" }}>{error}</p>}
 
               <AgreementCheck agreed={agreed} onToggle={() => setAgreed((v) => !v)} onOpen={(d) => setShowDoc(d)} />
 
@@ -353,7 +353,7 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
           <>
             <div className="mb-4">
               <h2 className="text-xl font-bold text-white">重置密码</h2>
-              <p className="mt-1 text-xs" style={{ color: "#8A8A8A" }}>
+              <p className="mt-1 text-sm" style={{ color: "#8A8A8A" }}>
                 使用注册手机号验证并设置新密码
               </p>
             </div>
@@ -427,8 +427,8 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
                 />
               </div>
 
-              {notice && <p className="text-xs" style={{ color: "#00AAFF" }}>{notice}</p>}
-              {error && <p className="text-xs" style={{ color: "#FF33AA" }}>{error}</p>}
+              {notice && <p className="text-sm" style={{ color: "#00AAFF" }}>{notice}</p>}
+              {error && <p className="text-sm" style={{ color: "#FF33AA" }}>{error}</p>}
 
               <button type="submit" disabled={loading} className={submitCls} style={submitStyle}>
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -444,7 +444,7 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
           <>
             <div className="mb-4">
               <h2 className="text-xl font-bold text-white">请登录</h2>
-              <p className="mt-1 text-xs" style={{ color: "#8A8A8A" }}>
+              <p className="mt-1 text-sm" style={{ color: "#8A8A8A" }}>
                 登录后可使用jamony功能
               </p>
             </div>
@@ -483,8 +483,8 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
                 />
               </div>
 
-              {notice && <p className="text-xs" style={{ color: "#00AAFF" }}>{notice}</p>}
-              {error && <p className="text-xs" style={{ color: "#FF33AA" }}>{error}</p>}
+              {notice && <p className="text-sm" style={{ color: "#00AAFF" }}>{notice}</p>}
+              {error && <p className="text-sm" style={{ color: "#FF33AA" }}>{error}</p>}
 
               <AgreementCheck agreed={agreed} onToggle={() => setAgreed((v) => !v)} onOpen={(d) => setShowDoc(d)} />
 

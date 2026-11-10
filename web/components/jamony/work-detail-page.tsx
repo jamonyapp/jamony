@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Play, Pause, ThumbsUp, MessageCircle, Check, ListMusic, Trash2, Flag, Share2 } from "lucide-react"
-import { ShareDialog } from "@/components/share/share-dialog"
+import { Play, Pause, ThumbsUp, MessageCircle, Check, ListMusic, Trash2, Flag } from "lucide-react"
 import { usePlayer } from "@/components/jamony/player-context"
 import { LikeButton } from "@/components/jamony/like-button"
 import { CommentCount } from "@/components/jamony/comment-count"
@@ -120,7 +119,6 @@ function WorkDetailInner() {
   const [replyTo, setReplyTo] = useState<{ parentId: number; nickname: string } | null>(null)
   const [pendingReport, setPendingReport] = useState<Comment | null>(null)
   const [workReportOpen, setWorkReportOpen] = useState(false)
-  const [shareOpen, setShareOpen] = useState(false) // 1110 分享弹窗(二维码/微博/复制链接)
   const [reportReason, setReportReason] = useState("")
   const [reportCustom, setReportCustom] = useState("")
   const [reportSent, setReportSent] = useState(false)
@@ -481,15 +479,6 @@ function WorkDetailInner() {
                   <ListMusic className="h-4 w-4" />
                   加入播放列表
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setShareOpen(true)}
-                  className="flex items-center gap-1.5 whitespace-nowrap text-sm text-white/70 transition-colors hover:text-white"
-                  title="分享作品"
-                >
-                  <Share2 className="h-4 w-4" />
-                  分享
-                </button>
               </div>
               <button
                 type="button"
@@ -717,9 +706,6 @@ function WorkDetailInner() {
             </div>
           )}
         </section>
-
-        {/* 1110 分享弹窗(二维码/微博/复制链接) */}
-        <ShareDialog open={shareOpen} onClose={() => setShareOpen(false)} workId={track.id} title={track.title} />
 
         {/* 举报作品弹窗(1024 举报系统; 理由组与评论举报共享 REPORT_REASONS) */}
         {workReportOpen && (

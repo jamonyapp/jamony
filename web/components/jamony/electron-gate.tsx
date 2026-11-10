@@ -10,11 +10,7 @@ import { useEffect, type ReactNode } from "react"
 export function ElectronGate({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (typeof navigator !== "undefined" && !navigator.userAgent.includes("Electron")) {
-      // 1110: 公开页豁免(与 middleware/auth-context 同名单)——/share 落地页的生命线:
-      // 微信内置浏览器(UA=MicroMessenger)要在这里看作品听歌,弹走=分享漏斗全灭
-      if (!/^\/(login|banned|terms|privacy|share)/.test(window.location.pathname)) {
-        window.location.href = "https://jamonyapp.com"
-      }
+      window.location.href = "https://jamonyapp.com"
     }
   }, [])
   return <>{children}</>

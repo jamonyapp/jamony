@@ -110,60 +110,6 @@ function randomGradient(): string {
   return `linear-gradient(${angle}deg, ${shuffled.join(", ")})`
 }
 
-/* 1110 封面 canvas 落档: 发表时把「渐变+黑胶」卡片导出 512×512 JPEG——几何 1:1 照搬
- * <VinylRecord>(vinyl-record.tsx): viewBox 100 基准, r=48 黑盘/白圈 40·33·26·19/中心 11/孔 2.2,
- * 整体 0.16 透明度, 68% 尺寸, 圆心 42% 给底部文字留位;CSS 角度→canvas 方向向量=(sinθ,-cosθ)。
- * 动机: 渐变封面此前只是 CSS 字符串无图片实体,微信卡片 imgUrl/落地页 og:image 拿不到东西。 */
-async function gradientCoverBlob(gradientCss: string, size = 512): Promise<Blob> {
-  const canvas = document.createElement("canvas")
-  canvas.width = canvas.height = size
-  const ctx = canvas.getContext("2d")
-  if (!ctx) throw new Error("no 2d ctx")
-
-  const m = gradientCss.match(/linear-gradient\(\s*([\d.]+)deg\s*,\s*(.+)\s*\)/)
-  const angle = ((m ? parseFloat(m[1]) : 135) * Math.PI) / 180
-  const colors = (m ? m[2] : "#00AAFF, #9933FF").split(",").map((s) => s.trim())
-  const dx = Math.sin(angle)
-  const dy = -Math.cos(angle)
-  const g = ctx.createLinearGradient(size / 2 - (dx * size) / 2, size / 2 - (dy * size) / 2, size / 2 + (dx * size) / 2, size / 2 + (dy * size) / 2)
-  colors.forEach((c, i) => g.addColorStop(colors.length === 1 ? 0 : i / (colors.length - 1), c))
-  ctx.fillStyle = g
-  ctx.fillRect(0, 0, size, size)
-
-  const S = size * 0.68
-  const cx = size / 2
-  const cy = size * 0.42
-  ctx.save()
-  ctx.globalAlpha = 0.16
-  ctx.fillStyle = "#000000"
-  ctx.beginPath()
-  ctx.arc(cx, cy, S * 0.48, 0, Math.PI * 2)
-  ctx.fill()
-  ctx.strokeStyle = "#FFFFFF"
-  ctx.lineWidth = S * 0.006
-  for (const r of [0.4, 0.33, 0.26, 0.19]) {
-    ctx.beginPath()
-    ctx.arc(cx, cy, S * r, 0, Math.PI * 2)
-    ctx.stroke()
-  }
-  ctx.fillStyle = "#FFFFFF"
-  ctx.beginPath()
-  ctx.arc(cx, cy, S * 0.11, 0, Math.PI * 2)
-  ctx.fill()
-  ctx.fillStyle = "#000000"
-  ctx.beginPath()
-  ctx.arc(cx, cy, S * 0.022, 0, Math.PI * 2)
-  ctx.fill()
-  ctx.restore()
-
-  return await new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob((b) => {
-      if (b) resolve(b)
-      else reject(new Error("toBlob failed"))
-    }, "image/jpeg", 0.92)
-  })
-}
-
 /* 黑胶纹理 */
 function VinylRecord() {
   return (
@@ -647,13 +593,6 @@ export default function PublishWorkModal({
         /* 封面 */
         if (coverType === 'image' && coverFileRef.current) {
           fd.append("cover_image", coverFileRef.current, "cover." + (coverFileRef.current.name.split('.').pop() || 'jpg'))
-        } else {
-          // 1110 渐变封面落档: canvas 导出当前渲染卡片(渐变+黑胶)→走现有 cover_image 管道,api 零改动;
-          // 失败=只存渐变字符串(旧行为兜底,不阻塞发表)
-          try {
-            const coverBlob = await gradientCoverBlob(gradient)
-            fd.append("cover_image", coverBlob, "cover.jpg")
-          } catch { /* canvas 失败兜底 */ }
         }
         fd.append("cover_gradient", gradient)
 

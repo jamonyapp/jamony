@@ -1284,7 +1284,7 @@ app.post('/api/logout', (req, res) => {
 app.get('/api/my-active-room', requireAuth, async (req, res) => {
   try {
     const r = await pool.query(
-      `SELECT r.room_code, r.name, r.host_id, r.server_port, rm.role,
+      `SELECT r.room_code, r.name, r.host_id, rm.role,
               (SELECT COUNT(*) FROM room_members rm2 WHERE rm2.room_id = r.id AND rm2.role = 'musician')::int AS musician_count
        FROM room_members rm JOIN rooms r ON r.id = rm.room_id
        WHERE rm.user_id = $1 AND r.status NOT IN ('closed','archived')`,
@@ -2753,20 +2753,6 @@ async function broadcastSessions(roomCode) {
 }
 
 // 加入房间
-// 1110 一次性ticket: 乐手拉起 jamsoul 前由 /join 签发 60s HMAC 票(绑 userId+房间端口+昵称),
-// jamsoul 客户端经 --ticket 带上、连接握手时呈给房间进程验签——堵「学到 IP:端口 后裸 Jamulus 协议直连+冒充昵称」旁路。
-// 格式 uid:port:nickname:exp:hexsig(昵称可含冒号: C++ 侧头两个+最后一个冒号定界,中段=昵称);
-// 密钥=env JAMONY_TICKET_SECRET(manage-jamsoul 同 env 注入房间进程);未配密钥=不签,旧链路照跑(观察模式)。
-function signRoomTicket(role, userId, port, nickname) {
-  if (role !== 'musician') return undefined
-  const secret = process.env.JAMONY_TICKET_SECRET
-  if (!secret) return undefined
-  const exp = Math.floor(Date.now() / 1000) + 60 // 60s: 签发→壳spawn→握手足够;房间进程与api同机,零钟差
-  const payload = `${userId}:${port}:${nickname}:${exp}`
-  const sig = crypto.createHmac('sha256', secret).update(payload).digest('hex')
-  return `${payload}:${sig}`
-}
-
 app.post('/api/rooms/:code/join', requireAuth, async (req, res) => {
   try {
     const { code } = req.params
@@ -2836,8 +2822,7 @@ app.post('/api/rooms/:code/join', requireAuth, async (req, res) => {
       }
       if (acceptedRole === 'listener') await closeMusicianSession(userId, id)  // 翻回听众即闭会话
       await broadcastMembers(code)
-      // 1110 ticket: 切回乐手=重签(强刷保房/身份切换后的 jamsoul 重拉都走这条,票每次新鲜)
-      return res.json({ ok: true, msg: '已更新身份', role: acceptedRole, ticket: signRoomTicket(acceptedRole, userId, room.server_port, userResult.rows[0].nickname) })
+      return res.json({ ok: true, msg: '已更新身份', role: acceptedRole })
     }
 
     // 黑名单校验：被房主踢出的用户禁止再次加入本房（优先于密码校验）
@@ -2879,7 +2864,7 @@ app.post('/api/rooms/:code/join', requireAuth, async (req, res) => {
     await touchRoomPeak(id)
 
     await broadcastMembers(code)
-    res.json({ ok: true, msg: '已加入房间', role: acceptedRole, ticket: signRoomTicket(acceptedRole, userId, room.server_port, userResult.rows[0].nickname) })
+    res.json({ ok: true, msg: '已加入房间', role: acceptedRole })
   } catch (err) {
     console.error('Room join error:', err)
     res.status(500).json({ ok: false, msg: '服务器错误' })
@@ -4115,62 +4100,6 @@ app.get('/api/works/:id', requireAuth, async (req, res) => {
     res.json({ ok: true, work })
   } catch (err) {
     console.error('Work detail error:', err)
-    res.status(500).json({ ok: false, msg: '服务器错误' })
-  }
-})
-
-// ========== 1110 作品分享: 落地页公开数据(免登录) ==========
-// 微信内置浏览器打开 /share/works/:id 时拉取。只回公开字段(手机号/内部快照/混音参数零字节下去,
-// user_id 一概不出);状态闸=只渲染 published(下架/删除=404,防旧链接在微信里继续传播=审核旁门);
-// 防爬=雪花ID不可枚举+EIP防刷兜底;60s 短缓存(微信卡片点开的瞬时洪峰吃得住,下架最迟60s生效)。
-app.get('/api/works/:id/public', async (req, res) => {
-  try {
-    const { id } = req.params
-    const result = await pool.query(`
-      SELECT w.id, w.title, w.cover_gradient, w.cover_image_path, w.mp3_path, w.duration,
-             w.style, w.copyright_type, w.description, w.cover_song, w.cover_author,
-             w.plays, w.likes, w.created_at,
-             (SELECT COALESCE(json_agg(row_to_json(wa_sub)), '[]'::json)
-              FROM (
-                SELECT COALESCE(u.nickname, wa.nickname) AS nickname, wa.instrument_category, wa.is_anonymous, COALESCE(u.is_system, FALSE) AS is_system
-                FROM work_authors wa LEFT JOIN users u ON u.id = wa.user_id WHERE wa.work_id = w.id
-              ) wa_sub) AS authors -- ORDER BY wa.id: 子查询未投影 id,ORDER BY 引基表列保序不外泄
-      FROM works w
-      WHERE w.id = $1 AND w.status = 'published'
-    `, [id])
-    if (result.rows.length === 0) {
-      return res.status(404).json({ ok: false, msg: '作品不存在或已下架' })
-    }
-    const row = result.rows[0]
-    const authors = (row.authors || []).filter(a => !a.is_system)
-    const namedAuthors = authors.filter(a => !a.is_anonymous)
-    let author = ''
-    if (namedAuthors.length === 0) author = authors.length ? `${authors.length}位匿名乐手` : '匿名乐手'
-    else if (authors.length === 1) author = namedAuthors[0].nickname
-    else author = `${authors.length}位乐手`
-    const nature = row.copyright_type === '原创' ? '原创' : row.copyright_type === '翻唱' ? '翻唱' : '改编'
-    const work = {
-      id: String(row.id),
-      title: row.title,
-      author,
-      nature,
-      style: row.style || '',
-      description: row.description || '',
-      coverSong: row.cover_song || '',
-      coverAuthor: row.cover_author || '',
-      instruments: [...new Set(authors.map(a => a.instrument_category).filter(Boolean))],
-      plays: row.plays || 0,
-      likes: row.likes || 0,
-      duration: row.duration || '',
-      date: row.created_at ? new Date(row.created_at).toISOString().slice(0, 10) : '',
-      gradient: row.cover_gradient || 'linear-gradient(135deg, #00AAFF, #9933FF)',
-      coverUrl: row.cover_image_path ? row.cover_image_path.replace('/var/jamony/works', '/works') : '',
-      mp3Url: row.mp3_path ? row.mp3_path.replace('/var/jamony/works', '/works') : '',
-    }
-    res.set('Cache-Control', 'public, max-age=60')
-    res.json({ ok: true, work })
-  } catch (err) {
-    console.error('Work public error:', err)
     res.status(500).json({ ok: false, msg: '服务器错误' })
   }
 })
@@ -5509,74 +5438,6 @@ function ossSignUrl(objectKey, expireSec = 3600) {
   const signature = crypto.createHmac('sha1', sk).update(stringToSign).digest('base64')
   return `https://${bucket}.${endpoint}/${objectKey}?OSSAccessKeyId=${encodeURIComponent(ak)}&Expires=${expires}&Signature=${encodeURIComponent(signature)}`
 }
-
-/* ========== 1110 作品分享: 微信 JS-SDK 签名(公开免登录+限频) ==========
- * 链路: env WX_APPID/WX_APPSECRET → access_token(缓存7200s) → jsapi_ticket(缓存7200s)
- *   → SHA1("jsapi_ticket=..&noncestr=..&timestamp=..&url=..") → {appId,timestamp,nonceStr,signature}
- * 密钥只进 env 绝不出接口; 签名只对单 URL+2h ticket 有效, 泄露无害。
- * token/ticket 单点集中管理(进程内缓存+单飞行), 防多入口并发刷新互踢(微信旧 token 仅5分钟宽限)。
- * 公开原因: 微信内置浏览器打开 /share 落地页时无登录态, wx.config 必须能匿名取签。
- */
-const wxJsapi = { token: null, tokenExp: 0, ticket: null, ticketExp: 0, inflight: null }
-
-async function wxGetJson(url) {
-  const res = await fetch(url, { signal: AbortSignal.timeout(5000) })
-  if (!res.ok) throw new Error(`weixin http ${res.status}`)
-  return res.json()
-}
-
-async function wxAccessToken() {
-  if (wxJsapi.token && Date.now() < wxJsapi.tokenExp) return wxJsapi.token
-  const d = await wxGetJson(`https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=${process.env.WX_APPID}&secret=${process.env.WX_APPSECRET}`)
-  if (!d.access_token) throw new Error(`weixin token err ${d.errcode}: ${d.errmsg}`)
-  wxJsapi.token = d.access_token
-  wxJsapi.tokenExp = Date.now() + ((d.expires_in || 7200) - 600) * 1000 // 提前10分钟过期, 防边界翻转
-  return wxJsapi.token
-}
-
-async function wxJsapiTicket() {
-  if (wxJsapi.ticket && Date.now() < wxJsapi.ticketExp) return wxJsapi.ticket
-  if (wxJsapi.inflight) return wxJsapi.inflight // 单飞行: 并发请求共乘一次取票
-  wxJsapi.inflight = (async () => {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const token = await wxAccessToken()
-      const d = await wxGetJson(`https://api.weixin.qq.com/cgi-bin/ticket/getticket?access_token=${token}&type=jsapi`)
-      if (d.errcode === 0 && d.ticket) {
-        wxJsapi.ticket = d.ticket
-        wxJsapi.ticketExp = Date.now() + ((d.expires_in || 7200) - 600) * 1000
-        return d.ticket
-      }
-      if (d.errcode === 40001 || d.errcode === 42001) { wxJsapi.token = null; continue } // token 失效/过期→强刷重试一次
-      throw new Error(`weixin ticket err ${d.errcode}: ${d.errmsg}`)
-    }
-    throw new Error('weixin ticket retry exhausted')
-  })().finally(() => { wxJsapi.inflight = null })
-  return wxJsapi.inflight
-}
-
-app.get('/api/wechat/signature', async (req, res) => {
-  if (!rateCheck('wxsig:' + req.ip, 60, 600000)) return res.status(429).json({ ok: false, msg: '请求过于频繁' })
-  // 落地页在 jamonyapp.com(官网域),签名接口在 app 子域——跨子域取签必须带 CORS(只放行官网域)
-  res.set('Access-Control-Allow-Origin', 'https://jamonyapp.com')
-  const url = String(req.query.url || '')
-  let u
-  try { u = new URL(url) } catch { return res.status(400).json({ ok: false, msg: 'invalid url' }) }
-  // 只给自家域名签(防变成开放签名服务); 微信侧签名 URL 必须 = location.href.split('#')[0](含 query,前端负责)
-  if (u.protocol !== 'https:' || !(u.hostname === 'jamonyapp.com' || u.hostname.endsWith('.jamonyapp.com'))) {
-    return res.status(400).json({ ok: false, msg: 'invalid url' })
-  }
-  if (!process.env.WX_APPID || !process.env.WX_APPSECRET) return res.status(500).json({ ok: false, msg: 'wechat not configured' })
-  try {
-    const ticket = await wxJsapiTicket()
-    const nonceStr = crypto.randomBytes(8).toString('hex')
-    const timestamp = Math.floor(Date.now() / 1000)
-    const raw = `jsapi_ticket=${ticket}&noncestr=${nonceStr}&timestamp=${timestamp}&url=${url}`
-    res.json({ ok: true, appId: process.env.WX_APPID, timestamp, nonceStr, signature: crypto.createHash('sha1').update(raw).digest('hex') })
-  } catch (e) {
-    console.error('wechat signature error:', e.message)
-    res.status(502).json({ ok: false, msg: '签名失败' })
-  }
-})
 
 app.get('/api/version/latest', async (req, res) => {
   try {
