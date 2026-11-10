@@ -2,12 +2,13 @@
 
 import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
-import { MoreHorizontal, Pause, Play, Heart, MessageCircle } from "lucide-react"
+import { MoreHorizontal, Pause, Play, Heart, MessageCircle, Share2 } from "lucide-react"
 import { VinylRecord } from "@/components/jamony/vinyl-record"
 import { usePlayer } from "@/components/jamony/player-context"
 import { LikeButton } from "@/components/jamony/like-button"
 import { CommentCount } from "@/components/jamony/comment-count"
 import { formatCount, type Track } from "@/lib/jamony-data"
+import { ShareMenu } from "@/components/share/share-menu"
 import { useAuth } from "@/lib/auth-context"
 
 function WaveBars() {
@@ -48,6 +49,7 @@ export function TrackCard({
   const padClass = compact ? "p-2" : "p-3"
   const centerBtnClass = compact ? "h-11 w-11" : "h-14 w-14"
   const [menuOpen, setMenuOpen] = useState(false)
+  const [shareOpen, setShareOpen] = useState(false) // 1110q 作品库卡分享入口(欢哥): 统计行评论后,同详情页逻辑
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [feedbackText, setFeedbackText] = useState("")
   const [feedbackSent, setFeedbackSent] = useState(false)
@@ -318,6 +320,18 @@ export function TrackCard({
           </span>
           <LikeButton workId={track.id} isLiked={track.isLiked ?? false} likes={track.likes} iconClass="h-3 w-3" stopClick />
           <CommentCount workId={track.id} count={track.comments} iconClass="h-3 w-3" stopClick onClick={() => handleMenuItem("detail")} />
+          {/* 1110q 分享入口(欢哥): 统计行末位,纯图标;容器点击=播放故 stopPropagation */}
+          <span className="relative flex items-center" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              aria-label="分享"
+              onClick={(e) => { e.stopPropagation(); setShareOpen(v => !v) }}
+              className="flex items-center transition-opacity hover:opacity-80"
+            >
+              <Share2 className="h-3 w-3" />
+            </button>
+            <ShareMenu open={shareOpen} onClose={() => setShareOpen(false)} workId={track.id} title={track.title} />
+          </span>
         </div>
       </div>
     </div>
