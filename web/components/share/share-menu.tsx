@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import QRCode from "qrcode"
 import { Check } from "lucide-react"
 
 // 1110 夜战 ShareMenu 定稿复活·第三步(欢哥 1110 下午令): 微博分享链路上马——
@@ -18,10 +19,25 @@ export function ShareMenu({ open, onClose, workId, title }: { open: boolean; onC
   const [copiedShown, setCopiedShown] = useState(false)
   const [copyFailed, setCopyFailed] = useState(false)
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // 微信二级态(1110 QR 收官): menu=下拉菜单 / qr=全屏二维码卡片(本地 qrcode 库生成,零服务器依赖)
+  const [stage, setStage] = useState<"menu" | "qr">("menu")
+  const [qr, setQr] = useState("")
+  // 1023 遮罩拖出误关范式: mousedown 与 click 都落在遮罩上才算「点遮罩关闭」
+  const qrOverlayRef = useRef<HTMLDivElement>(null)
+  const qrDownOnOverlay = useRef(false)
 
   // 落地页 URL(1110 终版: s.jamonyapp.com 分享子域,对标网易云 y.music.163.com——主域改写路全死,
   // 子域纯代理零改写=水合原生环境;主域/share 留 302 续命老链接)
   const shareUrl = `https://s.jamonyapp.com/share/works/${workId}`
+
+  // 打开即预热二维码(白底黑码=扫码兼容性最稳);每次打开重置回菜单态
+  useEffect(() => {
+    if (!open) return
+    setStage("menu")
+    QRCode.toDataURL(shareUrl, { width: 400, margin: 2, color: { dark: "#000000", light: "#FFFFFF" } })
+      .then(setQr)
+      .catch(() => setQr(""))
+  }, [open, shareUrl])
 
   useEffect(() => () => { if (copiedTimer.current) clearTimeout(copiedTimer.current) }, [])
 
@@ -69,6 +85,38 @@ export function ShareMenu({ open, onClose, workId, title }: { open: boolean; onC
     }
   }
 
+  // 微信二级:全屏二维码卡片(qrcode 本地生成 dataURL;点遮罩关闭=拖出误关范式)
+  if (open && stage === "qr") {
+    return (
+      <div
+        ref={qrOverlayRef}
+        className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+        onMouseDown={(e) => { qrDownOnOverlay.current = e.target === qrOverlayRef.current }}
+        onClick={(e) => {
+          e.stopPropagation()
+          if (e.target === qrOverlayRef.current && qrDownOnOverlay.current) onClose()
+        }}
+      >
+        <div
+          className="w-full max-w-xs rounded-xl border border-white/10 bg-[#0D0D0D] p-5"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="text-center text-sm font-semibold text-white">分享到微信</div>
+          <div className="mt-3 flex justify-center">
+            {qr ? (
+              // eslint-disable-next-line @next/next/no-img-element -- 本地 dataURL 二维码,非远程图
+              <img src={qr} alt="分享二维码" className="h-56 w-56 rounded-lg bg-white" />
+            ) : (
+              <div className="grid h-56 w-56 place-items-center rounded-lg bg-white/10 text-xs text-zinc-500">生成中…</div>
+            )}
+          </div>
+          <div className="mt-3 text-center text-xs text-zinc-400">微信扫一扫,在手机上打开这个作品</div>
+          <div className="mt-1 text-center text-[11px] text-zinc-600">手机上点右上角「…」可转发给好友/朋友圈</div>
+        </div>
+      </div>
+    )
+  }
+
   // 菜单(打开时)
   if (open) {
     return (
@@ -88,7 +136,7 @@ export function ShareMenu({ open, onClose, workId, title }: { open: boolean; onC
           <button
             type="button"
             className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-white transition-colors hover:bg-white/10 active:bg-white/15"
-            onClick={onClose} /* TODO ①二级QR */
+            onClick={() => setStage("qr")}
           >
             <WechatLogo className="h-5 w-5" />
             分享到微信
