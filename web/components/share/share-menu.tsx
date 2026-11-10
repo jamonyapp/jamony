@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 import QRCode from "qrcode"
 import { Check } from "lucide-react"
 
@@ -22,6 +23,17 @@ export function ShareMenu({ open, onClose, workId, title, baseZ = 40 }: { open: 
   // 微信二级态(1110 QR 收官): menu=下拉菜单 / qr=全屏二维码卡片(本地 qrcode 库生成,零服务器依赖)
   const [stage, setStage] = useState<"menu" | "qr">("menu")
   const [qr, setQr] = useState("")
+  // 1110q' portal 定位(欢哥批·作品库菜单被后卡遮挡=层叠上下文陷阱): 菜单/遮罩/QR/浮层全 portal 到 body,
+  // fixed 按锚点 span 坐标定位——彻底脱离卡片 z-10 文案层的局部上下文
+  const anchorRef = useRef<HTMLSpanElement>(null)
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null)
+  useLayoutEffect(() => {
+    if (!open) return
+    const el = anchorRef.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    setMenuPos({ top: r.bottom + 8, left: Math.min(r.right - 176, window.innerWidth - 184) }) // w-44=176 右对齐锚+防屏溢
+  }, [open])
   // 1023 遮罩拖出误关范式: mousedown 与 click 都落在遮罩上才算「点遮罩关闭」
   const qrOverlayRef = useRef<HTMLDivElement>(null)
   const qrDownOnOverlay = useRef(false)
@@ -85,10 +97,14 @@ export function ShareMenu({ open, onClose, workId, title, baseZ = 40 }: { open: 
     }
   }
 
-  // 微信二级:全屏二维码卡片(qrcode 本地生成 dataURL;点遮罩关闭=拖出误关范式)
+  // 微信二级:全屏二维码卡片(qrcode 本地生成 dataURL;点遮罩关闭=拖出误关范式)——portal 到 body
   if (open && stage === "qr") {
+    if (typeof document === "undefined") return <span ref={anchorRef} />
     return (
-      <div
+      <>
+        <span ref={anchorRef} />
+        {createPortal(
+        <div
         ref={qrOverlayRef}
         className="fixed inset-0 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
         style={{ zIndex: baseZ + 30 }}
@@ -120,13 +136,14 @@ export function ShareMenu({ open, onClose, workId, title, baseZ = 40 }: { open: 
             关闭
           </button>
         </div>
-      </div>
+        </div>, document.body)}
+      </>
     )
   }
 
-  // 菜单(打开时)
+  // 菜单(打开时)——portal 到 body,fixed 按锚点坐标(脱离调用方层叠上下文)
   if (open) {
-    return (
+    const menu = (
       <>
         {/* 点外部任意处收起菜单(stopPropagation: TrackCard 等容器点击=播放,不可冒泡) */}
         <div
@@ -137,9 +154,10 @@ export function ShareMenu({ open, onClose, workId, title, baseZ = 40 }: { open: 
             onClose()
           }}
         />
+        {menuPos && (
         <div
-          className="absolute right-0 top-full mt-2 w-44 overflow-hidden rounded-xl border border-white/10 bg-[#0D0D0D] py-1 shadow-2xl"
-          style={{ zIndex: baseZ + 10 }}
+          className="w-44 overflow-hidden rounded-xl border border-white/10 bg-[#0D0D0D] py-1 shadow-2xl"
+          style={{ position: "fixed", top: menuPos.top, left: menuPos.left, zIndex: baseZ + 10 }}
           onClick={(e) => e.stopPropagation()}
         >
           <button
@@ -170,20 +188,32 @@ export function ShareMenu({ open, onClose, workId, title, baseZ = 40 }: { open: 
             {copyFailed ? "复制失败,请重试" : "复制链接"}
           </button>
         </div>
+        )}
+      </>
+    )
+    return typeof document === "undefined" ? <span ref={anchorRef} /> : (
+      <>
+        <span ref={anchorRef} />
+        {createPortal(menu, document.body)}
       </>
     )
   }
 
-  // 已收起——「链接已复制 ✓」浮层可能还在淡出途中(菜单原位同款容器形态)
-  if (!copiedMounted) return null
+  // 已收起——「链接已复制 ✓」浮层可能还在淡出途中(菜单原位同款容器形态,portal+锚点坐标)
+  if (!copiedMounted) return <span ref={anchorRef} />
   return (
-    <div
-      style={{ zIndex: baseZ + 10 }}
-      className={`pointer-events-none absolute right-0 top-full mt-2 flex w-44 items-center gap-3 rounded-xl border border-white/10 bg-[#0D0D0D] px-4 py-2.5 text-sm text-white shadow-2xl transition-opacity duration-300 ${copiedShown ? "opacity-100" : "opacity-0"}`}
-    >
-      <Check className="h-4 w-4 shrink-0 text-brand-lime" />
-      链接已复制
-    </div>
+    <>
+      <span ref={anchorRef} />
+      {typeof document !== "undefined" && menuPos && createPortal(
+        <div
+          style={{ position: "fixed", top: menuPos.top, left: menuPos.left, zIndex: baseZ + 10 }}
+          className={`pointer-events-none flex w-44 items-center gap-3 rounded-xl border border-white/10 bg-[#0D0D0D] px-4 py-2.5 text-sm text-white shadow-2xl transition-opacity duration-300 ${copiedShown ? "opacity-100" : "opacity-0"}`}
+        >
+          <Check className="h-4 w-4 shrink-0 text-brand-lime" />
+          链接已复制
+        </div>, document.body
+      )}
+    </>
   )
 }
 
