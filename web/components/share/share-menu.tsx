@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import QRCode from "qrcode"
+import { Link2, X } from "lucide-react"
 
 // 1110b 欢哥定稿交互: 点「分享」先出下拉菜单(分享到微信/微博/复制链接,各项带 logo),
 // 选微信=二级 QR 卡片(扫码即达公开落地页);选微博=壳内 openExternal 跳系统浏览器;
@@ -32,22 +33,41 @@ export function ShareMenu({ open, onClose, workId, title }: { open: boolean; onC
 
   useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current) }, [])
 
-  // 淡入(300ms)→停 1.4s→淡出(350ms)→卸载
+  // 站内 toast 范式(1103 upload-toast 同款): 5s 自动淡出+叉子可提前关
   const showToast = () => {
     setToastMounted(true)
     requestAnimationFrame(() => setToastShown(true))
     toastTimer.current = setTimeout(() => {
       setToastShown(false)
       toastTimer.current = setTimeout(() => setToastMounted(false), 350)
-    }, 1400)
+    }, 5000)
+  }
+
+  const dismissToast = () => {
+    if (toastTimer.current) clearTimeout(toastTimer.current)
+    setToastShown(false)
+    toastTimer.current = setTimeout(() => setToastMounted(false), 350)
   }
 
   const toastEl = toastMounted ? (
     <div
-      className={`fixed bottom-10 left-1/2 z-[70] -translate-x-1/2 rounded-full bg-white/15 px-4 py-2 text-sm text-white backdrop-blur transition-opacity duration-300 ${toastShown ? "opacity-100" : "opacity-0"}`}
+      // 视觉=upload-toast 同款(brand-pink/8px/xs/图标+叉子);位置=屏幕下中(分享动作无面板容器可挂)
+      className={`fixed bottom-10 left-1/2 z-[70] flex -translate-x-1/2 items-center justify-center gap-2 rounded-[8px] bg-brand-pink/70 px-3 py-1 text-xs font-medium leading-tight text-white shadow-md transition-opacity duration-300 ${toastShown ? "opacity-100" : "opacity-0"}`}
       onClick={(e) => e.stopPropagation()}
     >
+      <Link2 className="size-3 shrink-0" />
       复制成功
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation()
+          dismissToast()
+        }}
+        title="关闭"
+        className="absolute right-1.5 grid size-4 place-items-center rounded-[6px] text-white/70 transition-colors hover:bg-white/15 hover:text-white"
+      >
+        <X className="size-2.5" />
+      </button>
     </div>
   ) : null
 
