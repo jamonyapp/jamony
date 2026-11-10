@@ -199,15 +199,16 @@ export function ShareMenu({ open, onClose, workId, title, baseZ = 40 }: { open: 
     )
   }
 
-  // 已收起——「链接已复制 ✓」浮层可能还在淡出途中(菜单原位同款容器形态,portal+锚点坐标)
+  // 已收起——「链接已复制 ✓」浮层可能还在淡出途中(1110r 欢哥批: 页面居中位——排除左栏240px,
+  // 即内容区正中 left=calc(50%+120px) 垂直50%;不再跟随菜单锚点)
   if (!copiedMounted) return <span ref={anchorRef} />
   return (
     <>
       <span ref={anchorRef} />
-      {typeof document !== "undefined" && menuPos && createPortal(
+      {typeof document !== "undefined" && createPortal(
         <div
-          style={{ position: "fixed", top: menuPos.top, left: menuPos.left, zIndex: baseZ + 10 }}
-          className={`pointer-events-none flex w-44 items-center gap-3 rounded-xl border border-white/10 bg-[#0D0D0D] px-4 py-2.5 text-sm text-white shadow-2xl transition-opacity duration-300 ${copiedShown ? "opacity-100" : "opacity-0"}`}
+          style={{ position: "fixed", top: "50%", left: "calc(50% + 120px)", transform: "translate(-50%, -50%)", zIndex: baseZ + 10 }}
+          className={`pointer-events-none flex items-center gap-3 rounded-xl border border-white/10 bg-[#0D0D0D] px-4 py-2.5 text-sm text-white shadow-2xl transition-opacity duration-300 ${copiedShown ? "opacity-100" : "opacity-0"}`}
         >
           <Check className="h-4 w-4 shrink-0 text-brand-lime" />
           链接已复制
