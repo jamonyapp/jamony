@@ -76,6 +76,7 @@ function VinylRecord() {
 function HighlightCard({ item, angle, onOpen }: { item: Highlight; angle: number; onOpen: () => void }) {
   const { current, isPlaying } = usePlayer()
   const router = useRouter()
+  const [cardShareOpen, setCardShareOpen] = useState(false) // 1110r' 高光卡本体分享入口(欢哥)
   const isThisPlaying = current?.id === item.trackId && isPlaying
   return (
     <div
@@ -118,6 +119,18 @@ function HighlightCard({ item, angle, onOpen }: { item: Highlight; angle: number
             onClick={() => router.push(`/library/${item.trackId}`)}
             stopClick
           />
+          {/* 1110r' 分享入口(欢哥): 高光卡本体统计行末位,同作品库卡款 */}
+          <span className="relative flex items-center" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              aria-label="分享"
+              onClick={(e) => { e.stopPropagation(); setCardShareOpen(v => !v) }}
+              className="flex items-center transition-opacity hover:opacity-80"
+            >
+              <Share2 className="h-3 w-3" />
+            </button>
+            <ShareMenu open={cardShareOpen} onClose={() => setCardShareOpen(false)} workId={item.trackId} title={item.title} />
+          </span>
         </div>
       </div>
 
