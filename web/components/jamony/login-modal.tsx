@@ -334,8 +334,10 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
                 </div>
               </div>
 
-              {notice && <p className="text-xs" style={{ color: "#00AAFF" }}>{notice}</p>}
-              {error && <p className="text-xs" style={{ color: "#FF33AA" }}>{error}</p>}
+              {/* 1110p 常驻占位(欢哥批): 提示行恒在——只做显示/不显示,不做有无(增删行会拉长卡片=跳动别扭) */}
+              <p className="text-xs" style={{ color: notice ? "#00AAFF" : "#FF33AA", visibility: notice || error ? "visible" : "hidden" }}>
+                {notice || error || "\u00A0"}
+              </p>
 
               <AgreementCheck agreed={agreed} onToggle={() => setAgreed((v) => !v)} onOpen={(d) => setShowDoc(d)} />
 
@@ -427,8 +429,10 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
                 />
               </div>
 
-              {notice && <p className="text-xs" style={{ color: "#00AAFF" }}>{notice}</p>}
-              {error && <p className="text-xs" style={{ color: "#FF33AA" }}>{error}</p>}
+              {/* 1110p 常驻占位(欢哥批): 提示行恒在——只做显示/不显示,不做有无(增删行会拉长卡片=跳动别扭) */}
+              <p className="text-xs" style={{ color: notice ? "#00AAFF" : "#FF33AA", visibility: notice || error ? "visible" : "hidden" }}>
+                {notice || error || "\u00A0"}
+              </p>
 
               <button type="submit" disabled={loading} className={submitCls} style={submitStyle}>
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -483,8 +487,10 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
                 />
               </div>
 
-              {notice && <p className="text-xs" style={{ color: "#00AAFF" }}>{notice}</p>}
-              {error && <p className="text-xs" style={{ color: "#FF33AA" }}>{error}</p>}
+              {/* 1110p 常驻占位(欢哥批): 提示行恒在——只做显示/不显示,不做有无(增删行会拉长卡片=跳动别扭) */}
+              <p className="text-xs" style={{ color: notice ? "#00AAFF" : "#FF33AA", visibility: notice || error ? "visible" : "hidden" }}>
+                {notice || error || "\u00A0"}
+              </p>
 
               <AgreementCheck agreed={agreed} onToggle={() => setAgreed((v) => !v)} onOpen={(d) => setShowDoc(d)} />
 
