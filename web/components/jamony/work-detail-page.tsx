@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Play, Pause, ThumbsUp, MessageCircle, Check, ListMusic, Trash2, Flag, Share2 } from "lucide-react"
-import { ShareMenu } from "@/components/share/share-menu"
+import { ShareDialog } from "@/components/share/share-dialog"
 import { usePlayer } from "@/components/jamony/player-context"
 import { LikeButton } from "@/components/jamony/like-button"
 import { CommentCount } from "@/components/jamony/comment-count"
@@ -481,19 +481,15 @@ function WorkDetailInner() {
                   <ListMusic className="h-4 w-4" />
                   加入播放列表
                 </button>
-                {/* 1110b 分享改下拉菜单(欢哥定稿): 微信/微博/复制链接三选一 */}
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => setShareOpen(v => !v)}
-                    className="flex items-center gap-1.5 whitespace-nowrap text-sm text-white/70 transition-colors hover:text-white"
-                    title="分享作品"
-                  >
-                    <Share2 className="h-4 w-4" />
-                    分享
-                  </button>
-                  <ShareMenu open={shareOpen} onClose={() => setShareOpen(false)} workId={track.id} title={track.title} />
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setShareOpen(true)}
+                  className="flex items-center gap-1.5 whitespace-nowrap text-sm text-white/70 transition-colors hover:text-white"
+                  title="分享作品"
+                >
+                  <Share2 className="h-4 w-4" />
+                  分享
+                </button>
               </div>
               <button
                 type="button"
@@ -722,7 +718,8 @@ function WorkDetailInner() {
           )}
         </section>
 
-        {/* 1110 分享弹窗→1110b 已改 ShareMenu 下拉(就近挂在分享按钮下) */}
+        {/* 1110 分享弹窗(二维码/微博/复制链接) */}
+        <ShareDialog open={shareOpen} onClose={() => setShareOpen(false)} workId={track.id} title={track.title} />
 
         {/* 举报作品弹窗(1024 举报系统; 理由组与评论举报共享 REPORT_REASONS) */}
         {workReportOpen && (

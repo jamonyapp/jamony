@@ -4,10 +4,9 @@ import { useEffect } from "react"
 
 // 1110 微信自定义卡片:wx.config(签名来自 /api/wechat/signature,对单 URL+2h 有效,泄露无害)
 // → updateAppMessageShareData / updateTimelineShareData(新接口;onMenuShareXXX 系已废弃)。
-// 卡片:标题=作品名 / 描述=1110b 定稿「署名的合奏作品,来 jamony 一起玩!」/ 缩略图=封面(绝对地址,
-// 无封面兜底 jamony_logo——微信服务器要能拉到,空串=卡片无图,1110b 欢哥实测踩过)。
+// 卡片:标题=作品名 / 描述=作者·jamony即鸣 / 缩略图=封面(绝对地址,微信服务器要能拉到)。
 // 非微信浏览器(微博/桌面)静默跳过;签名失败=微信默认卡片兜底,不阻塞页面。
-export function WechatShare({ title, desc, coverUrl }: { title: string; desc: string; coverUrl: string }) {
+export function WechatShare({ title, author, coverUrl }: { title: string; author: string; coverUrl: string }) {
   useEffect(() => {
     if (!/MicroMessenger/i.test(navigator.userAgent)) return
     const s = document.createElement("script")
@@ -33,11 +32,11 @@ export function WechatShare({ title, desc, coverUrl }: { title: string; desc: st
         wx.ready(() => {
           wx.updateAppMessageShareData({
             title,
-            desc,
+            desc: `${author} · jamony 即鸣 · 低延迟线上实时合奏`,
             link: url,
             imgUrl: coverUrl,
           })
-          wx.updateTimelineShareData({ title: `${title} - ${desc}`, link: url, imgUrl: coverUrl })
+          wx.updateTimelineShareData({ title: `${title} - ${author}`, link: url, imgUrl: coverUrl })
         })
       } catch {
         /* 网络异常=默认卡片兜底 */
@@ -47,6 +46,6 @@ export function WechatShare({ title, desc, coverUrl }: { title: string; desc: st
     return () => {
       s.remove()
     }
-  }, [title, desc, coverUrl])
+  }, [title, author, coverUrl])
   return null
 }
