@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Play, Pause, ThumbsUp, MessageCircle, Check, ListMusic, Trash2, Flag } from "lucide-react"
+import { Play, Pause, ThumbsUp, MessageCircle, Check, ListMusic, Trash2, Flag, Share2 } from "lucide-react"
+import { ShareMenu } from "@/components/share/share-menu"
 import { usePlayer } from "@/components/jamony/player-context"
 import { LikeButton } from "@/components/jamony/like-button"
 import { CommentCount } from "@/components/jamony/comment-count"
@@ -107,6 +108,7 @@ function WorkDetailInner() {
   const [likeCount, setLikeCount] = useState(0)
   const [commentText, setCommentText] = useState("")
   const [track, setTrack] = useState<Track | null>(null)
+  const [shareOpen, setShareOpen] = useState(false)
   const [workAuthors, setWorkAuthors] = useState<any[]>([])
   const [anonymousCount, setAnonymousCount] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -479,6 +481,20 @@ function WorkDetailInner() {
                   <ListMusic className="h-4 w-4" />
                   加入播放列表
                 </button>
+                {/* 1110 分享第一步(欢哥): Share2 按钮+下拉菜单静态壳,行为下一步;
+                    位置/形态=1110 夜战验收批定稿(操作行内,「加入播放列表」右邻) */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setShareOpen(v => !v)}
+                    className="flex items-center gap-1.5 whitespace-nowrap text-sm text-white/70 transition-colors hover:text-white"
+                    title="分享作品"
+                  >
+                    <Share2 className="h-4 w-4" />
+                    分享
+                  </button>
+                  <ShareMenu open={shareOpen} onClose={() => setShareOpen(false)} />
+                </div>
               </div>
               <button
                 type="button"
