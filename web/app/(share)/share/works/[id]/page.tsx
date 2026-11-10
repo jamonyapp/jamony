@@ -70,7 +70,7 @@ function authorsDigest(w: PublicWork): string {
 
 // 1110m 微信卡片定稿(欢哥): 标题只用作品名(不带「- jamony 即鸣」后缀,微信默认卡抓<title>故全层纯名);
 // 描述=固定文案(不动态取署名)
-const SHARE_DESC = "这首作品不错呦,听听看!可以来jamony,一起玩!"
+const SHARE_DESC = "这首作品不错呦,听听看!\n可以来jamony,一起玩!"
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params
