@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next'
+import { headers } from 'next/headers'
 import localFont from 'next/font/local'
 import './globals.css'
 import { AuthProvider } from '@/lib/auth-context'
@@ -69,45 +70,56 @@ const scrollbarStyle = [
   '*{scrollbar-width:thin;scrollbar-color:#1a1a1a #000}',
 ].join('')
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  // 1110: /share 落地页跳过全家桶——非壳 UA 下全家桶(auth/room-session/electron-gate 按 UA 分支)
+  // 水合挂死=落地页点击失效根因;落地页只要播放器+微信卡片段,轻为上(设计本意:不带桌面壳)
+  // 代价: headers() 使全站转动态渲染(QPS≈0 无感); middleware 对 /share 注入 x-share-page
+  const h = await headers()
+  const isShare = h.get('x-share-page') === '1'
   return (
     <html lang="zh-CN" className={`dark ${geistSans.variable} ${geistMono.variable}`} style={{ background: '#000000' }}>
       <head>
         <style dangerouslySetInnerHTML={{ __html: scrollbarStyle }} />
-        <script src="/lame.min.js" />
+        {!isShare && <script src="/lame.min.js" />}
       </head>
       <body className="font-sans antialiased" style={{ background: '#000000' }}>
-        <CrashRecorder />
-        <DialogProvider>
-        <AuthProvider>
-          <RoomSessionProvider>
-          <PlayerProvider>
-            <LikesProvider>
-              <CommentsProvider>
-                <FollowProvider>
-                  <NotificationsProvider>
-                    <DMProvider>
-                    {/* 1023 七件套②: 受限专用 Dialog——403 RESTRICTED 全局弹出（文案+申诉入口） */}
-                    <RestrictedProvider>
-                    <ElectronGate>
-                      {children}
-                      <PlayerBar />
-                    </ElectronGate>
-                    </RestrictedProvider>
-                    </DMProvider>
-                  </NotificationsProvider>
-                </FollowProvider>
-              </CommentsProvider>
-            </LikesProvider>
-          </PlayerProvider>
-          </RoomSessionProvider>
-          <LoginModal />
-        </AuthProvider>
-        </DialogProvider>
+        {isShare ? (
+          children
+        ) : (
+          <>
+          <CrashRecorder />
+          <DialogProvider>
+          <AuthProvider>
+            <RoomSessionProvider>
+            <PlayerProvider>
+              <LikesProvider>
+                <CommentsProvider>
+                  <FollowProvider>
+                    <NotificationsProvider>
+                      <DMProvider>
+                      {/* 1023 七件套②: 受限专用 Dialog——403 RESTRICTED 全局弹出（文案+申诉入口） */}
+                      <RestrictedProvider>
+                      <ElectronGate>
+                        {children}
+                        <PlayerBar />
+                      </ElectronGate>
+                      </RestrictedProvider>
+                      </DMProvider>
+                    </NotificationsProvider>
+                  </FollowProvider>
+                </CommentsProvider>
+              </LikesProvider>
+            </PlayerProvider>
+            </RoomSessionProvider>
+            <LoginModal />
+          </AuthProvider>
+          </DialogProvider>
+          </>
+        )}
       </body>
     </html>
   )

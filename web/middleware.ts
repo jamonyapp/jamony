@@ -27,8 +27,14 @@ export function middleware(req: NextRequest) {
     /^10\./.test(host)
 
   // 1104批次2: 协议/政策页对外豁免——浏览器可看(登录勾选链接的对外锚点)
-  // 1110: /share=站外分享落地页——全 jamony 唯一「窗外」,普通浏览器(含微信内置)必须可看
-  if (req.nextUrl.pathname === '/terms' || req.nextUrl.pathname === '/privacy' || req.nextUrl.pathname.startsWith('/share')) return NextResponse.next()
+  // 1110: /share=站外分享落地页——全 jamony 唯一「窗外」,普通浏览器(含微信内置)必须可看;
+  // 打标记头让根 layout 跳过全家桶 Provider+lame(非壳 UA 下全家桶水合挂死=落地页点击失效根因)
+  if (req.nextUrl.pathname.startsWith('/share')) {
+    const reqHeaders = new Headers(req.headers)
+    reqHeaders.set('x-share-page', '1')
+    return NextResponse.next({ request: { headers: reqHeaders } })
+  }
+  if (req.nextUrl.pathname === '/terms' || req.nextUrl.pathname === '/privacy') return NextResponse.next()
 
   if (isElectron || isLocal) {
     // 1109 强登录: UA 闸决定「能不能看 jamony」, 登录闸决定「能不能用」——两者正交; 本地/内网也过登录闸(内网验收即走此路)

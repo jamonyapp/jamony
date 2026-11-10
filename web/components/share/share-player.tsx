@@ -34,6 +34,7 @@ export function SharePlayer({ src }: { src: string }) {
     const el = audioRef.current
     if (!el) return
     if (el.paused) {
+      if (el.ended) el.currentTime = 0 // 播完重听:从头
       el.play()
       setPlaying(true)
     } else {

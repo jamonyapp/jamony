@@ -19,8 +19,9 @@ export function ShareMenu({ open, onClose, workId, title }: { open: boolean; onC
   const [copyFailed, setCopyFailed] = useState(false)
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // 落地页 URL(1110 定稿主域路径;落地页路由下一步做,复制先行)
-  const shareUrl = `https://jamonyapp.com/share/works/${workId}`
+  // 落地页 URL(1110 终版: s.jamonyapp.com 分享子域,对标网易云 y.music.163.com——主域改写路全死,
+  // 子域纯代理零改写=水合原生环境;主域/share 留 302 续命老链接)
+  const shareUrl = `https://s.jamonyapp.com/share/works/${workId}`
 
   useEffect(() => () => { if (copiedTimer.current) clearTimeout(copiedTimer.current) }, [])
 

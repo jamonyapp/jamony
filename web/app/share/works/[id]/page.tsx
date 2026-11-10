@@ -13,7 +13,8 @@ import { VinylRecord } from "@/components/jamony/vinyl-record"
 // 统计行上移标题下/下载文案与水印定稿/og+微信卡片图带兜底。
 
 const API_INTERNAL = process.env.API_INTERNAL || "http://127.0.0.1:3001"
-const MEDIA_BASE = "https://app.jamonyapp.com"
+// 1110 终版: s.jamonyapp.com 分享子域(s nginx 全站纯代理到 app:3000,零改写)——媒体/og 同域自洽
+const MEDIA_BASE = "https://s.jamonyapp.com"
 const OG_FALLBACK = `${MEDIA_BASE}/jamony_logo.png`
 
 type PublicAuthor = {
