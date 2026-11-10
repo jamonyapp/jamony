@@ -10,26 +10,50 @@ import QRCode from "qrcode"
 export function ShareMenu({ open, onClose, workId, title }: { open: boolean; onClose: () => void; workId: string | number; title: string }) {
   const [stage, setStage] = useState<"menu" | "qr">("menu")
   const [qr, setQr] = useState("")
-  const [copied, setCopied] = useState(false)
+  const [copyFailed, setCopyFailed] = useState(false)
+  // 1110e 欢哥定稿: 复制成功=淡入淡出 toast+菜单即收(组件保持挂载至 toast 退场)
+  const [toastMounted, setToastMounted] = useState(false)
+  const [toastShown, setToastShown] = useState(false)
   // 1023 遮罩拖出误关范式: mousedown 与 click 都落在遮罩上才算「点遮罩关闭」
   const overlayRef = useRef<HTMLDivElement>(null)
   const downOnOverlay = useRef(false)
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const shareUrl = `https://jamonyapp.com/share/works/${workId}`
 
   useEffect(() => {
     if (!open) return
     setStage("menu")
-    setCopied(false)
+    setCopyFailed(false)
     QRCode.toDataURL(shareUrl, { width: 400, margin: 2, color: { dark: "#000000", light: "#FFFFFF" } })
       .then(setQr)
       .catch(() => setQr(""))
   }, [open, shareUrl])
 
-  if (!open) return null
+  useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current) }, [])
+
+  // 淡入(300ms)→停 1.4s→淡出(350ms)→卸载
+  const showToast = () => {
+    setToastMounted(true)
+    requestAnimationFrame(() => setToastShown(true))
+    toastTimer.current = setTimeout(() => {
+      setToastShown(false)
+      toastTimer.current = setTimeout(() => setToastMounted(false), 350)
+    }, 1400)
+  }
+
+  const toastEl = toastMounted ? (
+    <div
+      className={`fixed bottom-10 left-1/2 z-[70] -translate-x-1/2 rounded-full bg-white/15 px-4 py-2 text-sm text-white backdrop-blur transition-opacity duration-300 ${toastShown ? "opacity-100" : "opacity-0"}`}
+      onClick={(e) => e.stopPropagation()}
+    >
+      复制成功
+    </div>
+  ) : null
 
   const weibo = () => {
-    const url = `https://service.weibo.com/share/share.php?url=${encodeURIComponent(shareUrl)}&title=${encodeURIComponent(`${title} - jamony 即鸣`)}`
+    // 1110e 欢哥定稿文案(网易云同构): 分享{作品名} {url} （分享自 @jamony）——url 走独立参数,微博自动附链接卡片
+    const url = `https://service.weibo.com/share/share.php?url=${encodeURIComponent(shareUrl)}&title=${encodeURIComponent(`分享${title} （分享自 @jamony）`)}`
     const api = (window as unknown as { jamonyAPI?: { openExternal?: (u: string) => void } }).jamonyAPI
     if (api?.openExternal) api.openExternal(url)
     else window.open(url, "_blank", "noopener")
@@ -53,11 +77,15 @@ export function ShareMenu({ open, onClose, workId, title }: { open: boolean; onC
         ta.remove()
       }
     }
-    setCopied(ok)
-    if (ok) setTimeout(onClose, 900)
+    if (ok) {
+      showToast()
+      onClose()
+    } else {
+      setCopyFailed(true)
+    }
   }
 
-  if (stage === "menu") {
+  if (stage === "menu" && open) {
     return (
       <>
         {/* 点外部任意处收起菜单(stopPropagation: TrackCard 等容器点击=播放,不可冒泡) */}
@@ -68,6 +96,7 @@ export function ShareMenu({ open, onClose, workId, title }: { open: boolean; onC
             onClose()
           }}
         />
+        {toastEl}
         <div
           className="absolute right-0 top-full z-50 mt-2 w-44 overflow-hidden rounded-xl border border-white/10 bg-[#0D0D0D] py-1 shadow-2xl"
           onClick={(e) => e.stopPropagation()}
@@ -97,12 +126,15 @@ export function ShareMenu({ open, onClose, workId, title }: { open: boolean; onC
               <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
               <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
             </svg>
-            {copied ? "已复制 ✓" : "复制链接"}
+            {copyFailed ? "复制失败,请重试" : "复制链接"}
           </button>
         </div>
       </>
     )
   }
+
+  // 已收起(toast 可能还在淡出途中)——只留 toast
+  if (!open) return <>{toastEl}</>
 
   return (
     <div
@@ -131,6 +163,7 @@ export function ShareMenu({ open, onClose, workId, title }: { open: boolean; onC
           关闭
         </button>
       </div>
+      {toastEl}
     </div>
   )
 }
