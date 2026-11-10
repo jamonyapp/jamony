@@ -4,7 +4,7 @@ import { type Notice } from "@/lib/jamony-data"
 import { mapNotice } from "@/lib/notice-mappers"
 import { Avatar } from "@/components/jamony/avatar"
 import { NoticeDetailModal } from "@/components/jamony/notice-detail-modal"
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useRealtime } from "@/hooks/useRealtime"
 import { useRouter } from "next/navigation"
 import { SectionHeader } from "./section-header"
@@ -41,6 +41,22 @@ const layouts: Layout[] = [
 function NoteCard({ notice, index, onOpen }: { notice: Notice; index: number; onOpen: () => void }) {
   const theme = noteThemes[index % noteThemes.length]
   const l = layouts[index % layouts.length]
+
+  // 1110 欢哥: 标题气泡只在真截断时渲染（scrollWidth 实测+ResizeObserver 跟随窗口变化，
+  // 检测模式与 hover-fullname 1016 定稿同构）；正文悬浮气泡删除——三行预览+「... 更多」
+  // +点击详情弹窗已足，且超长公告的 absolute+opacity-0 气泡盒虽不占布局、却参与文档
+  // 滚动区计算，会把页面撑出幽灵空白（高光时刻下方可滚空间的病根）
+  const titleRef = useRef<HTMLHeadingElement>(null)
+  const [titleClamped, setTitleClamped] = useState(false)
+  useEffect(() => {
+    const el = titleRef.current
+    if (!el) return
+    const measure = () => setTitleClamped(el.scrollWidth > el.clientWidth + 1)
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [notice.title])
 
   return (
     <div className="flex" style={{ justifyContent: l.justify }}>
@@ -82,26 +98,23 @@ function NoteCard({ notice, index, onOpen }: { notice: Notice; index: number; on
           aria-hidden
         />
         <div className="relative">
-          {/* 1103 欢哥：标题单行截断+悬停气泡全文（named group 隔离，与房间卡片同款纯黑） */}
+          {/* 1103 欢哥：标题单行截断+悬停气泡全文（named group 隔离，与房间卡片同款纯黑）；
+              1110 欢哥：气泡只在真截断时渲染（见 NoteCard 头部注释） */}
           <div className="group/tt relative">
-            <h3 className="truncate text-[15px] font-bold leading-snug" style={{ color: "#FFFFFF" }}>
+            <h3 ref={titleRef} className="truncate text-[15px] font-bold leading-snug" style={{ color: "#FFFFFF" }}>
               {notice.title}
             </h3>
-            <div className="pointer-events-none absolute inset-x-0 top-full z-50 mt-1 rounded-[8px] border px-3 py-2 text-xs leading-relaxed text-white/90 opacity-0 shadow-xl transition-opacity duration-75 group-hover/tt:opacity-100"
-              style={{ borderColor: "#333", background: "#000" }}>
-              {notice.title}
-            </div>
-          </div>
-          <div className="mt-1.5">
-            <div className="group/tt relative">
-              <p className="text-[13px] leading-relaxed line-clamp-3" style={{ color: "#E8E8E8" }}>
-                {notice.body}
-              </p>
+            {titleClamped && (
               <div className="pointer-events-none absolute inset-x-0 top-full z-50 mt-1 rounded-[8px] border px-3 py-2 text-xs leading-relaxed text-white/90 opacity-0 shadow-xl transition-opacity duration-75 group-hover/tt:opacity-100"
                 style={{ borderColor: "#333", background: "#000" }}>
-                {notice.body}
+                {notice.title}
               </div>
-            </div>
+            )}
+          </div>
+          <div className="mt-1.5">
+            <p className="text-[13px] leading-relaxed line-clamp-3" style={{ color: "#E8E8E8" }}>
+              {notice.body}
+            </p>
             <span className="mt-0.5 inline-block text-[11px]" style={{ color: "#BBBBBB" }}>
               ... 更多
             </span>
