@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 import { notFound } from "next/navigation"
 import { Play, Heart } from "lucide-react"
-import { SharePlayer } from "@/components/share/share-player"
+import { ShareCoverPlayer } from "@/components/share/share-cover-player"
 import { WechatShare } from "@/components/share/wechat-share"
 import { VinylRecord } from "@/components/jamony/vinyl-record"
 
@@ -93,15 +93,18 @@ export default async function ShareWorkPage({ params }: { params: Promise<{ id: 
   const w = await fetchWork(id)
   if (!w) notFound()
 
-  // 封面与作品库卡片同构: 有图=图,无图=品牌渐变+黑胶纹(VinylRecord 同款 42% 圆心)
-  const cover = w.coverUrl ? (
+  // 封面内容(有图=图,无图=品牌渐变+黑胶纹)——由 ShareCoverPlayer 包裹成「封面即播放器」
+  const coverInner = w.coverUrl ? (
     // eslint-disable-next-line @next/next/no-img-element -- 外部媒体不走 next/image 优化,落地页轻为上
     <img src={`${MEDIA_BASE}${w.coverUrl}`} alt={w.title} className="h-full w-full object-cover" />
   ) : (
-    <div className="relative h-full w-full" style={{ background: w.gradient }}>
+    <div className="relative h-full w-full">
       <VinylRecord />
     </div>
   )
+  const natureBadge = w.nature !== "原创" ? (
+    <span className="absolute right-2 top-2 z-10 rounded bg-black/60 px-2 py-0.5 text-xs text-zinc-200">{w.nature}</span>
+  ) : null
 
   // 1110m 署名排序=详情页同构(work-detail-page:538 同款): is_system 升序(署名在前·系统轨垫署名尾)
   const namedSorted = [...(w.authors || [])]
@@ -111,15 +114,16 @@ export default async function ShareWorkPage({ params }: { params: Promise<{ id: 
   const cardImage = w.coverUrl ? `${MEDIA_BASE}${w.coverUrl}` : OG_FALLBACK
 
   return (
-    <main className="flex min-h-screen flex-col items-center bg-black px-6 py-10 text-zinc-300">
+    <main className="flex min-h-screen flex-col items-center bg-black px-6 pb-28 pt-10 text-zinc-300">
       <WechatShare title={w.title} desc={SHARE_DESC} coverUrl={cardImage} />
       <div className="w-full max-w-md">
-        <div className="relative mx-auto aspect-square w-full max-w-[280px] overflow-hidden rounded-lg">
-          {cover}
-          {w.nature !== "原创" && (
-            <span className="absolute right-2 top-2 rounded bg-black/60 px-2 py-0.5 text-xs text-zinc-200">{w.nature}</span>
-          )}
-        </div>
+        <ShareCoverPlayer
+          src={w.mp3Url ? `${MEDIA_BASE}${w.mp3Url}` : ""}
+          gradient={w.gradient}
+          badge={natureBadge}
+        >
+          {coverInner}
+        </ShareCoverPlayer>
         <h1 className="mt-5 text-center text-xl font-semibold text-zinc-100">{w.title}</h1>
         <div className="mt-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-zinc-500">
           <span>{w.date}</span>
@@ -161,16 +165,20 @@ export default async function ShareWorkPage({ params }: { params: Promise<{ id: 
             {w.coverAuthor ? ` · ${w.coverAuthor}` : ""}
           </div>
         )}
-        <SharePlayer src={w.mp3Url ? `${MEDIA_BASE}${w.mp3Url}` : ""} />
-        <a
-          className="mt-8 block rounded-lg bg-zinc-100 py-3 text-center text-sm font-medium text-black active:bg-zinc-300"
-          href="https://jamonyapp.com"
-          target="_blank"
-          rel="noreferrer"
-        >
-          下载 jamony,一起玩!
-        </a>
-        <div className="mt-6 text-center text-xs text-zinc-600">jamony · 即鸣 更低延迟的线上合奏社区</div>
+        <div className="mt-8 text-center text-xs text-zinc-600">jamony · 即鸣 更低延迟的线上合奏社区</div>
+      </div>
+      {/* 底部常驻转化按钮(欢哥拍板): 滚动内容,CTA 不离场——渐变过渡+安全区适配 */}
+      <div className="fixed inset-x-0 bottom-0 z-40 bg-gradient-to-t from-black via-black/90 to-transparent pb-[calc(env(safe-area-inset-bottom)+14px)] pt-6">
+        <div className="mx-auto w-full max-w-md px-6">
+          <a
+            className="block rounded-lg bg-zinc-100 py-3 text-center text-sm font-medium text-black active:bg-zinc-300"
+            href="https://jamonyapp.com"
+            target="_blank"
+            rel="noreferrer"
+          >
+            下载 jamony,一起玩!
+          </a>
+        </div>
       </div>
     </main>
   )
