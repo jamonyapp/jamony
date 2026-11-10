@@ -493,7 +493,7 @@ function WorkDetailInner() {
                     <Share2 className="h-4 w-4" />
                     分享
                   </button>
-                  <ShareMenu open={shareOpen} onClose={() => setShareOpen(false)} />
+                  <ShareMenu open={shareOpen} onClose={() => setShareOpen(false)} workId={track.id} />
                 </div>
               </div>
               <button

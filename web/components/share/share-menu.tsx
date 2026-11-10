@@ -1,59 +1,121 @@
 "use client"
 
-// 1110 夜战 ShareMenu 定稿复活·第一步(欢哥 1110 下午令: 先做静态壳——分享按钮+下拉菜单
-// +三项 logo/文案;点击行为下一步做)。视觉/logo/文案 = 1110c/d/e/f 欢哥验收批定稿原样:
-// 下拉菜单三件套(微信logo/微博logo/🔗),logo=simple-icons 官方 path(CC0)不自造。
+import { useEffect, useRef, useState } from "react"
+import { Check } from "lucide-react"
+
+// 1110 夜战 ShareMenu 定稿复活·第二步(欢哥 1110 下午令): 复制链接行为上马——
+// 点击=写剪贴板+菜单即收+「链接已复制 ✓」浮层在**菜单原位**显示 3s 自动淡出
+// (欢哥新定稿:原位浮层,区别于夜战版屏幕下中 toast);壳 clipboard 优先+web 三段兜底。
+// 视觉/logo/文案 = 1110c/d/e/f 欢哥验收批定稿原样,logo=simple-icons 官方 path(CC0)。
 // 菜单面板=absolute 定位,调用方把触发按钮包进 relative 容器;点遮罩任意处关闭。
 //
-// ⏳下一步 TODO(行为位,1110 欢哥待令):
-//   ① 微信项=二级 QR 卡片(qrcode 本地生成,内容=https://jamonyapp.com/share/works/<id>)
+// ⏳下一步 TODO(行为位):
+//   ① 微信项=二级 QR 卡片(qrcode 本地生成,内容=shareUrl 同款)
 //   ② 微博项=壳 openExternal 跳系统浏览器,文案定稿「分享{作品名} (分享自 @jamonyapp.com)」
-//   ③ 复制项=壳 clipboard 优先+站内 toast 同款(upload-toast 范式,禁自造视觉)+菜单即收
-export function ShareMenu({ open, onClose }: { open: boolean; onClose: () => void }) {
-  if (!open) return null
+export function ShareMenu({ open, onClose, workId }: { open: boolean; onClose: () => void; workId: string | number }) {
+  // 复制成功浮层:mounted(挂载淡入)与 shown(可见)双态,3s 后 350ms 淡出退场
+  const [copiedMounted, setCopiedMounted] = useState(false)
+  const [copiedShown, setCopiedShown] = useState(false)
+  const [copyFailed, setCopyFailed] = useState(false)
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // 落地页 URL(1110 定稿主域路径;落地页路由下一步做,复制先行)
+  const shareUrl = `https://jamonyapp.com/share/works/${workId}`
+
+  useEffect(() => () => { if (copiedTimer.current) clearTimeout(copiedTimer.current) }, [])
+
+  const showCopied = () => {
+    setCopiedMounted(true)
+    requestAnimationFrame(() => setCopiedShown(true))
+    copiedTimer.current = setTimeout(() => {
+      setCopiedShown(false)
+      copiedTimer.current = setTimeout(() => setCopiedMounted(false), 350)
+    }, 3000)
+  }
+
+  const copy = async () => {
+    // 壳 clipboard 优先(119 壳无此通道自动跳过,Electron 内 navigator.clipboard 可用)
+    const api = (window as unknown as { jamonyAPI?: { writeClipboard?: (t: string) => boolean } }).jamonyAPI
+    let ok = false
+    if (api?.writeClipboard) ok = api.writeClipboard(shareUrl)
+    if (!ok) {
+      try {
+        await navigator.clipboard.writeText(shareUrl)
+        ok = true
+      } catch {
+        const ta = document.createElement("textarea")
+        ta.value = shareUrl
+        document.body.appendChild(ta)
+        ta.select()
+        ok = document.execCommand("copy")
+        ta.remove()
+      }
+    }
+    if (ok) {
+      showCopied()
+      onClose()
+    } else {
+      setCopyFailed(true)
+    }
+  }
+
+  // 菜单(打开时)
+  if (open) {
+    return (
+      <>
+        {/* 点外部任意处收起菜单(stopPropagation: TrackCard 等容器点击=播放,不可冒泡) */}
+        <div
+          className="fixed inset-0 z-40"
+          onClick={(e) => {
+            e.stopPropagation()
+            onClose()
+          }}
+        />
+        <div
+          className="absolute right-0 top-full z-50 mt-2 w-44 overflow-hidden rounded-xl border border-white/10 bg-[#0D0D0D] py-1 shadow-2xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-white transition-colors hover:bg-white/10 active:bg-white/15"
+            onClick={onClose} /* TODO ①二级QR */
+          >
+            <WechatLogo className="h-5 w-5" />
+            分享到微信
+          </button>
+          <button
+            type="button"
+            className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-white transition-colors hover:bg-white/10 active:bg-white/15"
+            onClick={onClose} /* TODO ②openExternal微博 */
+          >
+            <WeiboLogo className="h-5 w-5" />
+            分享到微博
+          </button>
+          <button
+            type="button"
+            className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-white transition-colors hover:bg-white/10 active:bg-white/15"
+            onClick={copy}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5 text-zinc-300">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+            </svg>
+            {copyFailed ? "复制失败,请重试" : "复制链接"}
+          </button>
+        </div>
+      </>
+    )
+  }
+
+  // 已收起——「链接已复制 ✓」浮层可能还在淡出途中(菜单原位同款容器形态)
+  if (!copiedMounted) return null
   return (
-    <>
-      {/* 点外部任意处收起菜单(stopPropagation: TrackCard 等容器点击=播放,不可冒泡) */}
-      <div
-        className="fixed inset-0 z-40"
-        onClick={(e) => {
-          e.stopPropagation()
-          onClose()
-        }}
-      />
-      <div
-        className="absolute right-0 top-full z-50 mt-2 w-44 overflow-hidden rounded-xl border border-white/10 bg-[#0D0D0D] py-1 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <button
-          type="button"
-          className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-white transition-colors hover:bg-white/10 active:bg-white/15"
-          onClick={onClose} /* TODO ①二级QR */
-        >
-          <WechatLogo className="h-5 w-5" />
-          分享到微信
-        </button>
-        <button
-          type="button"
-          className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-white transition-colors hover:bg-white/10 active:bg-white/15"
-          onClick={onClose} /* TODO ②openExternal微博 */
-        >
-          <WeiboLogo className="h-5 w-5" />
-          分享到微博
-        </button>
-        <button
-          type="button"
-          className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-white transition-colors hover:bg-white/10 active:bg-white/15"
-          onClick={onClose} /* TODO ③复制+toast */
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5 text-zinc-300">
-            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-          </svg>
-          复制链接
-        </button>
-      </div>
-    </>
+    <div
+      className={`pointer-events-none absolute right-0 top-full z-50 mt-2 flex w-44 items-center gap-3 rounded-xl border border-white/10 bg-[#0D0D0D] px-4 py-2.5 text-sm text-white shadow-2xl transition-opacity duration-300 ${copiedShown ? "opacity-100" : "opacity-0"}`}
+    >
+      <Check className="h-4 w-4 shrink-0 text-brand-lime" />
+      链接已复制
+    </div>
   )
 }
 
