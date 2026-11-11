@@ -234,6 +234,12 @@ const activeMusiciansCache = { data: null, expiresAt: 0 }
 // ========== JWT 鉴权基础设施 ==========
 const jwt = require('jsonwebtoken')
 const JWT_SECRET = process.env.JWT_SECRET || 'jamony-dev-secret-change-in-prod'
+
+// 1111 P0(VPN韧性): 数据面端点——jamsoul 直连真实 IP(防 Clash 类 TUN 的 fake-ip DNS 劫持:域名 spawn=隧道出生
+// =关 VPN 死透;IP 直连=物理路径免疫)。api 作为端点目录下发,亦是大区制「目录按区下发端点」的地基。
+// fail-fast:未配置启动即 warn 大字,防「静默回退 hostname」让老 bug 无声回归。
+const JAMONY_SERVER_IP = process.env.JAMONY_SERVER_IP || ''
+if (!JAMONY_SERVER_IP) console.warn('⚠️ [jamony] JAMONY_SERVER_IP 未配置:房间详情不带 server_ip,web 将回退 hostname——VPN 关断死症将回归(api/.env 加 JAMONY_SERVER_IP=<生产EIP>)')
 const COOKIE_NAME = 'jamony_token'
 const TOKEN_MAX_AGE = 7 * 24 * 3600 * 1000  // 7 天
 
@@ -2557,6 +2563,9 @@ app.get('/api/rooms/:code', requireAuth, async (req, res) => {
     } else {
       delete room.password
     }
+    // 1111 P0: 数据面端点随房间详情下发(与 server_port 同车厢)。IP 是 DNS 本就公开的值,
+    // 私房遮蔽逻辑只护 port 不护 IP(端口才是私房机密),此处零冲突。
+    if (JAMONY_SERVER_IP) room.server_ip = JAMONY_SERVER_IP
     res.json({ ok: true, room, members: members.rows })
   } catch (err) {
     console.error('Room detail error:', err)

@@ -46,7 +46,7 @@ type RoomData = {
   room_code: string
   password?: string  // 加密房明文密码（成员/房主可见，用于分享房间）
   server_port: number
-  stored_server_ip?: string
+  server_ip?: string  // 1111 P0: api 下发的数据面端点(真实 IP);缺失时 spawn 回退 hostname
   musician_count: number
   listener_count: number
   max_musicians: number
@@ -131,8 +131,9 @@ export function PlayingPage() {
   // v3: 提取 launchJamsoul 为可复用的回调，供 useEffect 和 handleReconnect 共用
   const launchJamsoul = useCallback(() => {
     if (!room) return
-    // 1020: jamsoul 连接地址改为跟随页面 origin（与 icecast/聊天同款）——页面由哪台服务器提供就连哪台，双机/域名切换零改动
-    const payload = { serverIp: window.location.hostname, port: room.server_port, nickname: user?.nickname }
+    // 1111 P0: 数据面直连真实 IP——api 下发的 server_ip 优先(防 Clash 类 TUN fake-ip 劫持:域名 spawn=关 VPN 死透,
+    // 七轮实验定案)。缺失回退 hostname=1020 时代行为。HTTP/icecast/聊天仍走域名无妨(有成熟断线重连;UDP 音频数据面没有)。
+    const payload = { serverIp: room.server_ip || window.location.hostname, port: room.server_port, nickname: user?.nickname }
     if (window.jamonyAPI) { window.jamonyAPI.joinRoom(payload) }
     else { window.postMessage({ type: "JOIN_ROOM", payload }, "*") }
     setAudioConnected(true)
@@ -180,9 +181,9 @@ export function PlayingPage() {
       .then(r => r.json())
       .then(data => {
         if (data.ok) {
+          // 1111 P0: server_ip 由 api 随 room 下发(spread 自带);旧 stored_server_ip 是零消费者死字段,随本仗删除
           const roomData = {
             ...data.room,
-            stored_server_ip: window.location.hostname,
           }
           // 加密房非成员（GET 返回 server_port=null）→ 回详情页输密码
           if (roomData.is_private && !roomData.server_port) {
@@ -225,7 +226,7 @@ export function PlayingPage() {
           // 仅合奏者自动调起 jamsoul
           if (role === "musician") {
             setTimeout(() => {
-              const payload = { serverIp: window.location.hostname, port: roomData.server_port, nickname: user?.nickname }
+              const payload = { serverIp: roomData.server_ip || window.location.hostname, port: roomData.server_port, nickname: user?.nickname }
               if (window.jamonyAPI) {
                 window.jamonyAPI.joinRoom(payload)
               } else {
