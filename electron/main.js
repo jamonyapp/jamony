@@ -2,7 +2,7 @@ const { app, BrowserWindow, ipcMain, session, dialog, net, Menu, shell } = requi
 const path = require('path')
 const fs = require('fs')
 const os = require('os')
-const { spawn, execSync } = require('child_process')
+const { spawn, execFile } = require('child_process') // 1112 P1: execSync 退役(从未用过且会卡UI),换 execFile 异步
 
 // jamony 10-07: jamsoul 音质档自动迁移（NORMAL→HIGH）
 // 旧版默认 NORMAL(1) 对密集素材出 Opus 编码伪影（欢哥单变量实验定罪）；INI 里写死的旧值会压过
@@ -20,6 +20,74 @@ function migrateJamsoulAudioQuality() {
       console.log('[jamony] jamsoul 音质档已迁移 NORMAL→HIGH:', iniPath)
     }
   } catch (e) { console.log('[jamony] 音质迁移跳过:', e.message) }
+}
+
+// jamony 1112 P1/P1.1(VPN韧性): spawn 前识别物理网卡,让 jamsoul 绑定它(--bind-if)——
+// 音频包永远从物理门出、源地址恒定,VPN 开关不再引发服务器侧"分轨闪换"(P0 已根除死症,此为残病根修)。
+// 哲学=拿不准永远不绑:漏绑=回到 P0 行为(顶多闪换),错绑=大病死。一切识别/预检失败→null。
+// 全异步(execFile),绝不阻塞主进程;每次 spawn 现识别不缓存(网络态会变,且低频低成本)。
+// P1.1(1112夜·欢哥实测开VPN进房触发): 全局默认路由被隧道劫持成 utun 时第一候选失效——
+// 兜底扫 en* 物理网卡问 scoped 路由(隧道劫持的是全局表,劫持不了每网卡自己的网关),候选必过预检才绑。
+
+// (helper) 探针:curl 绑定该接口打 http://<serverIp>/api/ping(EIP:80 直连+Host 头,实测 15ms;
+// 探针 IP 用 P0 下发的真实 IP,零硬编码)。200=物理路径真能到服务器;失败/超时=不通,不绑保命
+function probeInterface(ifName, serverIp) {
+  return new Promise((resolve) => {
+    execFile('/usr/bin/curl', ['--interface', ifName, '--connect-timeout', '2', '-s', '-o', '/dev/null',
+      '-w', '%{http_code}', '-H', 'Host: app.jamonyapp.com', `http://${serverIp}/api/ping`],
+      { timeout: 4000 }, (err, out) => resolve(!err && !!out && out.trim() === '200'))
+  })
+}
+
+// (helper) 该接口是否自有网关(macOS scoped 默认路由;⭐语法已实弹验证: en0=exit0有gateway / en99=bad interface name)
+function hasScopedDefault(ifName) {
+  return new Promise((resolve) => {
+    execFile('/sbin/route', ['-n', 'get', '-ifscope', ifName, 'default'], { timeout: 3000 },
+      (err, stdout) => resolve(!err && /interface:/.test(stdout || '')))
+  })
+}
+
+async function identifyBindIf(serverIp) {
+  if (process.platform !== 'darwin') return null // Win 随 Win 批(IP_UNICAST_IF+htonl 索引,已记账)
+  const VIRTUAL_RE = /^(utun|lo\d|awdl|llw|bridge|anpi|ipsec|gif|stf|tap|tun|vlan)/
+  const ifaces = os.networkInterfaces()
+
+  // 第一候选:全局默认路由的接口(无 VPN 的常态;macOS 物理网卡恒为 en 系=WiFi/网线/USB网卡)
+  const routeOut = await new Promise((resolve) => {
+    execFile('/sbin/route', ['-n', 'get', 'default'], { timeout: 3000 }, (err, stdout) => resolve(err ? '' : stdout))
+  })
+  const m = routeOut.match(/interface:\s*(\S+)/)
+  const defaultIf = m ? m[1] : ''
+  const defVirtual = !defaultIf || VIRTUAL_RE.test(defaultIf)
+
+  let candidate = null
+  if (!defVirtual) {
+    const ni = ifaces[defaultIf] || []
+    if (ni.some(a => a && (a.family === 'IPv4' || a.family === 4) && !a.internal)) {
+      candidate = defaultIf
+    } else {
+      console.log(`[jamony] bind-if: ${defaultIf} 无 IPv4,不绑`)
+    }
+  } else {
+    // P1.1 兜底:默认路由已被隧道接管(开 VPN 进房)——扫 en* 找"自己有网关"的物理网卡
+    const enIfs = Object.keys(ifaces).filter(n => /^en\d+$/.test(n) &&
+      (ifaces[n] || []).some(a => a && (a.family === 'IPv4' || a.family === 4) && !a.internal))
+    for (const n of enIfs) {
+      if (await hasScopedDefault(n)) { candidate = n; break }
+    }
+    console.log(`[jamony] bind-if: 默认路由=${defaultIf || '无'}(被隧道接管),ifscope 扫描 en 系→候选=${candidate || '无'}`)
+  }
+  if (!candidate) { console.log('[jamony] bind-if: 无物理候选,不绑(P0 行为)'); return null }
+
+  // 预检策略:默认路由=物理且无 utun 在场→显然该绑,零预检零加时;其余(有 VPN/来自兜底)→必检
+  const vpnPresent = Object.keys(ifaces).some(n => /^utun/.test(n))
+  if (!vpnPresent && !defVirtual) {
+    console.log(`[jamony] bind-if: ${candidate}(默认路由,无 VPN,直接绑)`)
+    return candidate
+  }
+  const ok = await probeInterface(candidate, serverIp)
+  console.log(`[jamony] bind-if: ${candidate}(需预检:${ok ? '200 通过,绑' : '失败,不绑保命'})`)
+  return ok ? candidate : null
 }
 
 // 云端页面地址
@@ -378,7 +446,7 @@ function sendToJamsoul(obj) {
 // jamony 09-30 反馈链重做：spawn 成功≠进程活着（Win 缺 DLL/杀软拦截的秒退场景）。
 // 3 秒存活确认后才向网页发 ok:true；启动期 exit/error 发 ok:false + 原因，
 // 并跳过 jamsoul-exited 广播（避免前端同时收到失败回执又走"切听众"分流打架）
-function launchJamsoul(serverIp, port, nickname) {
+function launchJamsoul(serverIp, port, nickname, bindIf) {
   // jamony: 排重——jamsoul 已启动则不重启（避免硬刷新重复启动多个 jamsoul）
   if (jamsoulProcess) {
     console.log('[jamony] jamsoul already running, skip launch')
@@ -388,6 +456,8 @@ function launchJamsoul(serverIp, port, nickname) {
   // 使用 jamulus 原生的 --connect 参数自动连接服务器；--clientname 传 jamony 昵称（调音台 fader tag 显示）
   const args = ['--connect', `${serverIp}:${port}`]
   if (nickname) args.push('--clientname', nickname)
+  // 1112 P1: 绑物理网卡(壳决策见 identifyBindIf;C++ 一次 setsockopt 执行)。null=不绑=P0 行为
+  if (bindIf) args.push('--bind-if', bindIf)
 
   console.log(`[jamony] Launching jamsoul: ${JAMSOUL_BIN} ${args.join(' ')}`)
 
@@ -538,7 +608,7 @@ function sendLeaveRequest() {
 // ══════════════════════════════════════
 // IPC 处理 — 来自网页的 JOIN_ROOM 请求
 // ══════════════════════════════════════
-ipcMain.on('join-room', (_event, payload) => {
+ipcMain.on('join-room', async (_event, payload) => {
   console.log(`[jamony] IPC join-room received:`, payload)
 
   if (!payload || !payload.serverIp || !payload.port) {
@@ -546,7 +616,10 @@ ipcMain.on('join-room', (_event, payload) => {
     return
   }
 
-  launchJamsoul(payload.serverIp, payload.port, payload.nickname)
+  // 1112 P1: spawn 前异步识别物理网卡(无 VPN≈几十 ms;有 VPN 多一次预检;绝不卡 UI)。
+  // 结果走 jamsoul-launched 事件回传,handler 异步化不影响反馈链。
+  const bindIf = await identifyBindIf(payload.serverIp)
+  launchJamsoul(payload.serverIp, payload.port, payload.nickname, bindIf)
   // jamony 09-30: 不再无条件报成功——结果由 launchJamsoul 3 秒存活确认后发（真启动成功才 ok:true）
 })
 
