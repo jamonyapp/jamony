@@ -31,6 +31,9 @@ declare global {
       testFeedback: () => void                    // jamony 08-27 反馈保护弹窗debug通道
       onJamsoulLaunched: (cb: (data: unknown) => void) => () => void  // 09-30 起返回 cleanup
       onJamsoulExited?: (cb: (data: unknown) => void) => () => void  // preload 实际返回 cleanup，10-06 补声明
+      onJamsoulReconnecting?: (cb: (data: { stage: 'netdown' | 'healing' }) => void) => () => void  // 1112 P2.1 自愈中间态
+      onJamsoulReconnected?: (cb: (data: { respawns: number }) => void) => () => void  // 1112 P2.1 自愈收官
+      onJamsoulDelay?: (cb: (data: unknown) => void) => () => void  // 1112 P2.1 banner 心跳兜底收尾(可选存在)
     }
   }
 }
@@ -122,6 +125,8 @@ export function PlayingPage() {
   const dissolvedHandledRef = useRef(false) // 房间解散广播全员收到，幂等防重复处理
   const [jamsoulExitedOpen, setJamsoulExitedOpen] = useState(false) // jamsoul被叉掉→切听众后弹窗通知
   const [jamsoulExitedDissolve, setJamsoulExitedDissolve] = useState(false) // jamony: 叉 jamsoul 导致房间解散（非切听众）
+  // 1112 P2.1（差距四）：重连自愈状态条 — netdown=系统断网等待恢复 / healing=壳正在换防
+  const [reconnectStage, setReconnectStage] = useState<"none" | "netdown" | "healing">("none")
 
   // 房主转移：effectiveHostId 实时跟随 broadcastMembers 的 hostId；转移给自己时弹通知
   const effectiveHostId = realtimeHostId ?? room?.host_id
@@ -411,6 +416,17 @@ export function PlayingPage() {
     return cleanup
   }, [audioConnected, params, user, isLastMusician])
 
+  // 1112 P2.1（差距四）：重连自愈 banner 的显隐——壳事件驱动，非定时器
+  // 显示：jamsoul-reconnecting（netdown/healing 两态文案）；收尾三通道：
+  //   ① jamsoul-reconnected 显式收官 ② jamsoul-delay 心跳到达即活（兜底） ③ jamsoul-exited（放弃移交/被杀，让路业务弹窗）
+  useEffect(() => {
+    const c1 = window.jamonyAPI?.onJamsoulReconnecting?.((d) => { if (d?.stage) setReconnectStage(d.stage) })
+    const c2 = window.jamonyAPI?.onJamsoulReconnected?.(() => setReconnectStage("none"))
+    const c3 = window.jamonyAPI?.onJamsoulDelay?.(() => setReconnectStage("none"))  // ~1Hz 同值 setState 无渲染开销
+    const c4 = window.jamonyAPI?.onJamsoulExited?.(() => setReconnectStage("none"))
+    return () => { c1?.(); c2?.(); c3?.(); c4?.() }
+  }, [])
+
   // 收到 member-kicked 事件：若是自己被踢 → 断音频 + 弹通知（幂等）
   useEffect(() => {
     if (!kickedEvent || !user) return
@@ -472,6 +488,16 @@ export function PlayingPage() {
         onRefresh={() => window.location.reload()}
         backLinks={[{ label: "返回大厅", href: "/lobby" }]}
       />
+
+      {/* 1112 P2.1（差距四）：重连自愈状态条——壳中间态事件驱动显隐（非 5s toast 语义）。
+          视觉贴纯黑铁律：#0D0D0D 底/#1A1A1A 边/#C8C8C8 字 + 品牌蓝呼吸点（唯一亮色） */}
+      {reconnectStage !== "none" && (
+        <div className="flex h-8 shrink-0 items-center justify-center gap-2 border-b px-4 text-xs"
+             style={{ background: "#0D0D0D", borderColor: "#1A1A1A", color: "#C8C8C8" }}>
+          <span className="inline-block h-2 w-2 animate-pulse rounded-full" style={{ background: "#00AAFF" }} />
+          {reconnectStage === "netdown" ? "网络已断开，恢复后将自动重连" : "正在自动恢复合奏…"}
+        </div>
+      )}
 
       {/* 10-19：身份未定（fetch 前）不渲染任何角色视角——中性空态占位，根治首帧错视角闪烁 */}
       {myRole === null || !room ? (

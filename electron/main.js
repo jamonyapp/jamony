@@ -121,31 +121,45 @@ let pendingLaunchSettle = null
 let currentRoom = null  // jamony: 当前所在房间 { roomCode, userId }，供退出时主进程可靠发 leave
 let isLastMusician = false  // jamony: 当前用户是否房间唯一合奏者（叉 jamony/dock 退出弹窗文案用）
 
-/* ============ 1112 P2: jamsoul 断线壳自愈（VPN 韧性三件套收官） ============
- * 数据面：客户端 30s 无入包（CON_TIME_OUT_SEC_MAX，与服务器踢静默定时器对称）→ C++ emit
- * Disconnected → stdout 上报 JAMONY_DISCONNECTED（clientdlg.cpp，与 JAMONY_DELAY 同通道）→
- * 壳 3s 假死复活窗（短断<30s 双方定时器都不到点=天然穿越零介入，此信号只接真断）→
- * 查房闸 → kill-then-spawn → 10s 看门狗（活判据=JAMONY_DELAY 行，连接时 ~1Hz）→
- * 成功透明收官 / 连败退避（10s/30s，3 败停手）
+/* ============ 1112 P2/P2.1: jamsoul 断线壳自愈（VPN 韧性三件套收官；P2.1 事件驱动化） ============
+ * 信号体系（按可信度排序，谁先到谁触发）：
+ *   ① offline/online —— renderer 原生事件经 preload 转发（Chromium 内核网络监听，零延迟）＝主信号
+ *   ② JAMONY_DISCONNECTED —— jamsoul stdout（C++ 协议确认死：服务器显式踢/30s 无入包超时）
+ *   ③ 心跳饥荒 10s —— 壳侧数 JAMONY_DELAY（~1Hz，错过 10 拍）＝兜底，只管系统发不出通知的场景
+ *      （服务器挂/隧道黑洞）；服务器静默踢人不发通知是上游协议天花板，只能超时倒推
  *
- * 三道闸：①壳主动杀（kill-jamsoul/leave-room/退出）绝不复活 ②退避上限停手
- *   ③重生前查房三态：200=复活；401(登出/封号)/403(被清出)/404(散房)=明确不复活让路；
- *     网络错误/超时=不可判定照试（房大概率还在，失败自然进退避）
- * 透明性：respawning/waiting 期间 jamsoul-exited/jamsoul-launched 不广播 web——两处消费者
- *   （playing 页+漫游 RoomSessionProvider）收到 exit 即切听众/解散房间，必须瞒住；
- *   放弃（giveUp）才移交 exit 事件（诚实收场，UI 与现实一致）
- * 竞态：世代号 respawnGen——suppress 时递增，attemptRespawn 每个 await 后校验，
- *   堵死"抑制后流程还在飞"的复活窗口（查房/杀进程/识别网卡期间用户切听众/换房/退出）
+ * 相位机：idle → netdown(系统断网,不杀!旧进程原地留,banner) → reviving(online 后 2s 复活窗)
+ *   → respawning(kill-then-spawn 换防) → waiting(退避,被 online 事件短路)
+ *   全部超时锚定物理值：复活窗 2s=2 个心跳周期；看门狗 10s=新进程首心跳物理下限×2.5；
+ *   退避 10s/30s=防重试轰炸。grace 假死窗已废——事件信号本身即确认,查房耗时即天然防抖
+ *
+ * 三道闸（P2 资产原样）：①主动杀/离房/退出绝不复活(世代号) ②退避上限停手(稳定>60s 才清零连败)
+ *   ③重生前查房三态：200=复活；401/403/404=明确让路不复活；网络错误=不可判定照试
+ * 透明性：netdown/reviving/respawning/waiting 期间 jamsoul-exited/jamsoul-launched 不广播 web
+ *   （两处消费者收到 exit 即切听众/解散）；中间态经 jamsoul-reconnecting banner 对用户可见,
+ *   恢复收官发 jamsoul-reconnected,放弃（giveUp）才移交 exit 事件（诚实收场）
+ * 竞态：世代号 respawnGen——suppress 时递增,attemptRespawn 每个 await 后校验
  */
-const RESPAWN_GRACE_MS = 3000             // 假死复活窗（1112 凌晨定稿值；in途 ping 回复窗）
-const RESPAWN_WATCH_MS = 10000            // respawn 后等首条 JAMONY_DELAY 的看门狗
-const RESPAWN_BACKOFF_MS = [10000, 30000] // 连败退避（第 2/3 次尝试前）
+const RESPAWN_REVIVE_MS = 2000            // online 后复活窗＝2 个心跳周期（等已知频率信号的物理下限）
+const RESPAWN_FAMINE_MS = 10000           // 心跳饥荒阈值＝10 拍（兜底信号,仅 idle 态受理）
+const RESPAWN_WATCH_MS = 10000            // respawn 后等首条 JAMONY_DELAY 的看门狗（物理下限 4s ×2.5）
+const RESPAWN_BACKOFF_MS = [10000, 30000] // 连败退避（第 2/3 次尝试前；被 online 事件短路）
 const RESPAWN_MAX_ATTEMPTS = 3            // 退避上限停手（防 VPN 反复开关抖动/服务器显式踢循环）
 const RESPAWN_STABLE_MS = 60000           // 连接稳定超此时长，下次断线才清零连败计数
 
 let lastJoinPayload = null                // join-room 缓存 { serverIp, port, nickname }——respawn 的 spawn 参数
 let respawnGen = 0                        // 世代号：每次 suppress 递增，在飞流程作废
-const respawnState = { phase: 'idle', timer: null, attempts: 0, connectedAt: 0 }
+let netOnline = true                      // 系统网络态（renderer offline/online 事件维护）
+const respawnState = {
+  phase: 'idle',        // idle | netdown | reviving | respawning | waiting
+  timer: null,          // 相位定时器（复活窗/看门狗/退避共用一个句柄,clearRespawnTimer 统一清）
+  famineTimer: null,    // 饥荒定时器（心跳到达时重置;仅 idle+armed 态触发受理）
+  attempts: 0,          // 连败计数（失败/连上又断<60s 计一败;稳定>60s 下次断线清零）
+  connectedAt: 0,       // 最近一次心跳时刻（稳定锚点）
+  downAt: 0,            // 断线开始时刻（算恢复耗时）
+  trigger: '',          // 本次断线触发源 offline|disconnected|famine
+  respawnCount: 0,      // 本轮换防次数（0=零换防复活,遥测区分用）
+}
 
 /* ============ 1031 壳自动更新（欢哥裁定架构：版本探测→弹窗→签名URL下载；安装包走 OSS 不碰 EIP 合奏管道）============
  * 流程：启动+每4h → GET /api/version/latest（几百字节）→ 版本比对 → 房间礼仪闸 → 品牌弹窗
@@ -532,8 +546,8 @@ function launchJamsoul(serverIp, port, nickname, bindIf) {
       if (launchSettled) return
       launchSettled = true
       console.log('[jamony] jamsoul-launched:', JSON.stringify(data))
-      // 1112 P2: 换防期回执不惊动 web（ok:false 的失败由看门狗退避接管，不弹窗）
-      if (respawnState.phase === 'respawning' || respawnState.phase === 'waiting') return
+      // 1112 P2/P2.1: 自愈期（任何非 idle 相位）回执不惊动 web（ok:false 的失败由看门狗退避接管，不弹窗）
+      if (respawnState.phase !== 'idle') return
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('jamsoul-launched', data)
       }
@@ -559,7 +573,7 @@ function launchJamsoul(serverIp, port, nickname, bindIf) {
       if (!launchSettled) {
         // 启动期秒退（缺 DLL/被拦截的典型症状）：只报启动失败，不发 exited
         sendLaunchResult({ ok: false, reason: 'early-exit', code, signal })
-        // 1112 P2: respawn 的子进程秒退 = 本次尝试直接失败，不等 10s 看门狗
+        // 1112 P2/P2.1: respawn 的子进程秒退 = 本次尝试直接失败，不等 10s 看门狗
         if (respawnState.phase === 'respawning') {
           clearRespawnTimer()
           respawnState.attempts++
@@ -567,10 +581,12 @@ function launchJamsoul(serverIp, port, nickname, bindIf) {
         }
         return
       }
-      // 1112 P2: 换防期的 exit 不广播 web——两处消费者（playing 页/漫游 RoomSessionProvider）
-      // 收到即切听众/解散房间，必须瞒住；放弃（giveUp）时 phase 已回 idle，广播自然放行
-      if (respawnState.phase === 'respawning' || respawnState.phase === 'waiting') {
-        console.log('[jamony] P2: 换防 exit 不广播 web（透明）')
+      // 1112 P2/P2.1: 自愈期（任何非 idle 相位）exit 不广播 web——两处消费者（playing 页/漫游
+      // RoomSessionProvider）收到即切听众/解散房间，必须瞒住；放弃（giveUp）时 phase 已回 idle，
+      // 广播自然放行。netdown 期间用户手动退 jamsoul 的极端场景：exit 同样被压住，网回后自愈
+      // 换防会把它拉回来（音乐回来优先于"手动退出不复活"教条——后者只约束网正常的场景）
+      if (respawnState.phase !== 'idle') {
+        console.log('[jamony] P2.1: 自愈期 exit 不广播 web（透明）')
         return
       }
       // jamony: jamsoul 退出通知网页（反向交互，让页面感知 jamsoul 关闭）
@@ -634,44 +650,152 @@ function clearRespawnTimer() {
 
 // 闸①: 任何主动离开/杀 → 本轮自愈彻底作废（下次 join-room 重武装）。
 // 世代号递增 = 在飞的 attemptRespawn 每个 await 后都会因 gen 不匹配而自行退出。
-// 注意: 不动 attempts/connectedAt——那是事实锚点（连接稳定史），非流程状态；
-// Cmd+Q 取消退出后首次断线仍按稳定史定档，不误入退避（清零只发生在 join-room 新会话/giveUp）
+// 注意: 不动 attempts/connectedAt——那是事实锚点（连接稳定史），非流程状态
 function suppressRespawn() {
   respawnGen++
   clearRespawnTimer()
+  if (respawnState.famineTimer) { clearTimeout(respawnState.famineTimer); respawnState.famineTimer = null }
   respawnState.phase = 'idle'
 }
 
-// stdout JAMONY_DISCONNECTED 行入口（仅 idle 态受理，流程中到达=去重）
-function onJamsoulDisconnectedLine() {
-  if (respawnState.phase !== 'idle') return
-  if (!lastJoinPayload || !currentRoom) return  // 无房可回（听众无进程不该有此行；防御）
-  if (isQuitting || !mainWindow || mainWindow.isDestroyed()) return
+// ---- banner 事件（P2.1 差距四）：中间态对用户可见，不再是纯透明 ----
+// stage: 'netdown'=网络已断开等待恢复 | 'healing'=正在换防恢复；收官发 jamsoul-reconnected。
+// 旧 web 不认识这些事件=无害降级；新 web 收不到（旧壳）也无害
+function sendBanner(stage) {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('jamsoul-reconnecting', { stage })
+}
+function sendRecovered() {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('jamsoul-reconnected', { respawns: respawnState.respawnCount })
+}
+
+// ---- 遥测队列（P2.1 小项三）：断线事件恰在断网时发生，不缓存则丢最关键数据 ----
+// 入队即尽力 flush；失败留队，下次任意事件/online 事件再冲；cap 100 丢旧防膨胀
+const telemetryQueue = []
+let telemetryBusy = false
+function telemetryEnqueue(type, payload) {
+  if (telemetryQueue.length >= 100) telemetryQueue.shift()
+  telemetryQueue.push({ type, payload: payload || {}, ts: Date.now() })
+  telemetryFlush()
+}
+function telemetryFlush() {
+  if (telemetryBusy || telemetryQueue.length === 0 || !netOnline) return
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  telemetryBusy = true
+  const batch = telemetryQueue.splice(0, 20)
+  const finish = () => { telemetryBusy = false; if (telemetryQueue.length > 0) setImmediate(telemetryFlush) }
+  session.defaultSession.cookies.get({ url: WEB_URL })
+    .then((cks) => {
+      const token = (cks || []).find((c) => c.name === 'jamony_token')
+      const req = net.request({ url: `${WEB_URL}/api/telemetry/events`, method: 'POST', session: session.defaultSession })
+      req.setHeader('Content-Type', 'application/json')
+      if (token) req.setHeader('Cookie', `jamony_token=${token.value}`)
+      req.on('response', (resp) => {
+        resp.on('data', () => {})  // 必须消费 body 否则连接挂起
+        resp.on('end', () => {
+          if (resp.statusCode >= 200 && resp.statusCode < 300) finish()
+          else { telemetryQueue.unshift(...batch); telemetryBusy = false }  // 留队,待下次钩子
+        })
+      })
+      req.on('error', () => { telemetryQueue.unshift(...batch); telemetryBusy = false })
+      req.end(JSON.stringify({ events: batch, v: app.getVersion(), platform: process.platform }))
+    })
+    .catch(() => { telemetryQueue.unshift(...batch); telemetryBusy = false })
+}
+
+// 自愈武装判定：有房回、有进程可救、壳活着（听众/漫游无房/已退出=零涉及）
+function isHealArmed() {
+  return !!(lastJoinPayload && currentRoom && jamsoulProcess && !isQuitting && mainWindow && !mainWindow.isDestroyed())
+}
+
+// 饥荒定时器：每拍心跳重置；10s 无心跳且 idle+武装 → 兜底断线（服务器挂/隧道黑洞，
+// 系统发不出通知的场景）。respawn 启动期（respawning 态有看门狗）与无进程态天然不触发
+function resetFamineTimer() {
+  if (respawnState.famineTimer) { clearTimeout(respawnState.famineTimer); respawnState.famineTimer = null }
+  if (respawnState.phase !== 'idle' || !isHealArmed()) return
+  respawnState.famineTimer = setTimeout(() => {
+    if (respawnState.phase !== 'idle' || !isHealArmed()) return
+    console.log(`[jamony] P2.1: 心跳饥荒（${RESPAWN_FAMINE_MS}ms 无 JAMONY_DELAY），兜底触发自愈`)
+    beginDisconnect('famine')
+  }, RESPAWN_FAMINE_MS)
+}
+
+// ---- 断线统一入口（三信号汇聚点：offline 事件 / JAMONY_DISCONNECTED 行 / 饥荒） ----
+function beginDisconnect(trigger) {
+  if (respawnState.phase !== 'idle') return        // 已在自愈流程中,迟到的第二信号忽略（不计败不重复触发）
+  if (!isHealArmed()) return
   // 连接稳定过（>60s）→ 连败清零（全新一轮事故）；连上又断（<60s）=抖动循环，计一败
-  // ——防 VPN 反复开关/服务器显式踢引发无限复活
   if (respawnState.connectedAt && Date.now() - respawnState.connectedAt > RESPAWN_STABLE_MS) {
     respawnState.attempts = 0
   } else {
     respawnState.attempts++
   }
-  console.log(`[jamony] P2: jamsoul 断线（30s 无入包），${RESPAWN_GRACE_MS}ms 假死复活窗（连败计数=${respawnState.attempts}）`)
-  respawnState.phase = 'grace'
-  respawnState.timer = setTimeout(() => { attemptRespawn() }, RESPAWN_GRACE_MS)
+  respawnState.downAt = Date.now()
+  respawnState.trigger = trigger
+  const stableMs = respawnState.connectedAt ? Date.now() - respawnState.connectedAt : 0
+  telemetryEnqueue('selfheal_disconnect', { trigger, stable_ms: stableMs, attempts: respawnState.attempts })
+  console.log(`[jamony] P2.1: 断线触发源=${trigger}（连败计数=${respawnState.attempts}，系统网络=${netOnline ? 'online' : 'offline'}）`)
+  if (netOnline) { attemptRespawn() }              // 网正常=协议确认死/服务器挂,直接换防（无 grace,查房即天然防抖）
+  else { enterNetDown() }                          // 系统断网=旧进程原地留,等 online（netdown 相位零定时器纯事件）
+}
+
+// netdown：系统断网等待。不杀！旧进程留——插回后 C++ 30s 未到则心跳自然续（零换防）
+function enterNetDown() {
+  respawnState.phase = 'netdown'
+  sendBanner('netdown')
+  console.log('[jamony] P2.1: 系统断网，进入等网态（旧进程原地保留，恢复后先试复活再换防）')
+}
+
+// ---- 网络事件（renderer 原生事件经 preload 转发；主进程比轮询 net.isOnline 干净且零延迟） ----
+function onNetOffline() {
+  netOnline = false
+  console.log('[jamony] P2.1: 系统网络 offline')
+  if (respawnState.phase === 'idle') beginDisconnect('offline')
+}
+function onNetOnline() {
+  netOnline = true
+  console.log('[jamony] P2.1: 系统网络 online')
+  telemetryFlush()  // 断网期间攒的遥测补报
+  if (respawnState.phase === 'netdown') {
+    // 网回来了：先给旧连接 2 个心跳周期的复活窗（物理值,非任意数——A 场景零换防的关键）
+    respawnState.phase = 'reviving'
+    respawnState.timer = setTimeout(() => {
+      if (respawnState.phase === 'reviving') {
+        console.log('[jamony] P2.1: 复活窗内心跳未回，转查房换防')
+        attemptRespawn()
+      }
+    }, RESPAWN_REVIVE_MS)
+  } else if (respawnState.phase === 'waiting') {
+    // 退避等待被 online 短路：网都回来了,退避的盲目等待已无意义
+    console.log('[jamony] P2.1: online 事件短路退避，立即重试')
+    clearRespawnTimer()
+    attemptRespawn()
+  }
+  // idle/reviving/respawning：无动作（判活永远以心跳为准，系统 online≠jamsoul 活）
+}
+
+// stdout JAMONY_DISCONNECTED 行入口（信号②：C++ 协议确认死——服务器显式踢/30s 无入包）
+function onJamsoulDisconnectedLine() {
+  beginDisconnect('disconnected')
 }
 
 // stdout JAMONY_DELAY 行 = 活连接实证（连接时 ~1Hz，断线后零行）。
-// grace 中到达 = 假死复活，取消 respawn；respawning 中到达 = 自愈成功透明收官
+// netdown/reviving 中到达 = 零换防复活（最优结局）；respawning 中到达 = 换防成功收官
 function markRespawnAlive() {
-  if (respawnState.phase === 'grace') {
-    console.log('[jamony] P2: 3s 窗内自愈（in途回复到达），取消 respawn')
+  if (respawnState.phase === 'netdown' || respawnState.phase === 'reviving' || respawnState.phase === 'respawning') {
+    const wasNetDownRescue = respawnState.phase !== 'respawning'
+    const durMs = respawnState.downAt ? Date.now() - respawnState.downAt : 0
+    const respawns = respawnState.respawnCount
+    console.log(`[jamony] P2.1: ${wasNetDownRescue ? '零换防复活（连接自然续上）' : '自愈换防成功'}，合奏恢复（耗时 ${Math.round(durMs / 100) / 10}s）`)
     clearRespawnTimer()
     respawnState.phase = 'idle'
-  } else if (respawnState.phase === 'respawning') {
-    console.log('[jamony] P2: 自愈重连成功，合奏透明恢复')
-    clearRespawnTimer()
-    respawnState.phase = 'idle'
+    respawnState.downAt = 0
+    respawnState.trigger = ''
+    respawnState.respawnCount = 0
+    telemetryEnqueue('selfheal_recover', { duration_ms: durMs, respawns, zero_respawn: respawns === 0 })
+    sendRecovered()
   }
   respawnState.connectedAt = Date.now()  // 稳定锚点（idle 正常运行也随每拍刷新）
+  resetFamineTimer()
 }
 
 // 闸③: 重生前查房。返回 true=房在；false=明确没了（401 登出/封号、403 被清出、404 散房）；
@@ -731,7 +855,7 @@ function scheduleRespawn(reason) {
   if (respawnState.attempts >= RESPAWN_MAX_ATTEMPTS) { giveUpRespawn(reason); return }
   const delay = respawnState.attempts === 0 ? 0
     : RESPAWN_BACKOFF_MS[Math.min(respawnState.attempts - 1, RESPAWN_BACKOFF_MS.length - 1)]
-  console.log(`[jamony] P2: ${delay === 0 ? '立即' : delay + 'ms 后'}自愈重试（第 ${respawnState.attempts + 1} 次尝试，${reason}）`)
+  console.log(`[jamony] P2.1: ${delay === 0 ? '立即' : delay + 'ms 后'}自愈重试（第 ${respawnState.attempts + 1} 次尝试，${reason}）`)
   respawnState.phase = 'waiting'
   respawnState.timer = setTimeout(() => { attemptRespawn() }, delay)
 }
@@ -750,7 +874,9 @@ async function attemptRespawn() {
 
   // kill-then-spawn
   respawnState.phase = 'respawning'
-  console.log(`[jamony] P2: kill-then-spawn 换防（第 ${respawnState.attempts + 1} 次尝试）`)
+  respawnState.respawnCount++
+  sendBanner('healing')
+  console.log(`[jamony] P2.1: kill-then-spawn 换防（第 ${respawnState.attempts + 1} 次尝试，累计换防 ${respawnState.respawnCount} 次）`)
   await killForRespawn()
   if (gen !== respawnGen) return  // 换防期间被抑制（用户切听众/换房/退出）——新进程未起，无泄漏
   // 重识别网卡：断的往往就是网卡本身（WiFi↔热点），不能沿用旧 bindIf
@@ -758,14 +884,14 @@ async function attemptRespawn() {
   if (gen !== respawnGen) return
   const child = launchJamsoul(lastJoinPayload.serverIp, lastJoinPayload.port, lastJoinPayload.nickname, bindIf)
   if (!child) {
-    console.log('[jamony] P2: respawn spawn 失败，记败退避')
+    console.log('[jamony] P2.1: respawn spawn 失败，记败退避')
     respawnState.attempts++
     scheduleRespawn('spawn 失败')
     return
   }
   // 看门狗: 10s 内无 JAMONY_DELAY = 连接没建起来 → 记败 → 杀 → 退避
   respawnState.timer = setTimeout(() => {
-    console.log('[jamony] P2: respawn 后 10s 无延迟心跳，记败退避')
+    console.log('[jamony] P2.1: respawn 后 10s 无延迟心跳，记败退避')
     respawnState.attempts++
     killForRespawn().then(() => {
       if (respawnState.phase === 'respawning') scheduleRespawn('连接未建立')
@@ -776,12 +902,16 @@ async function attemptRespawn() {
 // 放弃 = 诚实移交: 残余进程清掉，exit 广播放行 → web 两处消费者（playing 页/漫游分支）
 // 自然接管切听众/解散弹窗。进程已死无 exit 可发时手动补发——防 web 冻在合奏视角（假死 UI）
 function giveUpRespawn(reason) {
-  console.log(`[jamony] P2: 自愈放弃（${reason}）—— 移交 web 切听众/解散流程`)
+  console.log(`[jamony] P2.1: 自愈放弃（${reason}）—— 移交 web 切听众/解散流程`)
+  telemetryEnqueue('selfheal_giveup', { reason, trigger: respawnState.trigger, attempts: respawnState.attempts })
   respawnGen++
   clearRespawnTimer()
   respawnState.phase = 'idle'
   respawnState.attempts = 0
   respawnState.connectedAt = 0
+  respawnState.downAt = 0
+  respawnState.trigger = ''
+  respawnState.respawnCount = 0
   if (jamsoulProcess) {
     killJamsoul()  // exit handler 此时 phase=idle → jamsoul-exited 正常广播
   } else if (!isQuitting && mainWindow && !mainWindow.isDestroyed()) {
@@ -832,13 +962,17 @@ ipcMain.on('join-room', async (_event, payload) => {
     return
   }
 
-  // 1112 P2: 缓存 spawn 参数 + 自愈重武装（新的一次主动调起 = 新周期；顺带作废上一轮残留流程）
+  // 1112 P2/P2.1: 缓存 spawn 参数 + 自愈重武装（新的一次主动调起 = 新周期；顺带作废上一轮残留流程）
   lastJoinPayload = { serverIp: payload.serverIp, port: payload.port, nickname: payload.nickname }
   respawnGen++
   clearRespawnTimer()
+  if (respawnState.famineTimer) { clearTimeout(respawnState.famineTimer); respawnState.famineTimer = null }
   respawnState.phase = 'idle'
   respawnState.attempts = 0
   respawnState.connectedAt = 0
+  respawnState.downAt = 0
+  respawnState.trigger = ''
+  respawnState.respawnCount = 0
 
   // 1112 P1: spawn 前异步识别物理网卡(无 VPN≈几十 ms;有 VPN 多一次预检;绝不卡 UI)。
   // 结果走 jamsoul-launched 事件回传,handler 异步化不影响反馈链。
@@ -853,6 +987,11 @@ ipcMain.on('kill-jamsoul', () => {
   suppressRespawn()  // 1112 P2 闸①: 主动杀绝不复活
   killJamsoul()
 })
+
+// 1112 P2.1: renderer 网络事件（preload 监听 window online/offline 原生事件转发——
+// Chromium 内核网络监听零延迟,拔线/断WiFi/VPN 开关的瞬间即知,优于任何轮询）
+ipcMain.on('net-online', () => { onNetOnline() })
+ipcMain.on('net-offline', () => { onNetOffline() })
 
 // 1110 分享外链: 渲染进程请求跳系统浏览器(微博分享页等)——壳内 webRequest 白名单会拦外域,
 // openExternal 不经渲染进程加载;主进程侧协议+域白名单再验一次,防 IPC 被污染打开任意页

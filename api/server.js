@@ -5631,6 +5631,44 @@ app.post('/api/feedback', requireAuth, async (req, res) => {
   }
 })
 
+// ========== 1112 P2.1 客户端遥测上报（壳断线/自愈事件；telemetry_events 泛化表，公测后扩展事件类型） ==========
+// 壳侧内存队列批量上报（断网事件恰在断网时发生，壳先缓存网回补报）；白名单外的脏数据
+// 静默跳过不拒整批（防脏数据堵壳队列）；payload 单条限长防滥用。
+const TELEMETRY_TYPES = new Set(['selfheal_disconnect', 'selfheal_recover', 'selfheal_giveup'])
+app.post('/api/telemetry/events', requireAuth, async (req, res) => {
+  try {
+    const events = Array.isArray(req.body?.events) ? req.body.events.slice(0, 20) : null
+    if (!events || events.length === 0) return res.status(400).json({ ok: false, msg: '参数错误' })
+    if (!rateCheck(`tel:${req.userId}`, 10, 60 * 1000)) {
+      return res.status(429).json({ ok: false, msg: '上报过于频繁' })
+    }
+    const clientVersion = String(req.body?.v || '').slice(0, 20)
+    const platform = String(req.body?.platform || '').slice(0, 10)
+    const rows = []
+    for (const ev of events) {
+      const type = String(ev?.type || '')
+      if (!TELEMETRY_TYPES.has(type)) continue
+      let payloadStr = '{}'
+      try {
+        if (ev.payload && typeof ev.payload === 'object') {
+          payloadStr = JSON.stringify(ev.payload).slice(0, 4096)
+        }
+      } catch (e) { /* 脏 payload 落默认 */ }
+      rows.push([nextId(), req.userId, clientVersion, platform, type, payloadStr])
+    }
+    if (rows.length === 0) return res.status(400).json({ ok: false, msg: '无有效事件' })
+    const placeholders = rows.map((_, i) =>
+      `($${i * 6 + 1}, $${i * 6 + 2}, $${i * 6 + 3}, $${i * 6 + 4}, $${i * 6 + 5}, $${i * 6 + 6}::jsonb)`).join(', ')
+    await pool.query(
+      `INSERT INTO telemetry_events (id, user_id, client_version, platform, event_type, payload) VALUES ${placeholders}`,
+      rows.flat())
+    res.json({ ok: true, inserted: rows.length })
+  } catch (err) {
+    console.error('Telemetry error:', err.message)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
 // 校验用户是否某房间的合奏者（room_members.role === 'musician'），按 room_code 查
 async function isRoomMusician(userId, roomCode) {
   const r = await pool.query("SELECT rm.role FROM room_members rm JOIN rooms r ON r.id=rm.room_id WHERE r.room_code=$1 AND rm.user_id=$2", [roomCode, userId])

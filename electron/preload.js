@@ -53,6 +53,18 @@ contextBridge.exposeInMainWorld('jamonyAPI', {
     ipcRenderer.on('jamsoul-delay', handler)
     return () => ipcRenderer.removeListener('jamsoul-delay', handler)
   },
+  // 1112 P2.1（差距四）: 自愈中间态可见——断网等待(netdown)/换防恢复中(healing)；返回 cleanup
+  onJamsoulReconnecting: (callback) => {
+    const handler = (_event, data) => callback(data)
+    ipcRenderer.on('jamsoul-reconnecting', handler)
+    return () => ipcRenderer.removeListener('jamsoul-reconnecting', handler)
+  },
+  // 1112 P2.1: 自愈收官（连接恢复，banner 撤）；返回 cleanup
+  onJamsoulReconnected: (callback) => {
+    const handler = (_event, data) => callback(data)
+    ipcRenderer.on('jamsoul-reconnected', handler)
+    return () => ipcRenderer.removeListener('jamsoul-reconnected', handler)
+  },
   // 1031 欢哥裁定：web 侧「检查更新」入口（头像下拉菜单/通知卡片 IPC → 壳弹更新窗）
   checkForUpdate: () => {
     ipcRenderer.send('jamony-check-update')
@@ -71,5 +83,10 @@ window.addEventListener('message', (event) => {
     ipcRenderer.send('join-room', event.data.payload)
   }
 })
+
+// 1112 P2.1（差距三）: 系统网络事件转发主进程——Chromium 原生监听（Mac 底层 NWPathMonitor），
+// 拔线/断WiFi/VPN 开关零延迟即知。主进程据此驱动自愈状态机（offline=进等网态/online=复活窗+短路退避）
+window.addEventListener('offline', () => ipcRenderer.send('net-offline'))
+window.addEventListener('online', () => ipcRenderer.send('net-online'))
 
 console.log('[preload] jamony preload loaded')
