@@ -776,14 +776,20 @@ function onNetOnline() {
     }
   }
   if (respawnState.phase === 'netdown') {
-    // 网回来了：先给旧连接 2 个心跳周期的复活窗（物理值,非任意数——A 场景零换防的关键）
-    respawnState.phase = 'reviving'
-    respawnState.timer = setTimeout(() => {
-      if (respawnState.phase === 'reviving') {
-        console.log('[jamony] P2.1: 复活窗内心跳未回，转查房换防')
-        attemptRespawn()
-      }
-    }, RESPAWN_REVIVE_MS)
+    if (jamsoulProcess) {
+      // 网回来了且进程还在：先给旧连接 2 个心跳周期的复活窗（物理值——A 场景零换防的关键）
+      respawnState.phase = 'reviving'
+      respawnState.timer = setTimeout(() => {
+        if (respawnState.phase === 'reviving') {
+          console.log('[jamony] P2.1: 复活窗内心跳未回，转查房换防')
+          attemptRespawn()
+        }
+      }, RESPAWN_REVIVE_MS)
+    } else {
+      // 1113 P2.1.2: 空壳已清（死透确认时收掉了）——无可复活,跳过复活窗直接查房换防（省 2s）
+      console.log('[jamony] P2.1.2: 网回,旧进程已清,直接查房换防')
+      attemptRespawn()
+    }
   } else if (respawnState.phase === 'waiting') {
     // 退避等待被 online 短路：网都回来了,退避的盲目等待已无意义
     console.log('[jamony] P2.1: online 事件短路退避，立即重试')
@@ -795,6 +801,16 @@ function onNetOnline() {
 
 // stdout JAMONY_DISCONNECTED 行入口（信号②：C++ 协议确认死——服务器显式踢/30s 无入包）
 function onJamsoulDisconnectedLine() {
+  // 1113 P2.1.2: 断网等待期收到死透确认——连接已无复活可能（网回后恢复必走换防）,
+  // 空壳留着零收益只剩用户困惑（C区死灰一片）,立即清掉;exit 抑制（phase 非 idle）不惊动页面,
+  // banner 继续挂「等待网络」;网回后 reviving 见无进程直接跳过复活窗换防（欢哥实测 C 场景产品拍板）
+  if (respawnState.phase === 'netdown') {
+    if (jamsoulProcess) {
+      console.log('[jamony] P2.1.2: 断网期间连接死透（C++ 30s 超时），清空壳等网')
+      killForRespawn()
+    }
+    return
+  }
   beginDisconnect('disconnected')
 }
 
