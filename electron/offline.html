@@ -2,7 +2,9 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline';">
+  <!-- 1113 P2.1.1 修: connect-src 必须显式放行——default-src 'self' 不覆盖 fetch 连接目标(file:// 页面探测云端全被拒,
+       实测卡死在断网页: "Refused to connect ... violates CSP")。按钮/3s自动重试/online监听三套现成逻辑被这一行掐死 -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'; connect-src https://app.jamonyapp.com;">
   <title>jamony</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }

@@ -672,16 +672,27 @@ function sendRecovered() {
 // 入队即尽力 flush；失败留队，下次任意事件/online 事件再冲；cap 100 丢旧防膨胀
 const telemetryQueue = []
 let telemetryBusy = false
+let telemetryRetryTimer = null  // 1113 P2.1.1: flush 失败定时重试——实测教训:网回瞬间的 flush 撞上
+                               // "网未稳窗口"失败后,SPA 可能已死无心跳/无新事件,旧设计无钩子再触发=队列滞留丢数据
 function telemetryEnqueue(type, payload) {
   if (telemetryQueue.length >= 100) telemetryQueue.shift()
   telemetryQueue.push({ type, payload: payload || {}, ts: Date.now() })
   telemetryFlush()
 }
+function scheduleTelemetryRetry() {
+  if (telemetryRetryTimer || telemetryQueue.length === 0) return
+  telemetryRetryTimer = setTimeout(() => {
+    telemetryRetryTimer = null
+    telemetryFlush()
+  }, 30000)
+}
 function telemetryFlush() {
+  if (telemetryRetryTimer) { clearTimeout(telemetryRetryTimer); telemetryRetryTimer = null }
   if (telemetryBusy || telemetryQueue.length === 0 || !netOnline) return
   if (!mainWindow || mainWindow.isDestroyed()) return
   telemetryBusy = true
   const batch = telemetryQueue.splice(0, 20)
+  const fail = () => { telemetryQueue.unshift(...batch); telemetryBusy = false; scheduleTelemetryRetry() }
   const finish = () => { telemetryBusy = false; if (telemetryQueue.length > 0) setImmediate(telemetryFlush) }
   session.defaultSession.cookies.get({ url: WEB_URL })
     .then((cks) => {
@@ -693,13 +704,13 @@ function telemetryFlush() {
         resp.on('data', () => {})  // 必须消费 body 否则连接挂起
         resp.on('end', () => {
           if (resp.statusCode >= 200 && resp.statusCode < 300) finish()
-          else { telemetryQueue.unshift(...batch); telemetryBusy = false }  // 留队,待下次钩子
+          else fail()
         })
       })
-      req.on('error', () => { telemetryQueue.unshift(...batch); telemetryBusy = false })
+      req.on('error', fail)
       req.end(JSON.stringify({ events: batch, v: app.getVersion(), platform: process.platform }))
     })
-    .catch(() => { telemetryQueue.unshift(...batch); telemetryBusy = false })
+    .catch(fail)
 }
 
 // 自愈武装判定：有房回、有进程可救、壳活着（听众/漫游无房/已退出=零涉及）
@@ -755,6 +766,15 @@ function onNetOnline() {
   netOnline = true
   console.log('[jamony] P2.1: 系统网络 online')
   telemetryFlush()  // 断网期间攒的遥测补报
+  // 1113 P2.1.1: 网回自动回家——SPA 若在断网窗口被顶到 offline.html,这里把它带回云端
+  //（页面层 offline.html 自带 3s 自动重试+online 监听,此处是壳侧双保险：页面 JS 万一死掉仍有出口）
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    const url = mainWindow.webContents.getURL()
+    if (url.includes('offline.html')) {
+      console.log('[jamony] P2.1.1: 网络恢复且当前在断网页，自动回家')
+      mainWindow.loadURL(WEB_URL)
+    }
+  }
   if (respawnState.phase === 'netdown') {
     // 网回来了：先给旧连接 2 个心跳周期的复活窗（物理值,非任意数——A 场景零换防的关键）
     respawnState.phase = 'reviving'
