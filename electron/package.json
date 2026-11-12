@@ -8,7 +8,8 @@
     "pack": "electron-builder --dir",
     "dist": "electron-builder",
     "dist:mac": "electron-builder --mac",
-    "dist:win": "electron-builder --win"
+    "dist:win": "electron-builder --win",
+    "test": "vitest run"
   },
   "build": {
     "appId": "com.jamony.app",
@@ -20,6 +21,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "respawn-state.js",
       "splash.html",
       "offline.html",
       "logo-transparent.png",
@@ -63,6 +65,7 @@
   },
   "devDependencies": {
     "electron": "^39.8.5",
-    "electron-builder": "^25.0.0"
+    "electron-builder": "^25.0.0",
+    "vitest": "^4.1.12"
   }
 }
