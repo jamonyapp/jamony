@@ -121,6 +121,32 @@ let pendingLaunchSettle = null
 let currentRoom = null  // jamony: 当前所在房间 { roomCode, userId }，供退出时主进程可靠发 leave
 let isLastMusician = false  // jamony: 当前用户是否房间唯一合奏者（叉 jamony/dock 退出弹窗文案用）
 
+/* ============ 1112 P2: jamsoul 断线壳自愈（VPN 韧性三件套收官） ============
+ * 数据面：客户端 30s 无入包（CON_TIME_OUT_SEC_MAX，与服务器踢静默定时器对称）→ C++ emit
+ * Disconnected → stdout 上报 JAMONY_DISCONNECTED（clientdlg.cpp，与 JAMONY_DELAY 同通道）→
+ * 壳 3s 假死复活窗（短断<30s 双方定时器都不到点=天然穿越零介入，此信号只接真断）→
+ * 查房闸 → kill-then-spawn → 10s 看门狗（活判据=JAMONY_DELAY 行，连接时 ~1Hz）→
+ * 成功透明收官 / 连败退避（10s/30s，3 败停手）
+ *
+ * 三道闸：①壳主动杀（kill-jamsoul/leave-room/退出）绝不复活 ②退避上限停手
+ *   ③重生前查房三态：200=复活；401(登出/封号)/403(被清出)/404(散房)=明确不复活让路；
+ *     网络错误/超时=不可判定照试（房大概率还在，失败自然进退避）
+ * 透明性：respawning/waiting 期间 jamsoul-exited/jamsoul-launched 不广播 web——两处消费者
+ *   （playing 页+漫游 RoomSessionProvider）收到 exit 即切听众/解散房间，必须瞒住；
+ *   放弃（giveUp）才移交 exit 事件（诚实收场，UI 与现实一致）
+ * 竞态：世代号 respawnGen——suppress 时递增，attemptRespawn 每个 await 后校验，
+ *   堵死"抑制后流程还在飞"的复活窗口（查房/杀进程/识别网卡期间用户切听众/换房/退出）
+ */
+const RESPAWN_GRACE_MS = 3000             // 假死复活窗（1112 凌晨定稿值；in途 ping 回复窗）
+const RESPAWN_WATCH_MS = 10000            // respawn 后等首条 JAMONY_DELAY 的看门狗
+const RESPAWN_BACKOFF_MS = [10000, 30000] // 连败退避（第 2/3 次尝试前）
+const RESPAWN_MAX_ATTEMPTS = 3            // 退避上限停手（防 VPN 反复开关抖动/服务器显式踢循环）
+const RESPAWN_STABLE_MS = 60000           // 连接稳定超此时长，下次断线才清零连败计数
+
+let lastJoinPayload = null                // join-room 缓存 { serverIp, port, nickname }——respawn 的 spawn 参数
+let respawnGen = 0                        // 世代号：每次 suppress 递增，在飞流程作废
+const respawnState = { phase: 'idle', timer: null, attempts: 0, connectedAt: 0 }
+
 /* ============ 1031 壳自动更新（欢哥裁定架构：版本探测→弹窗→签名URL下载；安装包走 OSS 不碰 EIP 合奏管道）============
  * 流程：启动+每4h → GET /api/version/latest（几百字节）→ 版本比对 → 房间礼仪闸 → 品牌弹窗
  *   → 立即更新：Mac=下载 dmg+打开拖装（半自动·欢哥裁定）/ Win=下载 exe+运行安装器
@@ -400,6 +426,7 @@ function createWindow() {
         message: isLastMusician ? '你当前是唯一合奏者，退出 jamony 将关闭 jamsoul 并解散房间，确认退出？' : (jamsoulProcess ? '退出 jamony 将关闭 jamsoul 并离开房间，确认退出？' : '退出 jamony 将离开当前房间，确认退出？')
       }).then(async ({ response }) => {
         if (response === 0) {
+          suppressRespawn()  // 1112 P2 闸①: 确认退出绝不复活
           await sendLeaveRequest()  // jamony: 主进程先可靠发 leave（有界3s），再杀 jamsoul + 关窗
           isQuitting = true
           killJamsoul(true)
@@ -485,12 +512,17 @@ function launchJamsoul(serverIp, port, nickname, bindIf) {
     child.stdout.on('data', (buf) => {
       for (const line of buf.toString().split('\n')) {
         const m = line.match(/^JAMONY_DELAY (\d+)(?: (\d+))?(?: (\d+))?/)
-        if (m && mainWindow && !mainWindow.isDestroyed()) {
-          const data = { ts: Date.now() }
-          if (m[3] !== undefined) { data.gp = Number(m[1]); data.overall = Number(m[2]); data.ping = Number(m[3]) }
-          else { data.overall = Number(m[1]); data.ping = m[2] !== undefined ? Number(m[2]) : 0 }
-          mainWindow.webContents.send('jamsoul-delay', data)
+        if (m) {
+          markRespawnAlive()  // 1112 P2: 活连接实证——取消 grace / 自愈成功收官 / 稳定锚点
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            const data = { ts: Date.now() }
+            if (m[3] !== undefined) { data.gp = Number(m[1]); data.overall = Number(m[2]); data.ping = Number(m[3]) }
+            else { data.overall = Number(m[1]); data.ping = m[2] !== undefined ? Number(m[2]) : 0 }
+            mainWindow.webContents.send('jamsoul-delay', data)
+          }
         }
+        // 1112 P2: 断线事件（C++ 30s 无入包 emit Disconnected 上报，clientdlg.cpp）
+        if (/^JAMONY_DISCONNECTED/.test(line)) onJamsoulDisconnectedLine()
       }
     })
 
@@ -500,6 +532,8 @@ function launchJamsoul(serverIp, port, nickname, bindIf) {
       if (launchSettled) return
       launchSettled = true
       console.log('[jamony] jamsoul-launched:', JSON.stringify(data))
+      // 1112 P2: 换防期回执不惊动 web（ok:false 的失败由看门狗退避接管，不弹窗）
+      if (respawnState.phase === 'respawning' || respawnState.phase === 'waiting') return
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('jamsoul-launched', data)
       }
@@ -513,12 +547,30 @@ function launchJamsoul(serverIp, port, nickname, bindIf) {
 
     child.on('exit', (code, signal) => {
       console.log(`[jamony] jamsoul exited (code=${code}, signal=${signal})`)
+      // 1112 P2: 迟到 exit 守卫——SIGKILL 超时路径下壳已 spawn 新进程，旧进程 exit 事件迟到
+      // 若无条件清 jamsoulProcess 会误杀新进程引用（孤儿/双 spawn），迟到的直接忽略
+      if (jamsoulProcess !== child) {
+        console.log('[jamony] P2: 旧进程迟到 exit，忽略（当前已换防）')
+        return
+      }
       jamsoulProcess = null
       // 10-07：进程已正常退出，撤销 kill 兜底定时器（防残留定时器误杀切换后新进程）
       if (killTimer) { clearTimeout(killTimer); killTimer = null }
       if (!launchSettled) {
         // 启动期秒退（缺 DLL/被拦截的典型症状）：只报启动失败，不发 exited
         sendLaunchResult({ ok: false, reason: 'early-exit', code, signal })
+        // 1112 P2: respawn 的子进程秒退 = 本次尝试直接失败，不等 10s 看门狗
+        if (respawnState.phase === 'respawning') {
+          clearRespawnTimer()
+          respawnState.attempts++
+          scheduleRespawn('respawn 子进程秒退')
+        }
+        return
+      }
+      // 1112 P2: 换防期的 exit 不广播 web——两处消费者（playing 页/漫游 RoomSessionProvider）
+      // 收到即切听众/解散房间，必须瞒住；放弃（giveUp）时 phase 已回 idle，广播自然放行
+      if (respawnState.phase === 'respawning' || respawnState.phase === 'waiting') {
+        console.log('[jamony] P2: 换防 exit 不广播 web（透明）')
         return
       }
       // jamony: jamsoul 退出通知网页（反向交互，让页面感知 jamsoul 关闭）
@@ -573,6 +625,170 @@ function killJamsoul(immediate = false) {
   }
 }
 
+// ════════════════════════════════════════
+// 1112 P2: jamsoul 断线壳自愈——核心函数（设计见顶部状态区注释）
+// ════════════════════════════════════════
+function clearRespawnTimer() {
+  if (respawnState.timer) { clearTimeout(respawnState.timer); respawnState.timer = null }
+}
+
+// 闸①: 任何主动离开/杀 → 本轮自愈彻底作废（下次 join-room 重武装）。
+// 世代号递增 = 在飞的 attemptRespawn 每个 await 后都会因 gen 不匹配而自行退出。
+// 注意: 不动 attempts/connectedAt——那是事实锚点（连接稳定史），非流程状态；
+// Cmd+Q 取消退出后首次断线仍按稳定史定档，不误入退避（清零只发生在 join-room 新会话/giveUp）
+function suppressRespawn() {
+  respawnGen++
+  clearRespawnTimer()
+  respawnState.phase = 'idle'
+}
+
+// stdout JAMONY_DISCONNECTED 行入口（仅 idle 态受理，流程中到达=去重）
+function onJamsoulDisconnectedLine() {
+  if (respawnState.phase !== 'idle') return
+  if (!lastJoinPayload || !currentRoom) return  // 无房可回（听众无进程不该有此行；防御）
+  if (isQuitting || !mainWindow || mainWindow.isDestroyed()) return
+  // 连接稳定过（>60s）→ 连败清零（全新一轮事故）；连上又断（<60s）=抖动循环，计一败
+  // ——防 VPN 反复开关/服务器显式踢引发无限复活
+  if (respawnState.connectedAt && Date.now() - respawnState.connectedAt > RESPAWN_STABLE_MS) {
+    respawnState.attempts = 0
+  } else {
+    respawnState.attempts++
+  }
+  console.log(`[jamony] P2: jamsoul 断线（30s 无入包），${RESPAWN_GRACE_MS}ms 假死复活窗（连败计数=${respawnState.attempts}）`)
+  respawnState.phase = 'grace'
+  respawnState.timer = setTimeout(() => { attemptRespawn() }, RESPAWN_GRACE_MS)
+}
+
+// stdout JAMONY_DELAY 行 = 活连接实证（连接时 ~1Hz，断线后零行）。
+// grace 中到达 = 假死复活，取消 respawn；respawning 中到达 = 自愈成功透明收官
+function markRespawnAlive() {
+  if (respawnState.phase === 'grace') {
+    console.log('[jamony] P2: 3s 窗内自愈（in途回复到达），取消 respawn')
+    clearRespawnTimer()
+    respawnState.phase = 'idle'
+  } else if (respawnState.phase === 'respawning') {
+    console.log('[jamony] P2: 自愈重连成功，合奏透明恢复')
+    clearRespawnTimer()
+    respawnState.phase = 'idle'
+  }
+  respawnState.connectedAt = Date.now()  // 稳定锚点（idle 正常运行也随每拍刷新）
+}
+
+// 闸③: 重生前查房。返回 true=房在；false=明确没了（401 登出/封号、403 被清出、404 散房）；
+// null=不可判定（网络错误/超时/5xx）——照试，失败自然进退避。
+// （net.request + 显式读 cookie 塞请求头，照 sendLeaveRequest 模式——无 initiator 上下文，
+//   SameSite=Lax 会扣下 jamony_token）
+function checkRoomAlive() {
+  return new Promise((resolve) => {
+    if (!currentRoom) return resolve(false)
+    const roomCode = currentRoom.roomCode
+    let done = false
+    let timer = null
+    const finish = (v) => { if (!done) { done = true; if (timer) clearTimeout(timer); resolve(v) } }
+    timer = setTimeout(() => finish(null), 5000)
+    session.defaultSession.cookies.get({ url: WEB_URL })
+      .then((cks) => {
+        const token = (cks || []).find((c) => c.name === 'jamony_token')
+        const req = net.request({ url: `${WEB_URL}/api/rooms/${encodeURIComponent(roomCode)}`, method: 'GET', session: session.defaultSession })
+        if (token) req.setHeader('Cookie', `jamony_token=${token.value}`)
+        req.on('response', (resp) => {
+          let body = ''
+          resp.on('data', (c) => { body += c })
+          resp.on('end', () => {
+            try {
+              const d = JSON.parse(body)
+              finish(resp.statusCode === 200 && d && d.ok && d.room ? true
+                : [401, 403, 404].includes(resp.statusCode) ? false
+                : null)
+            } catch { finish(null) }
+          })
+        })
+        req.on('error', () => finish(null))
+        req.end()
+      })
+      .catch(() => finish(null))
+  })
+}
+
+// 自愈换防的杀: SIGTERM 优雅 → 等 exit（≤2.5s）→ SIGKILL 兜底。
+// （不动 killJamsoul/killTimer——那条路是用户主动杀，这条是机器换防，互不干扰）
+function killForRespawn() {
+  const dying = jamsoulProcess
+  if (!dying) return Promise.resolve()
+  return new Promise((resolve) => {
+    dying.kill('SIGTERM')
+    const t = setTimeout(() => {
+      try { dying.kill('SIGKILL') } catch (_) {}
+      if (jamsoulProcess === dying) jamsoulProcess = null
+      resolve()
+    }, 2500)
+    dying.once('exit', () => { clearTimeout(t); resolve() })
+  })
+}
+
+// 按连败次数安排下一次尝试（第 1 败后 10s、第 2 败后 30s）；达上限 → 放弃移交
+function scheduleRespawn(reason) {
+  if (respawnState.attempts >= RESPAWN_MAX_ATTEMPTS) { giveUpRespawn(reason); return }
+  const delay = respawnState.attempts === 0 ? 0
+    : RESPAWN_BACKOFF_MS[Math.min(respawnState.attempts - 1, RESPAWN_BACKOFF_MS.length - 1)]
+  console.log(`[jamony] P2: ${delay === 0 ? '立即' : delay + 'ms 后'}自愈重试（第 ${respawnState.attempts + 1} 次尝试，${reason}）`)
+  respawnState.phase = 'waiting'
+  respawnState.timer = setTimeout(() => { attemptRespawn() }, delay)
+}
+
+async function attemptRespawn() {
+  const gen = respawnGen  // 世代快照：suppress/join-room/giveUp 任一发生即作废本流程
+  if (!lastJoinPayload || !currentRoom || isQuitting || !mainWindow || mainWindow.isDestroyed()) {
+    respawnState.phase = 'idle'
+    clearRespawnTimer()
+    return
+  }
+  // 闸③: 查房（明确没了 = 让路解散弹窗，不复活）
+  const alive = await checkRoomAlive()
+  if (gen !== respawnGen) return
+  if (alive === false) { giveUpRespawn('房间已不在（散房/登出/被清出）'); return }
+
+  // kill-then-spawn
+  respawnState.phase = 'respawning'
+  console.log(`[jamony] P2: kill-then-spawn 换防（第 ${respawnState.attempts + 1} 次尝试）`)
+  await killForRespawn()
+  if (gen !== respawnGen) return  // 换防期间被抑制（用户切听众/换房/退出）——新进程未起，无泄漏
+  // 重识别网卡：断的往往就是网卡本身（WiFi↔热点），不能沿用旧 bindIf
+  const bindIf = await identifyBindIf(lastJoinPayload.serverIp)
+  if (gen !== respawnGen) return
+  const child = launchJamsoul(lastJoinPayload.serverIp, lastJoinPayload.port, lastJoinPayload.nickname, bindIf)
+  if (!child) {
+    console.log('[jamony] P2: respawn spawn 失败，记败退避')
+    respawnState.attempts++
+    scheduleRespawn('spawn 失败')
+    return
+  }
+  // 看门狗: 10s 内无 JAMONY_DELAY = 连接没建起来 → 记败 → 杀 → 退避
+  respawnState.timer = setTimeout(() => {
+    console.log('[jamony] P2: respawn 后 10s 无延迟心跳，记败退避')
+    respawnState.attempts++
+    killForRespawn().then(() => {
+      if (respawnState.phase === 'respawning') scheduleRespawn('连接未建立')
+    })
+  }, RESPAWN_WATCH_MS)
+}
+
+// 放弃 = 诚实移交: 残余进程清掉，exit 广播放行 → web 两处消费者（playing 页/漫游分支）
+// 自然接管切听众/解散弹窗。进程已死无 exit 可发时手动补发——防 web 冻在合奏视角（假死 UI）
+function giveUpRespawn(reason) {
+  console.log(`[jamony] P2: 自愈放弃（${reason}）—— 移交 web 切听众/解散流程`)
+  respawnGen++
+  clearRespawnTimer()
+  respawnState.phase = 'idle'
+  respawnState.attempts = 0
+  respawnState.connectedAt = 0
+  if (jamsoulProcess) {
+    killJamsoul()  // exit handler 此时 phase=idle → jamsoul-exited 正常广播
+  } else if (!isQuitting && mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('jamsoul-exited', { code: null, signal: null })
+  }
+}
+
 // jamony: 退出前同步发 leave 给服务器（主进程发，不依赖 renderer beforeunload 的竞态）
 // 用 net 模块 + 默认 session（自动携带 httpOnly cookie 鉴权）；有界 3s 超时，失败也不阻塞退出
 function sendLeaveRequest() {
@@ -616,6 +832,14 @@ ipcMain.on('join-room', async (_event, payload) => {
     return
   }
 
+  // 1112 P2: 缓存 spawn 参数 + 自愈重武装（新的一次主动调起 = 新周期；顺带作废上一轮残留流程）
+  lastJoinPayload = { serverIp: payload.serverIp, port: payload.port, nickname: payload.nickname }
+  respawnGen++
+  clearRespawnTimer()
+  respawnState.phase = 'idle'
+  respawnState.attempts = 0
+  respawnState.connectedAt = 0
+
   // 1112 P1: spawn 前异步识别物理网卡(无 VPN≈几十 ms;有 VPN 多一次预检;绝不卡 UI)。
   // 结果走 jamsoul-launched 事件回传,handler 异步化不影响反馈链。
   const bindIf = await identifyBindIf(payload.serverIp)
@@ -626,6 +850,7 @@ ipcMain.on('join-room', async (_event, payload) => {
 // 来自网页的 KILL_JAMSOUL 请求（断开合奏时）
 ipcMain.on('kill-jamsoul', () => {
   console.log('[jamony] IPC kill-jamsoul received')
+  suppressRespawn()  // 1112 P2 闸①: 主动杀绝不复活
   killJamsoul()
 })
 
@@ -655,6 +880,7 @@ ipcMain.on('enter-room', (_event, payload) => {
   console.log('[jamony] entered room:', currentRoom)
 })
 ipcMain.on('leave-room', () => {
+  suppressRespawn()  // 1112 P2 闸①: 离房绝不复活
   currentRoom = null
   isLastMusician = false
   console.log('[jamony] left room (main cache cleared)')
@@ -676,6 +902,7 @@ app.whenReady().then(() => {
 // 退出 jamony 时：在房间（合奏者或听众）弹窗确认 + SIGKILL；不在房间直接退
 let isQuitting = false
 app.on('before-quit', (e) => {
+  suppressRespawn()  // 1112 P2 闸①: 退出意图即作废自愈（取消弹窗取消后 P2 由下次断线重新武装）
   if (isQuitting) { killJamsoul(true); return }
   const isInRoom = mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents.getURL().includes('/room')
   if (jamsoulProcess || isInRoom) {
