@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, session, dialog, net, Menu, shell, powerMonitor } = require('electron')
+const { app, BrowserWindow, ipcMain, session, dialog, net, Menu, shell } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const os = require('os')
@@ -819,12 +819,6 @@ ipcMain.on('kill-jamsoul', () => {
 // Chromium 内核网络监听零延迟,拔线/断WiFi/VPN 开关的瞬间即知,优于任何轮询）
 ipcMain.on('net-online', () => { respawn.onNetOnline() })
 ipcMain.on('net-offline', () => { respawn.onNetOffline() })
-
-// 1116 幽灵房主方案一: 系统输入空闲秒数(鼠标键盘全算)给网页心跳带上——
-// 「连接在场≠人在场」,机器可替人维持 socket+心跳;服务器凭 idle 识别挂机房主(5min 视同离席)
-ipcMain.handle('get-idle-seconds', () => {
-  try { return Math.floor(powerMonitor.getSystemIdleTime()) } catch (_) { return -1 }
-})
 
 // 1110 分享外链: 渲染进程请求跳系统浏览器(微博分享页等)——壳内 webRequest 白名单会拦外域,
 // openExternal 不经渲染进程加载;主进程侧协议+域白名单再验一次,防 IPC 被污染打开任意页

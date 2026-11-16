@@ -172,19 +172,11 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
   useEffect(() => {
     if (!session || !loggedIn) return
     const code = session.code
-    const beat = async () => {
-      // 1116 幽灵房主方案一: 壳环境随拍带上系统输入空闲秒数(服务器凭此识别挂机房主,5min 视同离席);
-      // 纯浏览器/老壳无此桥=字段缺省,服务器规则不触发——天然灰度
-      let body = "{}"
-      try {
-        const idle = await window.jamonyAPI?.getIdleSeconds?.()
-        if (typeof idle === "number" && idle >= 0) body = JSON.stringify({ idle })
-      } catch {}
+    const beat = () => {
       fetch(`/api/rooms/${code}/heartbeat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body,
       })
         .then(r => {
           if (r.status === 403 || r.status === 404) setSession(null)
