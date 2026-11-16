@@ -697,14 +697,16 @@ const respawn = createRespawnCore({
   },
 })
 
-// 闸③: 重生前查房。返回 true=房在；false=明确没了（401 登出/封号、403 被清出、404 散房）；
-// null=不可判定（网络错误/超时/5xx）——照试，失败自然进退避。
+// 闸③: 重生前查房——问 my-active-room 对房码（1117 欢哥验2 拍板: 席位已失=离房人,不复活不回房）。
+// 返回 true=我仍是这房的成员(room_code 对上,角色不限);false=明确没了（无在房/房码不符=被L2移除或已换房,
+// 401 登出/封号）;null=不可判定（网络错误/超时/5xx）——照试，失败自然进退避。
+// 旧版只查「房还在不在」:断网超线被移除后房常还在(他人护房),壳照复活 jamsoul=音频在而成员不在的撕裂态。
 // （net.request + 显式读 cookie 塞请求头，照 sendLeaveRequest 模式——无 initiator 上下文，
 //   SameSite=Lax 会扣下 jamony_token）
 function checkRoomAlive() {
   return new Promise((resolve) => {
     if (!currentRoom) return resolve(false)
-    const roomCode = currentRoom.roomCode
+    const roomCode = String(currentRoom.roomCode).toUpperCase()
     let done = false
     let timer = null
     const finish = (v) => { if (!done) { done = true; if (timer) clearTimeout(timer); resolve(v) } }
@@ -712,7 +714,7 @@ function checkRoomAlive() {
     session.defaultSession.cookies.get({ url: WEB_URL })
       .then((cks) => {
         const token = (cks || []).find((c) => c.name === 'jamony_token')
-        const req = net.request({ url: `${WEB_URL}/api/rooms/${encodeURIComponent(roomCode)}`, method: 'GET', session: session.defaultSession })
+        const req = net.request({ url: `${WEB_URL}/api/my-active-room`, method: 'GET', session: session.defaultSession })
         if (token) req.setHeader('Cookie', `jamony_token=${token.value}`)
         req.on('response', (resp) => {
           let body = ''
@@ -720,9 +722,12 @@ function checkRoomAlive() {
           resp.on('end', () => {
             try {
               const d = JSON.parse(body)
-              finish(resp.statusCode === 200 && d && d.ok && d.room ? true
-                : [401, 403, 404].includes(resp.statusCode) ? false
-                : null)
+              if (resp.statusCode === 200 && d && d.ok) {
+                const rc = d.room && String(d.room.room_code).toUpperCase()
+                finish(rc ? rc === roomCode : false)  // 无在房/房码不符=席位已失(false);成员身份对上(true)
+              } else if ([401, 403, 404].includes(resp.statusCode)) {
+                finish(false)
+              } else { finish(null) }
             } catch { finish(null) }
           })
         })

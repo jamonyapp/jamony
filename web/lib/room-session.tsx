@@ -18,9 +18,13 @@ type RoomSession = {
   musicianCount?: number  // 唯一合奏者判定（漫游态叉 jamsoul 分流用）
 }
 
+// 1117: refresh 返回值——ActiveRoom=仍是成员; null=服务器确认无在房(席位已失); undefined=不可判定(网络失败)
+type ActiveRoom = { room_code: string; name: string; role: string; host_id: number; musician_count: number }
+type RefreshResult = ActiveRoom | null | undefined
+
 type RoomSessionContextValue = {
   session: RoomSession | null
-  refresh: () => Promise<void>
+  refresh: () => Promise<RefreshResult>
   setRole: (role: "musician" | "listener") => void
   disconnectRoom: () => Promise<void>
   // 听众收听全局化（10-07 漫游续听）：音频元素+Analyser 常驻 Provider，漫游不断流
@@ -36,7 +40,7 @@ type RoomSessionContextValue = {
 
 const RoomSessionContext = createContext<RoomSessionContextValue>({
   session: null,
-  refresh: async () => {},
+  refresh: async () => undefined,
   setRole: () => {},
   disconnectRoom: async () => {},
   listening: null,
@@ -136,17 +140,20 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
   }, [])
   // ===== 收听全局化完 =====
 
+  // 返回值(1117): room对象=仍是成员; null=服务器确认无在房(席位已失); undefined=不可判定(网络失败,调用方不得据此清房)
   const refresh = useCallback(async () => {
-    if (!loggedIn) { setSession(null); return }
+    if (!loggedIn) { setSession(null); return null }
     try {
       const r = await fetch("/api/my-active-room", { credentials: "include" })
       const d = await r.json()
       if (d.ok && d.room) {
         setSession({ code: d.room.room_code, name: d.room.name, role: d.room.role, hostId: d.room.host_id, musicianCount: d.room.musician_count })
+        return d.room
       } else {
         setSession(null)
+        return null
       }
-    } catch {}
+    } catch { return undefined }
   }, [loggedIn])
 
   // auth 就绪后查一次（登录/登出/页面刷新恢复）
@@ -194,9 +201,11 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
   // playing 页在场时页面有自己的处理与弹窗，这里只管漫游态（pathname 排除 playing）
   useEffect(() => {
     if (/^\/room\/[^/]+\/playing/.test(pathname || "")) return
-    const cleanup = window.jamonyAPI?.onJamsoulExited?.(() => {
+    const cleanup = window.jamonyAPI?.onJamsoulExited?.(async () => {
       if (manualKillRef.current) { manualKillRef.current = false; return }  // 主动杀（doDisconnect/disconnectRoom），不处理
       if (!session || session.role !== "musician") return
+      // 1117: 席位已失(断网超线被L2移除/壳查房判死)=离房人,不切听众不自动复席(欢哥验2拍板)——收摊即可,在场页面自行回详情卡
+      if ((await refresh()) === null) return
       const uid = user?.id
       const s = session
       window.jamonyAPI?.killJamsoul?.()
@@ -222,7 +231,7 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
       }
     })
     return () => { cleanup?.() }
-  }, [pathname, session, user?.id])
+  }, [pathname, session, user?.id, refresh])
 
   // playing 页内身份切换（断开连接→切听众 / 重连→合奏）时同步给全局
   const setRole = useCallback((role: "musician" | "listener") => {

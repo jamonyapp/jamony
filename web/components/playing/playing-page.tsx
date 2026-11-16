@@ -386,10 +386,15 @@ export function PlayingPage() {
 
   // jamsoul 子进程退出（用户叉掉/直接退出 jamsoul）→ 感知 + 切听众（主动杀时不 alert）
   useEffect(() => {
-    const cleanup = window.jamonyAPI?.onJamsoulExited?.(() => {
+    const cleanup = window.jamonyAPI?.onJamsoulExited?.(async () => {
       if (killingRef.current) { killingRef.current = false; return }  // doDisconnect 主动杀，不重复 alert
       if (!audioConnected) return
       const rid = params?.code
+      // 1117: 席位已失(断网超线被L2移除,壳查房=成员校验判死后 giveUp 补发)=离房人——直接回房间详情卡
+      // (B版,可选合奏/听众身份进),不切听众不弹窗(欢哥 2.1.4 验2 拍板:联网后自动翻B版,免刷新,仅此而已)
+      // null=服务器确认无在房;undefined=网络判不明→走下方原逻辑(保守)
+      const stillRoom = await roomSession.refresh()
+      if (stillRoom === null) { if (rid) router.push(`/room/${rid}`); return }
       // jamony: 唯一合奏者叉掉 jamsoul → 房间解散（leave，不切听众、不改 audioConnected，避免背景闪现听众视角）
       if (isLastMusician && rid && user?.id) {
         fetch(`/api/rooms/${rid}/leave`, {
@@ -415,7 +420,7 @@ export function PlayingPage() {
       setJamsoulExitedOpen(true) // 状态驱动：React先渲染听众页面，弹窗由state控制渲染
     })
     return cleanup
-  }, [audioConnected, params, user, isLastMusician])
+  }, [audioConnected, params, user, isLastMusician, roomSession])
 
   // 1112 P2.1（差距四）：重连自愈 banner 的显隐——壳事件驱动，非定时器
   // 显示：jamsoul-reconnecting（netdown/healing 两态文案）；收尾三通道：
