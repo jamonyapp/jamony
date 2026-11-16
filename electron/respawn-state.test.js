@@ -280,3 +280,39 @@ describe('网络态标志', () => {
     expect(core.isNetOnline()).toBe(true)
   })
 })
+
+// ═══ 1116 矩阵⑤ 40s 轮卡死根因回归 ═══
+// 教训: main.js 真 isArmed 曾把 jamsoulProcess(进程活着)当武装条件——P2.1.2 清壳置 null 后,
+// 网回 attemptRespawn 门口 `if(!isArmed()) 静默return`,无日志无遥测无 banner 变化全死寂。
+// 本组用例钉死状态机契约: **武装=「有房在身」(joinPayload/rearm),与进程活性无关**;
+// main 侧对应修复=669 行去掉 jamsoulProcess(mock 无法覆盖 main 接线,故以契约用例+注释双保险)
+describe('1116 回归: 武装与进程解耦(>35s 断网卡死根因)', () => {
+  it('netdown 清壳后网回 → 必须直接查房换防拉起(进程没了不算解除武装)', async () => {
+    const spawns = []
+    const { core, calls, setHasProcess } = makeCore({ launchJamsoul: () => { spawns.push(1); return { pid: 1 } } })
+    core.onNetOffline()               // 拔线 → netdown, banner「网络已断开」
+    expect(calls.banners).toEqual(['netdown'])
+    core.onJamsoulDisconnected()      // ~30s C++ 死透 → 清壳
+    setHasProcess(false)              // 真实现: exit 处理器把 jamsoulProcess 置 null
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(core.st.phase).toBe('netdown')   // 清壳不改相位(banner 持续等网)
+    core.onNetOnline()                // 插线 —— 40s 轮卡死复现点
+    await vi.advanceTimersByTimeAsync(1000) // 查房(mock 即回)+kill(no-op)+spawn
+    expect(spawns.length).toBe(1)          // ⭐ 拉起必须发生: 旧 isArmed 语义下这里是 0=卡死
+    expect(calls.banners).toEqual(['netdown', 'healing'])  // banner 必须翻「恢复中」
+    core.onHeartbeat()                // 换防后首拍心跳 → 收官
+    expect(core.st.phase).toBe('idle')
+    expect(calls.telemetry.find((t) => t.type === 'selfheal_recover').payload.respawns).toBe(1)
+  })
+
+  it('对照: 进程在的短断走复活窗,不换防(既有行为不受本修复影响)', async () => {
+    const spawns = []
+    const { core, calls } = makeCore({ launchJamsoul: () => { spawns.push(1); return { pid: 1 } } })
+    core.onNetOffline()
+    core.onNetOnline()                // 进程还在 → reviving 2s 复活窗
+    expect(core.st.phase).toBe('reviving')
+    core.onHeartbeat()                // 心跳自然续上
+    expect(spawns.length).toBe(0)     // 零换防
+    expect(calls.kills).toBe(0)
+  })
+})

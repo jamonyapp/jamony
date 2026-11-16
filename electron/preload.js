@@ -26,6 +26,8 @@ contextBridge.exposeInMainWorld('jamonyAPI', {
   enterRoom: (payload) => {
     ipcRenderer.send('enter-room', payload)
   },
+  // 1116 幽灵房主方案一: 系统输入空闲秒数（主进程 powerMonitor 查询;纯浏览器环境无此桥=字段缺省,服务器规则不触发）
+  getIdleSeconds: () => ipcRenderer.invoke('get-idle-seconds'),
   leaveRoom: () => {
     ipcRenderer.send('leave-room')
   },

@@ -34,6 +34,7 @@ declare global {
       onJamsoulReconnecting?: (cb: (data: { stage: 'netdown' | 'healing' }) => void) => () => void  // 1112 P2.1 自愈中间态
       onJamsoulReconnected?: (cb: (data: { respawns: number }) => void) => () => void  // 1112 P2.1 自愈收官
       onJamsoulDelay?: (cb: (data: unknown) => void) => () => void  // 1112 P2.1 banner 心跳兜底收尾(可选存在)
+      getIdleSeconds?: () => Promise<number>  // 1116 幽灵房主方案一: 系统输入空闲秒数(纯浏览器无此桥)
     }
   }
 }

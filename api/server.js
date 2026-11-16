@@ -3119,6 +3119,19 @@ app.post('/api/rooms/:code/members/:userId/audio-status', requireAuth, async (re
 // ========== 房间心跳（10-06 漫游改造：从 playing 页提升到客户端全局层） ==========
 // musician：照旧写 musician_sessions（乐手时长榜口径不变）；listener：只刷在场时间戳。
 // 两种身份都刷 last_active_at —— L2 兜底交叉验证用（socket 断 + 心跳活 = 漫游保房）
+// 1116 幽灵房主方案一阈值（欢哥拍板默认 300s）：site_config 'ghost_host_idle_seconds' 可调（admin 配置中心直写 KV），60s 缓存
+let _ghostIdleCache = { at: 0, v: 300 }
+async function getGhostHostIdleSeconds() {
+  if (Date.now() - _ghostIdleCache.at < 60000) return _ghostIdleCache.v
+  try {
+    const r = await pool.query(`SELECT value FROM site_config WHERE key = 'ghost_host_idle_seconds'`)
+    const v = r.rows.length ? Number(r.rows[0].value) : 300
+    if (Number.isFinite(v) && v >= 60) _ghostIdleCache.v = v  // 下限60s防误配
+  } catch (e) { console.error('ghost idle config read:', e.message) }
+  _ghostIdleCache.at = Date.now()
+  return _ghostIdleCache.v
+}
+
 app.post('/api/rooms/:code/heartbeat', requireAuth, async (req, res) => {
   try {
     if (req.userId === 0) return res.json({ ok: true })  // jamony-looper 不计时
@@ -3131,6 +3144,18 @@ app.post('/api/rooms/:code/heartbeat', requireAuth, async (req, res) => {
     )
     if (memberRow.rows.length === 0) return res.status(403).json({ ok: false, msg: '已不在房间' })
     if (!rateCheck(`hb:${roomId}:${req.userId}`, 10, 60000)) return res.status(429).json({ ok: false })
+    // 1116 幽灵房主（欢哥核心洞察:连接在场≠人在场——机器可替人维持 socket+心跳,L2 只抓「连接死了」
+    // 抓不到「连接活着人走了」）：壳端随拍上报系统输入空闲秒数(纯浏览器/老壳不带字段=规则不触发,天然灰度);
+    // 房主空闲超阈值=视同离席→走既有移除+转移/解散;403 让网页即刻清 session 弹回,回来重新进房=与真失联同体验
+    const idleSec = Number(req.body && req.body.idle)
+    if (Number.isFinite(idleSec) && idleSec >= (await getGhostHostIdleSeconds())) {
+      const hostRow = await pool.query('SELECT host_id FROM rooms WHERE id = $1', [roomId])
+      if (hostRow.rows[0] && hostRow.rows[0].host_id === req.userId) {
+        console.log(`ghost-host release: user ${req.userId} room ${code} idle ${idleSec}s`)
+        await removeMemberAndCheckDissolve(req.userId, roomId, code)
+        return res.status(403).json({ ok: false, code: 'GHOST_RELEASED', msg: '您长时间未操作，房主身份已自动转移。返回后请重新进入房间。' })
+      }
+    }
     if (memberRow.rows[0].role === 'musician') {
       // 先闭超过5分钟无心跳的陈旧开启会话（防同房重进把两次到访粘成一条）
       await pool.query(

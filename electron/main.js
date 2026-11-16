@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, session, dialog, net, Menu, shell } = require('electron')
+const { app, BrowserWindow, ipcMain, session, dialog, net, Menu, shell, powerMonitor } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const os = require('os')
@@ -666,7 +666,11 @@ function telemetryFlush() {
 // ---- 状态机 core 实例化（纯逻辑在 respawn-state.js；此处注入副作用实现） ----
 const respawn = createRespawnCore({
   log: (...a) => console.log(...a),
-  isArmed: () => !!(jamsoulProcess && currentRoom && !isQuitting && mainWindow && !mainWindow.isDestroyed()),
+  // 1116 修复: 武装=「有房在身」而非「进程活着」。P2.1.2 清壳会把 jamsoulProcess 置 null,
+  // 旧判据让 >35s 断网的网回换防在 attemptRespawn 门口静默折返(卡死根因,矩阵⑤ 40s 轮定罪)。
+  // 进程活性由 hasProcess()/心跳自然表达,不属武装语义;currentRoom 保留——网页 session
+  // 核验「已不在房」后清空 currentRoom,此时不复活才是正确行为(第5轮 L2 移除场景)。
+  isArmed: () => !!(currentRoom && !isQuitting && mainWindow && !mainWindow.isDestroyed()),
   hasProcess: () => !!jamsoulProcess,
   sendBanner,
   sendRecovered,
@@ -810,6 +814,12 @@ ipcMain.on('kill-jamsoul', () => {
 // Chromium 内核网络监听零延迟,拔线/断WiFi/VPN 开关的瞬间即知,优于任何轮询）
 ipcMain.on('net-online', () => { respawn.onNetOnline() })
 ipcMain.on('net-offline', () => { respawn.onNetOffline() })
+
+// 1116 幽灵房主方案一: 系统输入空闲秒数(鼠标键盘全算)给网页心跳带上——
+// 「连接在场≠人在场」,机器可替人维持 socket+心跳;服务器凭 idle 识别挂机房主(5min 视同离席)
+ipcMain.handle('get-idle-seconds', () => {
+  try { return Math.floor(powerMonitor.getSystemIdleTime()) } catch (_) { return -1 }
+})
 
 // 1110 分享外链: 渲染进程请求跳系统浏览器(微博分享页等)——壳内 webRequest 白名单会拦外域,
 // openExternal 不经渲染进程加载;主进程侧协议+域白名单再验一次,防 IPC 被污染打开任意页
