@@ -500,7 +500,7 @@ export function PlayingPage() {
         <div className="flex h-8 shrink-0 items-center justify-center gap-2 border-b px-4 text-xs"
              style={{ background: "#0D0D0D", borderColor: "#1A1A1A", color: "#C8C8C8" }}>
           <span className="inline-block h-2 w-2 animate-pulse rounded-full" style={{ background: "#00AAFF" }} />
-          {reconnectStage === "netdown" ? "网络不稳定，jamony 正在尝试重连，若长时间未恢复，请刷新页面或检查网络连接" : "正在自动恢复合奏…"}
+          {reconnectStage === "netdown" ? "网络不稳定，jamony 正在尝试重连，期间调音台可能会自动重启，若长时间未恢复，请刷新页面或检查网络连接" : "正在自动恢复合奏…"}
         </div>
       )}
 
