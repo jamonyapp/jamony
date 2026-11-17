@@ -116,6 +116,8 @@ const JAMSOUL_BIN = process.env.JAMSOUL_BIN || (
 
 let mainWindow = null
 let jamsoulProcess = null
+let pendingSelfhealGiveup = false  // 1118: 自愈放弃移交标记——本次 exit 广播带 reason='selfheal-giveup',
+                                    // web 据此走「退出房间」终局（弹窗+分流），不误入切听众假主张路径
 // jamony 09-30: 启动存活确认的撤销句柄（killJamsoul 主动杀时用）
 let pendingLaunchSettle = null
 let currentRoom = null  // jamony: 当前所在房间 { roomCode, userId }，供退出时主进程可靠发 leave
@@ -554,7 +556,9 @@ function launchJamsoul(serverIp, port, nickname, bindIf) {
       }
       // jamony: jamsoul 退出通知网页（反向交互，让页面感知 jamsoul 关闭）
       if (!isQuitting && mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('jamsoul-exited', { code, signal })
+        const reason = pendingSelfhealGiveup ? 'selfheal-giveup' : undefined
+        pendingSelfhealGiveup = false
+        mainWindow.webContents.send('jamsoul-exited', { code, signal, reason })
       }
     })
 
@@ -689,17 +693,20 @@ const respawn = createRespawnCore({
     }
   },
   onGiveUp: () => {
+    pendingSelfhealGiveup = true  // 1118: 标记本次 exit=自愈放弃移交（web 走退出终局，不切听众）
     if (jamsoulProcess) {
-      killJamsoul()  // exit handler 此时 phase=idle → jamsoul-exited 正常广播
+      killJamsoul()  // exit handler 此时 phase=idle → jamsoul-exited 正常广播（带 reason）
     } else if (!isQuitting && mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('jamsoul-exited', { code: null, signal: null })
+      mainWindow.webContents.send('jamsoul-exited', { code: null, signal: null, reason: 'selfheal-giveup' })
+      pendingSelfhealGiveup = false
     }
   },
 })
 
-// 闸③: 重生前查房——问 my-active-room 对房码（1117 欢哥验2 拍板: 席位已失=离房人,不复活不回房）。
-// 返回 true=我仍是这房的成员(room_code 对上,角色不限);false=明确没了（无在房/房码不符=被L2移除或已换房,
-// 401 登出/封号）;null=不可判定（网络错误/超时/5xx）——照试，失败自然进退避。
+// 闸③: 重生前查房——问 my-active-room 对房码+角色（1117 欢哥验2: 席位已失=离房人,不复活不回房;
+// 1118 欢哥缝合怪案: 角色不限→角色三态——听众席不换防,壳强拉 jamsoul=双路音频+身份撕裂）。
+// 返回 'musician'=我仍是这房的乐手(room_code+role 都对上);'listener'=席位在但是听众席(静默收兵,不拉 jamsoul);
+// false=明确没了（无在房/房码不符=被L2移除或已换房,401 登出/封号）;null=不可判定（网络错误/超时/5xx）——照试，失败自然进退避。
 // 旧版只查「房还在不在」:断网超线被移除后房常还在(他人护房),壳照复活 jamsoul=音频在而成员不在的撕裂态。
 // （net.request + 显式读 cookie 塞请求头，照 sendLeaveRequest 模式——无 initiator 上下文，
 //   SameSite=Lax 会扣下 jamony_token）
@@ -724,7 +731,8 @@ function checkRoomAlive() {
               const d = JSON.parse(body)
               if (resp.statusCode === 200 && d && d.ok) {
                 const rc = d.room && String(d.room.room_code).toUpperCase()
-                finish(rc ? rc === roomCode : false)  // 无在房/房码不符=席位已失(false);成员身份对上(true)
+                // 无在房/房码不符=席位已失(false);房码对上再分角色(乐手=换防/听众=静默收兵)
+                finish(rc === roomCode ? (d.room.role === 'musician' ? 'musician' : 'listener') : false)
               } else if ([401, 403, 404].includes(resp.statusCode)) {
                 finish(false)
               } else { finish(null) }
@@ -813,6 +821,15 @@ ipcMain.on('kill-jamsoul', () => {
   console.log('[jamony] IPC kill-jamsoul received')
   respawn.suppress()  // 1112 P2 闸①: 主动杀绝不复活
   killJamsoul()
+})
+
+// 1118 黑洞终局弹窗点击(断网分支): 网页请求落「乐器没插线」兜底页(offline.html)
+// ——页面自带 3s 自动重试+online 回家(P2.1.1),网回自动回云端,无需额外逻辑
+ipcMain.on('show-fallback-page', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    console.log('[jamony] IPC show-fallback-page: 落兜底页(offline.html)')
+    mainWindow.loadFile(path.join(__dirname, 'offline.html'))
+  }
 })
 
 // 1112 P2.1: renderer 网络事件（preload 监听 window online/offline 原生事件转发——

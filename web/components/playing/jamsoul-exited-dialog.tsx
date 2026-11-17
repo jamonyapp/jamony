@@ -6,16 +6,23 @@ export function JamsoulExitedDialog({
   open,
   onConfirm,
   isDissolved,
+  giveup,
 }: {
   open: boolean
   onConfirm: () => void
   isDissolved?: boolean
+  giveup?: boolean
 }) {
   if (!open) return null
 
   // jamony: 唯一合奏者叉掉 jamsoul → 房间已解散（文案不同于普通切听众）
-  const title = isDissolved ? "房间已解散" : "音频链接已断开"
-  const desc = isDissolved ? "将返回房间大厅" : "已切换为听众身份"
+  // 1118 黑洞终局（giveup）: 自愈三败放弃移交——断网期不主张身份（欢哥定稿，废除「已切换为听众身份」假主张）
+  const title = giveup ? "合奏连接已断开" : isDissolved ? "房间已解散" : "音频链接已断开"
+  const desc = giveup
+    ? "多次重连失败，已退出房间，将返回大厅。"
+    : isDissolved
+      ? "将返回房间大厅"
+      : "已切换为听众身份"
 
   return (
     <div

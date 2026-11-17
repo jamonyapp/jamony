@@ -187,10 +187,25 @@ function createRespawnCore(deps, opts = {}) {
     // 否则 exit 抑制判据(isHealing)失效(查房中用户手动退 jamsoul 会误广播)+迟到的
     // 第二信号可在裸奔窗口重复触发。banner/respawnCount 计数仍在查房通过后(让路路径不虚计)
     st.phase = 'respawning'
-    // 闸③: 查房（明确没了 = 让路解散弹窗，不复活）
+    // 闸③: 查房（明确没了 = 让路解散弹窗，不复活；听众 = 静默收兵，不换防）
     const alive = await deps.checkRoomAlive()
     if (myGen !== gen) return
     if (alive === false) { giveUpRespawn('房间已不在（散房/登出/被清出）'); return }
+    if (alive === 'listener') {
+      // 1118 缝合怪案(欢哥确诊): 席位在、角色=听众——无需 jamsoul。流由 web 自恢复(实测~3s),
+      // 壳强拉 jamsoul=双路音频+身份撕裂。清残进程时仍处 respawning 相位(exit 抑制不惊动页面)
+      deps.log('[jamony] P2.1.7: 查房=听众身份，无需 jamsoul，静默收兵')
+      if (deps.hasProcess()) await deps.killForRespawn()
+      if (myGen !== gen) return
+      gen++
+      clearTimer()
+      clearFamine()
+      st.phase = 'idle'
+      st.downAt = 0
+      st.trigger = ''
+      st.respawnCount = 0
+      return
+    }
 
     // kill-then-spawn
     st.respawnCount++

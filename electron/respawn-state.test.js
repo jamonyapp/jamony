@@ -248,6 +248,57 @@ describe('查房三态(闸③)', () => {
   })
 })
 
+// ═══ 1118 缝合怪回归: 查房角色三态 ═══
+// 教训: 2.1.4 把武装从「进程活着」放宽到「有房在身」后, 听众也被武装; 闸③ 只问真假不问角色,
+// 网回换防照拉 jamsoul → 听众=双路音频(直连+Icecast 延迟流)+身份撕裂(名单听众/音频在场合奏)。
+// 契约: 查房返回 'listener' = 席位在、无需 jamsoul —— 静默收兵(不 spawn/不 healing banner/不 giveUp),
+// 流由 web 侧 ~3s 自恢复; 若有残留进程(缺席期间被降级场景)先清掉(exit 抑制相位内)。
+describe('1118 回归: 听众席不换防(缝合怪根治)', () => {
+  it('听众网回查房 → 静默收兵: 不拉 jamsoul、无 healing banner、不 giveUp', async () => {
+    const spawns = []
+    const { core, calls, setHasProcess } = makeCore({
+      checkRoomAlive: async () => 'listener',
+      launchJamsoul: () => { spawns.push(1); return { pid: 1 } },
+    })
+    core.onNetOffline()
+    core.onJamsoulDisconnected()      // 清壳(死透确认)
+    setHasProcess(false)
+    core.onNetOnline()                // 网回 → 直接查房
+    await vi.advanceTimersByTimeAsync(0)
+    expect(spawns.length).toBe(0)                    // ⭐ 不拉 jamsoul(缝合怪根除点)
+    expect(calls.banners).toEqual(['netdown'])       // 只有断网 banner,绝无「正在自动恢复合奏」
+    expect(calls.giveUps).toBe(0)                    // 不是让路,是收兵
+    expect(core.st.phase).toBe('idle')
+  })
+
+  it('缺席期间被降级为听众(残进程在) → 清残后收兵,仍不 spawn', async () => {
+    const spawns = []
+    const { core, calls } = makeCore({
+      checkRoomAlive: async () => 'listener',
+      launchJamsoul: () => { spawns.push(1); return { pid: 1 } },
+    })
+    core.onNetOffline()               // netdown 旧进程原地保留
+    core.onNetOnline()                // 网回(进程还在,但缺席期间房主把他降为听众)
+    await vi.advanceTimersByTimeAsync(2000)  // 复活窗到期 → 查房='listener'
+    await vi.advanceTimersByTimeAsync(0)
+    expect(calls.kills).toBe(1)       // 残留旧进程被清(netdown 期保留的那只)
+    expect(spawns.length).toBe(0)     // 但绝不换防拉新的
+    expect(core.st.phase).toBe('idle')
+  })
+
+  it("查房='musician' → 照常换防(三态不伤主路径)", async () => {
+    const spawns = []
+    const { core } = makeCore({
+      checkRoomAlive: async () => 'musician',
+      launchJamsoul: () => { spawns.push(1); return { pid: 1 } },
+    })
+    core.onJamsoulDisconnected()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(core.st.phase).toBe('respawning')
+    expect(spawns.length).toBe(1)
+  })
+})
+
 describe('连败计数语义(抖动防护)', () => {
   it('连上又断(<60s) → 计一败', async () => {
     const { core } = makeCore()

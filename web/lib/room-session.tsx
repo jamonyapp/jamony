@@ -7,7 +7,7 @@
 // - 顶栏「回到房间/断开房间」按钮（非 playing 页）的数据源
 // - disconnectRoom()：断开原房间工具函数（断开按钮/切换房间/建房切换/退出登录 四处共用）
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 
 type RoomSession = {
@@ -58,6 +58,7 @@ export const useRoomSession = () => useContext(RoomSessionContext)
 export function RoomSessionProvider({ children }: { children: React.ReactNode }) {
   const { user, loggedIn, ready } = useAuth()
   const pathname = usePathname()
+  const router = useRouter()
   const [session, setSession] = useState<RoomSession | null>(null)
 
   // 主动杀 jamsoul 标记：doDisconnect(playing页)/disconnectRoom 杀进程前置 true，
@@ -179,7 +180,12 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
         credentials: "include",
       })
         .then(r => {
-          if (r.status === 403 || r.status === 404) setSession(null)
+          if (r.status === 403 || r.status === 404) {
+            setSession(null)
+            // 1118 收摊（欢哥定稿）: 403/404=席位已失——若还站在 playing 页，自动翻房间详情卡 B 版
+            // （与 socket 门票裁决互为孪生绊线：socket 不在/未重连时这条仍然兜得住，假景不再滞留）
+            if (/^\/room\/[^/]+\/playing/.test(pathname || "")) router.push(`/room/${code}`)
+          }
         })
         .catch(() => {})
     }

@@ -30,7 +30,8 @@ declare global {
       setLastMusician: (value: boolean) => void  // jamony 08-31 补声明(8-5加的API, 类型漏了)
       testFeedback: () => void                    // jamony 08-27 反馈保护弹窗debug通道
       onJamsoulLaunched: (cb: (data: unknown) => void) => () => void  // 09-30 起返回 cleanup
-      onJamsoulExited?: (cb: (data: unknown) => void) => () => void  // preload 实际返回 cleanup，10-06 补声明
+      onJamsoulExited?: (cb: (data: { code?: number | null; signal?: string | null; reason?: string }) => void) => () => void  // preload 实际返回 cleanup，10-06 补声明；1118 reason='selfheal-giveup'（自愈放弃移交）
+      showFallbackPage?: () => void  // 1118 黑洞终局弹窗(断网分支): 落壳「乐器没插线」兜底页(网回自动回家)
       onJamsoulReconnecting?: (cb: (data: { stage: 'netdown' | 'healing' }) => void) => () => void  // 1112 P2.1 自愈中间态
       onJamsoulReconnected?: (cb: (data: { respawns: number }) => void) => () => void  // 1112 P2.1 自愈收官
       onJamsoulDelay?: (cb: (data: unknown) => void) => () => void  // 1112 P2.1 banner 心跳兜底收尾(可选存在)
@@ -64,7 +65,7 @@ export function PlayingPage() {
   const roomSession = useRoomSession()
   // 10-07 漫游续听：收听音频上移 Provider 全局常驻，listenerActive 为派生值（漫游不断流）
   const listenerActive = roomSession.listening != null
-  const { realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, hydrateScore, realtimeScore, realtimeGpState, playGp, pauseGp, updateGpMix, setGpSpeed, setGpCountin, setGpLoop, setGpRange, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, realtimeRecordingFinalizing, kickedEvent, dissolvedEvent, realtimeProgram, realtimeProgramState, programError, playProgram, pauseProgram, stopProgram, updateProgramMix, setProgramRange, hydrateProgram, roomViolation, discardEvent, openMixer, closeMixerPresence } = useChatSocket(params?.code as string, user?.nickname)
+  const { realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, hydrateScore, realtimeScore, realtimeGpState, playGp, pauseGp, updateGpMix, setGpSpeed, setGpCountin, setGpLoop, setGpRange, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, realtimeRecordingFinalizing, kickedEvent, dissolvedEvent, revokedEvent, realtimeProgram, realtimeProgramState, programError, playProgram, pauseProgram, stopProgram, updateProgramMix, setProgramRange, hydrateProgram, roomViolation, discardEvent, openMixer, closeMixerPresence } = useChatSocket(params?.code as string, user?.nickname)
 
   // 1024 推流抽检: 房间违规全房弹窗(抽检有延迟, 命中时房间若仍活跃即提醒全员——告知是义务也是权利)
   useEffect(() => {
@@ -125,6 +126,8 @@ export function PlayingPage() {
   const dissolvedHandledRef = useRef(false) // 房间解散广播全员收到，幂等防重复处理
   const [jamsoulExitedOpen, setJamsoulExitedOpen] = useState(false) // jamsoul被叉掉→切听众后弹窗通知
   const [jamsoulExitedDissolve, setJamsoulExitedDissolve] = useState(false) // jamony: 叉 jamsoul 导致房间解散（非切听众）
+  const [jamsoulExitedGiveup, setJamsoulExitedGiveup] = useState(false) // 1118: 自愈三败放弃移交（黑洞终局，不主张身份）
+  const revokedHandledRef = useRef(false) // 1118 门票裁决幂等
   // 1112 P2.1（差距四）：重连自愈状态条 — netdown=系统断网等待恢复 / healing=壳正在换防
   const [reconnectStage, setReconnectStage] = useState<"none" | "netdown" | "healing">("none")
 
@@ -385,9 +388,18 @@ export function PlayingPage() {
 
   // jamsoul 子进程退出（用户叉掉/直接退出 jamsoul）→ 感知 + 切听众（主动杀时不 alert）
   useEffect(() => {
-    const cleanup = window.jamonyAPI?.onJamsoulExited?.(async () => {
+    const cleanup = window.jamonyAPI?.onJamsoulExited?.(async (d: { reason?: string }) => {
       if (killingRef.current) { killingRef.current = false; return }  // doDisconnect 主动杀，不重复 alert
       if (!audioConnected) return
+      // 1118 欢哥定稿（黑洞终局）: 自愈三败放弃移交（reason=selfheal-giveup）——断网期不主张身份
+      // （绝不「已切换为听众」：无从核实），弹「合奏连接已断开」；点击分流：断网→壳「乐器没插线」兜底页 / 联网→B 版
+      if (d?.reason === "selfheal-giveup") {
+        setAudioConnected(false)
+        roomSession.refresh()  // 席位大概率已被 L2 释放；刷新全局心跳态
+        setJamsoulExitedGiveup(true)
+        setJamsoulExitedOpen(true)
+        return
+      }
       const rid = params?.code
       // 1117: 席位已失(断网超线被L2移除,壳查房=成员校验判死后 giveUp 补发)=离房人——直接回房间详情卡
       // (B版,可选合奏/听众身份进),不切听众不弹窗(欢哥 2.1.4 验2 拍板:联网后自动翻B版,免刷新,仅此而已)
@@ -464,6 +476,21 @@ export function PlayingPage() {
     roomSession.refresh()  // 房解散 → 全局心跳停
   }, [dissolvedEvent, myRole])
 
+  // 1118 门票裁决: 重连 join-room 验票被拒（席位已失——睡眠>96s 幽灵态/黑洞余波根治点）
+  // → 杀 jamsoul（音频不得脱离席位独活）+ 翻 B 版（不给假景渲染的机会）
+  useEffect(() => {
+    if (!revokedEvent || revokedHandledRef.current) return
+    revokedHandledRef.current = true
+    if (myRole === "musician") {
+      setAudioConnected(false)  // 先置位——随后 exit 广播到此早退，不触发切听众/弹窗
+      window.jamonyAPI?.killJamsoul?.()  // 主动杀语义: 壳 suppress 不复活
+    } else {
+      roomSession.stopListening()
+    }
+    roomSession.refresh()
+    if (params?.code) router.push(`/room/${params.code}`)  // B 版（可选身份进），免刷新
+  }, [revokedEvent, myRole])
+
   // 1026 闸1: 本次录音无有效用户内容（全员静音或仅 looper 发声）→ session 不生成，品牌弹窗告知全房（幂等，chat-socket 已清归档态）
   const discardHandledRef = useRef(0)
   useEffect(() => {
@@ -500,7 +527,11 @@ export function PlayingPage() {
         <div className="flex h-8 shrink-0 items-center justify-center gap-2 border-b px-4 text-xs"
              style={{ background: "#0D0D0D", borderColor: "#1A1A1A", color: "#C8C8C8" }}>
           <span className="inline-block h-2 w-2 animate-pulse rounded-full" style={{ background: "#00AAFF" }} />
-          {reconnectStage === "netdown" ? "网络不稳定，jamony 正在尝试重连，期间调音台可能会自动重启，若长时间未恢复，请刷新页面或检查网络连接" : "正在自动恢复合奏…"}
+          {reconnectStage === "netdown"
+            ? (myRole === "musician"
+                ? "网络不稳定，jamony 正在尝试重连，期间调音台可能会自动重启，若长时间未恢复，请刷新页面或检查网络连接"
+                : "网络不稳定，jamony 正在尝试重连房间，若长时间未恢复，请刷新页面或检查网络连接")  // 1118: 听众版不提调音台（身份化文案）
+            : "正在自动恢复合奏…"}
         </div>
       )}
 
@@ -619,11 +650,22 @@ export function PlayingPage() {
       <JamsoulExitedDialog
         open={jamsoulExitedOpen}
         isDissolved={jamsoulExitedDissolve}
+        giveup={jamsoulExitedGiveup}
         onConfirm={() => {
           setJamsoulExitedOpen(false)
           if (jamsoulExitedDissolve) {
             setJamsoulExitedDissolve(false)
             router.push("/lobby")
+          } else if (jamsoulExitedGiveup) {
+            // 1118 黑洞终局点击分流（欢哥定稿）: 断网→壳「乐器没插线」兜底页（网回自动回家）/ 联网→房间详情卡 B 版
+            setJamsoulExitedGiveup(false)
+            if (typeof navigator !== "undefined" && !navigator.onLine) {
+              window.jamonyAPI?.showFallbackPage?.()
+            } else if (params?.code) {
+              router.push(`/room/${params.code}`)
+            } else {
+              router.push("/lobby")
+            }
           }
         }}
       />

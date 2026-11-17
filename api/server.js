@@ -6233,7 +6233,28 @@ const socketMixers = new Map()    // socketId → Set<sessionId>（断线反查�
 const recordingStarters = new Map()
 
 io.on("connection", (socket) => {
-  socket.on("join-room", (roomId) => {
+  socket.on("join-room", async (roomId) => {
+    // 1118 门票制（幽灵态根治，欢哥定稿「重连即对账+频道门票」）: 频道准入=席位真相。
+    // 成员表是唯一事实——member→进频道+快照（既有行为）；非 member→拒进频道+向该 socket 推
+    // membership-revoked 裁决事件，web 收到即收摊翻 B 版。根治: 睡眠>96s/L2 释放后的重连不再
+    // 无感挂频道（音频在场/席位已空的撕裂态）。顺手关越权面: 原先不验票，改包客户端可任意
+    // 监听任意房的成员快照与广播——频道准入从严，宁拒不漏。
+    let isMember = false
+    if (socket.userId) {
+      try {
+        const mr = await pool.query(
+          `SELECT 1 FROM room_members rm JOIN rooms r ON r.id = rm.room_id
+           WHERE rm.user_id = $1 AND r.room_code = $2 AND r.status NOT IN ('closed','archived')`,
+          [socket.userId, roomId]
+        )
+        isMember = mr.rows.length > 0
+      } catch { /* 查询异常按非成员拒进——频道宁可拒进不可漏进 */ }
+    }
+    if (!isMember) {
+      socket.emit('membership-revoked', { roomId, reason: 'SEAT_RELEASED' })
+      console.log(`Socket join denied (not a member): u${socket.userId} ${roomId}`)
+      return
+    }
     socket.join(roomId)
     // jamony 1017: 进房即补发成员快照（单发本 socket）——封死三个丢事件窗口:
     // ①页面挂载 fetch 与 socket join 之间的缝隙 ②nickname 异步晚到导致连接晚于首个事件

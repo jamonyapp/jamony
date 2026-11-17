@@ -18,6 +18,10 @@ contextBridge.exposeInMainWorld('jamonyAPI', {
   killJamsoul: () => {
     ipcRenderer.send('kill-jamsoul')
   },
+  // 1118 黑洞终局: 断网期弹窗确认 → 落「乐器没插线」兜底页（壳本地 offline.html，网回自动回家）
+  showFallbackPage: () => {
+    ipcRenderer.send('show-fallback-page')
+  },
   // jamony 08-27 调试: 手动弹 jamsoul 反馈保护弹窗（验收用）
   testFeedback: () => {
     ipcRenderer.send('test-feedback')
