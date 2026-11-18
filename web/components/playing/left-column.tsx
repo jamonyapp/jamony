@@ -252,18 +252,26 @@ export function LeftColumn({
         </button>
       ) : (
         /* 10-07 漫游化收口：并排双按钮——身份切换（实心主按钮）+ 离开房间（深色配角）；shrink-0 保底常驻（1013 左栏不滚） */
+        /* 1118 镜像闪修(欢哥钓出): 按钮改按身份渲染——原按 audioConnected 分流,乐手挂载首帧 jamsoul 未起=绿色
+           「切为合奏者」先冒充 1 秒(听众路径绿色即终点故不显);未定/乐手音频未接=中性占位,与 1019 魔盒空态同哲学 */
         <div className="grid shrink-0 grid-cols-2 gap-2">
-          {audioConnected ? (
+          {myRole === "musician" && audioConnected ? (
             <button onClick={onDisconnect}
               className="rounded-[10px] py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 active:scale-[0.97]"
               style={{ background: "#FF5C5C" }}>
               切为听众
             </button>
-          ) : (
+          ) : myRole === "listener" ? (
             <button onClick={onReconnect}
               className="rounded-[10px] py-2.5 text-sm font-semibold transition-opacity hover:brightness-110 active:scale-[0.97]"
               style={{ background: "#BBEE00", color: "#0D0D0D" }}>
               切为合奏者
+            </button>
+          ) : (
+            <button disabled
+              className="rounded-[10px] py-2.5 text-sm font-semibold cursor-not-allowed"
+              style={{ background: "#222", color: "#666" }}>
+              连接中…
             </button>
           )}
           <button onClick={onLeaveRoom}
