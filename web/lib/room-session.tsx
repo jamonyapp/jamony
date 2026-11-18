@@ -70,6 +70,9 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
   // ===== 听众收听全局化（10-07）=====
   const [listening, setListening] = useState<number | null>(null)
   const [pausedPort, setPausedPort] = useState<number | null>(null)
+  // 1118 网回流换血(欢哥令:零定时器): online 事件→重设 src 跳回直播沿。断网期服务端积压的是过时音频,
+  // 网回即弃——否则播放器带着滞后时间轴继续(连续断网越滚越旧,且第二拔线后旧音频还能响1分钟)
+  const [listenEpoch, setListenEpoch] = useState(0)
   const audioElRef = useRef<HTMLAudioElement | null>(null)
   const audioCtxRef = useRef<AudioContext | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
@@ -104,19 +107,28 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
     }
   }, [])
 
+  // online → 流换血: epoch++ 重设 src 回直播沿(未在收听时 no-op——listening=null 分支本就清空)
+  useEffect(() => {
+    const kick = () => { console.log("[net] online→流换血"); setListenEpoch(e => e + 1) }
+    window.addEventListener("online", kick)
+    return () => window.removeEventListener("online", kick)
+  }, [])
+
   // listening 驱动播放/停止（Icecast 流）
   useEffect(() => {
     const audio = audioElRef.current
     const ctx = audioCtxRef.current
     if (!audio) return
     if (listening != null) {
+      console.log(`[icecast] 流重建 port=${listening} epoch=${listenEpoch}`)
       audio.src = `${window.location.protocol}//${window.location.hostname}/stream/room-${listening}`
+      audio.load()  // 显式重走资源选取: 同值 src 重设也要保证换血(网回跳直播沿)
       ctx?.resume().then(() => audio.play().catch((e: Error) => console.log("[icecast] play:", e.message)))
     } else {
       audio.pause()
       audio.src = ""
     }
-  }, [listening])
+  }, [listening, listenEpoch])
 
   const startListening = useCallback((port: number) => {
     setPausedPort(null)
@@ -181,7 +193,15 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
       })
         .then(r => {
           if (r.status === 403 || r.status === 404) {
+            const wasMusician = session?.role === "musician"
             setSession(null)
+            stopListening()  // 1118 幽灵流根治: 席位已失即断流——绊线不得只翻页不停音频(裁决/断开房路径均有,唯此漏)
+            // 1118 睡眠案根治补刀: 乐手席位已失即杀 jamsoul——不管谁翻页、不管壳是否违规复活过(唤醒照试),
+            // 僵尸进程必死,音频不得脱离席位独活(双向可弹可听=产品核算被击穿的完全体)
+            if (wasMusician) {
+              manualKillRef.current = true  // 主动杀语义:漫游 exit 分支跳过(防误判用户手叉)
+              window.jamonyAPI?.killJamsoul?.()
+            }
             // 1118 收摊（欢哥定稿）: 403/404=席位已失——若还站在 playing 页，自动翻房间详情卡 B 版
             // （与 socket 门票裁决互为孪生绊线：socket 不在/未重连时这条仍然兜得住，假景不再滞留）
             if (/^\/room\/[^/]+\/playing/.test(pathname || "")) router.push(`/room/${code}`)
@@ -192,7 +212,7 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
     beat()
     const t = setInterval(beat, 60000)
     return () => clearInterval(t)
-  }, [session?.code, loggedIn])
+  }, [session?.code, loggedIn, stopListening])
 
   // 漫游中叉掉 jamsoul 窗口：与 playing 页在场行为对齐（10-07 欢哥拍板）
   // 唯一合奏者 → leave 房间解散；非唯一合奏者 → 切听众（session 保留、心跳降级，回来还能听）

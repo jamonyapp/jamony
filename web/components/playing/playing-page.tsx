@@ -65,7 +65,7 @@ export function PlayingPage() {
   const roomSession = useRoomSession()
   // 10-07 漫游续听：收听音频上移 Provider 全局常驻，listenerActive 为派生值（漫游不断流）
   const listenerActive = roomSession.listening != null
-  const { realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, hydrateScore, realtimeScore, realtimeGpState, playGp, pauseGp, updateGpMix, setGpSpeed, setGpCountin, setGpLoop, setGpRange, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, realtimeRecordingFinalizing, kickedEvent, dissolvedEvent, revokedEvent, realtimeProgram, realtimeProgramState, programError, playProgram, pauseProgram, stopProgram, updateProgramMix, setProgramRange, hydrateProgram, roomViolation, discardEvent, openMixer, closeMixerPresence } = useChatSocket(params?.code as string, user?.nickname)
+  const { connected, realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, hydrateScore, realtimeScore, realtimeGpState, playGp, pauseGp, updateGpMix, setGpSpeed, setGpCountin, setGpLoop, setGpRange, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, realtimeRecordingFinalizing, kickedEvent, dissolvedEvent, revokedEvent, realtimeProgram, realtimeProgramState, programError, playProgram, pauseProgram, stopProgram, updateProgramMix, setProgramRange, hydrateProgram, roomViolation, discardEvent, openMixer, closeMixerPresence } = useChatSocket(params?.code as string, user?.nickname)
 
   // 1024 推流抽检: 房间违规全房弹窗(抽检有延迟, 命中时房间若仍活跃即提醒全员——告知是义务也是权利)
   useEffect(() => {
@@ -437,12 +437,33 @@ export function PlayingPage() {
   // 显示：jamsoul-reconnecting（netdown/healing 两态文案）；收尾三通道：
   //   ① jamsoul-reconnected 显式收官 ② jamsoul-delay 心跳到达即活（兜底） ③ jamsoul-exited（放弃移交/被杀，让路业务弹窗）
   useEffect(() => {
-    const c1 = window.jamonyAPI?.onJamsoulReconnecting?.((d) => { if (d?.stage) setReconnectStage(d.stage) })
+    const c1 = window.jamonyAPI?.onJamsoulReconnecting?.((d) => { if (d?.stage) { console.log("[net] 壳banner事件", d.stage); setReconnectStage(d.stage) } })
     const c2 = window.jamonyAPI?.onJamsoulReconnected?.(() => setReconnectStage("none"))
     const c3 = window.jamonyAPI?.onJamsoulDelay?.(() => setReconnectStage("none"))  // ~1Hz 同值 setState 无渲染开销
     const c4 = window.jamonyAPI?.onJamsoulExited?.(() => setReconnectStage("none"))
     return () => { c1?.(); c2?.(); c3?.(); c4?.() }
   }, [])
+
+  // 1118 banner 收尾通道④(欢哥真机钓出): 前三通道全依赖 jamsoul 事件,听众无 jamsoul → banner 永粘。
+  // socket 重连成功=网络已回+房频道在,听众即收尾;乐手换防期 banner 保留(仍走 jamsoul 三通道)
+  // 1118b 振荡器根治(欢哥五连断钓出): 须同验 navigator.onLine——socket 假活(断网后 engine.io 最长
+  // ~45s 才认死,connected 仍 true)会把「连着」误读成「网回来了」,断网瞬间秒清刚点亮的 banner(隔轮隐形)
+  useEffect(() => {
+    if (connected && typeof navigator !== "undefined" && navigator.onLine === true && reconnectStage !== "none" && myRole === "listener") {
+      console.log("[net] banner④清除(socket连+网络通+听众)")
+      setReconnectStage("none")
+    }
+  }, [connected, reconnectStage, myRole])
+
+  // 1118 方案二(欢哥拍板): 听众 banner web 自绘——不借壳状态机(静默收兵分支哑火案:二断不显)。
+  // renderer offline 直显,收尾复用通道④(socket 重连即隐);乐手仍走壳 jamsoul 三通道不动
+  useEffect(() => {
+    if (myRole !== "listener") return
+    if (typeof navigator !== "undefined" && navigator.onLine === false) { console.log("[net] offline→banner(方案二·挂载时)"); setReconnectStage("netdown") }
+    const off = () => { console.log("[net] offline→banner(方案二)"); setReconnectStage("netdown") }
+    window.addEventListener("offline", off)
+    return () => window.removeEventListener("offline", off)
+  }, [myRole])
 
   // 收到 member-kicked 事件：若是自己被踢 → 断音频 + 弹通知（幂等）
   useEffect(() => {
@@ -481,6 +502,7 @@ export function PlayingPage() {
   useEffect(() => {
     if (!revokedEvent || revokedHandledRef.current) return
     revokedHandledRef.current = true
+    console.log("[net] 裁决消费: flip+收摊, role=", myRole)
     if (myRole === "musician") {
       setAudioConnected(false)  // 先置位——随后 exit 广播到此早退，不触发切听众/弹窗
       window.jamonyAPI?.killJamsoul?.()  // 主动杀语义: 壳 suppress 不复活
@@ -531,7 +553,7 @@ export function PlayingPage() {
             ? (myRole === "musician"
                 ? "网络不稳定，jamony 正在尝试重连，期间调音台可能会自动重启，若长时间未恢复，请刷新页面或检查网络连接"
                 : "网络不稳定，jamony 正在尝试重连房间，若长时间未恢复，请刷新页面或检查网络连接")  // 1118: 听众版不提调音台（身份化文案）
-            : "正在自动恢复合奏…"}
+            : "网络不稳定，jamony 正在尝试重连…"}
         </div>
       )}
 

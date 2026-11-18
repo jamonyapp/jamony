@@ -5470,6 +5470,17 @@ app.get('/api/auth-check', async (req, res) => {
   try {
     const r = await getUserRestriction(decoded.id)
     if (r === 'banned') return res.status(401).json({ ok: false, code: 'BANNED' })
+    // 1118 幽灵流根治: 合奏流端点=成员资格闸。X-Original-URI 由 nginx /_stream_auth 转发(/stream/room-<端口>);
+    // 席位已失(L2释放/散房/被移出)的听众拒拉流——音频不得脱离席位独活。存量已建连接由 web 绊线翻页即停收口,
+    // auth 只守连接建立时刻(非成员在 B 版/大厅凭登录态拉流的 946 秒幽灵即此封死)
+    const om = (req.headers['x-original-uri'] || '').match(/\/stream\/room-(\d+)/)
+    if (om) {
+      const rm = await pool.query(
+        `SELECT 1 FROM room_members rm JOIN rooms r ON r.id = rm.room_id
+         WHERE r.server_port = $1 AND rm.user_id = $2 AND r.status NOT IN ('closed','archived')`,
+        [om[1], decoded.id])
+      if (rm.rows.length === 0) return res.status(403).end()
+    }
     res.status(200).end()
   } catch (e) {
     res.status(401).json({ ok: false })
@@ -6233,7 +6244,7 @@ const socketMixers = new Map()    // socketId → Set<sessionId>（断线反查�
 const recordingStarters = new Map()
 
 io.on("connection", (socket) => {
-  socket.on("join-room", async (roomId) => {
+  socket.on("join-room", async (roomId, cb) => {
     // 1118 门票制（幽灵态根治，欢哥定稿「重连即对账+频道门票」）: 频道准入=席位真相。
     // 成员表是唯一事实——member→进频道+快照（既有行为）；非 member→拒进频道+向该 socket 推
     // membership-revoked 裁决事件，web 收到即收摊翻 B 版。根治: 睡眠>96s/L2 释放后的重连不再
@@ -6251,10 +6262,14 @@ io.on("connection", (socket) => {
       } catch { /* 查询异常按非成员拒进——频道宁可拒进不可漏进 */ }
     }
     if (!isMember) {
-      socket.emit('membership-revoked', { roomId, reason: 'SEAT_RELEASED' })
+      // 1118 竞态根治(ack 回执): 事件制裁决会被「双实例轮盘/换血拆socket/认证重挂」陪葬——
+      // 问答式 ack 谁问谁收,必达。事件仍发(老客户端兼容+双保险)
+      if (typeof cb === 'function') cb({ ok: false, reason: 'SEAT_RELEASED' })
+      socket.emit('membership-revoked', { roomCode: roomId, reason: 'SEAT_RELEASED' })
       console.log(`Socket join denied (not a member): u${socket.userId} ${roomId}`)
       return
     }
+    if (typeof cb === 'function') cb({ ok: true })
     socket.join(roomId)
     // jamony 1017: 进房即补发成员快照（单发本 socket）——封死三个丢事件窗口:
     // ①页面挂载 fetch 与 socket join 之间的缝隙 ②nickname 异步晚到导致连接晚于首个事件

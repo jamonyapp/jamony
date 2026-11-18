@@ -48,10 +48,24 @@ export function useChatSocket(roomId?: string, nickname?: string) {
   const [dissolvedEvent, setDissolvedEvent] = useState<{ roomCode: string; ts: number } | null>(null)
   // 1118 门票制裁决: 重连 join-room 验票不过(席位已失:L2释放/散房/被移出) → 服务器推此事件
   const [revokedEvent, setRevokedEvent] = useState<{ roomCode: string; reason: string; ts: number } | null>(null)
+  // 1118 网回换血重连(欢哥令:零定时器): online 内核事件一到,断线中的 socket 直接废弃重建
+  // ——不等 socket.io 库的退避定时器;也不硬踹 connect()/reconnect()(manager 退避等待中被踹会卡死
+  //   _reconnecting 旗,自动重连永久失效,读 manager.js 实证)。换血=事件驱动,重连延迟从秒级退避降到一次RTT
+  const [netEpoch, setNetEpoch] = useState(0)
   // 1026 闸1: 本次录音无有效用户内容——session 不生成（无 sessions-update 兜底，须显式清归档态）
   const [discardEvent, setDiscardEvent] = useState<{ reason: string; dirName: string; ts: number } | null>(null)
   // 1026 混音器使用 presence（删除保护「正在使用的文件不可删除」）：开/关上报，断线重连自动补报
   const mixerSessionRef = useRef<number | null>(null)
+
+  // online → 无条件换血: epoch++ 令主 effect 重建 socket。
+  // 1118c 镜像案(欢哥双连断钓出): 假活 socket(engine.io 断网后最长~45s 才认死,connected 仍 true)会让
+  // disconnected 守卫空踢——网络回了不重建、④通道清不了 banner(隔次粘住)。与流换血对称改无条件:
+  // 代价=每次 online 一次毫秒级重连(快照补发兜底),收益=恢复路径确定性
+  useEffect(() => {
+    const kick = () => { console.log("[net] online→socket换血(无条件)"); setNetEpoch(e => e + 1) }
+    window.addEventListener("online", kick)
+    return () => window.removeEventListener("online", kick)
+  }, [])
 
   useEffect(() => {
     if (!roomId || !nickname) return
@@ -64,7 +78,13 @@ export function useChatSocket(roomId?: string, nickname?: string) {
 
     socket.on("connect", () => {
       setConnected(true)
-      socket.emit("join-room", roomId)
+      // 1118 竞态根治(ack 回执): 谁问的题答案必达谁手里——双实例轮盘/换血拆socket/事件随葬全部免疫
+      socket.emit("join-room", roomId, (res: { ok?: boolean; reason?: string } | undefined) => {
+        if (res && res.ok === false) {
+          console.log("[net] join-room被拒(ack)", res)
+          setRevokedEvent({ roomCode: roomId as string, reason: res.reason || "SEAT_RELEASED", ts: Date.now() })
+        }
+      })
       // 1026 断线重连 presence 补报：混音器还开着=仍占用（删除保护不因网络抖动漏报）
       if (mixerSessionRef.current != null) {
         socket.emit("mixer-open", { roomId, sessionId: mixerSessionRef.current })
@@ -164,6 +184,7 @@ export function useChatSocket(roomId?: string, nickname?: string) {
 
     // 1118 门票制: join-room 验票被拒(席位已失) → 收摊信号(playing 页核验后翻 B 版,免假景渲染)
     socket.on("membership-revoked", (data: { roomCode: string; reason?: string }) => {
+      console.log("[net] 裁决到达 membership-revoked", data)
       if (data && data.roomCode) setRevokedEvent({ roomCode: data.roomCode, reason: data.reason || "SEAT_RELEASED", ts: Date.now() })
     })
 
@@ -209,7 +230,7 @@ export function useChatSocket(roomId?: string, nickname?: string) {
       socket.disconnect()
       socketRef.current = null
     }
-  }, [roomId, nickname])
+  }, [roomId, nickname, netEpoch])
 
   const sendMessage = (message: string) => {
     if (!socketRef.current || !message.trim() || !roomId) return
