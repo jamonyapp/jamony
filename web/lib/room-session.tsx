@@ -36,6 +36,7 @@ type RoomSessionContextValue = {
   resumeListening: () => void
   markManualKill: () => void          // 主动杀 jamsoul 前置标记：漫游 exit 分支据此跳过（防误 join 回房）
   analyserRef: React.RefObject<AnalyserNode | null>  // LevelMeter 画图消费
+  streamStalled: boolean              // 1119: 流停摆(缓冲耗尽,用户开始听到沉默)——听众 banner 第三事实源
 }
 
 const RoomSessionContext = createContext<RoomSessionContextValue>({
@@ -51,6 +52,7 @@ const RoomSessionContext = createContext<RoomSessionContextValue>({
   resumeListening: () => {},
   markManualKill: () => {},
   analyserRef: { current: null },
+  streamStalled: false,
 })
 
 export const useRoomSession = () => useContext(RoomSessionContext)
@@ -73,6 +75,8 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
   // 1118 网回流换血(欢哥令:零定时器): online 事件→重设 src 跳回直播沿。断网期服务端积压的是过时音频,
   // 网回即弃——否则播放器带着滞后时间轴继续(连续断网越滚越旧,且第二拔线后旧音频还能响1分钟)
   const [listenEpoch, setListenEpoch] = useState(0)
+  const [streamStalled, setStreamStalled] = useState(false)  // 1119: 流停摆事实源(缓冲耗尽才亮,恢复播放即收)
+  const playedSinceEpochRef = useRef(false)                   // 1119: 本轮收听已出过声(防起播瞬间 waiting 误亮 banner)
   const audioElRef = useRef<HTMLAudioElement | null>(null)
   const audioCtxRef = useRef<AudioContext | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
@@ -95,9 +99,21 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
     } catch (e) {
       console.log("[room-session] web audio init failed:", e)
     }
+    // 1119 听众 banner 第三事实源(欢哥拍板·掩耳盗铃版): 流停摆事件——缓冲耗尽(用户开始
+    // 听到沉默)才亮,恢复播放即收。TUN 盲区 offline 永不触发的补口;纯事件零定时器。
+    const onStall = () => { if (playedSinceEpochRef.current) setStreamStalled(true) }
+    const onFlow = () => { playedSinceEpochRef.current = true; setStreamStalled(false) }
+    audio.addEventListener("waiting", onStall)
+    audio.addEventListener("stalled", onStall)
+    audio.addEventListener("playing", onFlow)
+    audio.addEventListener("canplay", onFlow)
     audioElRef.current = audio
     audioCtxRef.current = ctx
     return () => {
+      audio.removeEventListener("waiting", onStall)
+      audio.removeEventListener("stalled", onStall)
+      audio.removeEventListener("playing", onFlow)
+      audio.removeEventListener("canplay", onFlow)
       audio.pause()
       audio.src = ""
       ctx?.close()
@@ -119,6 +135,9 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
     const audio = audioElRef.current
     const ctx = audioCtxRef.current
     if (!audio) return
+    // 1119: 每轮收听/换血重置「已出声」标记——起播首帧前的 waiting 不是停摆
+    playedSinceEpochRef.current = false
+    setStreamStalled(false)
     if (listening != null) {
       console.log(`[icecast] 流重建 port=${listening} epoch=${listenEpoch}`)
       audio.src = `${window.location.protocol}//${window.location.hostname}/stream/room-${listening}`
@@ -281,7 +300,7 @@ export function RoomSessionProvider({ children }: { children: React.ReactNode })
 
   return (
     <RoomSessionContext.Provider
-      value={{ session, refresh, setRole, disconnectRoom, listening, pausedPort, startListening, stopListening, pauseForPlayback, resumeListening, markManualKill, analyserRef }}
+      value={{ session, refresh, setRole, disconnectRoom, listening, pausedPort, startListening, stopListening, pauseForPlayback, resumeListening, markManualKill, analyserRef, streamStalled }}
     >
       {children}
     </RoomSessionContext.Provider>

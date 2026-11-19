@@ -63,6 +63,7 @@ export function PlayingPage() {
   const { user } = useAuth()
   const dialog = useJamonyDialog()
   const roomSession = useRoomSession()
+  const streamStalled = roomSession.streamStalled  // 1119: 流停摆事实源(听众 banner 第三通道)
   // 10-07 漫游续听：收听音频上移 Provider 全局常驻，listenerActive 为派生值（漫游不断流）
   const listenerActive = roomSession.listening != null
   const { connected, realtimeChords, pushChords, realtimeTheme, pushTheme, pushScore, clearScore, hydrateScore, realtimeScore, realtimeGpState, playGp, pauseGp, updateGpMix, setGpSpeed, setGpCountin, setGpLoop, setGpRange, realtimeBpm, realtimeMembers, realtimeHostId, realtimeSessions, realtimeRecordingActive, realtimeRecordingBy, realtimeRecordingStartedAt, realtimeRecordingMax, realtimeRecordingFinalizing, kickedEvent, dissolvedEvent, revokedEvent, realtimeProgram, realtimeProgramState, programError, playProgram, pauseProgram, stopProgram, updateProgramMix, setProgramRange, hydrateProgram, roomViolation, discardEvent, openMixer, closeMixerPresence } = useChatSocket(params?.code as string, user?.nickname)
@@ -479,6 +480,19 @@ export function PlayingPage() {
     window.addEventListener("offline", off)
     return () => window.removeEventListener("offline", off)
   }, [myRole])
+
+  // 1119 听众 banner 第三事实源(欢哥拍板·对齐体验断裂处): 流停摆=缓冲耗尽(用户开始听到
+  // 沉默)才亮,恢复播放即收——TUN 盲区 offline 永不触发的补口;短断缓冲扛桥=体验无缝不报。
+  // 只对听众生效(乐手走壳 jamsoul 三通道);依赖项变更才跑,不会误清 offline 通道的 banner。
+  useEffect(() => {
+    if (myRole !== "listener") return
+    if (streamStalled) {
+      console.log("[net] 流停摆→banner")
+      setReconnectStage("netdown")
+    } else {
+      setReconnectStage("none")
+    }
+  }, [streamStalled, myRole])
 
   // 收到 member-kicked 事件：若是自己被踢 → 断音频 + 弹通知（幂等）
   useEffect(() => {
