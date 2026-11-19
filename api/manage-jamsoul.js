@@ -57,13 +57,16 @@ if (CMD === 'start') {
   const secretFile = '/var/jamony/rpc-secrets/room-' + PORT + '.txt'
   execSync('mkdir -p /var/jamony/recordings /var/jamony/rpc-secrets', { stdio: 'pipe' })
   fs.writeFileSync(secretFile, rpcSecret)
+  // 1119: 房间进程日志落地(原先 stdio ignore=票务观察档/强制档日志全盲;端口复用追加,小文件)
+  execSync('mkdir -p /var/log/jamony-rooms', { stdio: 'pipe' })
+  const roomLogFd = fs.openSync('/var/log/jamony-rooms/room-' + PORT + '.log', 'a')
   const p = spawn(HEADLESS_BIN, [
     '--port', String(PORT), '--server', '--nogui', '--numchannels', String(finalCh),
     '--recording', recDir,
     '--norecord',
     '--jsonrpcport', String(rpcPort),
     '--jsonrpcsecretfile', secretFile,
-  ], { stdio: 'ignore', detached: true })
+  ], { stdio: ['ignore', roomLogFd, roomLogFd], detached: true })
   p.unref()
   var st = getState()
   st[PORT] = Object.assign({}, st[PORT], { headlessPid: p.pid })
