@@ -369,7 +369,13 @@ export function PlayingPage() {
   // 离开 playing 页漫游也持续发，L2 服务端交叉验证；此处不再页面级发（防双心跳）
 
   // jamony: 是否唯一合奏者（doDisconnect/onJamsoulExited 路由 + 主进程叉 jamony/dock 弹窗文案）
-  const isLastMusician = Number(room?.musician_count) === 1 && myRole === "musician"
+  // 1119 修复: 改吃实时成员表(1017 名额预检同款范式)——room.musician_count 是进页快照
+  // 不随成员广播更新,后进场的合奏者会让本判据误判"唯一合奏者"→切听众被误走离房分支
+  // (欢哥A3实锤:真乐手后进房同样复现);socket 断线 realtimeMembers 空时回退旧值兜底
+  const liveMusicianCount = realtimeMembers && realtimeMembers.length > 0
+    ? realtimeMembers.filter(m => m.role === "musician").length
+    : Number(room?.musician_count)
+  const isLastMusician = liveMusicianCount === 1 && myRole === "musician"
   useEffect(() => {
     window.jamonyAPI?.setLastMusician?.(isLastMusician)
   }, [isLastMusician])
