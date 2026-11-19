@@ -32,7 +32,7 @@ function createRespawnCore(deps, opts = {}) {
   }
   let gen = 0             // 世代号：每次 suppress/rearm/giveUp 递增，在飞 attemptRespawn 自行作废
   let netOnline = true    // 系统网络态（renderer offline/online 事件维护）
-  let joinPayload = null  // { serverIp, port, nickname }——rearm 存，换防 spawn 用
+  let joinPayload = null  // { serverIp, port, nickname }——rearm 存，换防 spawn 用（ticket 故意不存:票绝对一次性,复活必领新票,1119 决议）
 
   const clearTimer = () => { if (st.timer) { clearTimeout(st.timer); st.timer = null } }
   const clearFamine = () => { if (st.famineTimer) { clearTimeout(st.famineTimer); st.famineTimer = null } }
@@ -216,7 +216,17 @@ function createRespawnCore(deps, opts = {}) {
     // 重识别网卡：断的往往就是网卡本身（WiFi↔热点），不能沿用旧 bindIf
     const bindIf = await deps.identifyBindIf(joinPayload.serverIp)
     if (myGen !== gen) return
-    const child = deps.launchJamsoul(joinPayload.serverIp, joinPayload.port, joinPayload.nickname, bindIf)
+    // 1119: 复活必领新票(壳零缓存)。两次快试(间隔 500ms);仍败=null 照发——服务端观察/强制档仲裁,
+    // 强制档下无票连接 10s 宽限被踢 → 看门狗/断线信号接手 → 退避重来(自然再领新票)
+    let ticket = await deps.fetchTicket()
+    if (myGen !== gen) return
+    if (!ticket) {
+      await new Promise((r) => setTimeout(r, 500))
+      if (myGen !== gen) return
+      ticket = await deps.fetchTicket()
+      if (myGen !== gen) return
+    }
+    const child = deps.launchJamsoul(joinPayload.serverIp, joinPayload.port, joinPayload.nickname, bindIf, ticket)
     if (!child) {
       deps.log('[jamony] P2.1: respawn spawn 失败，记败退避')
       st.attempts++

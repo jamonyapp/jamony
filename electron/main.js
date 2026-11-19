@@ -456,7 +456,7 @@ function sendToJamsoul(obj) {
 // jamony 09-30 反馈链重做：spawn 成功≠进程活着（Win 缺 DLL/杀软拦截的秒退场景）。
 // 3 秒存活确认后才向网页发 ok:true；启动期 exit/error 发 ok:false + 原因，
 // 并跳过 jamsoul-exited 广播（避免前端同时收到失败回执又走"切听众"分流打架）
-function launchJamsoul(serverIp, port, nickname, bindIf) {
+function launchJamsoul(serverIp, port, nickname, bindIf, ticket) {
   // jamony: 排重——jamsoul 已启动则不重启（避免硬刷新重复启动多个 jamsoul）
   if (jamsoulProcess) {
     console.log('[jamony] jamsoul already running, skip launch')
@@ -468,6 +468,8 @@ function launchJamsoul(serverIp, port, nickname, bindIf) {
   if (nickname) args.push('--clientname', nickname)
   // 1112 P1: 绑物理网卡(壳决策见 identifyBindIf;C++ 一次 setsockopt 执行)。null=不绑=P0 行为
   if (bindIf) args.push('--bind-if', bindIf)
+  // jamony 1119: 一次性入场票(网页先票后 spawn 传入;无票照发=服务端观察/强制档仲裁)
+  if (ticket) args.push('--ticket', ticket)
 
   console.log(`[jamony] Launching jamsoul: ${JAMSOUL_BIN} ${args.join(' ')}`)
 
@@ -680,6 +682,7 @@ const respawn = createRespawnCore({
   sendRecovered,
   telemetry: telemetryEnqueue,
   checkRoomAlive,   // 声明提升: 定义在下方,运行时引用
+  fetchTicket,      // 1119: 换防复活前领新票(同上,声明提升)
   killForRespawn,   // 同上
   identifyBindIf,
   launchJamsoul,
@@ -736,6 +739,39 @@ function checkRoomAlive() {
               } else if ([401, 403, 404].includes(resp.statusCode)) {
                 finish(false)
               } else { finish(null) }
+            } catch { finish(null) }
+          })
+        })
+        req.on('error', () => finish(null))
+        req.end()
+      })
+      .catch(() => finish(null))
+  })
+}
+
+// jamony 1119: 领票——GET /api/rooms/:code/ticket(复活必领新票,壳零缓存=票绝对一次性,1119 决议)。
+// 照 checkRoomAlive 模式(cookies.get→显式 Cookie 头,SameSite=Lax 判例);房码取 currentRoom(与查房同源)。
+// 返回票串或 null(404 票务未启用/403 非乐手/429 冷却/网络败)——null=照发无票,服务端观察/强制档仲裁。
+function fetchTicket() {
+  return new Promise((resolve) => {
+    if (!currentRoom || !currentRoom.roomCode) return resolve(null)
+    const roomCode = String(currentRoom.roomCode).toUpperCase()
+    let done = false
+    let timer = null
+    const finish = (v) => { if (!done) { done = true; if (timer) clearTimeout(timer); resolve(v) } }
+    timer = setTimeout(() => finish(null), 5000)
+    session.defaultSession.cookies.get({ url: WEB_URL })
+      .then((cks) => {
+        const token = (cks || []).find((c) => c.name === 'jamony_token')
+        const req = net.request({ url: `${WEB_URL}/api/rooms/${encodeURIComponent(roomCode)}/ticket`, method: 'GET', session: session.defaultSession })
+        if (token) req.setHeader('Cookie', `jamony_token=${token.value}`)
+        req.on('response', (resp) => {
+          let body = ''
+          resp.on('data', (c) => { body += c })
+          resp.on('end', () => {
+            try {
+              const d = JSON.parse(body)
+              finish(resp.statusCode === 200 && d && d.ok && d.ticket ? d.ticket : null)
             } catch { finish(null) }
           })
         })
@@ -807,12 +843,12 @@ ipcMain.on('join-room', async (_event, payload) => {
   }
 
   // 1112 P2/P2.1: 缓存 spawn 参数 + 自愈重武装（新的一次主动调起 = 新周期；顺带作废上一轮残留流程）
-  respawn.rearm({ serverIp: payload.serverIp, port: payload.port, nickname: payload.nickname })  // 缓存+重武装(作废上一轮残留)
+  respawn.rearm({ serverIp: payload.serverIp, port: payload.port, nickname: payload.nickname })  // 缓存+重武装(作废上一轮残留;票不缓存——复活必领新票,1119 决议)
 
   // 1112 P1: spawn 前异步识别物理网卡(无 VPN≈几十 ms;有 VPN 多一次预检;绝不卡 UI)。
   // 结果走 jamsoul-launched 事件回传,handler 异步化不影响反馈链。
   const bindIf = await identifyBindIf(payload.serverIp)
-  launchJamsoul(payload.serverIp, payload.port, payload.nickname, bindIf)
+  launchJamsoul(payload.serverIp, payload.port, payload.nickname, bindIf, payload.ticket)  // 1119: 首次调起带网页领的票
   // jamony 09-30: 不再无条件报成功——结果由 launchJamsoul 3 秒存活确认后发（真启动成功才 ok:true）
 })
 

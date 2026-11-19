@@ -214,6 +214,26 @@ function rateCheck(key, limit, windowMs) {
 }
 
 const loginFailBuckets = new Map()  // nickname -> {count, lockUntil}
+
+// ========== jamony 1119: 一次性入场票(UDP 准入凭证,铸票中心) ==========
+// 票面: uid:port:nickname:role:hexsig——exp 藏在 role 后(载荷=uid:port:nickname:role:exp,HMAC-SHA256
+// 签名拼尾)。密钥 JAMONY_TICKET_SECRET 经 env 三级继承链(server.js→manage-jamsoul→jamsoul-headless)
+// 自动流入每个房间进程;60s 票窗绝对一次性(服务端已用票表防重放,明文 UDP 下防抓包重放白嫖)。
+// role 槽位第一天只随票透传不参与裁决——未来付费(订阅检查=铸票处一行)/分层权益走此位。
+// 未配密钥=功能整体旁路(铸票与房间进程验签同步关闭,行为同 119)。
+const TICKET_SECRET = process.env.JAMONY_TICKET_SECRET || ''
+const TICKET_TTL_SECONDS = 60
+function mintTicket (uid, port, nickname, role) {
+  const exp = Math.floor(Date.now() / 1000) + TICKET_TTL_SECONDS
+  const payload = `${uid}:${port}:${nickname}:${role}:${exp}`
+  const sig = crypto.createHmac('sha256', TICKET_SECRET).update(payload).digest('hex')
+  return `${payload}:${sig}`
+}
+// 铸票冷却(每用户 2s,防抽风底线;行业对标 Agora/LiveKit token server 不限速,此处留保守底线)
+function ticketCooldownOk (userId) {
+  return rateCheck(`ticket:${userId}`, 1, 2000)
+}
+if (!TICKET_SECRET) console.warn('[jamony-ticket] JAMONY_TICKET_SECRET 未配置——票务整体旁路(join 不带票/补票端点 404/房间进程验签旁路)')
 function recordLoginFail(nickname) {
   const f = loginFailBuckets.get(nickname) || { count: 0, lockUntil: 0 }
   f.count++
@@ -2831,7 +2851,11 @@ app.post('/api/rooms/:code/join', requireAuth, async (req, res) => {
       }
       if (acceptedRole === 'listener') await closeMusicianSession(userId, id)  // 翻回听众即闭会话
       await broadcastMembers(code)
-      return res.json({ ok: true, msg: '已更新身份', role: acceptedRole })
+      // jamony 1119: 乐手身份带一次性入场票(切合奏/重进房即领;听众无 UDP 不铸)
+      const ticket = (acceptedRole === 'musician' && TICKET_SECRET && ticketCooldownOk(userId))
+        ? mintTicket(userId, room.server_port, prevMember.rows[0].nickname, 'musician')
+        : null
+      return res.json({ ok: true, msg: '已更新身份', role: acceptedRole, ticket })
     }
 
     // 黑名单校验：被房主踢出的用户禁止再次加入本房（优先于密码校验）
@@ -2873,9 +2897,41 @@ app.post('/api/rooms/:code/join', requireAuth, async (req, res) => {
     await touchRoomPeak(id)
 
     await broadcastMembers(code)
-    res.json({ ok: true, msg: '已加入房间', role: acceptedRole })
+    // jamony 1119: 乐手进房带一次性入场票(建房页 join 后跳 playing,路 B 自动调起用)
+    const ticket = (acceptedRole === 'musician' && TICKET_SECRET && ticketCooldownOk(userId))
+      ? mintTicket(userId, room.server_port, userResult.rows[0].nickname, 'musician')
+      : null
+    res.json({ ok: true, msg: '已加入房间', role: acceptedRole, ticket })
   } catch (err) {
     console.error('Room join error:', err)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// ========== jamony 1119: 补票端点 ==========
+// 壳 respawn(断网自愈/换防)复活前领新票——票=绝对一次性,复活必领新的(壳零缓存,1119 决议);
+// 也供网页路 B(挂载自动调起)先票后 spawn。鉴权=强登录+开放房+成员+乐手,2s 冷却与 join 同闸。
+app.get('/api/rooms/:code/ticket', requireAuth, async (req, res) => {
+  try {
+    if (!TICKET_SECRET) return res.status(404).json({ ok: false, msg: '票务未启用' })
+    const r = await pool.query(
+      `SELECT r.id, r.server_port FROM rooms r
+       WHERE UPPER(r.room_code) = UPPER($1) AND r.status NOT IN ('closed','archived')`,
+      [req.params.code]
+    )
+    if (r.rows.length === 0) return res.status(404).json({ ok: false, msg: '房间不存在' })
+    const room = r.rows[0]
+    const m = await pool.query(
+      'SELECT role, nickname FROM room_members WHERE room_id = $1 AND user_id = $2',
+      [room.id, req.userId]
+    )
+    if (m.rows.length === 0) return res.status(403).json({ ok: false, msg: '你不是本房间成员' })
+    if (m.rows[0].role !== 'musician') return res.status(403).json({ ok: false, msg: '听众无需入场票' })
+    if (!ticketCooldownOk(req.userId)) return res.status(429).json({ ok: false, msg: '领票太快，请稍候' })
+    const ticket = mintTicket(req.userId, room.server_port, m.rows[0].nickname, 'musician')
+    res.json({ ok: true, ticket })
+  } catch (err) {
+    console.error('Ticket mint error:', err)
     res.status(500).json({ ok: false, msg: '服务器错误' })
   }
 })

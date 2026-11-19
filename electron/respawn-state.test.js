@@ -20,6 +20,7 @@ function makeCore(over = {}) {
     killForRespawn: async () => { if (hasProcess) calls.kills++ },  // 语义对齐真实现:无进程=no-op
     identifyBindIf: over.identifyBindIf || (async () => null),
     launchJamsoul: over.launchJamsoul || (() => ({})),
+    fetchTicket: over.fetchTicket || (async () => 'TK'),  // 1119: 默认领票成功
     onOnlineSideEffect: () => {},
     onGiveUp: () => { calls.giveUps++ },
     ...(over.deps || {}),
@@ -365,5 +366,70 @@ describe('1116 回归: 武装与进程解耦(>35s 断网卡死根因)', () => {
     core.onHeartbeat()                // 心跳自然续上
     expect(spawns.length).toBe(0)     // 零换防
     expect(calls.kills).toBe(0)
+  })
+})
+
+// ══════════════════════════════════════
+// 1119 入场票: 换防复活必领新票(壳零缓存,票绝对一次性——欢哥决议)
+// ══════════════════════════════════════
+describe('1119 入场票: 换防前领新票', () => {
+  it('领票成功 → launchJamsoul 第 5 参收到票', async () => {
+    const spawns = []
+    const { core } = makeCore({
+      launchJamsoul: (ip, port, nick, bindIf, ticket) => { spawns.push({ ip, port, nick, bindIf, ticket }); return {} },
+      fetchTicket: async () => 'TK-1',
+    })
+    core.onJamsoulDisconnected()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(core.st.phase).toBe('respawning')
+    expect(spawns.length).toBe(1)
+    expect(spawns[0].ticket).toBe('TK-1')
+    expect(spawns[0].ip).toBe('1.2.3.4')
+    expect(spawns[0].port).toBe(22222)
+  })
+
+  it('首次领票败 → 500ms 快试第二次成功', async () => {
+    const spawns = []
+    let n = 0
+    const { core } = makeCore({
+      launchJamsoul: (ip, port, nick, bindIf, ticket) => { spawns.push({ ticket }); return {} },
+      fetchTicket: async () => (++n === 1 ? null : 'TK-2'),
+    })
+    core.onJamsoulDisconnected()
+    await vi.advanceTimersByTimeAsync(0)   // 第一次败,进 500ms 等待
+    expect(spawns.length).toBe(0)
+    await vi.advanceTimersByTimeAsync(500)
+    await vi.advanceTimersByTimeAsync(0)   // 第二次成功,spawn 落地
+    expect(n).toBe(2)
+    expect(spawns.length).toBe(1)
+    expect(spawns[0].ticket).toBe('TK-2')
+  })
+
+  it('两次快试全败 → 无票照发 null(服务端观察/强制档仲裁)', async () => {
+    const spawns = []
+    const { core } = makeCore({
+      launchJamsoul: (ip, port, nick, bindIf, ticket) => { spawns.push({ ticket }); return {} },
+      fetchTicket: async () => null,
+    })
+    core.onJamsoulDisconnected()
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(500)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(spawns.length).toBe(1)
+    expect(spawns[0].ticket).toBe(null)
+  })
+
+  it('重试间隙被抑制(世代号作废) → 不再 spawn', async () => {
+    const spawns = []
+    const { core } = makeCore({
+      launchJamsoul: (ip, port, nick, bindIf, ticket) => { spawns.push({ ticket }); return {} },
+      fetchTicket: async () => null,
+    })
+    core.onJamsoulDisconnected()
+    await vi.advanceTimersByTimeAsync(0)   // 第一次领票败
+    core.suppress()                        // 重试间隙用户主动退出/切房 → 本轮作废
+    await vi.advanceTimersByTimeAsync(500)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(spawns.length).toBe(0)          // 新进程未起,无泄漏(与既有 kill 后作废同语义)
   })
 })

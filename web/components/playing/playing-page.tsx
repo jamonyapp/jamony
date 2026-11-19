@@ -23,7 +23,7 @@ import type { RoomScore } from "@/lib/jam-data"
 declare global {
   interface Window {
     jamonyAPI?: {
-      joinRoom: (p: { serverIp: string; port: number; nickname?: string }) => void
+      joinRoom: (p: { serverIp: string; port: number; nickname?: string; ticket?: string | null }) => void  // 1119: +ticket 一次性入场票
       killJamsoul: () => void
       enterRoom: (p: { roomCode: string; userId: number }) => void
       leaveRoom: () => void
@@ -137,40 +137,41 @@ export function PlayingPage() {
   const prevHostIdRef = useRef<number | null>(null)
 
   // v3: 提取 launchJamsoul 为可复用的回调，供 useEffect 和 handleReconnect 共用
-  const launchJamsoul = useCallback(() => {
+  const launchJamsoul = useCallback(async () => {
     if (!room) return
+    // 1119 倒装(欢哥拍板): 先登记拿票成功→再拉起。消灭「先拉起失败再杀」回滚丑态;
+    // 名额满/降级时压根不拉起。票=一次性入场票(join 回包带票,乐手),无票照拉由服务端观察/强制档仲裁。
     // 1111 P0: 数据面直连真实 IP——api 下发的 server_ip 优先(防 Clash 类 TUN fake-ip 劫持:域名 spawn=关 VPN 死透,
     // 七轮实验定案)。缺失回退 hostname=1020 时代行为。HTTP/icecast/聊天仍走域名无妨(有成熟断线重连;UDP 音频数据面没有)。
-    const payload = { serverIp: room.server_ip || window.location.hostname, port: room.server_port, nickname: user?.nickname }
+    let ticket: string | null = null
+    if (user?.id && room?.id) {
+      try {
+        const r = await fetch(`/api/rooms/${room.room_code}/join`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: user.id, role: "musician" }),
+        })
+        const d = await r.json().catch(() => ({ ok: false }))
+        if (!r.ok || !d.ok) {
+          // 切合奏失败（名额满等）——未拉起零回滚,只弹服务器消息(1017 回滚机制随倒装退役)
+          await dialog.alert(d.msg || "切换失败")
+          return
+        }
+        ticket = d.ticket || null
+        setRefreshTrigger(n => n + 1)
+        fetch(`/api/rooms/${room.room_code}`).then(r => r.json()).then(d => {
+          if (d.ok) setRoom(prev => prev ? {...prev, musician_count: d.room.musician_count, listener_count: d.room.listener_count} : prev)
+        }).catch(() => {})
+      } catch {
+        // 网络失败:不拦调起——照拉无票(服务端观察档记账;断网场景用户自有感知)
+      }
+    }
+    const payload = { serverIp: room.server_ip || window.location.hostname, port: room.server_port, nickname: user?.nickname, ticket }
     if (window.jamonyAPI) { window.jamonyAPI.joinRoom(payload) }
     else { window.postMessage({ type: "JOIN_ROOM", payload }, "*") }
     setAudioConnected(true)
     setMyRole("musician")
-    roomSession.setRole("musician")  // 全局心跳身份同步（乐手榜计时）
-    if (user?.id && room?.id) {
-      fetch(`/api/rooms/${room.room_code}/join`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: user.id, role: "musician" }),
-      }).then(async (r) => {
-        const d = await r.json().catch(() => ({ ok: false }))
-        if (!r.ok || !d.ok) {
-          // jamony 1017: 切合奏失败（名额满等）——回滚乐观切换+杀 jamsoul+弹服务器消息。
-          // 原版不看响应体: 400 被吞、UI 已切合奏者视角 → 本地与服务器状态分叉(满房调起 jamsoul 连不进还挂着)。
-          // 名额预检(handleReconnect 实时数)后此处仅剩"预检瞬间被抢满"竞态, 但乐观 UI 不允许有无限欺瞒模式。
-          if (window.jamonyAPI) window.jamonyAPI.killJamsoul()
-          setAudioConnected(false)
-          setMyRole("listener")
-          roomSession.setRole("listener")
-          await dialog.alert(d.msg || "切换失败")
-          return
-        }
-        setRefreshTrigger(n => n + 1)
-        fetch(`/api/rooms/${room.room_code}`).then(r => r.json()).then(d => {
-          if (d.ok) setRoom(prev => prev ? {...prev, musician_count: d.room.musician_count, listener_count: d.room.listener_count} : prev)
-        })
-      }).catch(() => {})
-    }
+    roomSession.setRole("musician")  // 全局心跳身份同步（乐手榜计时）——join 已成功,确认态非乐观
   }, [room, user?.id])
 
   // v3: Icecast 停干净后再启动 jamsoul（事件驱动，不用 setTimeout）
@@ -233,8 +234,16 @@ export function PlayingPage() {
 
           // 仅合奏者自动调起 jamsoul
           if (role === "musician") {
-            setTimeout(() => {
-              const payload = { serverIp: roomData.server_ip || window.location.hostname, port: roomData.server_port, nickname: user?.nickname }
+            setTimeout(async () => {
+              // 1119: 先票后 spawn——自动调起前领票(用户已在房,补票端点直领);
+              // 领票失败照调起无票,服务端观察/强制档仲裁(壳 respawn 同款兜底)
+              let ticket: string | null = null
+              try {
+                const tr = await fetch(`/api/rooms/${roomId}/ticket`)
+                const td = await tr.json().catch(() => null)
+                if (tr.ok && td && td.ok && td.ticket) ticket = td.ticket
+              } catch {}
+              const payload = { serverIp: roomData.server_ip || window.location.hostname, port: roomData.server_port, nickname: user?.nickname, ticket }
               if (window.jamonyAPI) {
                 window.jamonyAPI.joinRoom(payload)
               } else {
