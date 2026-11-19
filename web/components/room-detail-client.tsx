@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { Headphones, Crown, Lock, Loader2, Check, UserCheck, X, ShieldAlert, ChevronDown, ChevronUp } from "lucide-react"
+import { Headphones, Crown, Lock, Loader2, Check, UserCheck, X, ShieldAlert, ChevronDown, ChevronUp, SearchX } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
 import { Avatar } from "@/components/jamony/avatar"
 import { UserPopover } from "@/components/jamony/user-popover"
@@ -83,11 +83,15 @@ export function RoomDetailClient() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-black">
         <div className="text-center">
-          <p className="mb-4 text-4xl">🔍</p>
-          <p className="text-lg text-white">房间不存在</p>
+          {/* 1119: 照品牌弹窗体系(1017)规范重排——lucide 线性图标带中性底衬圈(弃系统彩色 emoji),
+               标题字重对齐家族,按钮弃细边框改家族式无边框填充(hover 提亮一档) */}
+          <div className="mx-auto grid size-12 place-items-center rounded-full" style={{ background: "rgba(255,255,255,0.06)" }}>
+            <SearchX className="size-6" style={{ color: "#8A8A8A" }} />
+          </div>
+          <p className="mt-4 text-lg font-semibold text-white">房间不存在</p>
           <button onClick={() => router.push("/lobby")}
-            className="mt-4 rounded-[10px] border px-6 py-2.5 text-white transition-colors hover:bg-white/5"
-            style={{ borderColor: "rgba(255,255,255,0.3)" }}>
+            className="mt-6 rounded-[10px] px-4 py-2.5 text-sm font-medium transition-colors hover:bg-white/5"
+            style={{ background: "#141414", color: "#B0B0B0" }}>
             返回列表
           </button>
         </div>
