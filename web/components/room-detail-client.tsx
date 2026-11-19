@@ -80,8 +80,9 @@ export function RoomDetailClient() {
   }
 
   if (!room) {
+    // 1119: pb-24 垫高居中盒——页头顶着 TopNav,纯 viewport 居中会视觉偏下;上移≈内容区中心(欢哥审美令)
     return (
-      <div className="flex min-h-screen items-center justify-center bg-black">
+      <div className="flex min-h-screen items-center justify-center bg-black pb-24">
         <div className="text-center">
           {/* 1119: 照品牌弹窗体系(1017)规范重排——lucide 线性图标带中性底衬圈(弃系统彩色 emoji),
                标题字重对齐家族,按钮弃细边框改家族式无边框填充(hover 提亮一档) */}
