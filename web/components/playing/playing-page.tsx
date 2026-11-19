@@ -464,12 +464,14 @@ export function PlayingPage() {
   // socket 重连成功=网络已回+房频道在,听众即收尾;乐手换防期 banner 保留(仍走 jamsoul 三通道)
   // 1118b 振荡器根治(欢哥五连断钓出): 须同验 navigator.onLine——socket 假活(断网后 engine.io 最长
   // ~45s 才认死,connected 仍 true)会把「连着」误读成「网回来了」,断网瞬间秒清刚点亮的 banner(隔轮隐形)
+  // 1119c 第四验(欢哥VPN盲区钓出): 须同验 !streamStalled——TUN 盲区 socket 假活+onLine 双假绿灯,
+  // ④毫秒级秒清流停摆刚点亮的 banner(案A借尸还魂);数据面一票否决:流还停着=网没回来
   useEffect(() => {
-    if (connected && typeof navigator !== "undefined" && navigator.onLine === true && reconnectStage !== "none" && myRole === "listener") {
-      console.log("[net] banner④清除(socket连+网络通+听众)")
+    if (connected && typeof navigator !== "undefined" && navigator.onLine === true && reconnectStage !== "none" && myRole === "listener" && !streamStalled) {
+      console.log("[net] banner④清除(socket连+网络通+听众+流在播)")
       setReconnectStage("none")
     }
-  }, [connected, reconnectStage, myRole])
+  }, [connected, reconnectStage, myRole, streamStalled])
 
   // 1118 方案二(欢哥拍板): 听众 banner web 自绘——不借壳状态机(静默收兵分支哑火案:二断不显)。
   // renderer offline 直显,收尾复用通道④(socket 重连即隐);乐手仍走壳 jamsoul 三通道不动
