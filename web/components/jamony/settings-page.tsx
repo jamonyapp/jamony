@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { Check, LogOut } from "lucide-react"
 import { FilterSelect } from "@/components/jamony/filter-select"
 import { useAuth } from "@/lib/auth-context"
+import { useRoomSession } from "@/lib/room-session"
 import { AvatarUpload } from "@/components/jamony/avatar-upload"
 import { RegionPicker } from "@/components/jamony/region-picker"
 import { splitRegion, isRegionComplete, joinRegion } from "@/lib/regions"
@@ -53,6 +54,10 @@ export function SettingsPage() {
   const nickLastAt = user?.nicknameUpdatedAt ? new Date(user.nicknameUpdatedAt).getTime() : 0
   const nickLocked = nickLastAt > 0 && Date.now() - nickLastAt < NICK_COOLDOWN_MS
   const nickLockedDays = nickLocked ? Math.ceil((nickLastAt + NICK_COOLDOWN_MS - Date.now()) / 86400000) : 0
+  // 1120 方案2': 房中锁昵称——票面绑昵称(room_members 铸票拷贝),房中改名后切合奏/强刷=票面旧×clientname新→铁闸 name-mismatch 踢出+换防旧票三连败锁死房外;拆雷=掐断「房中改名」引信,其余字段单拷贝天然安全照常可改
+  const { session } = useRoomSession()
+  const nickRoomLocked = session != null
+  const nickDisabled = nickLocked || nickRoomLocked
   const [signature, setSignature] = useState("")
   const [regionL1, setRegionL1] = useState("") // 1105 地区改造: 两级(广东省|深圳市), 提交拼完整串
   const [regionL2, setRegionL2] = useState("")
@@ -214,9 +219,9 @@ export function SettingsPage() {
           <div className="grid grid-cols-3 gap-4">
             <div>
               <FieldLabel hint={
-                nickLocked ? `${nickLockedDays}天后可修改` : "昵称1年内允许修改1次。"
+                nickLocked ? `${nickLockedDays}天后可修改` : nickRoomLocked ? "退出房间后可修改昵称" : "昵称1年内允许修改1次。"
               }>昵称</FieldLabel>
-              <input type="text" className={`${inputClass} ${nickLocked ? "cursor-not-allowed opacity-50" : ""}`} maxLength={16} disabled={nickLocked} style={{ background: "#141414", borderColor: "#2A2A2A" }} value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder="给自己取个名字" />
+              <input type="text" className={`${inputClass} ${nickDisabled ? "cursor-not-allowed opacity-50" : ""}`} maxLength={16} disabled={nickDisabled} style={{ background: "#141414", borderColor: "#2A2A2A" }} value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder="给自己取个名字" />
             </div>
             <div>
               <FieldLabel>性别</FieldLabel>
