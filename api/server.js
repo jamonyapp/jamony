@@ -1994,8 +1994,10 @@ app.post('/api/users/:id/avatar', requireAuth, avatarUpload.single('avatar'), as
       try { fs.unlinkSync(newPath) } catch (e) {}
       return res.status(400).json({ ok: false, msg: MODERATION_REJECT_MSG })
     }
-    await pool.query('UPDATE users SET avatar_url=$1 WHERE id=$2', [newPath, req.userId])
-    res.json({ ok: true, avatarUrl: newPath.replace('/var/jamony/avatars', '/avatars') })
+    // 1120 头像缓存拆雷: 物理文件固定路径覆盖(user<id>.<ext>)=同扩展名换头像URL一字不变→浏览器吃缓存旧图(用户卡现查也白查img不重新请求);DB值挂?v=时间戳,各出口replace照常带出→URL必变强制重载;存量无v的URL不受影响(静态服务忽略query)
+    const avatarV = `${newPath}?v=${Date.now()}`
+    await pool.query('UPDATE users SET avatar_url=$1 WHERE id=$2', [avatarV, req.userId])
+    res.json({ ok: true, avatarUrl: avatarV.replace('/var/jamony/avatars', '/avatars') })
   } catch (err) {
     console.error('Avatar upload error:', err)
     res.status(500).json({ ok: false, msg: '头像上传失败' })
