@@ -161,15 +161,14 @@ export function UserPopover({
     // 卡片 w-72(288px): 左缘钳制防屏幕右溢
     setPos({ top: rect.bottom + 6, left: Math.min(Math.max(10, rect.left - 60), window.innerWidth - 298) })
 
-    if (!user) {
-      setLoading(true)
-      try {
-        const res = await fetch(`/api/users/by-nickname/${encodeURIComponent(nickname)}`)
-        const data = await res.json()
-        if (data.ok) setUser(data.user)
-      } catch {}
-      setLoading(false)
-    }
+    // 1120欢哥令: 用户卡点开必现查(users主档单拷贝)——旧数据先显示静默换新(SWR,不闪loading),无旧数据才loading;关后重开/对方房中改资料/漫游场景任意组合均新鲜;顺带根治关后fetch迟到竞态(旧逻辑残留数据会跳过重查)
+    setLoading(!user)
+    try {
+      const res = await fetch(`/api/users/by-nickname/${encodeURIComponent(nickname)}`)
+      const data = await res.json()
+      if (data.ok) setUser(data.user)
+    } catch {}
+    setLoading(false)
   }
 
   const instrumentIcon: Record<string, string> = {
