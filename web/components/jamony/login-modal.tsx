@@ -289,7 +289,7 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
             <div className="mb-4">
               <h2 className="text-xl font-bold text-white">验证码注册/登录</h2>
               <p className="mt-1 text-xs" style={{ color: "#8A8A8A" }}>
-                注册/登录后可使用jamony功能
+                免费注册/登录后可使用jamony功能
               </p>
             </div>
 
@@ -309,9 +309,12 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
               </div>
 
               <div>
-                <label className={labelCls} style={{ color: "#9A9A9A" }}>
-                  验证码
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className={labelCls} style={{ color: "#9A9A9A" }}>
+                    验证码
+                  </label>
+                  {notice && <span className="text-xs" style={{ color: "#00AAFF" }}>{notice}</span>}
+                </div>
                 <div className="flex gap-2">
                   <input
                     type="text"
@@ -335,8 +338,8 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
               </div>
 
               {/* 1110p 常驻占位(欢哥批): 提示行恒在——只做显示/不显示,不做有无(增删行会拉长卡片=跳动别扭) */}
-              <p className="text-xs" style={{ color: notice ? "#00AAFF" : "#FF33AA", visibility: notice || error ? "visible" : "hidden" }}>
-                {notice || error || "\u00A0"}
+              <p className="text-xs" style={{ color: "#FF33AA", visibility: error ? "visible" : "hidden" }}>
+                {error || "\u00A0"}
               </p>
 
               <AgreementCheck agreed={agreed} onToggle={() => setAgreed((v) => !v)} onOpen={(d) => setShowDoc(d)} />
@@ -376,9 +379,12 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
               </div>
 
               <div>
-                <label className={labelCls} style={{ color: "#9A9A9A" }}>
-                  验证码
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className={labelCls} style={{ color: "#9A9A9A" }}>
+                    验证码
+                  </label>
+                  {notice && <span className="text-xs" style={{ color: "#00AAFF" }}>{notice}</span>}
+                </div>
                 <div className="flex gap-2">
                   <input
                     type="text"
@@ -430,8 +436,8 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
               </div>
 
               {/* 1110p 常驻占位(欢哥批): 提示行恒在——只做显示/不显示,不做有无(增删行会拉长卡片=跳动别扭) */}
-              <p className="text-xs" style={{ color: notice ? "#00AAFF" : "#FF33AA", visibility: notice || error ? "visible" : "hidden" }}>
-                {notice || error || "\u00A0"}
+              <p className="text-xs" style={{ color: "#FF33AA", visibility: error ? "visible" : "hidden" }}>
+                {error || "\u00A0"}
               </p>
 
               <button type="submit" disabled={loading} className={submitCls} style={submitStyle}>
@@ -488,8 +494,8 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
               </div>
 
               {/* 1110p 常驻占位(欢哥批): 提示行恒在——只做显示/不显示,不做有无(增删行会拉长卡片=跳动别扭) */}
-              <p className="text-xs" style={{ color: notice ? "#00AAFF" : "#FF33AA", visibility: notice || error ? "visible" : "hidden" }}>
-                {notice || error || "\u00A0"}
+              <p className="text-xs" style={{ color: "#FF33AA", visibility: error ? "visible" : "hidden" }}>
+                {error || "\u00A0"}
               </p>
 
               <AgreementCheck agreed={agreed} onToggle={() => setAgreed((v) => !v)} onOpen={(d) => setShowDoc(d)} />
@@ -502,7 +508,7 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
               <p className="text-center text-xs" style={{ color: "#8A8A8A" }}>
                 新用户？
                 <button type="button" className="font-medium underline-offset-2 hover:underline" style={{ color: "#00AAFF" }} onClick={() => switchMode("sms")}>
-                  立即注册
+                  立即免费注册
                 </button>
                 （使用手机号验证码，注册后自动登录）
               </p>
