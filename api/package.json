@@ -10,9 +10,13 @@
     "express": "^5.2.1",
     "ip2region": "2.3.0",
     "jsonwebtoken": "^9.0.2",
-    "multer": "^2.2.0",
+    "multer": "^2.5.0",
     "pg": "^8.22.0",
     "pinyin-pro": "3.26.0",
     "socket.io": "^4.8.4"
+  },
+  "overrides": {
+    "body-parser": "2.4.0",
+    "qs": "6.17.1"
   }
 }
