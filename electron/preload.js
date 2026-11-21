@@ -8,7 +8,8 @@ contextBridge.exposeInMainWorld('jamonyAPI', {
   version: versionArg ? versionArg.split('=')[1] : '',
   // 写入系统剪贴板（Electron clipboard，比 navigator.clipboard 在非 secure context 更可靠）
   writeClipboard: (text) => {
-    try { clipboard.writeText(text); return true } catch { return false }
+    // 1122 electron 45: E44 起 clipboard.writeText 返回 Promise(异步化),Promise.resolve 兼容 39(旧版返回 void)与 45 两态,rejection 不再裸奔
+    try { Promise.resolve(clipboard.writeText(text)).catch(() => {}); return true } catch { return false }
   },
   // 网页调起 jamsoul（由页面 JS 调用）
   joinRoom: (payload) => {
