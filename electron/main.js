@@ -3,6 +3,7 @@ const path = require('path')
 const fs = require('fs')
 const os = require('os')
 const { spawn, execFile } = require('child_process') // 1112 P1: execSync 退役(从未用过且会卡UI),换 execFile 异步
+const nodeNet = require('net') // jamony 1121 P1 Win: Node 原生 net(electron 的 net 名已被占;Win 分支 TCP 探活用)
 
 // jamony 10-07: jamsoul 音质档自动迁移（NORMAL→HIGH）
 // 旧版默认 NORMAL(1) 对密集素材出 Opus 编码伪影（欢哥单变量实验定罪）；INI 里写死的旧值会压过
@@ -47,8 +48,71 @@ function hasScopedDefault(ifName) {
   })
 }
 
+// ===== jamony 1121 P1 Win 分支(与 Mac 同哲学:拿不准永远不绑;漏绑=P0 行为,错绑=大病死) =====
+// Win 虚拟适配器名册(Hyper-V/WSL/Clash/TAP/ZeroTier/Tailscale/WireGuard/VMware/蓝牙/虚拟/本地连接*;
+// 中文系统本地化名一并入册;「本地连接*」带星的是虚拟,不带星的物理老名不在册)
+const WIN_VIRTUAL_IF = /^(vEthernet|Clash|TUN|TAP|ZeroTier|Tailscale|WireGuard|OpenVPN|Hyper-V|WSL|Loopback|VMware|Virtual|虚拟|蓝牙|本地连接\*)/i
+
+// (helper·Win) UDP connect 探源:纯本地路由查询(UDP 的 connect 不发任何包),读 OS 当下为 serverIp 选定的源地址。
+// TUN 在场=源落虚拟卡;TUN 不在场=源即物理卡(零探测快路的依据)。
+function udpSourceIP(serverIp) {
+  return new Promise((resolve) => {
+    const dgram = require('dgram')
+    const s = dgram.createSocket('udp4')
+    const done = (v) => { try { s.close() } catch (e) {} resolve(v) }
+    s.once('error', () => done(null))
+    try { s.connect(53, serverIp, () => done((s.address() && s.address().address) || null)) } catch (e) { done(null) }
+  })
+}
+
+// (helper·Win) TCP 探活:从指定源 IP 向 EIP:80 握手(Mac 版 curl --interface 探针的 Win 等价物;
+// 握手成功=该物理路径真能到达服务器)。nginx 在 80 听(EIP+Host 头即 P0 探针同靶)。
+function tcpProbeVia(localIp, serverIp) {
+  return new Promise((resolve) => {
+    const c = nodeNet.connect({ host: serverIp, port: 80, localAddress: localIp, timeout: 2500 })
+    const fin = (v) => { c.destroy(); resolve(v) }
+    c.once('connect', () => fin(true))
+    c.once('error', () => fin(false))
+    c.once('timeout', () => fin(false))
+  })
+}
+
+async function identifyBindIfWin(serverIp) {
+  const ifaces = os.networkInterfaces()
+  const ipOf = (name) => (((ifaces[name] || []).find(a => (a.family === 'IPv4' || a.family === 4) && !a.internal) || {}).address)
+
+  // ① UDP connect 探源:OS 当下会从哪块卡出
+  const srcIp = await udpSourceIP(serverIp)
+  if (!srcIp) { console.log('[jamony] bind-if(win): 探源失败,不绑(P0 行为)'); return null }
+
+  // ② 源 IP 反查接口名
+  let srcIf = null
+  for (const [name, addrs] of Object.entries(ifaces)) {
+    if ((addrs || []).some(a => (a.family === 'IPv4' || a.family === 4) && !a.internal && a.address === srcIp)) { srcIf = name; break }
+  }
+
+  // ③ 快路:无劫持——源本来就落在物理卡上,直接绑(零探测零延迟,与 Mac 快路同型)
+  if (srcIf && !WIN_VIRTUAL_IF.test(srcIf)) {
+    console.log(`[jamony] bind-if(win): ${srcIf}(UDP探源=${srcIp},直接绑)`)
+    return srcIf
+  }
+
+  // ④ 兜底路:TUN 劫持中(源=虚拟卡)——枚举物理候选逐个 TCP 探活,先通先得
+  const candidates = Object.keys(ifaces).filter(n => !WIN_VIRTUAL_IF.test(n) && ipOf(n))
+  console.log(`[jamony] bind-if(win): 默认源=${srcIf || srcIp}(被劫持?),物理候选=[${candidates.join(', ')}]`)
+  for (const n of candidates) {
+    if (await tcpProbeVia(ipOf(n), serverIp)) {
+      console.log(`[jamony] bind-if(win): ${n}(探活通过,绑)`)
+      return n
+    }
+  }
+  console.log('[jamony] bind-if(win): 无物理候选可通,不绑(P0 行为)')
+  return null
+}
+
 async function identifyBindIf(serverIp) {
-  if (process.platform !== 'darwin') return null // Win 随 Win 批(IP_UNICAST_IF+htonl 索引,已记账)
+  if (process.platform === 'win32') return identifyBindIfWin(serverIp) // 1121 P1 Win 批(IP_UNICAST_IF+GetAdaptersAddresses)
+  if (process.platform !== 'darwin') return null // Linux 等:暂不绑,随需再议
   const VIRTUAL_RE = /^(utun|lo\d|awdl|llw|bridge|anpi|ipsec|gif|stf|tap|tun|vlan)/
   const ifaces = os.networkInterfaces()
 
