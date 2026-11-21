@@ -230,8 +230,19 @@ function mintTicket (uid, port, nickname, role) {
   return `${payload}:${sig}`
 }
 // 铸票冷却(每用户 2s,防抽风底线;行业对标 Agora/LiveKit token server 不限速,此处留保守底线)
-function ticketCooldownOk (userId) {
-  return rateCheck(`ticket:${userId}`, 1, 2000)
+// —— 1121 幂等化重造:原 2s 冷却拒(429)在「join 铸票→网页路B自动调起 500ms 后补票」竞态下必中,
+//    无票 spawn 撞 ENFORCE 铁闸=静默死(无日志无反馈,快机 Win 首例,欢哥 21:05 复现实锤)。
+//    幂等窗收紧=原冷却窗(2s): 窗内回上一张未用票(留 2s 过期余量),窗外恒铸新票——
+//    respawn/换防复活必领新票(旧票或已在门口消费,全周期幂等会致重放必拒+自愈链瘫)。
+//    一次性语义由房间进程门口重放缓存最终保证(同票二呈必拒)。
+const lastTicketByUser = new Map()
+function mintTicketIdempotent (userId, port, nickname) {
+  const now = Math.floor(Date.now() / 1000)
+  const prev = lastTicketByUser.get(userId)
+  if (prev && prev.port === port && now - prev.at < 2 && prev.exp > now + 2) return prev.ticket
+  const ticket = mintTicket(userId, port, nickname, 'musician')
+  lastTicketByUser.set(userId, { ticket, port, at: now, exp: now + TICKET_TTL_SECONDS })
+  return ticket
 }
 if (!TICKET_SECRET) console.warn('[jamony-ticket] JAMONY_TICKET_SECRET 未配置——票务整体旁路(join 不带票/补票端点 404/房间进程验签旁路)')
 function recordLoginFail(nickname) {
@@ -2854,8 +2865,8 @@ app.post('/api/rooms/:code/join', requireAuth, async (req, res) => {
       if (acceptedRole === 'listener') await closeMusicianSession(userId, id)  // 翻回听众即闭会话
       await broadcastMembers(code)
       // jamony 1119: 乐手身份带一次性入场票(切合奏/重进房即领;听众无 UDP 不铸)
-      const ticket = (acceptedRole === 'musician' && TICKET_SECRET && ticketCooldownOk(userId))
-        ? mintTicket(userId, room.server_port, prevMember.rows[0].nickname, 'musician')
+      const ticket = (acceptedRole === 'musician' && TICKET_SECRET)
+        ? mintTicketIdempotent(userId, room.server_port, prevMember.rows[0].nickname)
         : null
       return res.json({ ok: true, msg: '已更新身份', role: acceptedRole, ticket })
     }
@@ -2900,8 +2911,8 @@ app.post('/api/rooms/:code/join', requireAuth, async (req, res) => {
 
     await broadcastMembers(code)
     // jamony 1119: 乐手进房带一次性入场票(建房页 join 后跳 playing,路 B 自动调起用)
-    const ticket = (acceptedRole === 'musician' && TICKET_SECRET && ticketCooldownOk(userId))
-      ? mintTicket(userId, room.server_port, userResult.rows[0].nickname, 'musician')
+    const ticket = (acceptedRole === 'musician' && TICKET_SECRET)
+      ? mintTicketIdempotent(userId, room.server_port, userResult.rows[0].nickname)
       : null
     res.json({ ok: true, msg: '已加入房间', role: acceptedRole, ticket })
   } catch (err) {
@@ -2929,8 +2940,8 @@ app.get('/api/rooms/:code/ticket', requireAuth, async (req, res) => {
     )
     if (m.rows.length === 0) return res.status(403).json({ ok: false, msg: '你不是本房间成员' })
     if (m.rows[0].role !== 'musician') return res.status(403).json({ ok: false, msg: '听众无需入场票' })
-    if (!ticketCooldownOk(req.userId)) return res.status(429).json({ ok: false, msg: '领票太快，请稍候' })
-    const ticket = mintTicket(req.userId, room.server_port, m.rows[0].nickname, 'musician')
+    // 1121: 幂等补票——冷却窗内回上一张未用票,429 竞态雷退役
+    const ticket = mintTicketIdempotent(req.userId, room.server_port, m.rows[0].nickname)
     res.json({ ok: true, ticket })
   } catch (err) {
     console.error('Ticket mint error:', err)
