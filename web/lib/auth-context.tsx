@@ -19,6 +19,7 @@ export type UserInfo = {
   points: number
   restriction?: string // 1024: normal|watch|restricted|demoted|banned——申诉tab据此显示提交表单
   phoneMasked?: string // 1104批次2: 服务端脱敏号, 设置页本人展示(明文永不出库)
+  deletionRequestedAt?: string | null // 1123 注销: 有值=冷静期中(设置页危险区显示剩余天数+撤销入口)
   hasPassword?: boolean // 1104批次2: false=短信注册号无密码, 设置页「设置密码」免旧密
   gender?: string // 1105 画像: male|female|secret|空(本人原值)
   birthday?: string // 1105 画像: YYYY-MM-DD, 仅本人可见(他人端点不下发)
@@ -64,6 +65,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             // 1024 BANNED识别: 壳内顺手杀jamsoul(封号后UDP直连仍在房里出声的收口; 浏览器无此API安全跳过)
             try { ;(window as unknown as { jamonyAPI?: { killJamsoul?: () => void } }).jamonyAPI?.killJamsoul?.() } catch { /* ignore */ }
             if (!window.location.pathname.startsWith("/banned")) window.location.href = "/banned"; return null
+          }
+          // 1123 注销: DELETED 同款杀jamsoul(匿名化后UDP直连不得继续出声); 不跳拦截页(注销≠违规),
+          // 走下方 kicked→login 既有流——下次注册全新开始
+          if (d.code === "DELETED") {
+            try { ;(window as unknown as { jamonyAPI?: { killJamsoul?: () => void } }).jamonyAPI?.killJamsoul?.() } catch { /* ignore */ }
           } } catch { /* ignore */ }
           kicked = true
         }
@@ -97,6 +103,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!data.ok) return data.msg || "登录失败"
       // ⑦封号申诉权(1023): 封号用户登录→跳拦截页(会话仅供申诉两端点使用)
       if (data.banned) { window.location.href = "/banned"; return null }
+      // 1123 注销: 冷静期内登录=自动撤销(login-modal 监听此事件弹品牌提示)
+      if (data.deletionCancelled) window.dispatchEvent(new CustomEvent("jamony:deletion-cancelled"))
       setUser(data.user)
       localStorage.setItem("jamony_user", JSON.stringify(data.user))
       return null // null = 成功
@@ -117,6 +125,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const data = await res.json()
       if (!data.ok) return data.msg || "登录失败"
       if (data.banned) { window.location.href = "/banned"; return null }
+      // 1123 注销: 冷静期内登录=自动撤销(同 login)
+      if (data.deletionCancelled) window.dispatchEvent(new CustomEvent("jamony:deletion-cancelled"))
       setUser(data.user)
       localStorage.setItem("jamony_user", JSON.stringify(data.user))
       return null

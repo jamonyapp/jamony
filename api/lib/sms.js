@@ -63,6 +63,25 @@ async function sendNoticeSms(phone, templateParam) {
     console.log(`[SMS:SKIP] ${phone} 通知短信跳过(SMS_NOTICE_TEMPLATE 未配置)`)
     return { skipped: true }
   }
+  return sendTemplateSms(phone, templateCode, templateParam)
+}
+
+/**
+ * 1123 注销完成回执(匿名化执行后, phone 改哨兵前发).
+ * 独立模板 env: SMS_DELETE_DONE_TEMPLATE(与换绑通知不同文案,不可共用).
+ * 未配置=静默跳过(不阻塞匿名化), 模板批下来填 env 即生效.
+ */
+async function sendDeletionDoneSms(phone) {
+  const templateCode = process.env.SMS_DELETE_DONE_TEMPLATE
+  if (!templateCode) {
+    console.log(`[SMS:SKIP] ${phone} 注销回执跳过(SMS_DELETE_DONE_TEMPLATE 未配置)`)
+    return { skipped: true }
+  }
+  return sendTemplateSms(phone, templateCode, {})
+}
+
+// 通知类发送共用体(模板码由调用方指定)
+async function sendTemplateSms(phone, templateCode, templateParam) {
   const c = getClient()
   if (!c) throw new Error('短信客户端不可用')
   const Dysmsapi = require('@alicloud/dysmsapi20170525')
@@ -70,7 +89,7 @@ async function sendNoticeSms(phone, templateParam) {
     phoneNumbers: phone,
     signName: process.env.SMS_SIGN_NAME || '慧彼文化传媒北京',
     templateCode,
-    templateParam: JSON.stringify(templateParam),
+    templateParam: JSON.stringify(templateParam || {}),
   })
   const resp = await c.sendSms(request)
   if (!resp.body || resp.body.code !== 'OK') {
@@ -79,4 +98,4 @@ async function sendNoticeSms(phone, templateParam) {
   return { ok: true }
 }
 
-module.exports = { sendSmsCode, sendNoticeSms }
+module.exports = { sendSmsCode, sendNoticeSms, sendDeletionDoneSms }

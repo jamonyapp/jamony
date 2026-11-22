@@ -38,6 +38,7 @@ type UserProfile = {
   is_following?: boolean
   avatar_url?: string
   created_at: string
+  deleted?: boolean // 1123 注销降级: 墓碑刻名(头像+昵称保留,零数据字段,作品/公告tab保留)
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
@@ -225,7 +226,12 @@ export function ProfilePage({ nickname }: { nickname: string }) {
             <div className="min-w-0 flex-1 self-stretch py-1">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-2xl font-bold text-white">{profile.nickname}</h1>
-                <span className="rounded-[8px] bg-[#0D0D0D] px-2 py-0.5 text-[11px] text-[#B0B0B0] ring-1 ring-[#1A1A1A]">🎵 免费用户</span>
+                {profile.deleted ? (
+                  /* 1123 注销降级: 墓碑刻名——头像+昵称保留,唯一标签=「该用户已注销」 */
+                  <span className="rounded-[8px] bg-[#0D0D0D] px-2 py-0.5 text-[11px] text-[#6A6A6A] ring-1 ring-[#1A1A1A]">该用户已注销</span>
+                ) : (
+                  <span className="rounded-[8px] bg-[#0D0D0D] px-2 py-0.5 text-[11px] text-[#B0B0B0] ring-1 ring-[#1A1A1A]">🎵 免费用户</span>
+                )}
                 {isSelf ? (
                   <button
                     type="button"
@@ -235,30 +241,39 @@ export function ProfilePage({ nickname }: { nickname: string }) {
                   >
                     <Settings className="h-4 w-4" style={{ color: "#8A8A8A" }} />
                   </button>
-                ) : (
+                ) : !profile.deleted ? (
                   <>
                     <FollowButton targetUserId={profile.id} initialIsFollowing={!!profile.is_following} onAfterToggle={refreshProfile} />
                     <button type="button" onClick={() => openConversation(profile.id)} className="flex h-7 w-7 items-center justify-center rounded-lg transition-colors hover:bg-white/10" title="发私信">
                       <Mail className="h-4 w-4" style={{ color: "#8A8A8A" }} />
                     </button>
                   </>
-                )}
+                ) : null}
                 {/* 1025 仪式感：已来到 jamony N 天（ceil=注册当天即第1天；看他人主页同样显示对方的天数） */}
-                <span className="ml-auto whitespace-nowrap text-xs font-medium text-white">
-                  已来到 jamony {Math.max(1, Math.ceil((Date.now() - new Date(profile.created_at).getTime()) / 86400000))} 天
-                </span>
+                {/* 1123 注销降级: 零数据字段,天数不显示 */}
+                {!profile.deleted && (
+                  <span className="ml-auto whitespace-nowrap text-xs font-medium text-white">
+                    已来到 jamony {Math.max(1, Math.ceil((Date.now() - new Date(profile.created_at).getTime()) / 86400000))} 天
+                  </span>
+                )}
               </div>
-              {profile.signature && <p className="mt-1 text-[14px] text-[#B0B0B0]">{profile.signature}</p>}
-              <p className="mt-1 text-[13px] text-[#8A8A8A]">
-                {profile.city}{instrument ? ` · ${instrument}` : ""}
-              </p>
+              {/* 1123 注销降级: 签名/城市/乐器匿名化后为空,已注销连空行也不给 */}
+              {!profile.deleted && (
+                <>
+                  {profile.signature && <p className="mt-1 text-[14px] text-[#B0B0B0]">{profile.signature}</p>}
+                  <p className="mt-1 text-[13px] text-[#8A8A8A]">
+                    {profile.city}{instrument ? ` · ${instrument}` : ""}
+                  </p>
+                </>
+              )}
               {styles.length > 0 && (
                 <p className="mt-1.5 text-[13px] text-[#8A8A8A]">风格偏好：{styles.join('、')}</p>
               )}
             </div>
           </section>
 
-          {/* 统计数据区 */}
+          {/* 统计数据区(1123 注销降级: 零数据字段,已注销不渲染) */}
+          {!profile.deleted && (
           <section className="mt-8 grid grid-cols-4 gap-3">
             {[
               { value: profile.works_count.toLocaleString(), label: "参与作品", tab: 'works' as const, clickable: true },
@@ -278,15 +293,18 @@ export function ProfilePage({ nickname }: { nickname: string }) {
               </button>
             ))}
           </section>
+          )}
 
-          {/* tab 头 */}
+          {/* tab 头(1123 注销降级: 已注销只留作品+公告——公共资产闭环; 关注/粉丝/收藏/申诉零数据不渲染) */}
           <section className="mt-8 flex gap-1 border-b border-[#1A1A1A]">
             {([
               { key: 'works', label: '作品' },
               { key: 'notices', label: '公告' },
               ...(isSelf ? [{ key: 'favorites', label: '收藏' }] : []),
-              { key: 'following', label: '关注' },
-              { key: 'followers', label: '粉丝' },
+              ...(profile.deleted ? [] : [
+                { key: 'following', label: '关注' },
+                { key: 'followers', label: '粉丝' },
+              ]),
               ...(isSelf ? [{ key: 'appeals', label: '申诉' }] : []), // 1024 欢哥: 申诉置末位+品牌黄(#F5C518 与审核中徽章同源)
             ] as const).map((t) => (
               <button

@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { X, Loader2, Check } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
+import { useJamonyDialog } from "@/components/jamony/dialog"
 
 // 10-23 欢哥定稿：遮罩点外关闭须「按下+松开都在遮罩」——click 派发到公共祖先，单判 target 会被拖出松开误关
 const downOnOverlay = { current: false }
@@ -51,6 +52,16 @@ type Mode = "account" | "sms" | "forgot" | "recovery"
 export function LoginModal({ embedded = false }: { embedded?: boolean }) {
   const { showLoginModal, setShowLoginModal, login, loginWithSms, sendSmsCode, resetPassword } = useAuth()
   const [mode, setMode] = useState<Mode>("account")
+
+  // 1123 注销: 冷静期内登录=自动撤销(auth-context login 成功分发事件)——品牌弹窗告知承诺已兑现
+  const dialog = useJamonyDialog()
+  useEffect(() => {
+    const h = () => {
+      dialog.alert("检测到您在冷静期内登录，已自动撤销注销申请，欢迎回来。", { title: "注销已撤销" })
+    }
+    window.addEventListener("jamony:deletion-cancelled", h)
+    return () => window.removeEventListener("jamony:deletion-cancelled", h)
+  }, [dialog])
 
   // 账户+密码
   const [account, setAccount] = useState("")

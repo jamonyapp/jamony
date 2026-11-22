@@ -29,6 +29,7 @@ type PopoverUser = {
   total_likes?: number
   is_following?: boolean
   avatar_url?: string
+  deleted?: boolean // 1123 注销降级卡: 墓碑刻名(头像+昵称保留,零数据字段)
 }
 
 type PopoverPos = { top: number; left: number } | null
@@ -243,22 +244,30 @@ export function UserPopover({
                     {nameClamped && <span className="jamony-tip left-0 top-full mt-1.5">{user.nickname}</span>}
                   </p>
                   {/* 乐器·地区: 原位单行截断(1105欢哥: 右端=签名右端,截断带…),截断悬停全文 */}
-                  <p className="jamony-tip-host mt-0.5 flex items-center gap-1 text-[12px]" style={{ color: "#B0B0B0" }}>
-                    <span className="shrink-0">{icon}</span>
-                    <span ref={instrRef} className="min-w-0 truncate">{user.primary_instrument}{user.city ? ` · ${regionDisplay(user.city)}` : ""}</span>
-                    {instrClamped && (
-                      <span className="jamony-tip left-0 top-full mt-1.5">
-                        {icon} {user.primary_instrument}{user.city ? ` · ${user.city}` : ""}
+                  {/* 1123 注销降级卡: 已注销=零数据字段,此行不渲染(匿名化后字段已空,孤零零icon也不给) */}
+                  {!user.deleted && (
+                    <p className="jamony-tip-host mt-0.5 flex items-center gap-1 text-[12px]" style={{ color: "#B0B0B0" }}>
+                      <span className="shrink-0">{icon}</span>
+                      <span ref={instrRef} className="min-w-0 truncate">{user.primary_instrument}{user.city ? ` · ${regionDisplay(user.city)}` : ""}</span>
+                      {instrClamped && (
+                        <span className="jamony-tip left-0 top-full mt-1.5">
+                          {icon} {user.primary_instrument}{user.city ? ` · ${user.city}` : ""}
+                        </span>
+                      )}
+                    </p>
+                  )}
+                  {user.deleted ? (
+                    /* 1123 注销降级卡: 墓碑刻名=头像+昵称保留,唯一展示=「该用户已注销」 */
+                    <p className="mt-0.5 text-[12px]" style={{ color: "#6A6A6A" }}>该用户已注销</p>
+                  ) : (
+                    /* 1105欢哥定稿: 等级/积分退役(库与API字段保留,未来引擎直接用),换成陪伴天数+身份标签一行;公式与文案对齐 profile-page 1025 定稿 */
+                    <p className="mt-0.5 flex items-center gap-1.5 text-[12px]" style={{ color: "#8A8A8A" }}>
+                      已来到 jamony {Math.max(1, Math.ceil((Date.now() - new Date(user.created_at).getTime()) / 86400000))} 天
+                      <span className="ml-auto rounded-md px-1.5 py-0.5 text-[10px]" style={{ color: "#FF33AA", backgroundColor: "rgba(255,51,170,0.10)" }}>
+                        免费用户
                       </span>
-                    )}
-                  </p>
-                  {/* 1105欢哥定稿: 等级/积分退役(库与API字段保留,未来引擎直接用),换成陪伴天数+身份标签一行;公式与文案对齐 profile-page 1025 定稿 */}
-                  <p className="mt-0.5 flex items-center gap-1.5 text-[12px]" style={{ color: "#8A8A8A" }}>
-                    已来到 jamony {Math.max(1, Math.ceil((Date.now() - new Date(user.created_at).getTime()) / 86400000))} 天
-                    <span className="ml-auto rounded-md px-1.5 py-0.5 text-[10px]" style={{ color: "#FF33AA", backgroundColor: "rgba(255,51,170,0.10)" }}>
-                      免费用户
-                    </span>
-                  </p>
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -270,14 +279,18 @@ export function UserPopover({
               )}
 
               {/* 作品·获赞(1105欢哥定稿: 数字后置; 0也显示=透明; 1106改"参与作品"=work_authors口径更严谨) */}
-              <p className="px-4 pb-2.5 text-[12px] tabular-nums" style={{ color: "#8A8A8A" }}>
-                参与作品{user.works_count ?? 0} · 获赞{user.total_likes ?? 0}
-              </p>
+              {/* 1123 注销降级卡: 已注销=零数据字段,此行不渲染 */}
+              {!user.deleted && (
+                <p className="px-4 pb-2.5 text-[12px] tabular-nums" style={{ color: "#8A8A8A" }}>
+                  参与作品{user.works_count ?? 0} · 获赞{user.total_likes ?? 0}
+                </p>
+              )}
 
               {/* 操作排:一排三小按钮(关注=FollowButton小pill,私信/主页=描边ghost) */}
+              {/* 1123 注销降级卡: 已注销=关注/私信无意义不渲染,主页保留(作品列表公共资产) */}
               <div className="flex items-center gap-2 border-t px-4 py-2.5" style={{ borderColor: "#1A1A1A" }}>
-                <FollowButton targetUserId={user.id} initialIsFollowing={!!user.is_following} size="small" />
-                {me?.id !== user.id && (
+                {!user.deleted && <FollowButton targetUserId={user.id} initialIsFollowing={!!user.is_following} size="small" />}
+                {me?.id !== user.id && !user.deleted && (
                   <button
                     onClick={() => { close(); openConversation(user.id) }} // 1106欢哥令: 点私信先关用户卡,抽屉独占前台
                     className="rounded-full border px-3 py-1 text-[11px] font-medium transition-colors hover:border-[#4A4A4A] hover:text-white"

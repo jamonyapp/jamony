@@ -10,6 +10,7 @@ import { AvatarUpload } from "@/components/jamony/avatar-upload"
 import { RegionPicker } from "@/components/jamony/region-picker"
 import { splitRegion, isRegionComplete, joinRegion } from "@/lib/regions"
 import { RebindDialog } from "@/components/jamony/rebind-dialog"
+import { DeletionDialog } from "@/components/jamony/deletion-dialog"
 
 const INSTRUMENTS = ["原声吉他", "电吉他", "贝斯", "打击乐器", "键盘乐器", "主唱", "弦乐", "管乐", "民乐", "其他", "听众"]
 
@@ -50,6 +51,8 @@ export function SettingsPage() {
   const [saveError, setSaveError] = useState("")
   const [pwdError, setPwdError] = useState("")
   const [rebindOpen, setRebindOpen] = useState(false)
+  const [deletionOpen, setDeletionOpen] = useState(false) // 1123 注销弹窗
+  const [cancelLoading, setCancelLoading] = useState(false)
   const [nickname, setNickname] = useState("")
   // 1106欢哥令: 昵称1年1改(微信同款)——冷却中输入框禁编,标题右侧提示剩余天数
   const NICK_COOLDOWN_MS = 365 * 86400000
@@ -365,12 +368,58 @@ export function SettingsPage() {
           </button>
         </div>
 
+        <Divider />
+
+        {/* ===== 1123 注销账号(危险区) ===== 冷静期中=剩余天数+撤销; 正常=注销入口 */}
+        <SectionTitle>账号管理</SectionTitle>
+        {user.deletionRequestedAt ? (
+          <div className="flex items-center justify-between rounded-[10px] border px-3 py-2.5" style={{ borderColor: "#FF33AA/40", background: "rgba(255,51,170,0.05)" }}>
+            <div className="text-sm">
+              <span style={{ color: "#FF33AA" }}>注销冷静期中</span>
+              <span className="ml-2 text-xs" style={{ color: "#B0B0B0" }}>
+                剩余 {Math.max(0, 15 - Math.floor((Date.now() - new Date(user.deletionRequestedAt).getTime()) / 86400000))} 天 · 登录即自动撤销
+              </span>
+            </div>
+            <button type="button" disabled={cancelLoading}
+              onClick={async () => {
+                setCancelLoading(true)
+                try {
+                  const res = await fetch("/api/deletion/cancel", { method: "POST", headers: { "Content-Type": "application/json" } })
+                  const data = await res.json()
+                  if (data.ok) { updateUser({ deletionRequestedAt: null }) }
+                } catch { /* 网络错误静默, 按钮态自恢复 */ }
+                setCancelLoading(false)
+              }}
+              className="shrink-0 rounded-lg border px-3 py-1.5 text-xs transition-colors hover:border-[#3A3A3A] hover:text-white disabled:opacity-50"
+              style={{ borderColor: "#2A2A2A", color: "#B0B0B0" }}>
+              {cancelLoading ? "撤销中..." : "撤销注销"}
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between rounded-[10px] border px-3 py-2.5" style={{ borderColor: "#2A2A2A", background: "#141414" }}>
+            <span className="text-sm" style={{ color: "#B0B0B0" }}>注销后账号进入15天冷静期，期内可撤销</span>
+            <button type="button" onClick={() => setDeletionOpen(true)}
+              className="shrink-0 rounded-lg border px-3 py-1.5 text-xs transition-colors hover:border-[#FF5C5C]/40"
+              style={{ borderColor: "#2A2A2A", color: "#FF5C5C" }}>
+              注销账号
+            </button>
+          </div>
+        )}
+
         {/* 1122 换绑手机号(双码流): 成功后 updateUser 即时切脱敏号显示 */}
         <RebindDialog
           open={rebindOpen}
           phoneMasked={user.phoneMasked || ""}
           onClose={() => setRebindOpen(false)}
           onSuccess={(newMasked) => { updateUser({ phoneMasked: newMasked }); setRebindOpen(false) }}
+        />
+
+        {/* 1123 注销账号: 提交成功后 updateUser 即时切冷静期态 */}
+        <DeletionDialog
+          open={deletionOpen}
+          phoneMasked={user.phoneMasked || ""}
+          onClose={() => setDeletionOpen(false)}
+          onSuccess={(requestedAt) => { updateUser({ deletionRequestedAt: requestedAt }); setDeletionOpen(false) }}
         />
       </div>
     </div>

@@ -323,9 +323,11 @@ const restrictionCache = new Map()
 async function ensureUserCache(userId) {
   const hit = restrictionCache.get(userId)
   if (hit && Date.now() - hit.at < 60000) return hit
-  const r = await pool.query('SELECT restriction, restricted_until, token_version FROM users WHERE id=$1', [userId])
+  const r = await pool.query('SELECT restriction, restricted_until, token_version, deleted_at FROM users WHERE id=$1', [userId])
   const row = r.rows[0]
-  const entry = { v: row ? row.restriction : 'normal', tv: row ? (row.token_version || 0) : 0, at: Date.now() }
+  // 1123 注销: deleted_at 有值 → v='deleted' 展示语义; 鉴权层(requireAuth/auth-check/io.use)据此显式拦截,
+  // 其余 restriction 消费点全为精确比较(==='banned'等)不误伤; 死人不刷在线(touch 前拦)
+  const entry = { v: row ? (row.deleted_at ? 'deleted' : row.restriction) : 'normal', tv: row ? (row.token_version || 0) : 0, at: Date.now() }
   if (row && (entry.v === 'restricted' || entry.v === 'demoted' || entry.v === 'banned') && row.restricted_until
       && new Date(row.restricted_until).getTime() <= Date.now()) {
     await pool.query(
@@ -383,6 +385,9 @@ function requireAuth(req, res, next) {
   if (!decoded) return
   getUserSession(decoded.id).then((session) => {
     if (session.restriction === 'banned') return res.status(401).json({ ok: false, code: 'BANNED', msg: '该账号已被封禁' })
+    // 1123 注销: DELETED 先于 sessionStale(token_version+1 本身已让旧会话 stale,但报「已注销」
+    // 让前端能区分「过期可重登」vs「账号已没了别重登」); 亦先于 touchLastSeen——死人不刷在线
+    if (session.restriction === 'deleted') return res.status(401).json({ ok: false, code: 'DELETED', msg: '该账号已注销' })
     if (sessionStale(decoded, session)) return res.status(401).json({ ok: false, msg: '登录已过期' })
     touchLastSeen(decoded.id)
     next()
@@ -407,6 +412,8 @@ function optionalAuth(req, res, next) {
     const decoded = jwt.verify(token, JWT_SECRET)
     getUserSession(decoded.id).then((session) => {
       if (session.restriction === 'banned') return res.status(401).json({ ok: false, code: 'BANNED', msg: '该账号已被封禁' })
+      // 1123 注销: 已注销=静默降游客(不踢拦截页——注销≠违规,下次注册全新开始)
+      if (session.restriction === 'deleted') { req.userId = null; req.nickname = null; return next() }
       if (sessionStale(decoded, session)) { req.userId = null; req.nickname = null; return next() } // 旧会话=游客
       req.userId = decoded.id
       req.nickname = decoded.nickname
@@ -424,7 +431,7 @@ function optionalAuth(req, res, next) {
    三态语义: reject=硬拦不放行(不写内容库) / suspect=放行+写 moderation_logs 供 admin 疑似流巡查(零人工) / pass=放行
    fail-open: 引擎异常或日志写入失败一律放行, 绝不阻塞业务发布链路 */
 const { moderateText, setWhitelistLoader } = require('./lib/moderation')
-const { sendSmsCode, sendNoticeSms } = require('./lib/sms') // 1104 短信验证码 + 1122 换绑通知
+const { sendSmsCode, sendNoticeSms, sendDeletionDoneSms } = require('./lib/sms') // 1104 短信验证码 + 1122 换绑通知 + 1123 注销回执
 // 1104 白名单层注入: 引擎 5min 缓存 TTL, 后台加词 5 分钟内全站生效(admin 写同库同表)
 setWhitelistLoader(async () => (await pool.query('SELECT word FROM moderation_whitelist')).rows.map((r) => r.word))
 // 1025 迷你雪花: 暴露面主实体显式发号(15-16位长数字,JS安全域); 日志类表保留SERIAL
@@ -1204,6 +1211,11 @@ app.post('/api/sms/send-account', requireAuth, async (req, res) => {
       if (cur.rows[0] && phone === cur.rows[0].phone) return res.status(400).json({ ok: false, msg: '新手机号不能与当前手机号相同' })
       const ex = await pool.query('SELECT id FROM users WHERE phone = $1', [phone])
       if (ex.rows.length > 0) return res.status(409).json({ ok: false, msg: '该手机号已绑定其他账号' })
+    } else if (scene === 'delete_account') {
+      // 1123 注销: 发码目标=库里当前绑定号真值(照 rebind_old 模式, 不收前端值)
+      const r = await pool.query('SELECT phone FROM users WHERE id = $1', [req.userId])
+      if (!r.rows[0] || !r.rows[0].phone) return res.status(400).json({ ok: false, msg: '当前账号未绑定手机号' })
+      phone = r.rows[0].phone
     } else {
       return res.status(400).json({ ok: false, msg: '参数不合法' })
     }
@@ -1355,6 +1367,57 @@ app.post('/api/account/recovery', async (req, res) => {
 })
 
 // ========== 登录 ==========
+// ========== 1123 注销账号(15天冷静期+软注销·墓碑刻名) ==========
+// 哲学宪法(欢哥):「注销不是毁尸灭迹,只是查无此人」——昵称/头像/作品/处罚史保留,PII 清空
+// 前置口径(1122定稿): banned 挡(鉴权层已拦,此处显式查=双保险); restricted/demoted/在审放行
+app.post('/api/deletion/request', requireAuth, async (req, res) => {
+  try {
+    const me = await pool.query('SELECT restriction, phone, deletion_requested_at, deleted_at FROM users WHERE id = $1', [req.userId])
+    const u = me.rows[0]
+    if (!u) return res.status(404).json({ ok: false, msg: '用户不存在' })
+    if (u.deleted_at) return res.status(400).json({ ok: false, msg: '该账号已完成注销' })
+    if (u.restriction === 'banned') return res.status(403).json({ ok: false, msg: '该账号已被封禁，无法申请注销' })
+    if (u.deletion_requested_at) {
+      return res.json({ ok: true, msg: '已处于注销冷静期', deletion_requested_at: u.deletion_requested_at }) // 幂等
+    }
+    if (!u.phone) return res.status(400).json({ ok: false, msg: '当前账号未绑定手机号' })
+    // 在房挡: 匿名化执行前还有二道闸,但发起时就拦最干净(在房=活跃=与注销意愿冲突)
+    const inRoom = await pool.query(
+      `SELECT 1 FROM room_members rm JOIN rooms r ON r.id = rm.room_id
+       WHERE rm.user_id = $1 AND r.status NOT IN ('closed','archived')`, [req.userId])
+    if (inRoom.rows.length > 0) return res.status(400).json({ ok: false, msg: '您当前在房间内，请先离开房间后再申请注销' })
+    // 验码(发码走 send-account scene=delete_account)
+    const v = await verifySmsCode(u.phone, 'delete_account', String(req.body.code || ''))
+    if (!v.ok) return res.status(401).json({ ok: false, msg: v.msg })
+    const r = await pool.query(
+      'UPDATE users SET deletion_requested_at = NOW() WHERE id = $1 AND deletion_requested_at IS NULL AND deleted_at IS NULL RETURNING deletion_requested_at',
+      [req.userId])
+    if (r.rows.length === 0) return res.status(409).json({ ok: false, msg: '操作冲突，请刷新后重试' })
+    console.log(`[deletion] user=${req.userId}(${req.nickname || '?'}) 注销申请,冷静期开始`)
+    res.json({ ok: true, msg: '已提交注销申请，进入15天冷静期', deletion_requested_at: r.rows[0].deletion_requested_at })
+  } catch (err) {
+    console.error('Deletion request error:', err.message)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// 撤销注销(冷静期内显式撤销;登录自动撤销在 login 分支)
+app.post('/api/deletion/cancel', requireAuth, async (req, res) => {
+  try {
+    const me = await pool.query('SELECT deletion_requested_at, deleted_at FROM users WHERE id = $1', [req.userId])
+    const u = me.rows[0]
+    if (!u) return res.status(404).json({ ok: false, msg: '用户不存在' })
+    if (u.deleted_at) return res.status(400).json({ ok: false, msg: '该账号已完成注销，无法撤销' })
+    if (!u.deletion_requested_at) return res.json({ ok: true, msg: '当前没有进行中的注销申请' }) // 幂等
+    await pool.query('UPDATE users SET deletion_requested_at = NULL WHERE id = $1 AND deleted_at IS NULL', [req.userId])
+    console.log(`[deletion] user=${req.userId}(${req.nickname || '?'}) 撤销注销`)
+    res.json({ ok: true, msg: '已撤销注销申请' })
+  } catch (err) {
+    console.error('Deletion cancel error:', err.message)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
 app.post('/api/login', async (req, res) => {
   try {
     if (!rateCheck(`login:${req.ip}`, 10, 3600 * 1000)) {
@@ -1398,6 +1461,14 @@ app.post('/api/login', async (req, res) => {
         setAuthCookie(res, user)
         return res.json({ ok: true, banned: true, msg: '该账号已被封禁，相关功能已被冻结。您仍可提交申诉。' })
       }
+      // 1123 注销: 登录即撤销(欢哥定稿「冷静期内,登录将撤销本次账号注销操作」)——
+      // 手机号还挂在账号上(哨兵只在本体化执行时写入),验证码登录成功=本人活体证明
+      let deletionCancelled = false
+      if (user.deletion_requested_at && !user.deleted_at) {
+        await pool.query('UPDATE users SET deletion_requested_at = NULL WHERE id = $1 AND deleted_at IS NULL', [user.id])
+        console.log(`[deletion] user=${user.id}(${user.nickname}) 冷静期内登录,注销自动撤销`)
+        deletionCancelled = true
+      }
       // 1104批次2步骤三: 协议硬闸+签署落档(注册=签; 未签且未带agreementVersion → 403)
       if (!(await enforceAgreement(req, res, user))) return
       const smsPayload = {
@@ -1417,7 +1488,7 @@ app.post('/api/login', async (req, res) => {
         gender: user.gender || '',
       }
       setAuthCookie(res, user)
-      return res.json({ ok: true, user: smsPayload })
+      return res.json({ ok: true, user: smsPayload, deletionCancelled })
     }
 
     // ---- 账户+密码登录(账户=昵称或手机号) ----
@@ -1452,6 +1523,13 @@ app.post('/api/login', async (req, res) => {
     }
     // 1104批次2步骤三: 协议硬闸+签署落档(存量老号补签; 未签且未带agreementVersion → 403)
     if (!(await enforceAgreement(req, res, user))) return
+    // 1123 注销: 密码登录分支同款「登录即撤销」(密码还在=冷静期未执行,验密成功=本人)
+    let deletionCancelled = false
+    if (user.deletion_requested_at && !user.deleted_at) {
+      await pool.query('UPDATE users SET deletion_requested_at = NULL WHERE id = $1 AND deleted_at IS NULL', [user.id])
+      console.log(`[deletion] user=${user.id}(${user.nickname}) 冷静期内登录(密码),注销自动撤销`)
+      deletionCancelled = true
+    }
     const userPayload = {
       id: user.id,
       nickname: user.nickname,
@@ -1469,7 +1547,7 @@ app.post('/api/login', async (req, res) => {
       gender: user.gender || '',
     }
     setAuthCookie(res, user)
-    res.json({ ok: true, user: userPayload })
+    res.json({ ok: true, user: userPayload, deletionCancelled })
   } catch (err) {
     console.error('Login error:', err)
     res.status(500).json({ ok: false, msg: '服务器错误' })
@@ -1538,7 +1616,7 @@ app.get('/api/my-active-room', requireAuth, async (req, res) => {
 app.get('/api/me', requireAuth, async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT id, nickname, nickname_updated_at, avatar_index, avatar_url, bio, signature, styles, city, primary_instrument, instrument_category, secondary_instrument, level, points, restriction, phone, gender, to_char(birthday, \'YYYY-MM-DD\') AS birthday, (password_hash IS NOT NULL) AS has_password FROM users WHERE id=$1',
+      'SELECT id, nickname, nickname_updated_at, avatar_index, avatar_url, bio, signature, styles, city, primary_instrument, instrument_category, secondary_instrument, level, points, restriction, phone, gender, to_char(birthday, \'YYYY-MM-DD\') AS birthday, (password_hash IS NOT NULL) AS has_password, deletion_requested_at FROM users WHERE id=$1',
       [req.userId]
     )
     if (result.rows.length === 0) return res.status(401).json({ ok: false, msg: '用户不存在' })
@@ -1567,6 +1645,7 @@ app.get('/api/me', requireAuth, async (req, res) => {
         hasPassword: !!u.has_password, // false=短信注册号, 设置页「设置密码」免旧密
         gender: u.gender || '', // 1105 画像: male|female|secret|空(本人原值)
         birthday: u.birthday || '', // 1105 画像: 仅本人可见(by-nickname不下发)
+        deletionRequestedAt: u.deletion_requested_at || null, // 1123 注销: 有值=冷静期中(设置页危险区显示)
       }
     })
   } catch (err) {
@@ -1590,6 +1669,7 @@ app.get('/api/users/:id', requireAuth, async (req, res) => {
     const result = await pool.query(
       `SELECT u.id, u.nickname, u.bio, u.signature, u.city, u.primary_instrument, u.instrument_category, u.secondary_instrument,
               u.styles, u.avatar_index, u.avatar_url, u.level, u.points, u.created_at,
+              (u.deleted_at IS NOT NULL) AS deleted,
               (SELECT COUNT(*) FROM work_authors wa WHERE wa.user_id = u.id)::int AS works_count,
               (SELECT COALESCE(SUM(w.likes), 0) FROM works w JOIN work_authors wa ON wa.work_id = w.id WHERE wa.user_id = u.id AND (wa.is_anonymous = FALSE OR $2 = u.id))::int AS total_likes,
               (SELECT COUNT(*) FROM follows WHERE followee_id = u.id)::int AS followers_count,
@@ -1622,6 +1702,7 @@ app.get('/api/users/by-nickname/:nickname', requireAuth, async (req, res) => {
     const result = await pool.query(
       `SELECT u.id, u.nickname, u.bio, u.signature, u.city, u.primary_instrument, u.instrument_category, u.secondary_instrument,
               u.styles, u.avatar_index, u.avatar_url, u.level, u.points, u.created_at, u.is_system,
+              (u.deleted_at IS NOT NULL) AS deleted,
               (SELECT COUNT(*) FROM work_authors wa WHERE wa.user_id = u.id)::int AS works_count,
               (SELECT COALESCE(SUM(w.likes), 0) FROM works w JOIN work_authors wa ON wa.work_id = w.id WHERE wa.user_id = u.id AND (wa.is_anonymous = FALSE OR $2 = u.id))::int AS total_likes,
               (SELECT COUNT(*) FROM follows WHERE followee_id = u.id)::int AS followers_count,
@@ -5738,6 +5819,7 @@ app.get('/api/auth-check', async (req, res) => {
   try {
     const session = await getUserSession(decoded.id)
     if (session.restriction === 'banned') return res.status(401).json({ ok: false, code: 'BANNED' })
+    if (session.restriction === 'deleted') return res.status(401).json({ ok: false, code: 'DELETED' }) // 1123 注销: 流闸同源
     if (sessionStale(decoded, session)) return res.status(401).json({ ok: false, msg: '登录已过期' })
     // 1118 幽灵流根治: 合奏流端点=成员资格闸。X-Original-URI 由 nginx /_stream_auth 转发(/stream/room-<端口>);
     // 席位已失(L2释放/散房/被移出)的听众拒拉流——音频不得脱离席位独活。存量已建连接由 web 绊线翻页即停收口,
@@ -6487,6 +6569,7 @@ io.use(async (socket, next) => {
     // 1122 回滚窗: 版本校验对齐 HTTP——被恢复踢出的攻击者重连 socket 也进不来
     const session = await getUserSession(decoded.id)
     if (session.restriction === 'banned') return next(new Error('该账号已被封禁'))
+    if (session.restriction === 'deleted') return next(new Error('该账号已注销')) // 1123 注销: socket 同源
     if (sessionStale(decoded, session)) return next(new Error('登录已过期'))
     socket.userId = decoded.id
     socket.nickname = decoded.nickname
@@ -7160,6 +7243,51 @@ async function scanExpiredNotices() {
 }
 scanExpiredNotices()  // 启动时立即跑一次（pm2 重启后立即扫描，不漏）
 setInterval(scanExpiredNotices, 3600000)
+
+// 1123 注销匿名化扫描(每小时; 1123 欢哥拍板按小时算, 照过期通知模式)
+// 执行条件 = 到期 AND 活跃保护(发起后从未活跃才执行——换绑/改资料等一切登录态行为都会 touch last_seen_at,
+// 天然免于被匿名化; 冷静期内登录过=已被 login 分支自动撤销, 双保险)
+// 匿名化(墓碑刻名): phone→哨兵 del:<id>(原号释放可重注册) / PII+资料清空 / 昵称+头像+处罚史+统计保留
+async function runDeletionSweep() {
+  try {
+    const due = await pool.query(
+      `SELECT id, phone FROM users
+       WHERE deleted_at IS NULL
+         AND deletion_requested_at IS NOT NULL
+         AND deletion_requested_at + interval '15 days' < NOW()
+         AND last_seen_at < deletion_requested_at`)
+    for (const u of due.rows) {
+      // 二道闸: 执行瞬间在房=跳过本轮(在房必活跃,理论到不了这里; 防御性兜底)
+      const inRoom = await pool.query(
+        `SELECT 1 FROM room_members rm JOIN rooms r ON r.id = rm.room_id
+         WHERE rm.user_id = $1 AND r.status NOT IN ('closed','archived')`, [u.id])
+      if (inRoom.rows.length > 0) continue
+      // 回执短信先发(phone 改写哨兵前; 独立模板 SMS_DELETE_DONE_TEMPLATE 未配置=静默跳过不阻塞)
+      if (u.phone) {
+        sendDeletionDoneSms(u.phone).catch((e) => console.error(`[deletion] user=${u.id} 回执短信失败:`, e.message))
+      }
+      const done = await pool.query(
+        `UPDATE users SET
+           phone = 'del:' || id,
+           password_hash = NULL, email = NULL, bio = NULL, city = NULL,
+           secondary_instrument = NULL, styles = NULL, birthday = NULL, last_seen_at = NULL,
+           primary_instrument = '', gender = '', instrument_category = '', signature = '',
+           token_version = token_version + 1,
+           deleted_at = NOW()
+         WHERE id = $1 AND deleted_at IS NULL
+         RETURNING id`, [u.id])
+      if (done.rows.length === 0) continue // 乐观锁: 并发已被处理
+      // 三线齐断(复用 1122 回滚窗基建): 旧 JWT 全端失效 + 踢 socket
+      restrictionCache.delete(u.id)
+      try { kickUserSockets(u.id, { event: 'force-logout', msg: '该账号已注销' }) } catch (_) {}
+      console.log(`[deletion] user=${u.id} 匿名化执行完毕(15天冷静期届满,墓碑刻名)`)
+    }
+  } catch (e) {
+    console.error('[deletion] sweep error:', e.message)
+  }
+}
+runDeletionSweep()   // 启动即扫
+setInterval(runDeletionSweep, 3600000)
 
 // 启动自检孤儿进程：pm2 重启后清理上次崩溃/删除房间残留的 jamsoul headless/ghost/ffmpeg。
 // 扫描所有 jamsoul-headless 监听的 UDP 端口，对比 rooms 表活跃房间，无对应房间的全部 kill。
