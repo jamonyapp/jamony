@@ -506,7 +506,7 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
                   ✓ 账号已恢复绑定至本手机号
                 </p>
                 <p className="text-xs leading-relaxed" style={{ color: "#9A9A9A" }}>
-                  请使用短信验证码登录，并在「设置-账号安全」中重新设置密码
+                  原密码已作废，请使用<strong>短信验证码</strong>登录，并在「设置-账号安全」中设置新密码
                 </p>
                 <button
                   type="button"
