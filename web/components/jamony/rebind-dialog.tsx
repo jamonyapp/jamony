@@ -18,8 +18,9 @@ function useCountdown() {
   return { left, start: () => setLeft(60) }
 }
 
+// 1122 欢哥UI反馈: 码框高度对齐登录卡片(py-1.5 text-sm 同款)
 const codeInputClass =
-  "w-full rounded-[10px] border px-4 py-2.5 text-center text-xl tracking-[0.4em] text-white outline-none transition-colors placeholder:text-[#666] placeholder:tracking-normal placeholder:text-sm focus:border-[#9933FF]"
+  "w-full rounded-[10px] border px-4 py-1.5 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
 const phoneInputClass =
   "w-full rounded-[10px] border px-4 py-2.5 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
 
@@ -43,20 +44,21 @@ export function RebindDialog({
   const [loading, setLoading] = useState(false)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState("")
+  const [notice, setNotice] = useState("")
   const oldCd = useCountdown()
   const newCd = useCountdown()
 
   useEffect(() => {
     if (open) {
       setStep(1); setTicket(""); setOldCode(""); setNewPhone(""); setNewCode("")
-      setNewMasked(""); setError(""); setLoading(false); setSending(false)
+      setNewMasked(""); setError(""); setNotice(""); setLoading(false); setSending(false)
     }
   }, [open])
 
   if (!open) return null
 
   const sendCode = async (scene: "rebind_old" | "rebind_new") => {
-    setSending(true); setError("")
+    setSending(true); setError(""); setNotice("")
     try {
       const body = scene === "rebind_old" ? { scene } : { scene, phone: newPhone.trim() }
       const res = await fetch("/api/sms/send-account", {
@@ -66,6 +68,8 @@ export function RebindDialog({
       })
       const data = await res.json()
       if (!data.ok) { setError(data.msg || "验证码发送失败"); setSending(false); return }
+      // 1122 欢哥UI反馈: 发码成功提醒与登录卡片同款(文案+蓝色)
+      setNotice("验证码已发送，5分钟内有效")
       if (scene === "rebind_old") oldCd.start(); else newCd.start()
       setSending(false)
     } catch {
@@ -84,7 +88,7 @@ export function RebindDialog({
       })
       const data = await res.json()
       if (!data.ok) { setError(data.msg || "验证失败"); setLoading(false); return }
-      setTicket(data.ticket); setStep(2); setLoading(false)
+      setTicket(data.ticket); setStep(2); setNotice(""); setLoading(false)
     } catch {
       setError("网络错误"); setLoading(false)
     }
@@ -148,7 +152,10 @@ export function RebindDialog({
                   {sending ? <Loader2 className="mx-auto h-4 w-4 animate-spin" /> : oldCd.left > 0 ? `${oldCd.left}s` : "获取验证码"}
                 </button>
               </div>
-              {error && <p className="text-sm" style={{ color: "#FF33AA" }}>{error}</p>}
+              <div className="flex h-5 items-center">
+                {error ? <span className="text-sm" style={{ color: "#FF33AA" }}>{error}</span>
+                  : notice ? <span className="text-xs" style={{ color: "#00AAFF" }}>{notice}</span> : null}
+              </div>
               <p className="text-xs" style={{ color: "#6A6A6A" }}>
                 如旧手机号无法接收验证码，暂不支持更换绑定，可使用新手机号注册新账号。
               </p>
@@ -185,14 +192,17 @@ export function RebindDialog({
                   {sending ? <Loader2 className="mx-auto h-4 w-4 animate-spin" /> : newCd.left > 0 ? `${newCd.left}s` : "获取验证码"}
                 </button>
               </div>
-              {error && <p className="text-sm" style={{ color: "#FF33AA" }}>{error}</p>}
+              <div className="flex h-5 items-center">
+                {error ? <span className="text-sm" style={{ color: "#FF33AA" }}>{error}</span>
+                  : notice ? <span className="text-xs" style={{ color: "#00AAFF" }}>{notice}</span> : null}
+              </div>
               <button onClick={doRebind} disabled={loading}
                 className="flex items-center justify-center gap-2 w-full rounded-[10px] py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:brightness-110 active:scale-[0.97] disabled:opacity-50"
                 style={{ background: "linear-gradient(90deg,#9933ff,#ff33aa)" }}>
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                 {loading ? "更换中..." : "确认更换"}
               </button>
-              <button type="button" onClick={() => { setStep(1); setError("") }} className="text-xs hover:text-white" style={{ color: "#6A6A6A" }}>
+              <button type="button" onClick={() => { setStep(1); setError(""); setNotice("") }} className="text-xs hover:text-white" style={{ color: "#6A6A6A" }}>
                 返回上一步
               </button>
             </>
