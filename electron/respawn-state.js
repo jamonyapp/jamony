@@ -275,6 +275,10 @@ function createRespawnCore(deps, opts = {}) {
     attemptRespawn, notifySpawnEarlyExit,
     isNetOnline: () => netOnline,
     isHealing: () => st.phase !== 'idle',   // 换防期 exit/launched 抑制广播的判据
+    // 1123 僵尸判活: 心跳新鲜(=FAMINE_MS 窗口内有 JAMONY_DELAY)才配被排重复用。
+    // 验票 v2 下 jamsoul 断线重连=无票零回应=永不进门也永不报死(重连循环地狱,1123 欢哥实测),
+    // 进程在≠活着;connectedAt=0(从未心跳)同样不新鲜
+    isHeartbeatFresh: (maxAgeMs = T.FAMINE_MS) => !!st.connectedAt && (Date.now() - st.connectedAt) < maxAgeMs,
     resetFamine,
   }
 }

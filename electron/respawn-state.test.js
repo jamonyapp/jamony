@@ -433,3 +433,41 @@ describe('1119 入场票: 换防前领新票', () => {
     expect(spawns.length).toBe(0)          // 新进程未起,无泄漏(与既有 kill 后作废同语义)
   })
 })
+
+// ══════════════════════════════════════════
+// 1123 僵尸判活: isHeartbeatFresh —— join-room 排重只复用心跳新鲜的进程
+// (断网窗口内硬刷新死锁修复的判活半部;杀+起半部在 main.js join-room,真机验)
+// ══════════════════════════════════════════
+describe('isHeartbeatFresh 僵尸判活', () => {
+  it('从未心跳(connectedAt=0) → 不新鲜(jamsoul 卡重连循环地狱的典型态)', () => {
+    const { core } = makeCore()
+    expect(core.isHeartbeatFresh()).toBe(false)
+  })
+
+  it('心跳刚跳过 → 新鲜', () => {
+    const { core } = makeCore()
+    core.onHeartbeat()
+    expect(core.isHeartbeatFresh()).toBe(true)
+  })
+
+  it('最后心跳距今超过 FAMINE_MS(10s) → 不新鲜', async () => {
+    const { core } = makeCore()
+    core.onHeartbeat()
+    await vi.advanceTimersByTimeAsync(10001)
+    expect(core.isHeartbeatFresh()).toBe(false)
+  })
+
+  it('边界: 最后心跳距今 9.9s → 仍新鲜', async () => {
+    const { core } = makeCore()
+    core.onHeartbeat()
+    await vi.advanceTimersByTimeAsync(9900)
+    expect(core.isHeartbeatFresh()).toBe(true)
+  })
+
+  it('rearm 清零 → 心跳史作废(新周期重新判活)', () => {
+    const { core } = makeCore()
+    core.onHeartbeat()
+    core.rearm({ serverIp: '1.2.3.4', port: 22222, nickname: 't' })
+    expect(core.isHeartbeatFresh()).toBe(false)
+  })
+})

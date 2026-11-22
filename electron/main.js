@@ -181,6 +181,10 @@ const JAMSOUL_BIN = process.env.JAMSOUL_BIN || (
 let mainWindow = null
 let jamsoulProcess = null
 let pendingSelfhealGiveup = false  // 1118: 自愈放弃移交标记——本次 exit 广播带 reason='selfheal-giveup',
+let pendingJoinRespawnKill = false // 1123: join-room 僵尸换防杀标记——旧进程 exit 不广播给 web
+// (此刻 phase 已被 rearm 置 idle,放行广播会让 playing 页误切听众;新进程 3s 存活确认后
+//  jamsoul-launched ok:true 正常接管,web 全程只看到一次成功调起)。与 pendingSelfhealGiveup 同构:
+//  exit handler 消费即自清,迟到 exit(2.5s SIGKILL 路径)也能被兜住
                                     // web 据此走「退出房间」终局（弹窗+分流），不误入切听众假主张路径
 // jamony 09-30: 启动存活确认的撤销句柄（killJamsoul 主动杀时用）
 let pendingLaunchSettle = null
@@ -599,6 +603,7 @@ function launchJamsoul(serverIp, port, nickname, bindIf, ticket) {
       // 1112 P2: 迟到 exit 守卫——SIGKILL 超时路径下壳已 spawn 新进程，旧进程 exit 事件迟到
       // 若无条件清 jamsoulProcess 会误杀新进程引用（孤儿/双 spawn），迟到的直接忽略
       if (jamsoulProcess !== child) {
+        pendingJoinRespawnKill = false  // 1123: 换防场景 exit 本就不广播——残留标记一并清,防误吞下次真退出
         console.log('[jamony] P2: 旧进程迟到 exit，忽略（当前已换防）')
         return
       }
@@ -618,6 +623,13 @@ function launchJamsoul(serverIp, port, nickname, bindIf, ticket) {
       // 换防会把它拉回来（音乐回来优先于"手动退出不复活"教条——后者只约束网正常的场景）
       if (respawn.isHealing()) {
         console.log('[jamony] P2.1: 自愈期 exit 不广播 web（透明）')
+        return
+      }
+      // 1123: join-room 僵尸换防杀的旧进程 exit——不广播(新进程马上起,launched 回执接管),
+      // 广播了会让 playing 页误切听众。消费即自清(迟到 exit 也兜得住)
+      if (pendingJoinRespawnKill) {
+        pendingJoinRespawnKill = false
+        console.log('[jamony] 1123: join-room 换防杀 exit——不广播 web（新进程即将起）')
         return
       }
       // jamony: jamsoul 退出通知网页（反向交互，让页面感知 jamsoul 关闭）
@@ -908,6 +920,17 @@ ipcMain.on('join-room', async (_event, payload) => {
 
   // 1112 P2/P2.1: 缓存 spawn 参数 + 自愈重武装（新的一次主动调起 = 新周期；顺带作废上一轮残留流程）
   respawn.rearm({ serverIp: payload.serverIp, port: payload.port, nickname: payload.nickname })  // 缓存+重武装(作废上一轮残留;票不缓存——复活必领新票,1119 决议)
+
+  // 1123 断网窗口内硬刷新死锁修复: 进程在≠活着。断网→硬刷→快回网的组合下,
+  // jamsoul 卡重连循环地狱(票已消费,无票=零回应=永不进门也永不报死),排重
+  // (launchJamsoul alreadyRunning)会让手里带新票的 join-room 撞铁门,web 永远等不来分轨。
+  // 判据=心跳不新鲜(FAMINE_MS 窗口内无 JAMONY_DELAY/从未跳过)→ 先杀再起,本张新票直接生效;
+  // 心跳活跃(正常网下硬刷新,推流正欢)→ 不杀,照旧走排重无缝复用,原路径零改动
+  if (jamsoulProcess && !respawn.isHeartbeatFresh()) {
+    console.log('[jamony] 1123: join-room 撞僵尸(心跳不新鲜)——先杀再起(带新票)')
+    pendingJoinRespawnKill = true
+    await killForRespawn()
+  }
 
   // 1112 P1: spawn 前异步识别物理网卡(无 VPN≈几十 ms;有 VPN 多一次预检;绝不卡 UI)。
   // 结果走 jamsoul-launched 事件回传,handler 异步化不影响反馈链。
