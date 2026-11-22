@@ -383,7 +383,7 @@ export function SettingsPage() {
                 } catch { /* 网络错误静默, 按钮态自恢复 */ }
                 setCancelLoading(false)
               }}
-              className="shrink-0 rounded-lg border px-3 py-1.5 text-xs transition-colors hover:border-[#3A3A3A] hover:text-white disabled:opacity-50"
+              className="shrink-0 rounded-lg border px-3 py-1.5 text-xs transition-colors hover:border-[#3A3A3A] hover:bg-white/5 hover:text-white disabled:opacity-50"
               style={{ borderColor: "#2A2A2A", color: "#B0B0B0" }}>
               {cancelLoading ? "撤销中..." : "撤销注销"}
             </button>
@@ -392,7 +392,7 @@ export function SettingsPage() {
           <div className="flex items-center justify-between rounded-[10px] border px-3 py-2.5" style={{ borderColor: "#2A2A2A", background: "#141414" }}>
             <span className="text-sm" style={{ color: "#B0B0B0" }}>注销后账号进入15天冷静期，期内可撤销</span>
             <button type="button" onClick={() => setDeletionOpen(true)}
-              className="shrink-0 rounded-lg border px-3 py-1.5 text-xs transition-colors hover:border-[#FF5C5C]/40"
+              className="shrink-0 rounded-lg border px-3 py-1.5 text-xs transition-colors hover:border-[#FF5C5C]/40 hover:bg-[#FF5C5C]/5"
               style={{ borderColor: "#2A2A2A", color: "#FF5C5C" }}>
               注销账号
             </button>
