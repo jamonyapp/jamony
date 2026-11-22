@@ -150,11 +150,12 @@ export function DeletionDialog({
 
         {step === 2 && (
           <>
+            {/* 引言句钉在滚动框外(1123欢哥改笔): 慎重提示常驻可见 */}
+            <p className="px-6 pb-2 text-sm font-semibold text-white">
+              您好，您正在注销jamony账号，请谨慎确认：
+            </p>
             {/* 定稿文案四块: 内部滚动区(欢哥UI定稿: 字数多必须滚) */}
             <div className="mx-6 flex-1 overflow-y-auto rounded-[10px] border px-3" style={{ background: "#101010", borderColor: "#1F1F1F", maxHeight: "42vh" }}>
-              <div className="sticky top-0 pt-3 text-sm font-semibold text-white" style={{ background: "#101010" }}>
-                您好，您正在注销jamony账号，请谨慎确认：
-              </div>
               <SectionTitle>■ 关于注销冷静期</SectionTitle>
               <Line>· 注销账号后，您将进入15天冷静期；</Line>
               <Line>· 冷静期内，登录将撤销本次账号注销操作；</Line>
