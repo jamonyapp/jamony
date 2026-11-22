@@ -361,16 +361,9 @@ export function SettingsPage() {
 
         <Divider />
 
-        <div className="flex justify-center pt-2">
-          <button type="button" onClick={handleLogout}
-            className="flex items-center gap-2 rounded-[10px] border px-5 py-2.5 text-sm transition-colors hover:border-[#FF5C5C]/40 hover:bg-[#FF5C5C]/5" style={{ borderColor: "#2A2A2A", color: "#FF5C5C" }}>
-            <LogOut className="h-4 w-4" />退出登录
-          </button>
-        </div>
-
         <Divider />
 
-        {/* ===== 1123 注销账号(危险区) ===== 冷静期中=剩余天数+撤销; 正常=注销入口 */}
+        {/* ===== 1123 注销账号(危险区) ===== 冷静期中=剩余天数+撤销; 正常=注销入口(1123欢哥: 居退出登录之前,退出压尾) */}
         <SectionTitle>账号管理</SectionTitle>
         {user.deletionRequestedAt ? (
           <div className="flex items-center justify-between rounded-[10px] border px-3 py-2.5" style={{ borderColor: "#FF33AA/40", background: "rgba(255,51,170,0.05)" }}>
@@ -405,6 +398,15 @@ export function SettingsPage() {
             </button>
           </div>
         )}
+
+        <Divider />
+
+        <div className="flex justify-center pt-2">
+          <button type="button" onClick={handleLogout}
+            className="flex items-center gap-2 rounded-[10px] border px-5 py-2.5 text-sm transition-colors hover:border-[#FF5C5C]/40 hover:bg-[#FF5C5C]/5" style={{ borderColor: "#2A2A2A", color: "#FF5C5C" }}>
+            <LogOut className="h-4 w-4" />退出登录
+          </button>
+        </div>
 
         {/* 1122 换绑手机号(双码流): 成功后 updateUser 即时切脱敏号显示 */}
         <RebindDialog
