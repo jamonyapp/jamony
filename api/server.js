@@ -404,7 +404,7 @@ function optionalAuth(req, res, next) {
    三态语义: reject=硬拦不放行(不写内容库) / suspect=放行+写 moderation_logs 供 admin 疑似流巡查(零人工) / pass=放行
    fail-open: 引擎异常或日志写入失败一律放行, 绝不阻塞业务发布链路 */
 const { moderateText, setWhitelistLoader } = require('./lib/moderation')
-const { sendSmsCode } = require('./lib/sms') // 1104 短信验证码
+const { sendSmsCode, sendNoticeSms } = require('./lib/sms') // 1104 短信验证码 + 1122 换绑通知
 // 1104 白名单层注入: 引擎 5min 缓存 TTL, 后台加词 5 分钟内全站生效(admin 写同库同表)
 setWhitelistLoader(async () => (await pool.query('SELECT word FROM moderation_whitelist')).rows.map((r) => r.word))
 // 1025 迷你雪花: 暴露面主实体显式发号(15-16位长数字,JS安全域); 日志类表保留SERIAL
@@ -1157,6 +1157,116 @@ app.post('/api/sms/send', async (req, res) => {
   } catch (err) {
     console.error('SMS send error:', err.message)
     res.status(500).json({ ok: false, msg: '短信发送失败，请稍后再试' })
+  }
+})
+
+// ========== 1122 换绑手机号(双码流 only) ==========
+// 设计定稿(1122欢哥逐项拍板): A 路由双码流(旧号验证持有+新号验证接管)唯一通道;
+// B 路由(旧号不可用人工换绑)堵死——站内知识=开卷考试(登录态即主人态)+终审无法区分(判词见 memory)
+// 换绑只动 phone 不动密码(登录锚点无缝衔接); 30 天频控; 新号必须未注册
+// 换绑票: verify-old 过后签 10 分钟 JWT 票, rebind 执行时验票+验新码(两步解耦, 码错当场报不白填)
+
+// 登录态发码(目标号由场景决定, 不可任意指定——防滥用端点当轰炸机)
+app.post('/api/sms/send-account', requireAuth, async (req, res) => {
+  try {
+    const scene = req.body.scene
+    let phone = ''
+    if (scene === 'rebind_old') {
+      // 旧号码: 发码目标=库里当前绑定号真值, 不收前端值
+      const r = await pool.query('SELECT phone FROM users WHERE id = $1', [req.userId])
+      if (!r.rows[0] || !r.rows[0].phone) return res.status(400).json({ ok: false, msg: '当前账号未绑定手机号' })
+      phone = r.rows[0].phone
+    } else if (scene === 'rebind_new') {
+      // 新号码: 前端指定, 须格式合法+不与当前号相同+未被注册(好文案先于撞唯一索引)
+      phone = String(req.body.phone || '').trim()
+      if (!PHONE_RE.test(phone)) return res.status(400).json({ ok: false, msg: '手机号格式不正确' })
+      const cur = await pool.query('SELECT phone FROM users WHERE id = $1', [req.userId])
+      if (cur.rows[0] && phone === cur.rows[0].phone) return res.status(400).json({ ok: false, msg: '新手机号不能与当前手机号相同' })
+      const ex = await pool.query('SELECT id FROM users WHERE phone = $1', [phone])
+      if (ex.rows.length > 0) return res.status(409).json({ ok: false, msg: '该手机号已绑定其他账号' })
+    } else {
+      return res.status(400).json({ ok: false, msg: '参数不合法' })
+    }
+    // 频控矩阵同 sms/send(单号 60s/1时5条/1天10条 + 单IP 1时10条)
+    if (!rateCheck(`sms:60s:${phone}`, 1, 60 * 1000)) {
+      return res.status(429).json({ ok: false, msg: '发送过于频繁，请1分钟后再试' })
+    }
+    if (!rateCheck(`sms:1h:${phone}`, 5, 3600 * 1000)) {
+      return res.status(429).json({ ok: false, msg: '该手机号本小时发送次数已达上限' })
+    }
+    if (!rateCheck(`sms:1d:${phone}`, 10, 24 * 3600 * 1000)) {
+      return res.status(429).json({ ok: false, msg: '该手机号今日发送次数已达上限' })
+    }
+    if (!rateCheck(`sms:ip:${req.ip}`, 10, 3600 * 1000)) {
+      return res.status(429).json({ ok: false, msg: '操作过于频繁，请稍后再试' })
+    }
+    await issueSmsCode(phone, scene)
+    res.json({ ok: true, msg: '验证码已发送' })
+  } catch (err) {
+    console.error('SMS send-account error:', err.message)
+    res.status(500).json({ ok: false, msg: '短信发送失败，请稍后再试' })
+  }
+})
+
+// 换绑第一步: 验旧码 → 签 10 分钟换绑票(两步解耦, 旧码错当场报, 用户不白填新号)
+app.post('/api/rebind/verify-old', requireAuth, async (req, res) => {
+  try {
+    const code = String(req.body.code || '')
+    if (!/^\d{6}$/.test(code)) return res.status(400).json({ ok: false, msg: '参数不合法' })
+    const me = await pool.query('SELECT phone, rebind_at FROM users WHERE id = $1', [req.userId])
+    const cur = me.rows[0]
+    if (!cur || !cur.phone) return res.status(400).json({ ok: false, msg: '当前账号未绑定手机号' })
+    // 30天频控前置(早失败早提示; 执行端点再查一次双保险)
+    if (cur.rebind_at && Date.now() - new Date(cur.rebind_at).getTime() < 30 * 24 * 3600 * 1000) {
+      const days = Math.ceil((30 * 24 * 3600 * 1000 - (Date.now() - new Date(cur.rebind_at).getTime())) / 86400000)
+      return res.status(429).json({ ok: false, msg: `换绑过于频繁，${days} 天后可再次更换` })
+    }
+    const v = await verifySmsCode(cur.phone, 'rebind_old', code)
+    if (!v.ok) return res.status(401).json({ ok: false, msg: v.msg })
+    const ticket = jwt.sign({ id: req.userId, purpose: 'rebind' }, JWT_SECRET, { expiresIn: '10m' })
+    res.json({ ok: true, ticket })
+  } catch (err) {
+    console.error('Rebind verify-old error:', err.message)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// 换绑执行: 换绑票+新码 → 改绑(唯一索引兜底最终竞态)
+app.post('/api/rebind', requireAuth, async (req, res) => {
+  try {
+    const newPhone = String(req.body.newPhone || '').trim()
+    const newCode = String(req.body.newCode || '')
+    if (!PHONE_RE.test(newPhone) || !/^\d{6}$/.test(newCode)) return res.status(400).json({ ok: false, msg: '参数不合法' })
+    // 验换绑票(本人+10分钟内+用途正确)
+    let decoded
+    try {
+      decoded = jwt.verify(String(req.body.ticket || ''), JWT_SECRET)
+    } catch { return res.status(401).json({ ok: false, msg: '验证已超时，请重新验证旧手机号' }) }
+    if (decoded.id !== req.userId || decoded.purpose !== 'rebind') {
+      return res.status(401).json({ ok: false, msg: '验证已超时，请重新验证旧手机号' })
+    }
+    const me = await pool.query('SELECT phone, rebind_at FROM users WHERE id = $1', [req.userId])
+    const cur = me.rows[0]
+    if (!cur || !cur.phone) return res.status(400).json({ ok: false, msg: '当前账号未绑定手机号' })
+    if (cur.rebind_at && Date.now() - new Date(cur.rebind_at).getTime() < 30 * 24 * 3600 * 1000) {
+      return res.status(429).json({ ok: false, msg: '换绑过于频繁，请稍后再试' })
+    }
+    if (newPhone === cur.phone) return res.status(400).json({ ok: false, msg: '新手机号不能与当前手机号相同' })
+    // 竞态双保险: 发码时查过未注册, 执行前再查(期间可能被抢注)
+    const ex = await pool.query('SELECT id FROM users WHERE phone = $1 AND id <> $2', [newPhone, req.userId])
+    if (ex.rows.length > 0) return res.status(409).json({ ok: false, msg: '该手机号已绑定其他账号，请重新确认' })
+    const v = await verifySmsCode(newPhone, 'rebind_new', newCode)
+    if (!v.ok) return res.status(401).json({ ok: false, msg: v.msg })
+    // 改绑: 只动 phone+rebind_at, 不碰密码(登录无缝衔接)
+    await pool.query('UPDATE users SET phone = $1, rebind_at = NOW() WHERE id = $2', [newPhone, req.userId])
+    console.log(`[rebind] user=${req.userId}(${req.nickname || '?'}) 换绑成功 -> 尾号${newPhone.slice(-4)}`)
+    // 双通知短信: 旧号安全提醒(防盗号刚需)+新号确认; 通知模板待申请, env 未配置=静默跳过
+    sendNoticeSms(cur.phone, { old: maskPhone(cur.phone), new: maskPhone(newPhone) }).catch((e) => console.error('[rebind] 旧号通知失败:', e.message))
+    sendNoticeSms(newPhone, { old: maskPhone(cur.phone), new: maskPhone(newPhone) }).catch((e) => console.error('[rebind] 新号通知失败:', e.message))
+    res.json({ ok: true, msg: '更换绑定成功', phoneMasked: maskPhone(newPhone) })
+  } catch (err) {
+    console.error('Rebind error:', err.message)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
   }
 })
 

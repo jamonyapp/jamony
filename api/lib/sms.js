@@ -52,4 +52,31 @@ async function sendSmsCode(phone, code) {
   return { ok: true }
 }
 
-module.exports = { sendSmsCode }
+/**
+ * 1122 换绑双提醒通知短信(旧号安全提醒+新号绑定确认).
+ * 通知类模板与验证码模板不同: SMS_NOTICE_TEMPLATE 待阿里云申请, env 未配置=静默跳过
+ * (不报错不阻塞业务), 模板批下来填 env 即生效.
+ */
+async function sendNoticeSms(phone, templateParam) {
+  const templateCode = process.env.SMS_NOTICE_TEMPLATE
+  if (!templateCode) {
+    console.log(`[SMS:SKIP] ${phone} 通知短信跳过(SMS_NOTICE_TEMPLATE 未配置)`)
+    return { skipped: true }
+  }
+  const c = getClient()
+  if (!c) throw new Error('短信客户端不可用')
+  const Dysmsapi = require('@alicloud/dysmsapi20170525')
+  const request = new Dysmsapi.SendSmsRequest({
+    phoneNumbers: phone,
+    signName: process.env.SMS_SIGN_NAME || '慧彼文化传媒北京',
+    templateCode,
+    templateParam: JSON.stringify(templateParam),
+  })
+  const resp = await c.sendSms(request)
+  if (!resp.body || resp.body.code !== 'OK') {
+    throw new Error(`阿里云 ${resp.body ? resp.body.code : 'no-resp'}: ${resp.body ? resp.body.message : ''}`)
+  }
+  return { ok: true }
+}
+
+module.exports = { sendSmsCode, sendNoticeSms }

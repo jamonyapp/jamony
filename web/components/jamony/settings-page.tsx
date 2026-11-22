@@ -9,6 +9,7 @@ import { useRoomSession } from "@/lib/room-session"
 import { AvatarUpload } from "@/components/jamony/avatar-upload"
 import { RegionPicker } from "@/components/jamony/region-picker"
 import { splitRegion, isRegionComplete, joinRegion } from "@/lib/regions"
+import { RebindDialog } from "@/components/jamony/rebind-dialog"
 
 const INSTRUMENTS = ["原声吉他", "电吉他", "贝斯", "打击乐器", "键盘乐器", "主唱", "弦乐", "管乐", "民乐", "其他", "听众"]
 
@@ -48,6 +49,7 @@ export function SettingsPage() {
   const [saved, setSaved] = useState(false)
   const [saveError, setSaveError] = useState("")
   const [pwdError, setPwdError] = useState("")
+  const [rebindOpen, setRebindOpen] = useState(false)
   const [nickname, setNickname] = useState("")
   // 1106欢哥令: 昵称1年1改(微信同款)——冷却中输入框禁编,标题右侧提示剩余天数
   const NICK_COOLDOWN_MS = 365 * 86400000
@@ -290,7 +292,14 @@ export function SettingsPage() {
             <FieldLabel>手机号</FieldLabel>
             <div className="flex items-center justify-between rounded-[10px] border px-3 py-2.5" style={{ borderColor: "#2A2A2A", background: "#141414" }}>
               {user.phoneMasked ? (
-                <span className="text-sm text-white">{user.phoneMasked}</span>
+                <>
+                  <span className="text-sm text-white">{user.phoneMasked}</span>
+                  <button type="button" onClick={() => setRebindOpen(true)}
+                    className="shrink-0 rounded-lg border px-3 py-1.5 text-xs transition-colors hover:border-[#3A3A3A] hover:text-white"
+                    style={{ borderColor: "#2A2A2A", color: "#B0B0B0" }}>
+                    更换
+                  </button>
+                </>
               ) : (
                 <>
                   <span className="text-sm" style={{ color: "#B0B0B0" }}>未绑定</span>
@@ -355,6 +364,14 @@ export function SettingsPage() {
             <LogOut className="h-4 w-4" />退出登录
           </button>
         </div>
+
+        {/* 1122 换绑手机号(双码流): 成功后 updateUser 即时切脱敏号显示 */}
+        <RebindDialog
+          open={rebindOpen}
+          phoneMasked={user.phoneMasked || ""}
+          onClose={() => setRebindOpen(false)}
+          onSuccess={(newMasked) => { updateUser({ phoneMasked: newMasked }); setRebindOpen(false) }}
+        />
       </div>
     </div>
   )
