@@ -24,11 +24,13 @@ const codeInputClass =
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return <div className="mt-3 mb-1 text-xs font-semibold" style={{ color: "#B0B0B0" }}>{children}</div>
 }
-// 1123欢哥改笔: 长文两端对齐+悬挂缩进——"·"让位突出,其后文字(含折行)统一左对齐
+// 1123欢哥改笔: 长文两端对齐+"·"让位——标记固定槽位(不猜字符宽,折行起点零误差),正文独立块
 function Line({ children }: { children: React.ReactNode }) {
+  const text = typeof children === "string" ? children.replace(/^·\s*/, "") : children
   return (
-    <p className="mb-1 text-xs leading-relaxed" style={{ color: "#8A8A8A", textAlign: "justify", paddingLeft: "1em", textIndent: "-1em" }}>
-      {children}
+    <p className="mb-1 flex text-xs leading-relaxed" style={{ color: "#8A8A8A" }}>
+      <span className="shrink-0" style={{ width: "0.85em" }}>·</span>
+      <span className="flex-1" style={{ textAlign: "justify" }}>{text}</span>
     </p>
   )
 }
