@@ -24,8 +24,13 @@ const codeInputClass =
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return <div className="mt-3 mb-1 text-xs font-semibold" style={{ color: "#B0B0B0" }}>{children}</div>
 }
+// 1123欢哥改笔: 长文两端对齐+悬挂缩进——"·"让位突出,其后文字(含折行)统一左对齐
 function Line({ children }: { children: React.ReactNode }) {
-  return <p className="mb-1 pl-1 text-xs leading-relaxed" style={{ color: "#8A8A8A" }}>{children}</p>
+  return (
+    <p className="mb-1 text-xs leading-relaxed" style={{ color: "#8A8A8A", textAlign: "justify", paddingLeft: "1em", textIndent: "-1em" }}>
+      {children}
+    </p>
+  )
 }
 
 export function DeletionDialog({
