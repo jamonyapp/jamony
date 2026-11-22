@@ -918,19 +918,21 @@ ipcMain.on('join-room', async (_event, payload) => {
     return
   }
 
-  // 1112 P2/P2.1: 缓存 spawn 参数 + 自愈重武装（新的一次主动调起 = 新周期；顺带作废上一轮残留流程）
-  respawn.rearm({ serverIp: payload.serverIp, port: payload.port, nickname: payload.nickname })  // 缓存+重武装(作废上一轮残留;票不缓存——复活必领新票,1119 决议)
-
   // 1123 断网窗口内硬刷新死锁修复: 进程在≠活着。断网→硬刷→快回网的组合下,
   // jamsoul 卡重连循环地狱(票已消费,无票=零回应=永不进门也永不报死),排重
   // (launchJamsoul alreadyRunning)会让手里带新票的 join-room 撞铁门,web 永远等不来分轨。
   // 判据=心跳不新鲜(FAMINE_MS 窗口内无 JAMONY_DELAY/从未跳过)→ 先杀再起,本张新票直接生效;
-  // 心跳活跃(正常网下硬刷新,推流正欢)→ 不杀,照旧走排重无缝复用,原路径零改动
+  // 心跳活跃(正常网下漫游回房/硬刷新,推流正欢)→ 不杀,照旧走排重无缝复用,原路径零改动
+  // ⚠️必须在 rearm 之前:rearm 清 connectedAt(新周期语义),检查在 rearm 后=锚点必为零=必杀
+  //   (1123晚欢哥实测暴露:每次回房/刷新playing都杀jamsoul——修复路径全绿但正常路径没测的教训)
   if (jamsoulProcess && !respawn.isHeartbeatFresh()) {
     console.log('[jamony] 1123: join-room 撞僵尸(心跳不新鲜)——先杀再起(带新票)')
     pendingJoinRespawnKill = true
     await killForRespawn()
   }
+
+  // 1112 P2/P2.1: 缓存 spawn 参数 + 自愈重武装（新的一次主动调起 = 新周期；顺带作废上一轮残留流程）
+  respawn.rearm({ serverIp: payload.serverIp, port: payload.port, nickname: payload.nickname })  // 缓存+重武装(作废上一轮残留;票不缓存——复活必领新票,1119 决议)
 
   // 1112 P1: spawn 前异步识别物理网卡(无 VPN≈几十 ms;有 VPN 多一次预检;绝不卡 UI)。
   // 结果走 jamsoul-launched 事件回传,handler 异步化不影响反馈链。
