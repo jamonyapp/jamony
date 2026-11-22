@@ -288,7 +288,8 @@ function parseCookies(req) {
 
 // 签 JWT + Set httpOnly cookie
 function setAuthCookie(res, user) {
-  const token = jwt.sign({ id: user.id, nickname: user.nickname }, JWT_SECRET, { expiresIn: '7d' })
+  // 1122 回滚窗: JWT 带 ver(会话版本)——紧急恢复时 token_version+1 即全端旧会话失效
+  const token = jwt.sign({ id: user.id, nickname: user.nickname, ver: user.token_version || 0 }, JWT_SECRET, { expiresIn: '7d' })
   res.cookie(COOKIE_NAME, token, {
     httpOnly: true,
     maxAge: TOKEN_MAX_AGE,
@@ -318,25 +319,42 @@ function touchLastSeen(userId) {
 // 原先恢复只埋在发布守卫, 降级用户到期后第一件事是进房弹琴, 那条路没有恢复逻辑; 集中到此后全路径统一
 // (无期限封号 restricted_until=NULL, 天然不进恢复条件, 零误伤)
 const restrictionCache = new Map()
-async function getUserRestriction(userId) {
+// 1122 回滚窗: 缓存行加 tv(会话版本 token_version)——紧急恢复时 +1 = 旧会话全端立即失效(HTTP/socket/流闸同源)
+async function ensureUserCache(userId) {
   const hit = restrictionCache.get(userId)
-  if (hit && Date.now() - hit.at < 60000) return hit.v
-  const r = await pool.query('SELECT restriction, restricted_until FROM users WHERE id=$1', [userId])
-  let v = r.rows[0] ? r.rows[0].restriction : 'normal'
-  if ((v === 'restricted' || v === 'demoted' || v === 'banned') && r.rows[0].restricted_until
-      && new Date(r.rows[0].restricted_until).getTime() <= Date.now()) {
+  if (hit && Date.now() - hit.at < 60000) return hit
+  const r = await pool.query('SELECT restriction, restricted_until, token_version FROM users WHERE id=$1', [userId])
+  const row = r.rows[0]
+  const entry = { v: row ? row.restriction : 'normal', tv: row ? (row.token_version || 0) : 0, at: Date.now() }
+  if (row && (entry.v === 'restricted' || entry.v === 'demoted' || entry.v === 'banned') && row.restricted_until
+      && new Date(row.restricted_until).getTime() <= Date.now()) {
     await pool.query(
       `UPDATE users SET restriction='normal', restricted_until=NULL, restricted_at=NULL WHERE id=$1 AND restriction=$2`,
-      [userId, v]
+      [userId, entry.v]
     ).catch(() => {})
-    v = 'normal'
+    entry.v = 'normal'
   }
-  restrictionCache.set(userId, { v, at: Date.now() })
+  restrictionCache.set(userId, entry)
   if (restrictionCache.size > 5000) {
     const now = Date.now()
     for (const [uid, e] of restrictionCache) if (now - e.at > 60000) restrictionCache.delete(uid)
   }
-  return v
+  return entry
+}
+
+async function getUserRestriction(userId) {
+  return (await ensureUserCache(userId)).v
+}
+
+// 1122 会话版本双读取体: requireAuth/optionalAuth/io.use/auth-check 校验旧会话用
+async function getUserSession(userId) {
+  const e = await ensureUserCache(userId)
+  return { restriction: e.v, tokenVersion: e.tv }
+}
+
+// JWT.ver(存量 token 无 ver=视为 0)与库版本失配 = 旧会话(紧急恢复已把绑定写回+版本+1)
+function sessionStale(decoded, session) {
+  return (decoded.ver ?? 0) !== session.tokenVersion
 }
 
 // 会话解析共用体: 验签 JWT → req.userId/nickname + 滑续期 cookie; 返回 decoded, 失败返 null(已回 401)
@@ -349,7 +367,7 @@ function parseSession(req, res) {
     req.nickname = decoded.nickname
     const remaining = decoded.exp * 1000 - Date.now()
     if (remaining < 24 * 3600 * 1000) {
-      const newToken = jwt.sign({ id: decoded.id, nickname: decoded.nickname }, JWT_SECRET, { expiresIn: '7d' })
+      const newToken = jwt.sign({ id: decoded.id, nickname: decoded.nickname, ver: decoded.ver ?? 0 }, JWT_SECRET, { expiresIn: '7d' })
       res.cookie(COOKIE_NAME, newToken, { httpOnly: true, maxAge: TOKEN_MAX_AGE, sameSite: 'lax', secure: process.env.COOKIE_SECURE === 'true' })
     }
     return decoded
@@ -363,8 +381,9 @@ function parseSession(req, res) {
 function requireAuth(req, res, next) {
   const decoded = parseSession(req, res)
   if (!decoded) return
-  getUserRestriction(decoded.id).then((restriction) => {
-    if (restriction === 'banned') return res.status(401).json({ ok: false, code: 'BANNED', msg: '该账号已被封禁' })
+  getUserSession(decoded.id).then((session) => {
+    if (session.restriction === 'banned') return res.status(401).json({ ok: false, code: 'BANNED', msg: '该账号已被封禁' })
+    if (sessionStale(decoded, session)) return res.status(401).json({ ok: false, msg: '登录已过期' })
     touchLastSeen(decoded.id)
     next()
   }).catch(() => res.status(401).json({ ok: false, msg: '登录已过期' }))
@@ -386,8 +405,9 @@ function optionalAuth(req, res, next) {
   if (!token) { req.userId = null; req.nickname = null; return next() }
   try {
     const decoded = jwt.verify(token, JWT_SECRET)
-    getUserRestriction(decoded.id).then((restriction) => {
-      if (restriction === 'banned') return res.status(401).json({ ok: false, code: 'BANNED', msg: '该账号已被封禁' })
+    getUserSession(decoded.id).then((session) => {
+      if (session.restriction === 'banned') return res.status(401).json({ ok: false, code: 'BANNED', msg: '该账号已被封禁' })
+      if (sessionStale(decoded, session)) { req.userId = null; req.nickname = null; return next() } // 旧会话=游客
       req.userId = decoded.id
       req.nickname = decoded.nickname
       touchLastSeen(decoded.id)
@@ -1257,8 +1277,11 @@ app.post('/api/rebind', requireAuth, async (req, res) => {
     if (ex.rows.length > 0) return res.status(409).json({ ok: false, msg: '该手机号已绑定其他账号，请重新确认' })
     const v = await verifySmsCode(newPhone, 'rebind_new', newCode)
     if (!v.ok) return res.status(401).json({ ok: false, msg: v.msg })
-    // 改绑: 只动 phone+rebind_at, 不碰密码(登录无缝衔接)
-    await pool.query('UPDATE users SET phone = $1, rebind_at = NOW() WHERE id = $2', [newPhone, req.userId])
+    // 改绑: 只动 phone+rebind_at, 不碰密码(登录无缝衔接); 1122 回滚窗: 旧号存档(72h 紧急恢复通道锚点)
+    await pool.query(
+      'UPDATE users SET phone = $1, rebind_at = NOW(), rebind_from_phone = $2 WHERE id = $3',
+      [newPhone, cur.phone, req.userId]
+    )
     console.log(`[rebind] user=${req.userId}(${req.nickname || '?'}) 换绑成功 -> 尾号${newPhone.slice(-4)}`)
     // 双通知短信: 旧号安全提醒(防盗号刚需)+新号确认; 通知模板待申请, env 未配置=静默跳过
     sendNoticeSms(cur.phone, { old: maskPhone(cur.phone), new: maskPhone(newPhone) }).catch((e) => console.error('[rebind] 旧号通知失败:', e.message))
@@ -1266,6 +1289,67 @@ app.post('/api/rebind', requireAuth, async (req, res) => {
     res.json({ ok: true, msg: '更换绑定成功', phoneMasked: maskPhone(newPhone) })
   } catch (err) {
     console.error('Rebind error:', err.message)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// ========== 1122 换绑回滚窗(72h 紧急恢复) ==========
+// 受害者画像: 密码被改+手机号被换=任何登录态设计都无效, 恢复通道必须未登录可用
+// 通道锚点: rebind_from_phone(换绑时存旧号)+rebind_at(72h 窗口判定); 恢复权≠登录权(库里锚点始终唯一)
+const RECOVERY_WINDOW_SQL = `SELECT id FROM users WHERE rebind_from_phone = $1 AND rebind_at > NOW() - interval '72 hours'`
+
+// ①恢复通道发码: 向换绑前旧号发码(只有持有旧号者能通过——攻击者只在社工骗码那一次拿到过, 早已消耗)
+app.post('/api/sms/send-recovery', async (req, res) => {
+  try {
+    const phone = String(req.body.phone || '').trim()
+    if (!PHONE_RE.test(phone)) return res.status(400).json({ ok: false, msg: '手机号格式不正确' })
+    const w = await pool.query(RECOVERY_WINDOW_SQL, [phone])
+    if (w.rows.length === 0) return res.status(404).json({ ok: false, msg: '该手机号近72小时内没有可恢复的换绑记录' })
+    // 频控矩阵同 sms/send(防向旧号骚扰性触发)
+    if (!rateCheck(`sms:60s:${phone}`, 1, 60 * 1000)) {
+      return res.status(429).json({ ok: false, msg: '发送过于频繁，请1分钟后再试' })
+    }
+    if (!rateCheck(`sms:1h:${phone}`, 5, 3600 * 1000)) {
+      return res.status(429).json({ ok: false, msg: '该手机号本小时发送次数已达上限' })
+    }
+    if (!rateCheck(`sms:1d:${phone}`, 10, 24 * 3600 * 1000)) {
+      return res.status(429).json({ ok: false, msg: '该手机号今日发送次数已达上限' })
+    }
+    if (!rateCheck(`sms:ip:${req.ip}`, 10, 3600 * 1000)) {
+      return res.status(429).json({ ok: false, msg: '操作过于频繁，请稍后再试' })
+    }
+    await issueSmsCode(phone, 'rebind_recovery')
+    res.json({ ok: true, msg: '验证码已发送' })
+  } catch (err) {
+    console.error('SMS send-recovery error:', err.message)
+    res.status(500).json({ ok: false, msg: '短信发送失败，请稍后再试' })
+  }
+})
+
+// ②恢复执行: 验旧号码 → 一气呵成(绑定写回+密码作废+通道关闭+频控清零+会话版本+1全端踢出)
+app.post('/api/account/recovery', async (req, res) => {
+  try {
+    const phone = String(req.body.phone || '').trim()
+    const code = String(req.body.code || '')
+    if (!PHONE_RE.test(phone) || !/^\d{6}$/.test(code)) return res.status(400).json({ ok: false, msg: '参数不合法' })
+    const w = await pool.query(RECOVERY_WINDOW_SQL, [phone])
+    if (w.rows.length === 0) return res.status(404).json({ ok: false, msg: '该手机号近72小时内没有可恢复的换绑记录' })
+    const uid = w.rows[0].id
+    const v = await verifySmsCode(phone, 'rebind_recovery', code)
+    if (!v.ok) return res.status(401).json({ ok: false, msg: v.msg })
+    // phone 写回旧号(骗子号自动释放)/password 作废(受害者验证码登录后走「设置密码」重设,首设免旧密机制已有)
+    // /通道关闭/频控清零(受害者不该背30天冷却,恢复后想换安全号立即畅通)/token_version+1(全会话失效)
+    await pool.query(
+      `UPDATE users SET phone = $1, password_hash = NULL, rebind_from_phone = NULL, rebind_at = NULL,
+        token_version = token_version + 1 WHERE id = $2`,
+      [phone, uid]
+    )
+    restrictionCache.delete(uid) // 即时失效: 下一请求即读到新版本(不等60s缓存)
+    console.log(`[recovery] user=${uid} 紧急恢复成功, 绑定写回尾号${phone.slice(-4)}, 全端会话踢出`)
+    kickUserSockets(uid, { event: 'force-logout', msg: '登录状态已失效，请重新登录' })
+    res.json({ ok: true, msg: '账号已恢复绑定至本手机号，请使用短信验证码登录并重新设置密码' })
+  } catch (err) {
+    console.error('Recovery error:', err.message)
     res.status(500).json({ ok: false, msg: '服务器错误' })
   }
 })
@@ -1289,6 +1373,11 @@ app.post('/api/login', async (req, res) => {
       const found = await pool.query('SELECT * FROM users WHERE phone = $1', [p])
       let user = found.rows[0]
       if (!user) {
+        // 1122 回滚窗: 旧号窗口期挡自动注册——否则静默建空号+旧号被占=永久堵死恢复通道(唯一索引)
+        const rec = await pool.query(RECOVERY_WINDOW_SQL, [p])
+        if (rec.rows.length > 0) {
+          return res.status(400).json({ ok: false, code: 'REBIND_RECOVERY', msg: '该手机号在近72小时内有换绑记录。若您的账号被他人换绑，请在登录页选择「紧急恢复」；若确认放弃原账号，72小时后可重新注册' })
+        }
         // 自动注册: 昵称=用户+8位随机(1104 欢哥定稿), 生成时查重重试
         let nick = ''
         for (let i = 0; i < 5; i++) {
@@ -1306,7 +1395,7 @@ app.post('/api/login', async (req, res) => {
         user = ins.rows[0]
         console.log(`[sms-register] ${p} 自动注册 ${nick}(id=${newUserId})`)
       } else if (user.restriction === 'banned') {
-        setAuthCookie(res, { id: user.id, nickname: user.nickname })
+        setAuthCookie(res, user)
         return res.json({ ok: true, banned: true, msg: '该账号已被封禁，相关功能已被冻结。您仍可提交申诉。' })
       }
       // 1104批次2步骤三: 协议硬闸+签署落档(注册=签; 未签且未带agreementVersion → 403)
@@ -1327,7 +1416,7 @@ app.post('/api/login', async (req, res) => {
         hasPassword: !!user.password_hash,
         gender: user.gender || '',
       }
-      setAuthCookie(res, smsPayload)
+      setAuthCookie(res, user)
       return res.json({ ok: true, user: smsPayload })
     }
 
@@ -1358,7 +1447,7 @@ app.post('/api/login', async (req, res) => {
     // ⑦封号申诉权(1023): banned 照发会话(申诉端点放行), 响应带 banned 标记 → web 跳拦截页(其余端点已被 requireAuth 拦死)
     const banRow = await pool.query('SELECT restriction FROM users WHERE id=$1', [user.id])
     if (banRow.rows[0] && banRow.rows[0].restriction === 'banned') {
-      setAuthCookie(res, { id: user.id, nickname: user.nickname })
+      setAuthCookie(res, user)
       return res.json({ ok: true, banned: true, msg: '该账号已被封禁，相关功能已被冻结。您仍可提交申诉。' })
     }
     // 1104批次2步骤三: 协议硬闸+签署落档(存量老号补签; 未签且未带agreementVersion → 403)
@@ -1379,7 +1468,7 @@ app.post('/api/login', async (req, res) => {
       hasPassword: !!user.password_hash,
       gender: user.gender || '',
     }
-    setAuthCookie(res, userPayload)
+    setAuthCookie(res, user)
     res.json({ ok: true, user: userPayload })
   } catch (err) {
     console.error('Login error:', err)
@@ -5647,8 +5736,9 @@ app.get('/api/auth-check', async (req, res) => {
   const decoded = parseSession(req, res)
   if (!decoded) return // parseSession 已回 401
   try {
-    const r = await getUserRestriction(decoded.id)
-    if (r === 'banned') return res.status(401).json({ ok: false, code: 'BANNED' })
+    const session = await getUserSession(decoded.id)
+    if (session.restriction === 'banned') return res.status(401).json({ ok: false, code: 'BANNED' })
+    if (sessionStale(decoded, session)) return res.status(401).json({ ok: false, msg: '登录已过期' })
     // 1118 幽灵流根治: 合奏流端点=成员资格闸。X-Original-URI 由 nginx /_stream_auth 转发(/stream/room-<端口>);
     // 席位已失(L2释放/散房/被移出)的听众拒拉流——音频不得脱离席位独活。存量已建连接由 web 绊线翻页即停收口,
     // auth 只守连接建立时刻(非成员在 B 版/大厅凭登录态拉流的 946 秒幽灵即此封死)
@@ -6394,8 +6484,10 @@ io.use(async (socket, next) => {
   try {
     const decoded = jwt.verify(token, JWT_SECRET)
     // 1024 Step6: 封号拦截对齐 HTTP 语义——被封前已挂在房内的 socket 也不得继续聊天
-    const restriction = await getUserRestriction(decoded.id)
-    if (restriction === 'banned') return next(new Error('该账号已被封禁'))
+    // 1122 回滚窗: 版本校验对齐 HTTP——被恢复踢出的攻击者重连 socket 也进不来
+    const session = await getUserSession(decoded.id)
+    if (session.restriction === 'banned') return next(new Error('该账号已被封禁'))
+    if (sessionStale(decoded, session)) return next(new Error('登录已过期'))
     socket.userId = decoded.id
     socket.nickname = decoded.nickname
     const u = await pool.query('SELECT avatar_url FROM users WHERE id=$1', [decoded.id])
@@ -7819,11 +7911,14 @@ app.post('/api/admin-internal/works/:id/review-audio', requireAdminInternal, asy
 
 // 封号即时生效的用户侧收口(1024 BANNED识别): 断该用户全部在线socket并通知——
 // 壳内链: web收force-banned→杀jamsoul子进程(UDP直连不经api, 封号后必须由客户端侧断)+跳拦截页
-function kickUserSockets(userId) {
+function kickUserSockets(userId, opts = {}) {
+  // 1122 回滚窗: opts 变体——紧急恢复踢攻击者用 force-logout(中性文案), 不给申诉表单入口
+  const ev = opts.event || 'force-banned'
+  const msg = opts.msg || '该账号已被封禁'
   try {
     for (const [, s] of io.sockets.sockets) {
       if (s.userId === userId) {
-        try { s.emit('force-banned', { msg: '该账号已被封禁' }) } catch (e) {}
+        try { s.emit(ev, { msg }) } catch (e) {}
         setTimeout(() => { try { s.disconnect(true) } catch (e) {} }, 300)
       }
     }

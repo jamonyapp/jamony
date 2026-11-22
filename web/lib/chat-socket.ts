@@ -111,6 +111,14 @@ export function useChatSocket(roomId?: string, nickname?: string) {
       if (!window.location.pathname.startsWith("/banned")) window.location.href = "/banned"
     })
 
+    // 1122 换绑回滚窗: 紧急恢复踢旧会话(中性文案)——杀jamsoul子进程+清本地用户态回首页;
+    // httpOnly cookie 前端清不掉, 但服务端 token_version 已+1=后续请求全 401, 实际登录态已终结
+    socket.on("force-logout", () => {
+      try { ;(window as unknown as { jamonyAPI?: { killJamsoul?: () => void } }).jamonyAPI?.killJamsoul?.() } catch { /* 浏览器环境无此API */ }
+      try { localStorage.removeItem("jamony_user") } catch { /* 无痕/异常兜底 */ }
+      window.location.href = "/"
+    })
+
     socket.on("chords-update", (data: { chords: string[] }) => {
       setRealtimeChords(data.chords || [])
     })

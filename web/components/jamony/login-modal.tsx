@@ -45,7 +45,7 @@ function AgreementCheck({ agreed, onToggle, onOpen }: { agreed: boolean; onToggl
   )
 }
 
-type Mode = "account" | "sms" | "forgot"
+type Mode = "account" | "sms" | "forgot" | "recovery"
 
 // 1109 强登录: embedded=true = /login 整页模式(不随 showLoginModal 门控/无遮罩/无关闭钮, 成功跳 "/"); 默认 = 全局弹窗模式(原行为不变)
 export function LoginModal({ embedded = false }: { embedded?: boolean }) {
@@ -66,6 +66,8 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [notice, setNotice] = useState("")
+  // 1122 回滚窗: 紧急恢复成功态(引导验证码登录+重设密码)
+  const [recovered, setRecovered] = useState(false)
 
   // 1104批次2步骤三(+补·隐私政策并轨): 一勾两文档; 打开弹窗拉取双份; 登录失败刷新=应对 admin 刚发新版
   const [agreed, setAgreed] = useState(false)
@@ -104,6 +106,7 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
     setConfirmPassword("")
     setError("")
     setNotice("")
+    setRecovered(false)
     setAgreed(false) // 协议确认=每次登录独立确认, 切 tab/重开弹窗重新勾
   }
 
@@ -221,6 +224,44 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
     setAccount(p) // 顺手回填账户框, 直接用新密码登录
     setMode("account")
     setNotice("密码已重置，请使用新密码登录")
+  }
+
+  // 1122 换绑回滚窗: 72h 紧急恢复(未登录通道——受害者密码被改+手机被换, 任何登录态设计都无效)
+  const handleSendRecoveryCode = async () => {
+    const p = phone.trim()
+    if (!PHONE_RE.test(p)) { setError("请输入换绑前绑定的手机号"); return }
+    setCodeSending(true); setError(""); setNotice("")
+    try {
+      const res = await fetch("/api/sms/send-recovery", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: p }),
+      })
+      const data = await res.json()
+      setCodeSending(false)
+      if (!data.ok) { setError(data.msg || "发送失败"); return }
+      setNotice("验证码已发送，5分钟内有效")
+      setCountdown(60)
+    } catch { setCodeSending(false); setError("网络错误") }
+  }
+
+  const handleRecovery = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const p = phone.trim()
+    if (!PHONE_RE.test(p)) { setError("请输入换绑前绑定的手机号"); return }
+    if (!/^\d{6}$/.test(code.trim())) { setError("请输入6位验证码"); return }
+    setLoading(true); setError("")
+    try {
+      const res = await fetch("/api/account/recovery", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: p, code: code.trim() }),
+      })
+      const data = await res.json()
+      setLoading(false)
+      if (!data.ok) { setError(data.msg || "恢复失败"); return }
+      setRecovered(true)
+    } catch { setLoading(false); setError("网络错误") }
   }
 
   const inputCls = "w-full rounded-xl border px-4 py-1.5 text-sm text-white outline-none transition-colors placeholder:text-[#666] focus:border-[#9933FF]"
@@ -450,6 +491,93 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
               </button>
             </form>
           </>
+        ) : mode === "recovery" ? (
+          <>
+            <div className="mb-4">
+              <h2 className="text-xl font-bold text-white">紧急恢复</h2>
+              <p className="mt-1 text-xs" style={{ color: "#8A8A8A" }}>
+                账号被他人换绑手机号？换绑后72小时内，可使用原手机号恢复
+              </p>
+            </div>
+
+            {recovered ? (
+              <div className="flex flex-col gap-4">
+                <p className="text-sm font-medium" style={{ color: "#BBEE00" }}>
+                  ✓ 账号已恢复绑定至本手机号
+                </p>
+                <p className="text-xs leading-relaxed" style={{ color: "#9A9A9A" }}>
+                  请使用短信验证码登录，并在「设置-账号安全」中重新设置密码
+                </p>
+                <button
+                  type="button"
+                  className={submitCls}
+                  style={submitStyle}
+                  onClick={() => { const p = phone.trim(); reset(); setPhone(p); setMode("sms") }}
+                >
+                  去登录
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleRecovery} className="flex flex-col gap-4">
+                <div>
+                  <label className={labelCls} style={{ color: "#9A9A9A" }}>
+                    原绑定手机号
+                  </label>
+                  <input
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 11))}
+                    placeholder="输入换绑前绑定的手机号"
+                    className={inputCls}
+                    style={inputStyle}
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between">
+                    <label className={labelCls} style={{ color: "#9A9A9A" }}>
+                      验证码
+                    </label>
+                    {notice && <span className="text-xs" style={{ color: "#00AAFF" }}>{notice}</span>}
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={code}
+                      onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                      placeholder="6位验证码"
+                      className={`${inputCls} flex-1`}
+                      style={inputStyle}
+                    />
+                    <button
+                      type="button"
+                      disabled={countdown > 0 || codeSending}
+                      onClick={handleSendRecoveryCode}
+                      className="shrink-0 rounded-xl border px-3 text-xs font-medium text-white transition-opacity disabled:opacity-50"
+                      style={{ background: "#141414", borderColor: "#2A2A2A" }}
+                    >
+                      {codeSending ? "发送中..." : countdown > 0 ? `${countdown}s后重发` : "获取验证码"}
+                    </button>
+                  </div>
+                </div>
+
+                {/* 1110p 常驻占位(欢哥批): 提示行恒在——只做显示/不显示,不做有无(增删行会拉长卡片=跳动别扭) */}
+                <p className="text-xs" style={{ color: "#FF33AA", visibility: error ? "visible" : "hidden" }}>
+                  {error || " "}
+                </p>
+
+                <button type="submit" disabled={loading} className={submitCls} style={submitStyle}>
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  {loading ? "恢复中..." : "恢复账号"}
+                </button>
+
+                <button type="button" className="text-center text-xs" style={{ color: "#8A8A8A" }} onClick={() => switchMode("account")}>
+                  返回登录
+                </button>
+              </form>
+            )}
+          </>
         ) : (
           <>
             <div className="mb-4">
@@ -479,9 +607,14 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
                   <label className={labelCls} style={{ color: "#9A9A9A" }}>
                     密码
                   </label>
-                  <button type="button" className="text-xs" style={{ color: "#00AAFF" }} onClick={() => switchMode("forgot")}>
-                    忘记密码?
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <button type="button" className="text-xs" style={{ color: "#00AAFF" }} onClick={() => switchMode("forgot")}>
+                      忘记密码?
+                    </button>
+                    <button type="button" className="text-xs" style={{ color: "#00AAFF" }} onClick={() => switchMode("recovery")}>
+                      紧急恢复
+                    </button>
+                  </div>
                 </div>
                 <input
                   type="password"
