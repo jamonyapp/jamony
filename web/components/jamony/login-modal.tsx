@@ -496,7 +496,7 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
             <div className="mb-4">
               <h2 className="text-xl font-bold text-white">紧急恢复</h2>
               <p className="mt-1 text-xs" style={{ color: "#8A8A8A" }}>
-                账号被他人换绑手机号？换绑后72小时内，可使用原手机号恢复
+                非本人换绑或误操作，72小时内可使用原手机号恢复。
               </p>
             </div>
 
