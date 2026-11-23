@@ -163,8 +163,9 @@ const WEB_URL = process.env.JAMONY_WEB_URL || 'https://app.jamonyapp.com'
 if (process.env.JAMONY_USER_DATA) app.setPath('userData', process.env.JAMONY_USER_DATA)
 
 // jamony 10-02: Mac 帮助菜单外链（欢哥后续做官网/FAQ页后改这里即可）
+// 1124: FAQ 落户独立帮助中心 support.jamonyapp.com(原指 app 域 /faq;老壳由 nginx 301 兜底)
 const HELP_SITE_URL = 'https://jamonyapp.com'
-const HELP_FAQ_URL = `${WEB_URL}/faq`
+const HELP_FAQ_URL = 'https://support.jamonyapp.com'
 
 // jamsoul 可执行文件路径
 // 开发模式：../dist/jamsoul-bin/jamsoul (Mac) / jamsoul.exe (Win)
