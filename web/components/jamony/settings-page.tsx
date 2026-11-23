@@ -361,8 +361,6 @@ export function SettingsPage() {
 
         <Divider />
 
-        <Divider />
-
         {/* ===== 1123 注销账号(危险区) ===== 冷静期中=剩余天数+撤销; 正常=注销入口(1123欢哥: 居退出登录之前,退出压尾) */}
         <SectionTitle>账号管理</SectionTitle>
         {user.deletionRequestedAt ? (
