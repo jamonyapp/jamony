@@ -30,6 +30,7 @@
 
   /* jamony brand tokens */
   --color-brand-blue: var(--brand-blue);
+  --color-brand-blue-deep: var(--brand-blue-deep);
   --color-brand-purple: var(--brand-purple);
   --color-brand-purple-deep: var(--brand-purple-deep);
   --color-brand-pink: var(--brand-pink);
@@ -71,6 +72,7 @@
   --brand-pink: #ff33aa;
   --brand-lime: #bbee00;
   --brand-yellow: #ffeb3b;
+  --brand-blue-deep: #0055cc; /* 1126 四道闸第二道:去发表「时长不足」态——品牌蓝的深档,与可点浅蓝(#00aaff)区分 */
   --brand-green: #bbee00; /* alias for lime */
   --brand-gradient: linear-gradient(
     90deg,

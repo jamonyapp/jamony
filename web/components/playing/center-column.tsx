@@ -12,6 +12,33 @@ import PublishWorkModal from "@/components/publishing/publish-work-modal"
 import { useJamonyDialog } from "@/components/jamony/dialog"
 import { useSpaceControl } from "@/hooks/useSpaceControl"
 
+// ⭐ 1126 四道闸第二道配套:滚动容器内的秒显悬浮(回到房间/鼓机下拉同款视觉:text-xs 12px+紧内距+bg-black+#333边)。
+// 病根:jamony-tip 是 absolute 挂在按钮父级——session 列表 overflow-y-auto 容器会裁剪 absolute 子元素
+// (overflow 裁剪看 DOM 祖先链,与 z-index 无关,z-[1100] 救不了)。正解=tip 用 fixed 定位(脱离裁剪域),
+// 坐标由 JS 量按钮 rect。复用组件:SessionCard F 态(时长不足) + TrackRow 下载/准备中/禁下载。
+function HoverTip({ label, children, align = "center" }: { label: string; children: React.ReactNode; align?: "center" | "left" }) {
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
+  const hostRef = useRef<HTMLSpanElement>(null)
+  const show = () => {
+    const r = hostRef.current?.getBoundingClientRect()
+    if (!r) return
+    setPos({ x: align === "left" ? r.left : r.left + r.width / 2, y: r.bottom + 6 })
+  }
+  return (
+    <span ref={hostRef} className="relative inline-flex" onMouseEnter={show} onMouseLeave={() => setPos(null)}>
+      {children}
+      {pos && (
+        <span
+          className="pointer-events-none fixed z-[2000] -translate-x-1/2 whitespace-nowrap rounded border bg-black px-1.5 py-0.5 text-xs text-white"
+          style={{ borderColor: "#333", left: pos.x, top: pos.y, transform: align === "left" ? "none" : undefined }}
+        >
+          {label}
+        </span>
+      )}
+    </span>
+  )
+}
+
 // 工具栏上拉菜单（10-10 步骤④）：缩放/五线六线/横竖排三件套，样式与分轨弹层同族（欢哥：全照搬alphaTab下拉，底部工具栏=上拉）
 function ToolbarMenu({ value, options, onPick, title, icon, disabled }: { value: string; options: { v: string; t: string }[]; onPick: (v: string) => void; title?: string; icon?: React.ReactNode; disabled?: boolean }) {
   const [open, setOpen] = useState(false)
@@ -1101,42 +1128,48 @@ function RecordingPanel({
           <div className="flex items-center gap-2 text-xs font-semibold">
             <Disc3 className="size-3.5 shrink-0 text-brand-pink" />
             <span className="truncate">本房间录音</span>
-            <span className="hidden shrink-0 text-[11px] font-normal text-muted-foreground sm:inline">每段最长 5 分钟，发表作品须至少 1 分钟</span>
+            <span className="hidden shrink-0 text-[11px] font-normal text-muted-foreground sm:inline">每段最长 5 分钟</span>
             {sessions.length > 0 && (
               <span className="shrink-0 text-[11px] font-normal text-muted-foreground">已录 {sessions.length} 段</span>
             )}
+            {/* 1126 欢哥:录音倒计时从右侧按钮区迁此行(录音中曾把标题行挤折行),收小11px与同行文案同密度,ml-auto 右对齐与下行文案齐头 */}
+            {recording && (
+              <span className="ml-auto flex shrink-0 items-center gap-1 font-mono text-[11px] font-normal text-brand-pink">
+                <span className="size-1.5 animate-rec-pulse rounded-full bg-brand-pink" />
+                {fmt(recTime)}
+                {realtimeRecordingMax ? ` / -${fmt(Math.max(0, realtimeRecordingMax - recTime))}` : ""}
+              </span>
+            )}
           </div>
-          {drawerOpen && <p className="pl-[22px] text-[11px] font-normal leading-tight text-muted-foreground">录音将在房间解散后清除，请及时发表或下载</p>}
+          {drawerOpen && <p className="pl-[22px] text-[11px] font-normal leading-tight text-muted-foreground">房间解散录音即删，请及时发表或下载。用于发表的录音须至少1分钟。</p>}
         </div>
 
         <div className="flex items-center gap-2.5">
-          {recording && (
-            <span className="flex items-center gap-1 font-mono text-xs text-brand-pink">
-              <span className="size-1.5 animate-rec-pulse rounded-full bg-brand-pink" />
-              {fmt(recTime)}
-              {realtimeRecordingMax ? ` / -${fmt(Math.max(0, realtimeRecordingMax - recTime))}` : ""}
-            </span>
-          )}
           <button
             onClick={() => (recording ? stopRecording() : !stopping && startRecording())}
             disabled={stopping || showFinalizing}
             aria-label={recording ? "停止录音" : "开始录音"}
-            className={`flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-bold text-white transition-transform hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100 ${
+            className={`flex min-w-[60px] items-center justify-center gap-1 rounded-md px-2.5 py-1 text-xs font-bold text-white transition-transform hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100 ${
               recording ? "bg-destructive" : "bg-brand-pink"
             }`}
           >
-            {recording ? <Square className="size-3 fill-current" /> : <Circle className="size-3 fill-current" />}
-            {stopping ? "停止中…" : showFinalizing ? "归档中…" : recording ? "停止" : "录音"}
+            {/* 1126 欢哥定稿:录音=Circle/停止=Square,过渡态删图标(圆点撑宽按钮);过渡文案=停止…/归档…(2字+省略号) */}
+            {!stopping && !showFinalizing && (recording ? <Square className="size-3 fill-current" /> : <Circle className="size-3 fill-current" />)}
+            {stopping ? "停止…" : showFinalizing ? "归档…" : recording ? "停止" : "录音"}
           </button>
           {onToggleDrawer && (
-            <button
-              onClick={onToggleDrawer}
-              aria-label={drawerOpen ? "收起录音列表" : "展开录音列表"}
-              title={drawerOpen ? "收起录音列表" : "展开录音列表"}
-              className="grid size-6 place-items-center rounded-[6px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            >
-              <ChevronDown className={`size-4 transition-transform duration-300 ${drawerOpen ? "" : "rotate-180"}`} />
-            </button>
+            <span className="jamony-tip-host relative inline-flex">
+              <button
+                onClick={onToggleDrawer}
+                aria-label={drawerOpen ? "收起录音列表" : "展开录音列表"}
+                className="grid size-6 place-items-center rounded-[6px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <ChevronDown className={`size-4 transition-transform duration-300 ${drawerOpen ? "" : "rotate-180"}`} />
+              </button>
+              <span className="jamony-tip bottom-full left-1/2 -translate-x-1/2 mb-1.5">
+                {drawerOpen ? "收起录音列表" : "展开录音列表"}
+              </span>
+            </span>
           )}
         </div>
       </div>
@@ -1153,13 +1186,15 @@ function RecordingPanel({
               <Disc3 className="size-3 shrink-0" />
               {recToast}
               {/* 1028 欢哥：5s 自动淡出前可随时手动关 */}
-              <button
-                onClick={() => { if (recToastTimer.current) clearTimeout(recToastTimer.current); setRecToast('') }}
-                className="absolute right-1.5 grid size-4 place-items-center rounded-[6px] text-white/70 transition-colors hover:bg-white/15 hover:text-white"
-                title="关闭"
-              >
-                <X className="size-2.5" />
-              </button>
+              <span className="jamony-tip-host absolute right-1.5">
+                <button
+                  onClick={() => { if (recToastTimer.current) clearTimeout(recToastTimer.current); setRecToast('') }}
+                  className="grid size-4 place-items-center rounded-[6px] text-white/70 transition-colors hover:bg-white/15 hover:text-white"
+                >
+                  <X className="size-2.5" />
+                </button>
+                <span className="jamony-tip bottom-full right-0 mb-1.5">关闭</span>
+              </span>
             </div>
           )}
           {/* 录音记录 —— 可滚动 */}
@@ -1370,6 +1405,13 @@ function SessionCard({
   // 可发表=全员确权完毕 ∧ 至少一名真人乐手授权使用——作品不能是纯伴奏/纯looper,
   // 无真人参与无法发布作品(1029 欢哥铁律:前端灰+后端硬闸双拦)
   const canPublish = session.all_locked && session.agreed_count > 0
+  // ⏱ 四道闸·第二道(1126 欢哥拍板): 段落时长不足 1 分钟=「去发表」橙色第6态。
+  //   时长=服务端权威墙钟时长(session.duration, recording_started_at 起算,强刷不改;
+  //   格式 MM:SS),=录音窗口开多久=全部分轨并集上限(含 looper)——口径B「全轨 max」
+  //   的现成真身,零后端改动。落档即冻结,判定零成本。
+  const [durMin, durSec] = (session.duration || '0:00').split(':').map(Number)
+  const durationSecs = (Number.isFinite(durMin) ? durMin : 0) * 60 + (Number.isFinite(durSec) ? durSec : 0)
+  const tooShortForPublish = durationSecs < 60
   // 1025 删除权前置(欢哥): 授权使用=所有权——本人轨未授权(=自动放弃)则按钮灰置,不再走"确认弹窗→403"尴尬链
   // 1028 死角根治(欢哥实测): 素材无主(全部人类轨已表态且全禁用,未决不算,looper不算)时任一轨主可删——单人禁用不再悬死
   const humanTracks = session.tracks.filter((t) => !t.is_system)
@@ -1420,8 +1462,9 @@ function SessionCard({
               试听
             </button>
           )}
-          {/* 2026 去发表5态（欢哥定稿，全3字文案无站位跳动）：
-              A 未全员授权=灰「去发表」 / B 可点 / C 「占位中」(竞态瞬间) / D 他人持锁=「发表中」 / E 已发表。
+          {/* 2026 去发表6态（欢哥定稿，全3字文案无站位跳动）：
+              A 未全员授权=灰「去发表」 / B 可点 / C 「占位中」(竞态瞬间) / D 他人持锁=「发表中」 / E 已发表
+              F 段落时长<1分钟=橙「去发表」(1126 四道闸第二道:亮色警示非行动色,悬停带秒数)。
               点击=面板层抢锁→直开发表混音器（原确认弹窗与发表卡入口已上移退役） */}
           {(() => {
             const claiming = claimingId === session.id
@@ -1438,34 +1481,55 @@ function SessionCard({
                 {claiming ? "占位中" : "发表中"}
               </button>
             )
+            // F 态·四道闸第二道(1126 欢哥拍板):段落时长<1分钟=深蓝「去发表」——brand-blue-deep #0055cc,
+            // 不与任何现有按钮撞色;悬停=HoverTip(fixed 定位穿透列表裁剪域,视觉=回到房间 tip 同款12px)
+            if (tooShortForPublish) return (
+              <HoverTip label={`该段落时长 ${durationSecs} 秒，不足 1 分钟，无法发表。`}>
+                <button disabled
+                  className="cursor-not-allowed rounded-md bg-brand-blue-deep px-3 py-1 text-xs font-bold text-white opacity-90"
+                >
+                  去发表
+                </button>
+              </HoverTip>
+            )
             return (
-              <button
-                onClick={() => onPublishEntry?.(session)}
-                disabled={!canPublish || !onPublishEntry}
-                title={canPublish ? undefined : session.all_locked
-                  ? "作品必须有真人乐手授权参与——无人授权使用时无法发表"
-                  : "等待所有乐手完成使用授权（倒计时结束自动默认授权）"}
-                className={`rounded-md px-3 py-1 text-xs font-bold text-white transition-all duration-200 ${
-                  canPublish
-                    ? `${isMine ? "bg-brand-green" : "bg-brand-blue"} hover:scale-[1.03]`
-                    : "cursor-not-allowed bg-brand-blue/40 opacity-40"
-                }`}
-              >
-                {isMine ? "发表中" : "去发表"}
-              </button>
+              <span className="jamony-tip-host relative inline-flex">
+                <button
+                  onClick={() => onPublishEntry?.(session)}
+                  disabled={!canPublish || !onPublishEntry}
+                  className={`rounded-md px-3 py-1 text-xs font-bold text-white transition-all duration-200 ${
+                    canPublish
+                      ? `${isMine ? "bg-brand-green" : "bg-brand-blue"} hover:scale-[1.03]`
+                      : "cursor-not-allowed bg-brand-blue/40 opacity-40"
+                  }`}
+                >
+                  {isMine ? "发表中" : "去发表"}
+                </button>
+                {!canPublish && (
+                  <span className="jamony-tip top-full left-1/2 -translate-x-1/2 mt-1.5">
+                    {session.all_locked
+                      ? "作品必须有真人乐手授权参与——无人授权使用时无法发表"
+                      : "等待所有乐手完成使用授权（倒计时结束自动默认授权）"}
+                  </span>
+                )}
+              </span>
             )
           })()}
           {/* 1028 死角第二层: 门槛原挂 canPublish(=有人授权才出按钮)——0人授权/全员禁用的段永远无按钮,
               ownerless 修复改了 disabled 却改不到"不出生"。渲染门槛=canDelete(已含授权者∨无主全判定) */}
           {canDelete && (
-            <button
-              onClick={() => canDelete && setDelConfirm(true)}
-              disabled={!canDelete}
-              title={canDelete ? '删除该录音' : '未授权使用该录音（视为放弃），无权删除'}
-              className="grid size-6 place-items-center rounded-[6px] text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
-            >
-              <Trash2 className="size-3.5" />
-            </button>
+            <span className="jamony-tip-host relative inline-flex">
+              <button
+                onClick={() => canDelete && setDelConfirm(true)}
+                disabled={!canDelete}
+                className="grid size-6 place-items-center rounded-[6px] text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+              >
+                <Trash2 className="size-3.5" />
+              </button>
+              <span className="jamony-tip top-full left-1/2 -translate-x-1/2 mt-1.5">
+                {canDelete ? "删除该录音" : "未授权使用该录音（视为放弃），无权删除"}
+              </span>
+            </span>
           )}
         </div>
       </div>
@@ -1610,32 +1674,42 @@ function TrackRow({
         </div>
       )}
 
-      {/* 下载按钮：自己始终可见；他人 ③=可下载见下载 icon，否则见禁下载 icon（纤细版 20px） */}
+      {/* 下载按钮：自己始终可见；他人 ③=可下载见下载 icon，否则见禁下载 icon（纤细版 20px；1126 title→tip 迁=HoverTip fixed 穿裁剪） */}
       <div className="ml-auto">
         {isSelf ? (
           track.normalized ? (
-            <a href={`/api/rooms/${roomId}/sessions/${session.id}/tracks/${track.id}/download-file`} className="grid size-5 place-items-center rounded-[6px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" title="下载我的分轨" download>
-              <Download className="size-3" />
-            </a>
+            <HoverTip label="下载我的分轨">
+              <a href={`/api/rooms/${roomId}/sessions/${session.id}/tracks/${track.id}/download-file`} className="grid size-5 place-items-center rounded-[6px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" download>
+                <Download className="size-3" />
+              </a>
+            </HoverTip>
           ) : (
-            <span className="grid size-5 place-items-center cursor-not-allowed text-muted-foreground/40" title="音轨准备中">
-              <span className="size-3 text-[8px] font-bold text-muted-foreground/30">⏳</span>
-            </span>
+            <HoverTip label="音轨准备中">
+              <span className="grid size-5 place-items-center cursor-not-allowed text-muted-foreground/40">
+                <span className="size-3 text-[8px] font-bold text-muted-foreground/30">⏳</span>
+              </span>
+            </HoverTip>
           )
         ) : track.allow_download === true ? (
           track.normalized ? (
-            <a href={`/api/rooms/${roomId}/sessions/${session.id}/tracks/${track.id}/download-file`} className="grid size-5 place-items-center rounded-[6px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" title={`下载 ${track.nickname} 的分轨`} download>
-              <Download className="size-3" />
-            </a>
+            <HoverTip label={`下载 ${track.nickname} 的分轨`}>
+              <a href={`/api/rooms/${roomId}/sessions/${session.id}/tracks/${track.id}/download-file`} className="grid size-5 place-items-center rounded-[6px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" download>
+                <Download className="size-3" />
+              </a>
+            </HoverTip>
           ) : (
-            <span className="grid size-5 place-items-center cursor-not-allowed text-muted-foreground/40" title="音轨准备中">
-              <span className="size-3 text-[8px] font-bold text-muted-foreground/30">⏳</span>
-            </span>
+            <HoverTip label="音轨准备中">
+              <span className="grid size-5 place-items-center cursor-not-allowed text-muted-foreground/40">
+                <span className="size-3 text-[8px] font-bold text-muted-foreground/30">⏳</span>
+              </span>
+            </HoverTip>
           )
         ) : (
-          <span className="grid size-5 place-items-center text-muted-foreground/40" title={track.allow_download === false ? `${track.nickname} 禁止下载` : "待授权"}>
-            <Ban className="size-3" />
-          </span>
+          <HoverTip label={track.allow_download === false ? `${track.nickname} 禁止下载` : "待授权"}>
+            <span className="grid size-5 place-items-center text-muted-foreground/40">
+              <Ban className="size-3" />
+            </span>
+          </HoverTip>
         )}
       </div>
 
