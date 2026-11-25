@@ -1101,7 +1101,7 @@ function RecordingPanel({
           <div className="flex items-center gap-2 text-xs font-semibold">
             <Disc3 className="size-3.5 shrink-0 text-brand-pink" />
             <span className="truncate">本房间录音</span>
-            <span className="hidden shrink-0 text-[11px] font-normal text-muted-foreground sm:inline">每段最长 5 分钟</span>
+            <span className="hidden shrink-0 text-[11px] font-normal text-muted-foreground sm:inline">每段最长 5 分钟，发表作品须至少 1 分钟</span>
             {sessions.length > 0 && (
               <span className="shrink-0 text-[11px] font-normal text-muted-foreground">已录 {sessions.length} 段</span>
             )}

@@ -706,7 +706,7 @@ setInterval(async () => {
 // 1024 Step5: 全套量刑参数进配置中心(admin 只授权超级管理员); watchReturn/autoDemote/autoBan/cycle/round 五键为同日去硬编码升格
 // 1024 Step6: 渠道分组(欢哥定稿)——门面(publish)=公告牌/作品/房间名简介/推送主题, 流动(interact)=评论/聊天/私信(预留)
 // 分组按内容性质不按传输通道(推送主题走socket但属门面); 判定参数与计数分渠道独立可配, 处罚阶梯共享(封的是人不是渠道)
-const MODERATION_DEFAULTS = { threshold: 5, windowDays: 90, restrictDays: 7, appealDays: 3, rejectThreshold: 5, watchReturnDays: 30, autoDemoteDays: 7, demoteCycleThreshold: 3, autoBanDays: 7, autoBanPermanentRound: 3, interactThreshold: 5, interactWindowDays: 90, interactRejectThreshold: 5, streamSampleIntervalMin: 30, streamSampleSeconds: 60, streamDissolveThreshold: 3, maxActiveRooms: 15, roomCreateHourlyLimit: 5 }
+const MODERATION_DEFAULTS = { threshold: 5, windowDays: 90, restrictDays: 7, appealDays: 3, rejectThreshold: 5, watchReturnDays: 30, autoDemoteDays: 7, demoteCycleThreshold: 3, autoBanDays: 7, autoBanPermanentRound: 3, interactThreshold: 5, interactWindowDays: 90, interactRejectThreshold: 5, streamSampleIntervalMin: 30, streamSampleSeconds: 60, streamDissolveThreshold: 3, maxActiveRooms: 15, roomCreateHourlyLimit: 5, publishEffectiveFloorDb: -50 }
 const CHANNEL_OF_KIND = { notice: 'publish', work: 'publish', room: 'publish', theme: 'publish', notice_image: 'publish', avatar: 'publish', work_cover: 'publish', work_audio: 'publish', score_image: 'publish', score: 'publish', notice_comment: 'interact', work_comment: 'interact', chat: 'interact', message: 'interact', chords: 'interact' }
 let moderationCfgCache = { data: MODERATION_DEFAULTS, at: 0 }
 
