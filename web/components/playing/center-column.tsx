@@ -922,18 +922,15 @@ function RecordingPanel({
     } finally { setClaimingId(null) }
   }
 
-  // 混音器内「发表作品」按钮状态机（闸2 / 锁态 / 渲染中 / 已发表）
+  // 混音器内「发表作品」按钮状态机（1126 四道闸第三道·欢哥常亮定稿:审核闸零灰置,点击后按判定序弹窗）
+  // 灰置仅剩两个系统真实态:已发表(段落锁死)/渲染中(mp3生成防连点);他人持锁不预设=入口已被卡片按钮
+  // 挡死(openPublishMixer)+服务端403兜底,真撞上弹「发表权已被他人持有」
+  // 审核判定序(点击时执行,每次反馈单一问题):时长→MS→文件无声(1031既有)→推子过低
+  const PUBLISH_EFFECTIVE_FLOOR_DB = -50
   const publishBtnState = (() => {
     if (!publishSession) return null
     if (publishSession.status === "published") return { label: "已发表", disabled: true, tone: "gray" as const, reason: "该段落已发表" }
-    const engIds = mixerEngine.tracks.map(t => t.id)
-    const hasSolo = engIds.some(id => mixerEngine.solos[id])
-    const anySilenced = engIds.some(id => (hasSolo ? !mixerEngine.solos[id] : !!mixerEngine.mutes[id]))
-    if (anySilenced) return { label: "发表作品", disabled: true, tone: "gray" as const, reason: "存在静音/独奏轨——发表要求所有分轨参与混音（M/S 仅试听用），点「清除M/S」后重试" }
     if (rendering) return { label: renderStage || "生成中…", disabled: true, busy: true, tone: "blue" as const }
-    const mineLock = publishSession.publisher_user_id === currentUserId
-    if (publishSession.publisher_user_id != null && !mineLock) return { label: "发表中", disabled: true, tone: "gray" as const, reason: `${publishSession.publisher_nickname || "其他乐手"} 正在发表` }
-    if (!mineLock) return { label: "去发表", disabled: false, tone: "blue" as const } // 锁懒超时已释放 → 点击重新抢
     return { label: "发表作品", disabled: false, tone: "green" as const }
   })()
 
@@ -943,7 +940,7 @@ function RecordingPanel({
     : null
   const countdownSec = publishDeadlineMs ? Math.max(0, Math.ceil((publishDeadlineMs - now) / 1000)) : undefined
 
-  // 「发表作品」点击：闸3客户端预检 → renderMix（所发即所听）→ 注入发表卡
+  // 「发表作品」点击：四道闸第三道 blocked 诊断弹窗(1126 欢哥定稿文案) → 闸3客户端预检 → renderMix
   const runPublish = async () => {
     if (!publishSession || !currentUserId || !roomId || rendering) return
     const mineLock = publishSession.publisher_user_id === currentUserId
@@ -954,6 +951,20 @@ function RecordingPanel({
     // 全曲=显式区间（A 在开端、B 在尾端）。与 DAW 导出语义完全对齐：无区间=无导出。
     if (!(lc.b > lc.a)) {
       dialog.alert(`当前发布作品范围为空，请拖拽定位点确认发布范围。`)
+      return
+    }
+    // —— 四道闸第三道·审核判定序(1126 欢哥常亮定稿:点击时逐档判定,每次反馈单一问题) ——
+    // 档1·时长: 发表区间<60s
+    if (lc.b - lc.a < 60) {
+      dialog.alert(`该作品有效内容时长不足1分钟，无法发表。请调整定位器扩大选区，或选择其他段落发表。`)
+      return
+    }
+    // 档2·MS: 有被M/被独奏轨(独奏=其余全算被静音,1031语义;悬停预判已删——常亮方案判定收拢于此)
+    const engIds = mixerEngine.tracks.map(t => t.id)
+    const hasSolo = engIds.some(id => mixerEngine.solos[id])
+    const anySilenced = engIds.some(id => (hasSolo ? !mixerEngine.solos[id] : !!mixerEngine.mutes[id]))
+    if (anySilenced) {
+      dialog.alert(`存在静音/独奏分轨。发表要求所有分轨参与混音（M/S 仅用于试听）。`)
       return
     }
     const range = { a: lc.a, b: lc.b }
@@ -1000,6 +1011,23 @@ function RecordingPanel({
     if (silent.length > 0) {
       // 1031 三轮欢哥定稿：不外露审查机制+授权不可撤销（原「或由该乐手拒绝使用授权」不可操作）
       dialog.alert(`发布作品区间内存在无效分轨，请调整发表区间。`)
+      return
+    }
+    // 档4·推子过低(1126 四道闸第三道新增): 授权人类轨有效电平=区间RMS+20log10(轨gain)+20log10(master)<-50dB
+    // looper/未授权/buffer缺失/全静音轨豁免(全静音已被上一档拦);弹窗点名清单=零数值零相对量(1031不外露审查机制铁律)
+    const masterDb = 20 * Math.log10(Math.max(mixerEngine.masterVolume ?? 1, 1e-4))
+    const quietList: string[] = []
+    for (const t of publishSession.tracks) {
+      if (t.is_system || t.allow_use !== true) continue
+      const buf = buffers.get(String(t.id))
+      if (!buf) continue
+      const rmsDb = computeRangeRmsDb(buf, range.a, range.b)
+      if (rmsDb === -Infinity) continue
+      const gainDb = 20 * Math.log10(Math.max(mixerEngine.volumes[String(t.id)] ?? 1, 1e-4))
+      if (rmsDb + gainDb + masterDb < PUBLISH_EFFECTIVE_FLOOR_DB) quietList.push(t.nickname)
+    }
+    if (quietList.length > 0) {
+      dialog.alert(`以下分轨的电平信号过低，无法参与发表：\n${quietList.map(n => `• ${n}`).join("\n")}\n\n请在调音台调高对应分轨的音量后重试。\n授权分轨混入作品后须可闻，详见「帮助中心-录音与作品」。`)
       return
     }
     setRendering(true)
