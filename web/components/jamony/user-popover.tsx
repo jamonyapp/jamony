@@ -179,7 +179,9 @@ export function UserPopover({
   }
 
   const cat = user?.instrument_category || ""
-  const icon = instrumentIcon[cat] || "🎵"
+  // 1127 两级判定·用户级: 系统用户(is_system 官方标记,id===0 严格相等双保险,改名不影响)→LOGO 渲染圆形logo
+  const isLooperUser = !!user?.is_system || user?.id === 0
+  const icon = isLooperUser ? "LOGO" : (instrumentIcon[cat] || "🎵")
 
   // 1105修: 匿名乐手/空昵称无真身可查(by-nickname 404→假"加载失败"), 不包交互直接渲染
   const isAnonymous = !nickname || nickname === "匿名乐手"
@@ -247,11 +249,11 @@ export function UserPopover({
                   {/* 1123 注销降级卡: 已注销=零数据字段,此行不渲染(匿名化后字段已空,孤零零icon也不给) */}
                   {!user.deleted && (
                     <p className="jamony-tip-host mt-0.5 flex items-center gap-1 text-[12px]" style={{ color: "#B0B0B0" }}>
-                      <span className="shrink-0">{icon}</span>
+                      <span className="shrink-0">{icon === "LOGO" ? <img src="/jamony_logo.png" alt="jamony-looper" className="h-4 w-4 rounded-full object-cover" /> : icon}</span>
                       <span ref={instrRef} className="min-w-0 truncate">{user.primary_instrument}{user.city ? ` · ${regionDisplay(user.city)}` : ""}</span>
                       {instrClamped && (
                         <span className="jamony-tip left-0 top-full mt-1.5">
-                          {icon} {user.primary_instrument}{user.city ? ` · ${user.city}` : ""}
+                          {icon === "LOGO" ? <img src="/jamony_logo.png" alt="jamony-looper" className="inline-block h-4 w-4 rounded-full object-cover" /> : icon} {user.primary_instrument}{user.city ? ` · ${user.city}` : ""}
                         </span>
                       )}
                     </p>

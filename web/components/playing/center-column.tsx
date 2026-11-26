@@ -1610,7 +1610,7 @@ function TrackRow({
   // 待确认的选择（①② 选完需弹窗确认才写死；③ 直接提交）
   const [pending, setPending] = useState<{ field: "allow_use" | "allow_attribution"; value: boolean } | null>(null)
 
-  const emoji = track.is_system ? "🥁" : instrumentEmoji(track.instrument_category)
+  const emoji = track.is_system ? "LOGO" : instrumentEmoji(track.instrument_category) // 1127 两级判定: 轨级 is_system→LOGO(渲染层出圆形logo)
 
   function handleSelect(field: "allow_use" | "allow_attribution" | "allow_download", value: boolean) {
     if (field === "allow_download") {
@@ -1626,7 +1626,7 @@ function TrackRow({
 
   return (
     <div className="flex items-center gap-2.5 rounded-[8px] px-2 py-1 text-xs">
-      <span>{emoji}</span>
+      <span>{emoji === "LOGO" ? <img src="/jamony_logo.png" alt="jamony-looper" className="h-4 w-4 rounded-full object-cover" /> : emoji}</span>
       <span className="w-20 shrink-0 font-medium">{track.nickname}</span>
 
       {/* 三个授权下拉（只有自己可见） */}
