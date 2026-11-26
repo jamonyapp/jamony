@@ -80,7 +80,7 @@ function WaveformTrackImpl({ id, name, instrument, color, active, muted, peaks: 
       {/* 标签 */}
       <div className="z-10 flex w-40 shrink-0 items-center gap-2 truncate">
         <span className="text-base leading-none">
-          {instrument === "LOGO" ? <img src="/jamony_logo.png" alt="jamony-looper" className="h-4 w-4 object-contain" /> : instrument}
+          {instrument === "LOGO" ? <img src="/jamony_logo.png" alt="jamony-looper" className="h-4 w-4 rounded-full object-cover" /> : instrument}
         </span>
         <span className="truncate text-sm" style={{ color: muted ? MIXER_COLORS.textMuted : MIXER_COLORS.text }}>
           {name}
