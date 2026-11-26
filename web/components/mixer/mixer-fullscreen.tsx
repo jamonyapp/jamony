@@ -516,13 +516,13 @@ export function MixerFullscreen({
               )}
             </div>
 
-            <div className="shrink-0 font-mono text-sm tabular-nums" style={{ color: MIXER_COLORS.green }}>
+            <div className="shrink-0 font-mono text-sm tabular-nums" style={{ color: MIXER_COLORS.text }}>
               {formatTime(currentTime)}
               <span style={{ color: MIXER_COLORS.textMuted }}> / {formatTime(duration)}</span>
               {/* 1127 AB 选区时长（欢哥令·元功能：发表/试听/program 三混音器同组件同款）：方括号+定位器三角同色 #BBEE00；
                   折叠态照样显示 [00:00]——用户随时可读已选范围=功能不是熵增；拖拽/平移实时跟 */}
               {locator !== undefined && (
-                <span style={{ color: MIXER_COLORS.green }}> [{formatTime(Math.max(0, loc.b - loc.a))}]</span>
+                <span className="ml-4" style={{ color: MIXER_COLORS.green }}>[{formatTime(Math.max(0, loc.b - loc.a))}]</span>
               )}
             </div>
 
