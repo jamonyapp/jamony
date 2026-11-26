@@ -329,19 +329,19 @@ export function useMixerEngine() {
             if (received - lastEmit >= 262144) {
               lastEmit = received
               setLoadStats({ loaded: bytesDone + received, total: totalBytes })
-              setLoadProgress(Math.min(99, Math.round(((bytesDone + received) / totalBytes) * 100)))
+              setLoadProgress(Math.min(99, Math.round(((bytesDone + received) / totalBytes) * 1000) / 10))
             }
           }
           arrayBuf = await new Blob(chunks).arrayBuffer()
           bytesDone += received
           setLoadStats({ loaded: bytesDone, total: totalBytes })
-          setLoadProgress(Math.min(99, Math.round((bytesDone / totalBytes) * 100)))
+          setLoadProgress(Math.min(99, Math.round((bytesDone / totalBytes) * 1000) / 10))
         } else {
           arrayBuf = await res.arrayBuffer()
           if (bytesMode) { // body 流缺席的保底：按 HEAD 账一次性入账
             bytesDone += headSizes[i].len
             setLoadStats({ loaded: bytesDone, total: totalBytes })
-            setLoadProgress(Math.min(99, Math.round((bytesDone / totalBytes) * 100)))
+            setLoadProgress(Math.min(99, Math.round((bytesDone / totalBytes) * 1000) / 10))
           }
         }
         const audioBuf = await ctx.decodeAudioData(arrayBuf)

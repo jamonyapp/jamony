@@ -3898,7 +3898,12 @@ app.get('/api/rooms/:code/sessions/:sid/tracks/:tid/download', requireAuth, asyn
     }
 
     // 流式发送 WAV
+    // 1126 走带灯批：补 Content-Length——createReadStream+pipe 是 chunked 无总长，
+    // 混音器加载蒙版的字节级进度(HEAD 预取分母+流式记账)拿不到 CL 就整场回退轨数粒度（欢哥实测跳格的病根）
+    const fstat = await fs.promises.stat(track.file_path)
     res.setHeader('Content-Type', 'audio/wav')
+    res.setHeader('Content-Length', fstat.size)
+    if (req.method === 'HEAD') return res.end() // HEAD 探长不流文件（省 53MB 白读盘）
     const stream = fs.createReadStream(track.file_path)
     stream.pipe(res)
     stream.on('error', () => { if (!res.headersSent) res.status(500).end() })

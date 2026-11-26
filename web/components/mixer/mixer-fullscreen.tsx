@@ -606,7 +606,7 @@ export function MixerFullscreen({
           style={{ background: "rgba(0,0,0,0.92)", backdropFilter: "blur(4px)" }}>
           <div className="flex w-80 flex-col items-center gap-5">
             <p className="text-sm font-medium" style={{ color: MIXER_COLORS.textMuted }}>分轨拉取和渲染中，请稍后…</p>
-            <div className="relative h-1.5 w-full">
+            <div className="relative h-3 w-full">
               {/* 暗轨：未加载段（纯黑分层教义，明度差说话） */}
               <div className="absolute inset-0 rounded-full" style={{ background: "#1a1a1a" }} />
               {/* 走带条：品牌渐变，200ms 线性跟字节账本 */}
@@ -619,19 +619,19 @@ export function MixerFullscreen({
               {/* 走带头光点：恒呼吸——条动时呼吸隐入前进感，decode 黑盒停顿时成为唯一活物（磁带机血统） */}
               <div className="tape-head absolute top-1/2"
                 style={{
-                  left: `calc(${loadingProgress}% - 4px)`,
-                  width: 8,
-                  height: 8,
-                  marginTop: -4,
+                  left: `calc(${loadingProgress}% - 6px)`,
+                  width: 12,
+                  height: 12,
+                  marginTop: -6,
                   borderRadius: "50%",
                   background: MIXER_COLORS.blue,
-                  boxShadow: "0 0 8px 2px rgba(0,170,255,0.8)",
+                  boxShadow: "0 0 10px 3px rgba(0,170,255,0.8)",
                 }}
               />
             </div>
             <span className="font-mono text-xs" style={{ color: MIXER_COLORS.text }}>
               {loadStats
-                ? `${(loadStats.loaded / 1048576).toFixed(1)} / ${(loadStats.total / 1048576).toFixed(1)} MB · ${Math.round(loadingProgress)}%`
+                ? `${(loadStats.loaded / 1048576).toFixed(1)} / ${(loadStats.total / 1048576).toFixed(1)} MB · ${loadingProgress.toFixed(1)}%`
                 : `${Math.round(loadingProgress)}%`}
             </span>
           </div>
