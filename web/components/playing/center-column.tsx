@@ -1626,7 +1626,7 @@ function TrackRow({
 
   return (
     <div className="flex items-center gap-2.5 rounded-[8px] px-2 py-1 text-xs">
-      <span>{emoji === "LOGO" ? <img src="/jamony_logo.png" alt="jamony-looper" className="h-5 w-5 rounded-full object-cover" /> : emoji}</span>
+      <span>{emoji === "LOGO" ? <img src="/jamony_logo.png" alt="jamony-looper" className="h-[18px] w-[18px] rounded-full object-cover" /> : emoji}</span>
       <span className="w-20 shrink-0 font-medium">{track.nickname}</span>
 
       {/* 三个授权下拉（只有自己可见） */}
