@@ -372,7 +372,7 @@ function WorkDetailInner() {
     // 1127 欢哥拍板(实例20260706-111): 乐器行从署名快照取(有is_system维度)——looper项出圆形logo,
     // 文案同步「乐器」→「参与乐器」(准确语义=真人参与合奏的乐器,非「能听到什么乐器」;匿名乐手乐器照显示=乐器维度非身份维度)
     { label: "参与乐器", value: workAuthors.length > 0
-      ? <>{workAuthors.map((a: any, i: number) => a.is_system
+      ? <>{[...workAuthors].sort((a: any, b: any) => Number(a.is_system) - Number(b.is_system)).map((a: any, i: number) => a.is_system
           ? <img key={i} src="/jamony_logo.png" alt="jamony-looper" className="mr-1.5 inline-block h-4 w-4 rounded-full object-cover align-[-2px]" />
           : <span key={i} className="mr-1.5">{instrumentEmojis[a.instrument_category] ?? "🎵"}</span>)}</>
       : track.instruments.map(cat => instrumentEmojis[cat] ?? "🎵").join("  ") },
