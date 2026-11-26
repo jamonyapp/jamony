@@ -591,8 +591,9 @@ export function MixerFullscreen({
           </div>
         </section>
       {/* 1126 走带灯批·加载蒙版：加载中（字节级平滑+decode 黑盒段走带头呼吸）与失败态 */}
+      {/* 1127 漏显修：z-10→z-40——定位器细条/拖拽气泡/编辑框(z-20/z-30)原压过蒙版，二进宫时engine残留的旧AB状态穿透漏显（刷新=状态清零故不复现） */}
       {loadError ? (
-        <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl"
+        <div className="absolute inset-0 z-40 flex items-center justify-center rounded-2xl"
           style={{ background: "rgba(0,0,0,0.92)", backdropFilter: "blur(4px)" }}>
           <div className="flex w-80 flex-col items-center gap-4">
             <p className="text-sm font-medium" style={{ color: MIXER_COLORS.red }}>分轨加载失败</p>
@@ -605,7 +606,7 @@ export function MixerFullscreen({
           </div>
         </div>
       ) : loadingProgress !== undefined && loadingProgress < 100 && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl"
+        <div className="absolute inset-0 z-40 flex items-center justify-center rounded-2xl"
           style={{ background: "rgba(0,0,0,0.92)", backdropFilter: "blur(4px)" }}>
           <div className="flex w-80 flex-col items-center gap-5">
             <p className="text-sm font-medium" style={{ color: MIXER_COLORS.textMuted }}>分轨拉取和渲染中，请稍后…</p>
