@@ -1027,7 +1027,7 @@ function RecordingPanel({
       if (rmsDb + gainDb + masterDb < PUBLISH_EFFECTIVE_FLOOR_DB) quietList.push(t.nickname)
     }
     if (quietList.length > 0) {
-      dialog.alert(`以下分轨的电平信号过低，无法参与发表：\n${quietList.map(n => `• ${n}`).join("\n")}\n\n请在调音台调高对应分轨的音量后重试。\n授权分轨混入作品后须可闻，详见「帮助中心-录音与作品」。`)
+      dialog.alert(`授权分轨混入作品后须可闻，以下分轨的电平信号过低，无法参与发表：\n${quietList.map(n => `• ${n}`).join("\n")}\n\n请在调音台调高音量后重试。`)
       return
     }
     setRendering(true)
