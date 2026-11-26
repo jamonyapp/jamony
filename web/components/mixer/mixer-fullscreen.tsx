@@ -608,8 +608,16 @@ export function MixerFullscreen({
             <div className="relative h-3 w-full">
               {/* 暗轨：未加载段（纯黑分层教义，明度差说话） */}
               <div className="absolute inset-0 rounded-full" style={{ background: "#1a1a1a" }} />
-              {/* 走带条：品牌渐变+整体呼吸发光（1126 欢哥：单一进度指标，光点退役——双指标追逐观感打架） */}
-              <div className="fill-breath absolute left-0 top-0 h-full rounded-full transition-[width] duration-200 ease-linear"
+              {/* 渐变光晕层（1127 欢哥令：光晕跟随渐变实色，弃整蓝）：同宽同渐变+blur+呼吸透明度，垫本体之下 */}
+              <div className="fill-glow absolute left-0 top-0 h-full rounded-full transition-[width] duration-200 ease-linear"
+                style={{
+                  width: `${loadingProgress}%`,
+                  background: `linear-gradient(to right, ${MIXER_COLORS.purple}, ${MIXER_COLORS.blue})`,
+                  filter: "blur(6px)",
+                }}
+              />
+              {/* 填充本体：品牌渐变，200ms 线性跟字节账本（单一进度指标，本体保持锐利） */}
+              <div className="absolute left-0 top-0 h-full rounded-full transition-[width] duration-200 ease-linear"
                 style={{
                   width: `${loadingProgress}%`,
                   background: `linear-gradient(to right, ${MIXER_COLORS.purple}, ${MIXER_COLORS.blue})`,
@@ -629,11 +637,11 @@ export function MixerFullscreen({
           from { opacity: 0; transform: scale(0.95); }
           to   { opacity: 1; transform: scale(1); }
         }
-        @keyframes fillBreath {
-          0%, 100% { box-shadow: 0 0 4px 1px rgba(0,170,255,0.35); }
-          50%      { box-shadow: 0 0 12px 3px rgba(0,170,255,0.85); }
+        @keyframes fillGlow {
+          0%, 100% { opacity: 0.25; }
+          50%      { opacity: 0.95; }
         }
-        .fill-breath { animation: fillBreath 1.6s ease-in-out infinite; }
+        .fill-glow { animation: fillGlow 1.6s ease-in-out infinite; }
       `}</style>
     </div>
   )
