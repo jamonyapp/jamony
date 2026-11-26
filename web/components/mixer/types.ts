@@ -18,6 +18,10 @@ export interface MixerFullscreenProps {
   progress: number // 0~1
   /** 0~100，< 100 时显示加载遮罩层 */
   loadingProgress?: number
+  /** 1126 走带灯批：字节级加载账本（有值时蒙版 MB 双显；null=轨数粒度回退态） */
+  loadStats?: { loaded: number; total: number } | null
+  /** 1126 走带灯批：加载失败信息（非空时蒙版切失败态并给退出通道） */
+  loadError?: string | null
   /** M/S 状态（trackId → boolean） */
   mutes?: Record<string, boolean>
   solos?: Record<string, boolean>

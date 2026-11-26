@@ -43,6 +43,8 @@ export function useMixerEngine() {
   const [loading, setLoading] = useState(false)
   const [loadProgress, setLoadProgress] = useState(0)
   const [loadError, setLoadError] = useState<string | null>(null)
+  // 1126 走带灯批：字节级加载账本（HEAD 预取总分母 + 流式 reader 记已收）；任一轨无 Content-Length 则整场回退轨数粒度（null=回退态）
+  const [loadStats, setLoadStats] = useState<{ loaded: number; total: number } | null>(null)
 
   // 播放状态
   const [isPlaying, setIsPlaying] = useState(false)
@@ -260,6 +262,7 @@ export function useMixerEngine() {
     setLoading(true)
     setLoadProgress(0)
     setLoadError(null)
+    setLoadStats(null)
     setTracks([])
     stopAllSources()
     startOffsetRef.current = 0
@@ -295,12 +298,52 @@ export function useMixerEngine() {
     const newPeaks: Record<string, number[]> = {}
     let maxDuration = 0
 
+    // 1126 走带灯批：HEAD 预取各轨 Content-Length（并行、全须拿到才开字节模式；同域 API 路径无 CORS 顾虑）
+    const headSizes = await Promise.all(mixerTracks.map(t =>
+      fetch(t.wavUrl, { method: "HEAD" })
+        .then(r => ({ ok: r.ok, len: Number(r.headers.get("content-length") || 0) }))
+        .catch(() => ({ ok: false, len: 0 }))
+    ))
+    const bytesMode = headSizes.length > 0 && headSizes.every(s => s.ok && s.len > 0)
+    const totalBytes = bytesMode ? headSizes.reduce((a, s) => a + s.len, 0) : 0
+    setLoadStats(bytesMode ? { loaded: 0, total: totalBytes } : null)
+    let bytesDone = 0
+    let lastEmit = 0 // 256KB 节流：进度 state 高频 set 的廉价闸
+
     for (let i = 0; i < mixerTracks.length; i++) {
       const t = mixerTracks[i]
       try {
         const res = await fetch(t.wavUrl)
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        const arrayBuf = await res.arrayBuffer()
+        let arrayBuf: ArrayBuffer
+        if (bytesMode && res.body) {
+          // 流式收账：每块更新字节账本 → 蒙版走带灯平滑前进；decodeAudioData 黑盒段条停在轨分界呼吸
+          const reader = res.body.getReader()
+          const chunks: BlobPart[] = []
+          let received = 0
+          for (;;) {
+            const { done, value } = await reader.read()
+            if (done) break
+            chunks.push(value)
+            received += value.byteLength
+            if (received - lastEmit >= 262144) {
+              lastEmit = received
+              setLoadStats({ loaded: bytesDone + received, total: totalBytes })
+              setLoadProgress(Math.min(99, Math.round(((bytesDone + received) / totalBytes) * 100)))
+            }
+          }
+          arrayBuf = await new Blob(chunks).arrayBuffer()
+          bytesDone += received
+          setLoadStats({ loaded: bytesDone, total: totalBytes })
+          setLoadProgress(Math.min(99, Math.round((bytesDone / totalBytes) * 100)))
+        } else {
+          arrayBuf = await res.arrayBuffer()
+          if (bytesMode) { // body 流缺席的保底：按 HEAD 账一次性入账
+            bytesDone += headSizes[i].len
+            setLoadStats({ loaded: bytesDone, total: totalBytes })
+            setLoadProgress(Math.min(99, Math.round((bytesDone / totalBytes) * 100)))
+          }
+        }
         const audioBuf = await ctx.decodeAudioData(arrayBuf)
         newBuffers.set(t.id, audioBuf)
 
@@ -324,7 +367,7 @@ export function useMixerEngine() {
         const peaks = extractPeaks(audioBuf, 200)
         newPeaks[t.id] = peaks
         maxDuration = Math.max(maxDuration, audioBuf.duration)
-        setLoadProgress(Math.round(((i + 1) / mixerTracks.length) * 100))
+        if (!bytesMode) setLoadProgress(Math.round(((i + 1) / mixerTracks.length) * 100))
       } catch (e: any) {
         console.error(`[mixer] load failed: ${t.name}`, e)
         setLoadError(`${t.name}: ${e.message}`)
@@ -560,7 +603,7 @@ export function useMixerEngine() {
   const progress = duration > 0 ? currentTime / duration : 0
 
   return {
-    loading, loadProgress, loadError,
+    loading, loadProgress, loadError, loadStats,
     isPlaying, currentTime, duration, progress,
     tracks, mutes, solos, volumes, pans, levels, clips,
     masterVolume, masterLevel, masterClip,

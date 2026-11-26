@@ -1256,12 +1256,9 @@ function RecordingPanel({
     {/* 混音器（1026 双模式同一组件：试听=房间回放 / 发表=创作面） */}
     {mixerSessionId !== null && (() => {
       const mixerSession = sessions.find(s => s.id === mixerSessionId)
-      const sourceTracks = mixerMode === "publish"
-        ? (mixerSession?.tracks || []).filter(t => t.allow_use === true || t.is_system)
-        : (mixerSession?.tracks || [])
-      const normalizedCount = sourceTracks.filter(t => t.normalized).length
-      const totalCount = sourceTracks.length
-      const loadingProgress = totalCount > 0 ? (normalizedCount / totalCount) * 100 : 100
+      // 1126 走带灯批：蒙版口径改接 engine 真进度——原 normalized 计数是服务器静态字段（恒 100），
+      // 蒙版从未点亮的病根；loadProgress 0→100 与 buffers/peaks 就绪同帧，消失即可操作
+      const loadingProgress = mixerEngine.loadProgress
       const isPublish = mixerMode === "publish"
 
       return (<>
@@ -1279,6 +1276,8 @@ function RecordingPanel({
             duration={mixerEngine.duration}
             progress={mixerEngine.progress}
             loadingProgress={loadingProgress}
+            loadStats={mixerEngine.loadStats}
+            loadError={mixerEngine.loadError}
             mutes={mixerEngine.mutes}
             solos={mixerEngine.solos}
             levels={mixerEngine.levels}

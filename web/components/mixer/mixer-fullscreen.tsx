@@ -20,6 +20,8 @@ export function MixerFullscreen({
   duration,
   progress,
   loadingProgress,
+  loadStats,
+  loadError,
   mutes,
   solos,
   levels,
@@ -585,22 +587,52 @@ export function MixerFullscreen({
             />
           </div>
         </section>
-      {/* 加载遮罩：normalization + 波形加载总进度 */}
-      {loadingProgress !== undefined && loadingProgress < 100 && (
+      {/* 1126 走带灯批·加载蒙版：加载中（字节级平滑+decode 黑盒段走带头呼吸）与失败态 */}
+      {loadError ? (
         <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl"
-          style={{ background: "rgba(18,18,18,0.92)" }}>
-          <div className="flex w-80 flex-col items-center gap-6">
-            <p className="text-sm font-medium" style={{ color: MIXER_COLORS.textMuted }}>音轨准备中</p>
-            <div className="relative h-2.5 w-full overflow-hidden rounded-full" style={{ background: "#222" }}>
-              <div className="h-full rounded-full transition-all duration-500 ease-out"
+          style={{ background: "rgba(0,0,0,0.92)", backdropFilter: "blur(4px)" }}>
+          <div className="flex w-80 flex-col items-center gap-4">
+            <p className="text-sm font-medium" style={{ color: MIXER_COLORS.red }}>分轨加载失败</p>
+            <p className="break-all text-center text-xs" style={{ color: MIXER_COLORS.textMuted }}>{loadError}</p>
+            <button
+              className="rounded-full px-6 py-2 text-sm transition-colors hover:bg-white/5"
+              style={{ border: `1px solid ${MIXER_COLORS.border}`, color: MIXER_COLORS.text }}
+              onClick={onClose}
+            >退出</button>
+          </div>
+        </div>
+      ) : loadingProgress !== undefined && loadingProgress < 100 && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl"
+          style={{ background: "rgba(0,0,0,0.92)", backdropFilter: "blur(4px)" }}>
+          <div className="flex w-80 flex-col items-center gap-5">
+            <p className="text-sm font-medium" style={{ color: MIXER_COLORS.textMuted }}>分轨拉取和渲染中，请稍后…</p>
+            <div className="relative h-1.5 w-full">
+              {/* 暗轨：未加载段（纯黑分层教义，明度差说话） */}
+              <div className="absolute inset-0 rounded-full" style={{ background: "#1a1a1a" }} />
+              {/* 走带条：品牌渐变，200ms 线性跟字节账本 */}
+              <div className="absolute left-0 top-0 h-full rounded-full transition-[width] duration-200 ease-linear"
                 style={{
                   width: `${loadingProgress}%`,
                   background: `linear-gradient(to right, ${MIXER_COLORS.purple}, ${MIXER_COLORS.blue})`,
                 }}
               />
+              {/* 走带头光点：恒呼吸——条动时呼吸隐入前进感，decode 黑盒停顿时成为唯一活物（磁带机血统） */}
+              <div className="tape-head absolute top-1/2"
+                style={{
+                  left: `calc(${loadingProgress}% - 4px)`,
+                  width: 8,
+                  height: 8,
+                  marginTop: -4,
+                  borderRadius: "50%",
+                  background: MIXER_COLORS.blue,
+                  boxShadow: "0 0 8px 2px rgba(0,170,255,0.8)",
+                }}
+              />
             </div>
-            <span className="font-mono text-sm" style={{ color: MIXER_COLORS.text }}>
-              {Math.round(loadingProgress)}%
+            <span className="font-mono text-xs" style={{ color: MIXER_COLORS.text }}>
+              {loadStats
+                ? `${(loadStats.loaded / 1048576).toFixed(1)} / ${(loadStats.total / 1048576).toFixed(1)} MB · ${Math.round(loadingProgress)}%`
+                : `${Math.round(loadingProgress)}%`}
             </span>
           </div>
         </div>
@@ -612,6 +644,11 @@ export function MixerFullscreen({
           from { opacity: 0; transform: scale(0.95); }
           to   { opacity: 1; transform: scale(1); }
         }
+        @keyframes tapeBreath {
+          0%, 100% { opacity: 0.35; }
+          50%      { opacity: 1; }
+        }
+        .tape-head { animation: tapeBreath 1.6s ease-in-out infinite; }
       `}</style>
     </div>
   )
