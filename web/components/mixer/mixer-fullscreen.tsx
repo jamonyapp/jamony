@@ -519,17 +519,16 @@ export function MixerFullscreen({
             <div className="shrink-0 font-mono text-sm tabular-nums" style={{ color: MIXER_COLORS.text }}>
               {formatTime(currentTime)}
               <span style={{ color: MIXER_COLORS.textMuted }}> / {formatTime(duration)}</span>
-              {/* 1127 AB 选区时长（欢哥令·元功能：发表/试听/program 三混音器同组件同款）：方括号+定位器三角同色 #BBEE00；
-                  折叠态照样显示 [00:00]——用户随时可读已选范围=功能不是熵增；拖拽/平移实时跟 */}
-              {locator !== undefined && (
-                <span className="ml-4" style={{ color: MIXER_COLORS.green }}>[{formatTime(Math.max(0, loc.b - loc.a))}]</span>
-              )}
             </div>
 
             {/* 发表倒计时已迁标题栏（1031 三轮欢哥） */}
 
             {/* 提示文案统一灰（1031 七轮后欢哥回调：白色弃用） */}
             <p className="ml-auto text-xs" style={{ color: MIXER_COLORS.textMuted }}>
+              {/* 1127 AB 选区时长（欢哥令·与范围文案同维度）：放提示文案前，三角同色 #BBEE00，折叠态照样 [00:00] */}
+              {locator !== undefined && (
+                <span className="mr-2 font-mono tabular-nums" style={{ color: MIXER_COLORS.green }}>[{formatTime(Math.max(0, loc.b - loc.a))}]</span>
+              )}
               {footerHint}
             </p>
 
