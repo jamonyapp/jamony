@@ -308,7 +308,7 @@ export function useMixerEngine() {
     const totalBytes = bytesMode ? headSizes.reduce((a, s) => a + s.len, 0) : 0
     setLoadStats(bytesMode ? { loaded: 0, total: totalBytes } : null)
     let bytesDone = 0
-    let lastEmit = 0 // 256KB 节流：进度 state 高频 set 的廉价闸
+    let lastEmit = 0 // 256KB 节流（1127 修：刻度=全局绝对字节 bytesDone+received——原按轨内 received 计差又跨轨不清零，轨1 刻度成轨2 的起点债，后轨 fetch 全程零记账=「卡住秒完成」的病根）
 
     for (let i = 0; i < mixerTracks.length; i++) {
       const t = mixerTracks[i]
@@ -326,8 +326,8 @@ export function useMixerEngine() {
             if (done) break
             chunks.push(value)
             received += value.byteLength
-            if (received - lastEmit >= 262144) {
-              lastEmit = received
+            if (bytesDone + received - lastEmit >= 262144) {
+              lastEmit = bytesDone + received
               setLoadStats({ loaded: bytesDone + received, total: totalBytes })
               setLoadProgress(Math.min(99, Math.round(((bytesDone + received) / totalBytes) * 1000) / 10))
             }
