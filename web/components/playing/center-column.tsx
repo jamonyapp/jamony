@@ -740,7 +740,7 @@ function RecordingPanel({
       const tracks: MixerTrack[] = source.map((t, i) => ({
         id: String(t.id),
         name: t.nickname,
-        instrument: t.is_system ? "🥁" : instrumentEmoji(t.instrument_category),
+        instrument: t.is_system ? "LOGO" : instrumentEmoji(t.instrument_category), // 1127 欢哥令: looper 轨弃🥁(不止鼓机,承载魔盒全家)→ 混音器渲染层遇 LOGO 渲染 jamony logo
         wavUrl: `/api/rooms/${roomId}/sessions/${mixerSessionId}/tracks/${t.id}/download`,
         duration: 0,
         color: TRACK_COLORS[i % TRACK_COLORS.length],

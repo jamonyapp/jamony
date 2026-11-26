@@ -281,7 +281,9 @@ function ChannelStripImpl({
 
       {/* 轨道名 */}
       <div className="flex w-full flex-col items-center gap-0.5">
-        <span className="text-base leading-none">{instrument}</span>
+        <span className="text-base leading-none">
+          {instrument === "LOGO" ? <img src="/jamony_logo.png" alt="jamony-looper" className="h-4 w-4 object-contain" /> : instrument}
+        </span>
         <span className="w-full truncate text-center text-[10px]" style={{ color: MIXER_COLORS.text }}>{isMaster ? "Master" : name}</span>
       </div>
     </div>
