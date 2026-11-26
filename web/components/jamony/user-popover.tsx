@@ -249,11 +249,11 @@ export function UserPopover({
                   {/* 1123 注销降级卡: 已注销=零数据字段,此行不渲染(匿名化后字段已空,孤零零icon也不给) */}
                   {!user.deleted && (
                     <p className="jamony-tip-host mt-0.5 flex items-center gap-1 text-[12px]" style={{ color: "#B0B0B0" }}>
-                      <span className="shrink-0">{icon === "LOGO" ? <img src="/jamony_logo.png" alt="jamony-looper" className="h-[18px] w-[18px] rounded-full object-cover" /> : icon}</span>
+                      <span className="shrink-0">{icon === "LOGO" ? <img src="/jamony_logo.png" alt="jamony-looper" className="h-3 w-3 rounded-full object-cover" /> : icon}</span>
                       <span ref={instrRef} className="min-w-0 truncate">{user.primary_instrument}{user.city ? ` · ${regionDisplay(user.city)}` : ""}</span>
                       {instrClamped && (
                         <span className="jamony-tip left-0 top-full mt-1.5">
-                          {icon === "LOGO" ? <img src="/jamony_logo.png" alt="jamony-looper" className="inline-block h-[18px] w-[18px] rounded-full object-cover" /> : icon} {user.primary_instrument}{user.city ? ` · ${user.city}` : ""}
+                          {icon === "LOGO" ? <img src="/jamony_logo.png" alt="jamony-looper" className="inline-block h-3 w-3 rounded-full object-cover" /> : icon} {user.primary_instrument}{user.city ? ` · ${user.city}` : ""}
                         </span>
                       )}
                     </p>
