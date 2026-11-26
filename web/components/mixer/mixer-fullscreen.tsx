@@ -20,7 +20,6 @@ export function MixerFullscreen({
   duration,
   progress,
   loadingProgress,
-  loadStats,
   loadError,
   mutes,
   solos,
@@ -609,30 +608,16 @@ export function MixerFullscreen({
             <div className="relative h-3 w-full">
               {/* 暗轨：未加载段（纯黑分层教义，明度差说话） */}
               <div className="absolute inset-0 rounded-full" style={{ background: "#1a1a1a" }} />
-              {/* 走带条：品牌渐变，200ms 线性跟字节账本 */}
-              <div className="absolute left-0 top-0 h-full rounded-full transition-[width] duration-200 ease-linear"
+              {/* 走带条：品牌渐变+整体呼吸发光（1126 欢哥：单一进度指标，光点退役——双指标追逐观感打架） */}
+              <div className="fill-breath absolute left-0 top-0 h-full rounded-full transition-[width] duration-200 ease-linear"
                 style={{
                   width: `${loadingProgress}%`,
                   background: `linear-gradient(to right, ${MIXER_COLORS.purple}, ${MIXER_COLORS.blue})`,
                 }}
               />
-              {/* 走带头光点：恒呼吸——条动时呼吸隐入前进感，decode 黑盒停顿时成为唯一活物（磁带机血统） */}
-              <div className="tape-head absolute top-1/2"
-                style={{
-                  left: `calc(${loadingProgress}% - 6px)`,
-                  width: 12,
-                  height: 12,
-                  marginTop: -6,
-                  borderRadius: "50%",
-                  background: MIXER_COLORS.blue,
-                  boxShadow: "0 0 10px 3px rgba(0,170,255,0.8)",
-                }}
-              />
             </div>
-            <span className="font-mono text-xs" style={{ color: MIXER_COLORS.text }}>
-              {loadStats
-                ? `${(loadStats.loaded / 1048576).toFixed(1)} / ${(loadStats.total / 1048576).toFixed(1)} MB · ${loadingProgress.toFixed(1)}%`
-                : `${Math.round(loadingProgress)}%`}
+            <span className="text-sm font-medium" style={{ color: MIXER_COLORS.text }}>
+              {Math.round(loadingProgress)}%
             </span>
           </div>
         </div>
@@ -644,11 +629,11 @@ export function MixerFullscreen({
           from { opacity: 0; transform: scale(0.95); }
           to   { opacity: 1; transform: scale(1); }
         }
-        @keyframes tapeBreath {
-          0%, 100% { opacity: 0.35; }
-          50%      { opacity: 1; }
+        @keyframes fillBreath {
+          0%, 100% { box-shadow: 0 0 4px 1px rgba(0,170,255,0.35); }
+          50%      { box-shadow: 0 0 12px 3px rgba(0,170,255,0.85); }
         }
-        .tape-head { animation: tapeBreath 1.6s ease-in-out infinite; }
+        .fill-breath { animation: fillBreath 1.6s ease-in-out infinite; }
       `}</style>
     </div>
   )
