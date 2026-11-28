@@ -1135,7 +1135,9 @@ async function issueSmsCode(phone, scene) {
   )
 }
 
-async function verifySmsCode(phone, scene, code) {
+// 1128 P0 延迟烧码: deferConsume=true 时验证通过不作废, 由调用方在登录真正成功后作废——
+// 坑案(1128朋友登录死循环): 协议403/回滚窗400发生在烧码之后, 原码重提必死「验证码无效或已过期」
+async function verifySmsCode(phone, scene, code, deferConsume = false) {
   const r = await pool.query(
     `SELECT id, code_hash, attempts FROM sms_codes
      WHERE phone = $1 AND scene = $2 AND consumed = false AND expires_at > NOW()
@@ -1149,8 +1151,8 @@ async function verifySmsCode(phone, scene, code) {
     await pool.query('UPDATE sms_codes SET attempts = attempts + 1 WHERE id = $1', [row.id])
     return { ok: false, msg: '验证码错误' }
   }
-  await pool.query('UPDATE sms_codes SET consumed = true WHERE id = $1', [row.id])
-  return { ok: true }
+  if (!deferConsume) await pool.query('UPDATE sms_codes SET consumed = true WHERE id = $1', [row.id])
+  return { ok: true, rowId: row.id }
 }
 
 app.post('/api/sms/send', async (req, res) => {
@@ -1431,7 +1433,8 @@ app.post('/api/login', async (req, res) => {
       if (!PHONE_RE.test(p) || !/^\d{6}$/.test(String(code || ''))) {
         return res.status(400).json({ ok: false, msg: '请输入正确的手机号和6位验证码' })
       }
-      const v = await verifySmsCode(p, 'login', String(code))
+      // 1128 P0: 延迟烧码——登录成功才作废(下方 banned/成功两出口), 协议闸403不再烧码, 原码可重提
+      const v = await verifySmsCode(p, 'login', String(code), true)
       if (!v.ok) return res.status(401).json({ ok: false, msg: v.msg })
       const found = await pool.query('SELECT * FROM users WHERE phone = $1', [p])
       let user = found.rows[0]
@@ -1459,6 +1462,7 @@ app.post('/api/login', async (req, res) => {
         console.log(`[sms-register] ${p} 自动注册 ${nick}(id=${newUserId})`)
       } else if (user.restriction === 'banned') {
         setAuthCookie(res, user)
+        await pool.query('UPDATE sms_codes SET consumed = true WHERE id = $1', [v.rowId]) // 1128 P0: 登录(含封禁支线)=成功, 此处作废
         return res.json({ ok: true, banned: true, msg: '该账号已被封禁，相关功能已被冻结。您仍可提交申诉。' })
       }
       // 1123 注销: 登录即撤销(欢哥定稿「冷静期内,登录将撤销本次账号注销操作」)——
@@ -1488,6 +1492,7 @@ app.post('/api/login', async (req, res) => {
         gender: user.gender || '',
       }
       setAuthCookie(res, user)
+      await pool.query('UPDATE sms_codes SET consumed = true WHERE id = $1', [v.rowId]) // 1128 P0: 登录成功, 此处作废
       return res.json({ ok: true, user: smsPayload, deletionCancelled })
     }
 

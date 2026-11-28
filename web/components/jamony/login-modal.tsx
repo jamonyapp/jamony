@@ -46,6 +46,25 @@ function AgreementCheck({ agreed, onToggle, onOpen }: { agreed: boolean; onToggl
   )
 }
 
+// 1128 P0: 协议行三态(欢哥定稿)——加载中/失败+重试/勾选。勾选框只在双文档到位后渲染: 勾的就是刚拉到的当前版, 构造上不可能勾到旧版
+function AgreementRow({ ready, loading, onRetry, agreed, onToggle, onOpen }: { ready: boolean; loading: boolean; onRetry: () => void; agreed: boolean; onToggle: () => void; onOpen: (doc: "user" | "privacy") => void }) {
+  if (ready) return <AgreementCheck agreed={agreed} onToggle={onToggle} onOpen={onOpen} />
+  if (loading) return (
+    <div className="flex items-center gap-2 text-xs" style={{ color: "#8A8A8A" }}>
+      <Loader2 className="h-3 w-3 animate-spin" />
+      用户协议加载中…
+    </div>
+  )
+  return (
+    <div className="flex items-center gap-2 text-xs" style={{ color: "#FF33AA" }}>
+      用户协议加载失败
+      <button type="button" className="font-medium underline-offset-2 hover:underline" style={{ color: "#00AAFF" }} onClick={onRetry}>
+        重试
+      </button>
+    </div>
+  )
+}
+
 type Mode = "account" | "sms" | "forgot" | "recovery"
 
 // 1109 强登录: embedded=true = /login 整页模式(不随 showLoginModal 门控/无遮罩/无关闭钮, 成功跳 "/"); 默认 = 全局弹窗模式(原行为不变)
@@ -85,20 +104,31 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
   const [showDoc, setShowDoc] = useState<"user" | "privacy" | null>(null)
   const [userDoc, setUserDoc] = useState<{ version: string; content: string } | null>(null)
   const [privacyDoc, setPrivacyDoc] = useState<{ version: string; content: string } | null>(null)
+  // 1128 P0: 协议加载三态——登录必检前置(欢哥定稿): 双文档未到位=发码/登录全闸死, 绝不让空版本号上山(403+烧码死循环坑案)
+  const [docsLoading, setDocsLoading] = useState(true)
+  const [docsError, setDocsError] = useState(false)
+  const docsReady = !!(userDoc && privacyDoc)
 
   const fetchAgreements = async () => {
+    setDocsLoading(true)
+    setDocsError(false)
     try {
       const r = await fetch("/api/agreements")
       const d = await r.json()
-      if (d.ok) {
-        if (d.userAgreement) setUserDoc({ version: d.userAgreement.version, content: d.userAgreement.content })
-        if (d.privacy) setPrivacyDoc({ version: d.privacy.version, content: d.privacy.content })
+      if (d.ok && d.userAgreement && d.privacy) {
+        setUserDoc({ version: d.userAgreement.version, content: d.userAgreement.content })
+        setPrivacyDoc({ version: d.privacy.version, content: d.privacy.content })
+      } else {
+        setDocsError(true)
       }
-    } catch { /* ignore */ }
+    } catch { setDocsError(true) }
+    setDocsLoading(false)
   }
+  // 1128 P0: 弹窗每次打开/embedded进页即拉(旧bug: 唯一拉取链路=登录报错之后→重启即清零→协议升级后死循环);
+  // ETag条件请求=版本对齐, 无新版时304零字节往返
   useEffect(() => {
-    if (showLoginModal && !userDoc) fetchAgreements()
-  }, [showLoginModal, userDoc])
+    if (showLoginModal || embedded) fetchAgreements()
+  }, [showLoginModal, embedded])
 
   useEffect(() => {
     if (countdown <= 0) return
@@ -138,6 +168,7 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
   }
 
   const handleSendCode = async () => {
+    if (!docsReady) { setError(docsError ? "协议加载失败，请重试后再获取验证码" : "协议加载中，请稍候…"); return }
     const p = phone.trim()
     if (!PHONE_RE.test(p)) {
       setError("请输入正确的手机号")
@@ -162,6 +193,7 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
       setError("请输入账户和密码")
       return
     }
+    if (!docsReady) { setError(docsError ? "协议加载失败，请点击重试后再登录" : "协议加载中，请稍候…"); return }
     if (!agreed) {
       setError("请先勾选同意《jamony用户协议》和《jamony隐私政策》")
       return
@@ -188,6 +220,7 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
       setError("请输入6位验证码")
       return
     }
+    if (!docsReady) { setError(docsError ? "协议加载失败，请点击重试后再登录" : "协议加载中，请稍候…"); return }
     if (!agreed) {
       setError("请先勾选同意《jamony用户协议》和《jamony隐私政策》")
       return
@@ -379,7 +412,7 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
                   />
                   <button
                     type="button"
-                    disabled={countdown > 0 || codeSending}
+                    disabled={countdown > 0 || codeSending || !docsReady}
                     onClick={handleSendCode}
                     className="shrink-0 rounded-xl border px-3 text-xs font-medium text-white transition-opacity disabled:opacity-50"
                     style={{ background: "#141414", borderColor: "#2A2A2A" }}
@@ -394,7 +427,7 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
                 {error || "\u00A0"}
               </p>
 
-              <AgreementCheck agreed={agreed} onToggle={() => setAgreed((v) => !v)} onOpen={(d) => setShowDoc(d)} />
+              <AgreementRow ready={docsReady} loading={docsLoading} onRetry={fetchAgreements} agreed={agreed} onToggle={() => setAgreed((v) => !v)} onOpen={(d) => setShowDoc(d)} />
 
               <button type="submit" disabled={loading} className={submitCls} style={submitStyle}>
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -449,7 +482,7 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
                   />
                   <button
                     type="button"
-                    disabled={countdown > 0 || codeSending}
+                    disabled={countdown > 0 || codeSending || !docsReady}
                     onClick={handleSendCode}
                     className="shrink-0 rounded-xl border px-3 text-xs font-medium text-white transition-opacity disabled:opacity-50"
                     style={{ background: "#141414", borderColor: "#2A2A2A" }}
@@ -642,7 +675,7 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
                 {error || "\u00A0"}
               </p>
 
-              <AgreementCheck agreed={agreed} onToggle={() => setAgreed((v) => !v)} onOpen={(d) => setShowDoc(d)} />
+              <AgreementRow ready={docsReady} loading={docsLoading} onRetry={fetchAgreements} agreed={agreed} onToggle={() => setAgreed((v) => !v)} onOpen={(d) => setShowDoc(d)} />
 
               <button type="submit" disabled={loading} className={submitCls} style={submitStyle}>
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
