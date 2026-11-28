@@ -1132,6 +1132,51 @@ app.get('/api/agreements', async (req, res) => {
   }
 })
 
+// 1128 P2 会话内版本哨兵: 已登录用户查自己已签的最新版本(客户端与当前版比对=感知更新的依据)
+app.get('/api/agreements/my-versions', requireAuth, async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT DISTINCT ON (type) type, agreement_version FROM agreement_acceptances
+       WHERE user_id = $1 ORDER BY type, accepted_at DESC`, [req.userId])
+    const mine = {}
+    for (const row of r.rows) mine[row.type] = row.agreement_version
+    res.json({ ok: true, mine })
+  } catch (err) {
+    console.error('My versions error:', err.message)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
+// 1128 P2: 会话内签署当前版(哨兵弹窗「同意」落档, 同登录闸规格——版本须与服务端当前版精确匹配)
+app.post('/api/agreements/accept', requireAuth, async (req, res) => {
+  try {
+    const missing = []
+    for (const [type, meta] of Object.entries(AGREEMENT_TYPES)) {
+      const agr = await getCurrentAgreement(type)
+      if (!agr) continue
+      if (String(req.body[meta.param] || '') !== agr.version) { missing.push(type); continue }
+      await pool.query(
+        `INSERT INTO agreement_acceptances (id, user_id, type, agreement_version, ip, user_agent)
+         VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING`,
+        [nextId(), req.userId, type, agr.version, String(req.ip || '').slice(0, 45), String(req.headers['user-agent'] || '').slice(0, 500)]
+      )
+    }
+    if (missing.length) {
+      const required = {}
+      for (const type of missing) {
+        const agr = await getCurrentAgreement(type)
+        if (agr) required[AGREEMENT_TYPES[type].param] = agr.version
+      }
+      return res.status(409).json({ ok: false, code: 'VERSION_CHANGED', required, msg: '协议版本已变化，请重新查看后同意' })
+    }
+    console.log(`[agreement] user ${req.userId} 会话内签署当前版`)
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('Agreement accept error:', err.message)
+    res.status(500).json({ ok: false, msg: '服务器错误' })
+  }
+})
+
 function smsCodeHash(phone, code) {
   // 验证码只存哈希: 手机号+JWT_SECRET 双盐, DB 泄露也难以暴力枚举
   return crypto.createHash('sha256').update(`${code}:${JWT_SECRET}:${phone}`).digest('hex')

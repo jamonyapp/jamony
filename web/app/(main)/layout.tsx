@@ -4,6 +4,7 @@ import '../globals.css'
 import { AuthProvider } from '@/lib/auth-context'
 import { RoomSessionProvider } from '@/lib/room-session'
 import { LoginModal } from '@/components/jamony/login-modal'
+import { AgreementSentinel } from '@/components/jamony/agreement-sentinel'
 import { PlayerProvider } from '@/components/jamony/player-context'
 import { PlayerBar } from '@/components/jamony/player-bar'
 import { LikesProvider } from '@/lib/likes-context'
@@ -108,6 +109,7 @@ export default function RootLayout({
           </PlayerProvider>
           </RoomSessionProvider>
           <LoginModal />
+          <AgreementSentinel />
         </AuthProvider>
         </DialogProvider>
       </body>

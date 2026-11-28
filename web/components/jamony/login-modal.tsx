@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { X, Loader2, Check } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
 import { useJamonyDialog } from "@/components/jamony/dialog"
+import { readSignedVersions, writeSignedVersions } from "@/lib/agreement-memory"
 
 // 10-23 欢哥定稿：遮罩点外关闭须「按下+松开都在遮罩」——click 派发到公共祖先，单判 target 会被拖出松开误关
 const downOnOverlay = { current: false }
@@ -38,16 +39,6 @@ function splitDocTitle(md: string): { title: string; meta: string; body: string 
     return { title: "", meta: "", body: plainText(md) }
   }
   return { title: "", meta: "", body: plainText(md) }
-}
-
-// 1128 A2(欢哥定稿): 设备级已签记忆——localStorage 记住本机签过的版本; 小字态=免勾(登录仍带版本号, 服务端落档才是法律真身);
-// 记忆错位(库无记录/手改/换账号)由服务端带版本补档自愈, 本记忆纯 UX 层
-const SIGNED_AGREEMENTS_KEY = "jamony.signed-agreements"
-function readSignedVersions(): { agreementVersion?: string; privacyVersion?: string } | null {
-  try { return JSON.parse(localStorage.getItem(SIGNED_AGREEMENTS_KEY) || "") || null } catch { return null }
-}
-function writeSignedVersions(v: { agreementVersion?: string; privacyVersion?: string }) {
-  try { localStorage.setItem(SIGNED_AGREEMENTS_KEY, JSON.stringify(v)) } catch { /* ignore */ }
 }
 
 // 协议勾选行(两 tab 共用)——必选: 一个勾+两个链接(用户协议+隐私政策, 行业惯例), 勾选即随登录带两版本落档
