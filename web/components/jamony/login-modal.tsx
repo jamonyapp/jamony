@@ -15,6 +15,16 @@ const PHONE_RE = /^1[3-9]\d{9}$/
 // 1104批次2步骤三: 协议正文 markdown 轻渲染(剥标题井号+加粗星号, 协议纯文本结构够用)
 const plainText = (md: string) => md.replace(/^#{1,6}\s*/gm, "").replace(/\*\*/g, "")
 
+// 1128 A2(欢哥定稿): 设备级已签记忆——localStorage 记住本机签过的版本; 小字态=免勾(登录仍带版本号, 服务端落档才是法律真身);
+// 记忆错位(库无记录/手改/换账号)由服务端带版本补档自愈, 本记忆纯 UX 层
+const SIGNED_AGREEMENTS_KEY = "jamony.signed-agreements"
+function readSignedVersions(): { agreementVersion?: string; privacyVersion?: string } | null {
+  try { return JSON.parse(localStorage.getItem(SIGNED_AGREEMENTS_KEY) || "") || null } catch { return null }
+}
+function writeSignedVersions(v: { agreementVersion?: string; privacyVersion?: string }) {
+  try { localStorage.setItem(SIGNED_AGREEMENTS_KEY, JSON.stringify(v)) } catch { /* ignore */ }
+}
+
 // 协议勾选行(两 tab 共用)——必选: 一个勾+两个链接(用户协议+隐私政策, 行业惯例), 勾选即随登录带两版本落档
 function AgreementCheck({ agreed, onToggle, onOpen }: { agreed: boolean; onToggle: () => void; onOpen: (doc: "user" | "privacy") => void }) {
   const link = "font-medium underline-offset-2 hover:underline"
@@ -46,23 +56,37 @@ function AgreementCheck({ agreed, onToggle, onOpen }: { agreed: boolean; onToggl
   )
 }
 
-// 1128 P0: 协议行三态(欢哥定稿)——加载中/失败+重试/勾选。勾选框只在双文档到位后渲染: 勾的就是刚拉到的当前版, 构造上不可能勾到旧版
-function AgreementRow({ ready, loading, onRetry, agreed, onToggle, onOpen }: { ready: boolean; loading: boolean; onRetry: () => void; agreed: boolean; onToggle: () => void; onOpen: (doc: "user" | "privacy") => void }) {
-  if (ready) return <AgreementCheck agreed={agreed} onToggle={onToggle} onOpen={onOpen} />
-  if (loading) return (
-    <div className="flex items-center gap-2 text-xs" style={{ color: "#8A8A8A" }}>
-      <Loader2 className="h-3 w-3 animate-spin" />
-      用户协议加载中…
-    </div>
-  )
-  return (
-    <div className="flex items-center gap-2 text-xs" style={{ color: "#FF33AA" }}>
-      用户协议加载失败
-      <button type="button" className="font-medium underline-offset-2 hover:underline" style={{ color: "#00AAFF" }} onClick={onRetry}>
-        重试
+// 1128 P0+A2(欢哥定稿): 协议行四态——加载中/失败+重试/小字态(本机已签当前版=免勾,文案不带版本号,双链接蓝色可点)/勾选框态(必须勾,发现新版保持现状)
+function AgreementRow({ ready, loading, remembered, onRetry, agreed, onToggle, onOpen }: { ready: boolean; loading: boolean; remembered: boolean; onRetry: () => void; agreed: boolean; onToggle: () => void; onOpen: (doc: "user" | "privacy") => void }) {
+  if (!ready) {
+    if (loading) return (
+      <div className="flex items-center gap-2 text-xs" style={{ color: "#8A8A8A" }}>
+        <Loader2 className="h-3 w-3 animate-spin" />
+        用户协议加载中…
+      </div>
+    )
+    return (
+      <div className="flex items-center gap-2 text-xs" style={{ color: "#FF33AA" }}>
+        用户协议加载失败
+        <button type="button" className="font-medium underline-offset-2 hover:underline" style={{ color: "#00AAFF" }} onClick={onRetry}>
+          重试
+        </button>
+      </div>
+    )
+  }
+  if (remembered) return (
+    <p className="text-xs leading-relaxed" style={{ color: "#8A8A8A" }}>
+      登录即表示同意
+      <button type="button" className="font-medium underline-offset-2 hover:underline" style={{ color: "#00AAFF" }} onClick={() => onOpen("user")}>
+        《jamony用户协议》
       </button>
-    </div>
+      和
+      <button type="button" className="font-medium underline-offset-2 hover:underline" style={{ color: "#00AAFF" }} onClick={() => onOpen("privacy")}>
+        《jamony隐私政策》
+      </button>
+    </p>
   )
+  return <AgreementCheck agreed={agreed} onToggle={onToggle} onOpen={onOpen} />
 }
 
 type Mode = "account" | "sms" | "forgot" | "recovery"
@@ -108,6 +132,8 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
   const [docsLoading, setDocsLoading] = useState(true)
   const [docsError, setDocsError] = useState(false)
   const docsReady = !!(userDoc && privacyDoc)
+  // 1128 A2: 本机已签当前版(双版本都相等)——小字态免勾; 任一不等=勾选框态
+  const [remembered, setRemembered] = useState(false)
 
   const fetchAgreements = async () => {
     setDocsLoading(true)
@@ -116,11 +142,13 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
       const r = await fetch("/api/agreements")
       const d = await r.json()
       if (d.ok && d.userAgreement && d.privacy) {
-        // 1128 P0c(C1): 版本变化=勾选弹回+提示——每次勾严格对应勾时所呈现的版本(关死跨版本复用勾选: 空窗期发新版场景)
-        if (userDoc && privacyDoc && agreed && (d.userAgreement.version !== userDoc.version || d.privacy.version !== privacyDoc.version)) {
+        // 1128 P0c(C1)+A2: 版本变化=勾选弹回/小字态翻回勾选框+提示——每次同意严格对应勾时所呈现的版本
+        if (userDoc && privacyDoc && (agreed || remembered) && (d.userAgreement.version !== userDoc.version || d.privacy.version !== privacyDoc.version)) {
           setAgreed(false)
           setError("用户协议已更新，请重新阅读并勾选同意")
         }
+        const stored = readSignedVersions()
+        setRemembered(!!(stored && d.userAgreement.version === stored.agreementVersion && d.privacy.version === stored.privacyVersion))
         setUserDoc({ version: d.userAgreement.version, content: d.userAgreement.content })
         setPrivacyDoc({ version: d.privacy.version, content: d.privacy.content })
       } else {
@@ -213,18 +241,20 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
       return
     }
     if (!docsReady) { setError(docsError ? "协议加载失败，请点击重试后再登录" : "协议加载中，请稍候…"); return }
-    if (!agreed) {
+    if (!remembered && !agreed) {
       setError("请先勾选同意《jamony用户协议》和《jamony隐私政策》")
       return
     }
     setLoading(true)
     setError("")
-    const err = await login(account.trim(), password, { agreementVersion: userDoc?.version, privacyVersion: privacyDoc?.version })
+    const sentVersions = { agreementVersion: userDoc?.version, privacyVersion: privacyDoc?.version } // 1128 A2: 捕获实际提交的版本(防提交途中重拉错位)
+    const err = await login(account.trim(), password, { agreementVersion: sentVersions.agreementVersion, privacyVersion: sentVersions.privacyVersion })
     setLoading(false)
     if (err) {
       setError(err)
       fetchAgreements()
     } else {
+      writeSignedVersions(sentVersions) // 1128 A2: 登录成功才记忆, 记的是实际提交的版本
       finish()
     }
   }
@@ -240,18 +270,20 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
       return
     }
     if (!docsReady) { setError(docsError ? "协议加载失败，请点击重试后再登录" : "协议加载中，请稍候…"); return }
-    if (!agreed) {
+    if (!remembered && !agreed) {
       setError("请先勾选同意《jamony用户协议》和《jamony隐私政策》")
       return
     }
     setLoading(true)
     setError("")
-    const err = await loginWithSms(phone.trim(), code.trim(), { agreementVersion: userDoc?.version, privacyVersion: privacyDoc?.version })
+    const sentVersions = { agreementVersion: userDoc?.version, privacyVersion: privacyDoc?.version } // 1128 A2: 捕获实际提交的版本(防提交途中重拉错位)
+    const err = await loginWithSms(phone.trim(), code.trim(), { agreementVersion: sentVersions.agreementVersion, privacyVersion: sentVersions.privacyVersion })
     setLoading(false)
     if (err) {
       setError(err)
       fetchAgreements()
     } else {
+      writeSignedVersions(sentVersions) // 1128 A2: 登录成功才记忆, 记的是实际提交的版本
       finish()
     }
   }
@@ -446,7 +478,7 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
                 {error || "\u00A0"}
               </p>
 
-              <AgreementRow ready={docsReady} loading={docsLoading} onRetry={fetchAgreements} agreed={agreed} onToggle={() => setAgreed((v) => !v)} onOpen={(d) => setShowDoc(d)} />
+              <AgreementRow ready={docsReady} loading={docsLoading} remembered={remembered} onRetry={fetchAgreements} agreed={agreed} onToggle={() => setAgreed((v) => !v)} onOpen={(d) => setShowDoc(d)} />
 
               <button type="submit" disabled={loading} className={submitCls} style={submitStyle}>
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -694,7 +726,7 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
                 {error || "\u00A0"}
               </p>
 
-              <AgreementRow ready={docsReady} loading={docsLoading} onRetry={fetchAgreements} agreed={agreed} onToggle={() => setAgreed((v) => !v)} onOpen={(d) => setShowDoc(d)} />
+              <AgreementRow ready={docsReady} loading={docsLoading} remembered={remembered} onRetry={fetchAgreements} agreed={agreed} onToggle={() => setAgreed((v) => !v)} onOpen={(d) => setShowDoc(d)} />
 
               <button type="submit" disabled={loading} className={submitCls} style={submitStyle}>
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
