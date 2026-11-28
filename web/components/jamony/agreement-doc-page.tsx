@@ -51,14 +51,9 @@ export function AgreementDocPage({ kind }: { kind: "user" | "privacy" }) {
   return (
     <div className="min-h-screen bg-black text-white">
       <div className="mx-auto max-w-3xl px-4 py-10 pb-28">
-        <h1 className="mb-2 text-center text-xl font-bold text-white">
+        <h1 className="mb-6 text-center text-xl font-bold text-white">
           《{title}》{doc ? `（版本：v${doc.version}）` : ""}
         </h1>
-        {doc && (
-          <p className="mb-6 text-center text-xs" style={{ color: "#6A6A6A" }}>
-            生效日期 {doc.effectiveDate}
-          </p>
-        )}
         <div className="whitespace-pre-wrap text-sm leading-relaxed" style={{ color: "#B0B0B0" }}>
           {err ? err : split ? (
             <>
