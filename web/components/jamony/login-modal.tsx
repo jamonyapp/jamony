@@ -15,6 +15,20 @@ const PHONE_RE = /^1[3-9]\d{9}$/
 // 1104批次2步骤三: 协议正文 markdown 轻渲染(剥标题井号+加粗星号, 协议纯文本结构够用)
 const plainText = (md: string) => md.replace(/^#{1,6}\s*/gm, "").replace(/\*\*/g, "")
 
+// 1128(欢哥): 文档内标题抽取——首个非空行是markdown标题时单独渲染(居中/加大/加粗), 余下正文照旧
+function splitDocTitle(md: string): { title: string; body: string } {
+  const lines = md.split("\n")
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim()
+    if (!t) continue
+    if (/^#{1,6}\s+/.test(t)) {
+      return { title: plainText(t), body: plainText(lines.slice(i + 1).join("\n").replace(/^\n+/, "")) }
+    }
+    return { title: "", body: plainText(md) }
+  }
+  return { title: "", body: plainText(md) }
+}
+
 // 1128 A2(欢哥定稿): 设备级已签记忆——localStorage 记住本机签过的版本; 小字态=免勾(登录仍带版本号, 服务端落档才是法律真身);
 // 记忆错位(库无记录/手改/换账号)由服务端带版本补档自愈, 本记忆纯 UX 层
 const SIGNED_AGREEMENTS_KEY = "jamony.signed-agreements"
@@ -409,12 +423,22 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
 
         {showDoc ? (
           <div className="flex h-[70vh] flex-col">
-            <h2 className="mb-3 text-base font-bold text-white">
-              {showDoc === "user" ? "jamony用户协议" : "jamony隐私政策"}
-              {(showDoc === "user" ? userDoc?.version : privacyDoc?.version) ? `（${showDoc === "user" ? userDoc?.version : privacyDoc?.version}）` : ""}
+            <h2 className="mb-3 text-center text-base font-bold text-white">
+              《{showDoc === "user" ? "jamony用户协议" : "jamony隐私政策"}》
+              {(showDoc === "user" ? userDoc?.version : privacyDoc?.version) ? `（版本：v${showDoc === "user" ? userDoc?.version : privacyDoc?.version}）` : ""}
             </h2>
             <div className="flex-1 overflow-y-auto whitespace-pre-wrap rounded-xl border p-4 text-xs leading-relaxed" style={{ borderColor: "#1A1A1A", color: "#B0B0B0" }}>
-              {(showDoc === "user" ? userDoc?.content : privacyDoc?.content) ? plainText((showDoc === "user" ? userDoc?.content : privacyDoc?.content) || "") : "加载中..."}
+              {(() => {
+                const d = showDoc === "user" ? userDoc : privacyDoc
+                if (!d) return "加载中..."
+                const { title, body } = splitDocTitle(d.content)
+                return (
+                  <>
+                    {title && <p className="mb-4 text-center text-sm font-bold text-white">{title}</p>}
+                    {body}
+                  </>
+                )
+              })()}
             </div>
             <button type="button" onClick={() => setShowDoc(null)} className="mt-3 self-center text-xs" style={{ color: "#00AAFF" }}>
               返回
