@@ -47,11 +47,12 @@ export function AgreementSentinel() {
     } catch { /* 离线/接口降级=下轮再查, 不打扰 */ }
   }, [user])
 
-  // 1128 欢哥熵增判例: 路由跳变触发当天删(自动拓宽同款)——其覆盖已被15min巡检完全吞并(唯一独有场景
-  // 「窗口永不失焦纯跳页」最迟15min必被巡检命中),代价=每次跳页双请求;终态四触发=启动/刷新+回焦+离房+巡检
+  // 1128 欢哥熵增判例·极简三件套终态: 启动/刷新+回焦+15min巡检。路由触发已删(覆盖被巡检吞并);
+  // 离房触发亦删(nginx实锤:漫游出房自带整页刷新,已走「刷新」触发);礼仪闸在check()内部(inRoomRef)永生——
+  // 房内任何触发不弹,出房后的刷新/回焦/巡检接棒
   useEffect(() => {
-    if (user && !inRoom) check()
-  }, [user, inRoom, check])
+    if (user) check()
+  }, [user, check])
   useEffect(() => {
     const onWake = () => { if (!document.hidden) check() }
     window.addEventListener("focus", onWake)
