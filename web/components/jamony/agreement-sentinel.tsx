@@ -37,6 +37,8 @@ export function AgreementSentinel() {
       if ((needUser || needPrivacy) && !openRef.current) {
         openRef.current = true
         setAgreed(false)
+        setBusy(false)   // 1128 真凶修复: 重开弹窗必清残留busy——成功路径关弹窗不清busy,次张弹窗出生即「提交中」死锁(欢哥实锤:按钮出生即禁用,无点击=无POST无超时)
+        setError("")
         setPending({ userDoc: needUser ? a.userAgreement : null, privacyDoc: needPrivacy ? a.privacy : null })
       }
     } catch { /* 离线/接口降级=下轮再查, 不打扰 */ }
@@ -104,6 +106,7 @@ export function AgreementSentinel() {
         agreementVersion: pending.userDoc ? pending.userDoc.version : undefined,
         privacyVersion: pending.privacyDoc ? pending.privacyDoc.version : undefined,
       })
+      setBusy(false) // 1128 真凶修复: 成功路径补清busy(原遗漏=弹窗能关但标志残留,下张弹窗出生即死锁)
       setPending(null)
       openRef.current = false
     } catch (e) {
