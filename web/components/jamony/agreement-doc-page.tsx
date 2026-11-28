@@ -6,18 +6,29 @@ import { useEffect, useState } from "react"
 // 正文单一来源=DB(admin 发布新版本后自动跟进); middleware 对外豁免
 const plainText = (md: string) => md.replace(/^#{1,6}\s*/gm, "").replace(/\*\*/g, "")
 
-// 1128(欢哥): 文档内标题抽取——首个非空行是markdown标题时单独渲染(居中/加大/加粗), 余下正文照旧
-function splitDocTitle(md: string): { title: string; body: string } {
+// 1128(欢哥): 文档头抽取——①首个非空行markdown标题(居中/加大/加粗) ②紧随的「版本：…」元信息行(居中); 余下正文照旧
+function splitDocTitle(md: string): { title: string; meta: string; body: string } {
   const lines = md.split("\n")
   for (let i = 0; i < lines.length; i++) {
     const t = lines[i].trim()
     if (!t) continue
     if (/^#{1,6}\s+/.test(t)) {
-      return { title: plainText(t), body: plainText(lines.slice(i + 1).join("\n").replace(/^\n+/, "")) }
+      let meta = ""
+      let rest = lines.slice(i + 1)
+      for (let j = 0; j < rest.length; j++) {
+        const n = rest[j].trim()
+        if (!n) continue
+        if (/^版本[:：]/.test(plainText(n))) {
+          meta = plainText(n)
+          rest = rest.slice(j + 1)
+        }
+        break
+      }
+      return { title: plainText(t), meta, body: plainText(rest.join("\n").replace(/^\n+/, "")) }
     }
-    return { title: "", body: plainText(md) }
+    return { title: "", meta: "", body: plainText(md) }
   }
-  return { title: "", body: plainText(md) }
+  return { title: "", meta: "", body: plainText(md) }
 }
 
 type Doc = { version: string; effectiveDate: string; content: string }
@@ -51,7 +62,8 @@ export function AgreementDocPage({ kind }: { kind: "user" | "privacy" }) {
         <div className="whitespace-pre-wrap text-sm leading-relaxed" style={{ color: "#B0B0B0" }}>
           {err ? err : split ? (
             <>
-              {split.title && <p className="mb-5 text-center text-lg font-bold text-white">{split.title}</p>}
+              {split.title && <p className="mb-2 text-center text-lg font-bold text-white">{split.title}</p>}
+              {split.meta && <p className="mb-5 text-center">{split.meta}</p>}
               {split.body}
             </>
           ) : "加载中..."}

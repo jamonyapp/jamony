@@ -15,18 +15,29 @@ const PHONE_RE = /^1[3-9]\d{9}$/
 // 1104批次2步骤三: 协议正文 markdown 轻渲染(剥标题井号+加粗星号, 协议纯文本结构够用)
 const plainText = (md: string) => md.replace(/^#{1,6}\s*/gm, "").replace(/\*\*/g, "")
 
-// 1128(欢哥): 文档内标题抽取——首个非空行是markdown标题时单独渲染(居中/加大/加粗), 余下正文照旧
-function splitDocTitle(md: string): { title: string; body: string } {
+// 1128(欢哥): 文档头抽取——①首个非空行markdown标题(居中/加大/加粗) ②紧随的「版本：…」元信息行(居中); 余下正文照旧
+function splitDocTitle(md: string): { title: string; meta: string; body: string } {
   const lines = md.split("\n")
   for (let i = 0; i < lines.length; i++) {
     const t = lines[i].trim()
     if (!t) continue
     if (/^#{1,6}\s+/.test(t)) {
-      return { title: plainText(t), body: plainText(lines.slice(i + 1).join("\n").replace(/^\n+/, "")) }
+      let meta = ""
+      let rest = lines.slice(i + 1)
+      for (let j = 0; j < rest.length; j++) {
+        const n = rest[j].trim()
+        if (!n) continue
+        if (/^版本[:：]/.test(plainText(n))) {
+          meta = plainText(n)
+          rest = rest.slice(j + 1)
+        }
+        break
+      }
+      return { title: plainText(t), meta, body: plainText(rest.join("\n").replace(/^\n+/, "")) }
     }
-    return { title: "", body: plainText(md) }
+    return { title: "", meta: "", body: plainText(md) }
   }
-  return { title: "", body: plainText(md) }
+  return { title: "", meta: "", body: plainText(md) }
 }
 
 // 1128 A2(欢哥定稿): 设备级已签记忆——localStorage 记住本机签过的版本; 小字态=免勾(登录仍带版本号, 服务端落档才是法律真身);
@@ -431,10 +442,11 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
               {(() => {
                 const d = showDoc === "user" ? userDoc : privacyDoc
                 if (!d) return "加载中..."
-                const { title, body } = splitDocTitle(d.content)
+                const { title, meta, body } = splitDocTitle(d.content)
                 return (
                   <>
-                    {title && <p className="mb-4 text-center text-sm font-bold text-white">{title}</p>}
+                    {title && <p className="mb-2 text-center text-sm font-bold text-white">{title}</p>}
+                    {meta && <p className="mb-4 text-center">{meta}</p>}
                     {body}
                   </>
                 )
