@@ -47,11 +47,11 @@ export function AgreementSentinel() {
     } catch { /* 离线/接口降级=下轮再查, 不打扰 */ }
   }, [user])
 
-  // 1128盲区修复(欢哥实锤:窗口内SPA跳页零触发): 触发点=登录态就位+离开房间+回焦+**路由跳变**;
-  // 长驻单页由15min静默巡检兜底(对齐安装包检查的定时哲学,协议场景窗口收窄)
+  // 1128 欢哥熵增判例: 路由跳变触发当天删(自动拓宽同款)——其覆盖已被15min巡检完全吞并(唯一独有场景
+  // 「窗口永不失焦纯跳页」最迟15min必被巡检命中),代价=每次跳页双请求;终态四触发=启动/刷新+回焦+离房+巡检
   useEffect(() => {
     if (user && !inRoom) check()
-  }, [user, inRoom, pathname, check])
+  }, [user, inRoom, check])
   useEffect(() => {
     const onWake = () => { if (!document.hidden) check() }
     window.addEventListener("focus", onWake)
