@@ -264,7 +264,9 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
     const err = await sendSmsCode(p, mode === "forgot" ? "reset_password" : "login")
     setCodeSending(false)
     if (err) {
-      setError(flipMsg ? `${flipMsg}；${err}` : err)
+      // 1128(欢哥定稿): 上限类文案独占显示(触限时换码也没用,协议提示动作已由勾选框弹回表达);非上限失败才与协议更新合并
+      const capped = /上限|频繁|明日再试/.test(err)
+      setError(capped ? err : flipMsg ? `${flipMsg}；${err}` : err)
       return
     }
     setNotice("验证码已发送，5分钟内有效")

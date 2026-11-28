@@ -1165,10 +1165,10 @@ app.post('/api/sms/send', async (req, res) => {
       return res.status(429).json({ ok: false, msg: '发送过于频繁，请1分钟后再试' })
     }
     if (!rateCheck(`sms:1h:${phone}`, 5, 3600 * 1000)) {
-      return res.status(429).json({ ok: false, msg: '该手机号本小时发送次数已达上限' })
+      return res.status(429).json({ ok: false, msg: '为保障账号安全，本小时验证码发送次数已达上限，请稍后再试' })
     }
     if (!rateCheck(`sms:1d:${phone}`, 10, 24 * 3600 * 1000)) {
-      return res.status(429).json({ ok: false, msg: '该手机号今日发送次数已达上限' })
+      return res.status(429).json({ ok: false, msg: '为保障账号安全，今日验证码发送次数已达上限，请明日再试' })
     }
     if (!rateCheck(`sms:ip:${req.ip}`, 10, 3600 * 1000)) {
       return res.status(429).json({ ok: false, msg: '操作过于频繁，请稍后再试' })
@@ -1183,6 +1183,10 @@ app.post('/api/sms/send', async (req, res) => {
     res.json({ ok: true, msg: '验证码已发送' })
   } catch (err) {
     console.error('SMS send error:', err.message)
+    // 1128(欢哥): 阿里云天级流控(isv.BUSINESS_LIMIT_CONTROL)归一成明确文案,不再漏进兜底
+    if (/BUSINESS_LIMIT_CONTROL/.test(String(err.message))) {
+      return res.status(429).json({ ok: false, msg: '为保障账号安全，今日验证码发送次数已达上限，请明日再试' })
+    }
     res.status(500).json({ ok: false, msg: '短信发送失败，请稍后再试' })
   }
 })
@@ -1224,10 +1228,10 @@ app.post('/api/sms/send-account', requireAuth, async (req, res) => {
       return res.status(429).json({ ok: false, msg: '发送过于频繁，请1分钟后再试' })
     }
     if (!rateCheck(`sms:1h:${phone}`, 5, 3600 * 1000)) {
-      return res.status(429).json({ ok: false, msg: '该手机号本小时发送次数已达上限' })
+      return res.status(429).json({ ok: false, msg: '为保障账号安全，本小时验证码发送次数已达上限，请稍后再试' })
     }
     if (!rateCheck(`sms:1d:${phone}`, 10, 24 * 3600 * 1000)) {
-      return res.status(429).json({ ok: false, msg: '该手机号今日发送次数已达上限' })
+      return res.status(429).json({ ok: false, msg: '为保障账号安全，今日验证码发送次数已达上限，请明日再试' })
     }
     if (!rateCheck(`sms:ip:${req.ip}`, 10, 3600 * 1000)) {
       return res.status(429).json({ ok: false, msg: '操作过于频繁，请稍后再试' })
@@ -1236,6 +1240,10 @@ app.post('/api/sms/send-account', requireAuth, async (req, res) => {
     res.json({ ok: true, msg: '验证码已发送' })
   } catch (err) {
     console.error('SMS send-account error:', err.message)
+    // 1128(欢哥): 阿里云天级流控归一,同 sms/send
+    if (/BUSINESS_LIMIT_CONTROL/.test(String(err.message))) {
+      return res.status(429).json({ ok: false, msg: '为保障账号安全，今日验证码发送次数已达上限，请明日再试' })
+    }
     res.status(500).json({ ok: false, msg: '短信发送失败，请稍后再试' })
   }
 })
@@ -1322,10 +1330,10 @@ app.post('/api/sms/send-recovery', async (req, res) => {
       return res.status(429).json({ ok: false, msg: '发送过于频繁，请1分钟后再试' })
     }
     if (!rateCheck(`sms:1h:${phone}`, 5, 3600 * 1000)) {
-      return res.status(429).json({ ok: false, msg: '该手机号本小时发送次数已达上限' })
+      return res.status(429).json({ ok: false, msg: '为保障账号安全，本小时验证码发送次数已达上限，请稍后再试' })
     }
     if (!rateCheck(`sms:1d:${phone}`, 10, 24 * 3600 * 1000)) {
-      return res.status(429).json({ ok: false, msg: '该手机号今日发送次数已达上限' })
+      return res.status(429).json({ ok: false, msg: '为保障账号安全，今日验证码发送次数已达上限，请明日再试' })
     }
     if (!rateCheck(`sms:ip:${req.ip}`, 10, 3600 * 1000)) {
       return res.status(429).json({ ok: false, msg: '操作过于频繁，请稍后再试' })
