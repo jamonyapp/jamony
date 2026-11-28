@@ -213,7 +213,7 @@ function rateCheck(key, limit, windowMs) {
   return b.count <= limit
 }
 
-const loginFailBuckets = new Map()  // nickname -> {count, lockUntil}
+// 密码试错锁定(1128 B2 持久化: failed_logins 表,重启不解锁;原内存 Map 版退役)
 
 // ========== jamony 1119: 一次性入场票(UDP 准入凭证,铸票中心) ==========
 // 票面: uid:port:nickname:role:hexsig——exp 藏在 role 后(载荷=uid:port:nickname:role:exp,HMAC-SHA256
@@ -245,18 +245,32 @@ function mintTicketIdempotent (userId, port, nickname) {
   return ticket
 }
 if (!TICKET_SECRET) console.warn('[jamony-ticket] JAMONY_TICKET_SECRET 未配置——票务整体旁路(join 不带票/补票端点 404/房间进程验签旁路)')
-function recordLoginFail(nickname) {
-  const f = loginFailBuckets.get(nickname) || { count: 0, lockUntil: 0 }
-  f.count++
-  if (f.count >= 5) f.lockUntil = Date.now() + 15 * 60 * 1000  // 连续失败5次锁15分钟
-  loginFailBuckets.set(nickname, f)
+async function recordLoginFail(account) {
+  await pool.query(
+    `INSERT INTO failed_logins (account, fail_count) VALUES ($1, 1)
+     ON CONFLICT (account) DO UPDATE SET fail_count = failed_logins.fail_count + 1, updated_at = NOW()`,
+    [account]
+  )
+  // 连续失败5次锁15分钟(策略不变; 锁过期后再失败仍计数,达阈即再锁——与旧内存版语义一致)
+  await pool.query(
+    `UPDATE failed_logins SET locked_until = NOW() + interval '15 minutes'
+     WHERE account = $1 AND fail_count >= 5 AND (locked_until IS NULL OR locked_until < NOW())`,
+    [account]
+  )
 }
-function isAccountLocked(nickname) {
-  const f = loginFailBuckets.get(nickname)
-  return !!(f && f.lockUntil && f.lockUntil > Date.now())
+async function isAccountLocked(account) {
+  const r = await pool.query('SELECT 1 FROM failed_logins WHERE account = $1 AND locked_until > NOW()', [account])
+  return r.rows.length > 0
 }
-function clearLoginFail(nickname) {
-  loginFailBuckets.delete(nickname)
+async function lockRemainingMin(account) {
+  const r = await pool.query(
+    'SELECT CEIL(EXTRACT(EPOCH FROM (locked_until - NOW())) / 60)::int AS m FROM failed_logins WHERE account = $1 AND locked_until > NOW()',
+    [account]
+  )
+  return r.rows[0] ? r.rows[0].m : 0
+}
+async function clearLoginFail(account) {
+  await pool.query('DELETE FROM failed_logins WHERE account = $1', [account])
 }
 
 // 活跃乐手榜 60s 内存缓存（所有客户端共享一份；策展型模块无需实时；仅缓存规范请求 page=1&limit=16）
@@ -1123,29 +1137,56 @@ function smsCodeHash(phone, code) {
   return crypto.createHash('sha256').update(`${code}:${JWT_SECRET}:${phone}`).digest('hex')
 }
 
-async function issueSmsCode(phone, scene) {
+async function issueSmsCode(phone, scene, ip) {
   const code = String(Math.floor(100000 + Math.random() * 900000))
   await sendSmsCode(phone, code) // 先发后存: 宁可白收一条码, 不给一条打不出去的库存码
+  // 1128 A1: 新码顶旧码显式化——此前未消费未过期的码全部标记顶替(任意时刻至多一条活码, 数据自述可审计)
   await pool.query(
-    `INSERT INTO sms_codes (id, phone, code_hash, scene, expires_at)
-     VALUES ($1, $2, $3, $4, NOW() + interval '${SMS_CODE_TTL_MIN} minutes')`,
-    [nextId(), phone, smsCodeHash(phone, code), scene]
+    `UPDATE sms_codes SET superseded = true
+     WHERE phone = $1 AND scene = $2 AND consumed = false AND superseded = false AND expires_at > NOW()`,
+    [phone, scene]
+  )
+  await pool.query(
+    `INSERT INTO sms_codes (id, phone, code_hash, scene, ip, expires_at)
+     VALUES ($1, $2, $3, $4, $5, NOW() + interval '${SMS_CODE_TTL_MIN} minutes')`,
+    [nextId(), phone, smsCodeHash(phone, code), scene, ip || '']
   )
 }
 
-// 1128 P0 延迟烧码: deferConsume=true 时验证通过不作废, 由调用方在登录真正成功后作废——
+// 1128 B1: 发码频控账本化——数 sms_codes(发码必落行)而非内存桶, 重启免疫+可审计(1128实锤: 内存计数被pm2重启清零,阿里云外层上限先咬人)
+async function smsSendCount(col, val, seconds) {
+  const r = await pool.query(
+    `SELECT count(*)::int AS n FROM sms_codes WHERE ${col} = $1 AND created_at > NOW() - make_interval(secs => $2)`,
+    [val, seconds]
+  )
+  return r.rows[0].n
+}
+// 频控矩阵不变: 单号 60s/1时5条/1天10条 + 单IP 1时10条; 返回 null=通过, 否则=拒绝文案
+async function smsRateGate(phone, ip) {
+  if ((await smsSendCount('phone', phone, 60)) >= 1) return '发送过于频繁，请1分钟后再试'
+  if ((await smsSendCount('phone', phone, 3600)) >= 5) return '为保障账号安全，本小时验证码发送次数已达上限，请稍后再试'
+  if ((await smsSendCount('phone', phone, 86400)) >= 10) return '为保障账号安全，今日验证码发送次数已达上限，请明日再试'
+  if ((await smsSendCount('ip', ip, 3600)) >= 10) return '操作过于频繁，请稍后再试'
+  return null
+}
+
+// 1128 P0 延迟烧码 + A2 旧码识别: deferConsume=true 时验证通过不作废, 由调用方在登录真正成功后作废——
 // 坑案(1128朋友登录死循环): 协议403/回滚窗400发生在烧码之后, 原码重提必死「验证码无效或已过期」
 async function verifySmsCode(phone, scene, code, deferConsume = false) {
+  // 1128 A2: 取最近5条未过期码——首条活码(consumed=false且superseded=false)为判定主体, 其余做旧码识别池
   const r = await pool.query(
-    `SELECT id, code_hash, attempts FROM sms_codes
-     WHERE phone = $1 AND scene = $2 AND consumed = false AND expires_at > NOW()
-     ORDER BY created_at DESC LIMIT 1`,
+    `SELECT id, code_hash, attempts, consumed, superseded FROM sms_codes
+     WHERE phone = $1 AND scene = $2 AND expires_at > NOW()
+     ORDER BY created_at DESC LIMIT 5`,
     [phone, scene]
   )
-  const row = r.rows[0]
+  const row = r.rows.find((x) => !x.consumed && !x.superseded)
   if (!row) return { ok: false, msg: '验证码无效或已过期，请重新获取' }
   if (row.attempts >= SMS_MAX_ATTEMPTS) return { ok: false, msg: '错误次数过多，请重新获取验证码' }
   if (smsCodeHash(phone, code) !== row.code_hash) {
+    // 1128 A2: 提交码命中更早的被顶替码 = 用户抄了旧短信(真码输旧,非暴力猜)——不记错误次数,不烧新码额度
+    const stale = r.rows.some((x) => x.superseded && smsCodeHash(phone, code) === x.code_hash)
+    if (stale) return { ok: false, msg: '验证码无效或已过期，请使用最新收到的验证码' }
     await pool.query('UPDATE sms_codes SET attempts = attempts + 1 WHERE id = $1', [row.id])
     return { ok: false, msg: '验证码错误' }
   }
@@ -1160,26 +1201,16 @@ app.post('/api/sms/send', async (req, res) => {
     if (!PHONE_RE.test(phone)) {
       return res.status(400).json({ ok: false, msg: '手机号格式不正确' })
     }
-    // 频控矩阵: 单号 60s/1时5条/1天10条 + 单IP 1时10条(防短信轰炸刷钱)
-    if (!rateCheck(`sms:60s:${phone}`, 1, 60 * 1000)) {
-      return res.status(429).json({ ok: false, msg: '发送过于频繁，请1分钟后再试' })
-    }
-    if (!rateCheck(`sms:1h:${phone}`, 5, 3600 * 1000)) {
-      return res.status(429).json({ ok: false, msg: '为保障账号安全，本小时验证码发送次数已达上限，请稍后再试' })
-    }
-    if (!rateCheck(`sms:1d:${phone}`, 10, 24 * 3600 * 1000)) {
-      return res.status(429).json({ ok: false, msg: '为保障账号安全，今日验证码发送次数已达上限，请明日再试' })
-    }
-    if (!rateCheck(`sms:ip:${req.ip}`, 10, 3600 * 1000)) {
-      return res.status(429).json({ ok: false, msg: '操作过于频繁，请稍后再试' })
-    }
+    // 1128 B1: 频控矩阵账本化(sms_codes 推导,重启免疫)——单号 60s/1时5条/1天10条 + 单IP 1时10条
+    const gated = await smsRateGate(phone, String(req.ip || ''))
+    if (gated) return res.status(429).json({ ok: false, msg: gated })
     if (scene === 'reset_password') {
       const u = await pool.query('SELECT id FROM users WHERE phone = $1', [phone])
       if (u.rows.length === 0) {
         return res.status(404).json({ ok: false, msg: '该手机号未注册' })
       }
     }
-    await issueSmsCode(phone, scene)
+    await issueSmsCode(phone, scene, String(req.ip || ''))
     res.json({ ok: true, msg: '验证码已发送' })
   } catch (err) {
     console.error('SMS send error:', err.message)
@@ -1223,20 +1254,10 @@ app.post('/api/sms/send-account', requireAuth, async (req, res) => {
     } else {
       return res.status(400).json({ ok: false, msg: '参数不合法' })
     }
-    // 频控矩阵同 sms/send(单号 60s/1时5条/1天10条 + 单IP 1时10条)
-    if (!rateCheck(`sms:60s:${phone}`, 1, 60 * 1000)) {
-      return res.status(429).json({ ok: false, msg: '发送过于频繁，请1分钟后再试' })
-    }
-    if (!rateCheck(`sms:1h:${phone}`, 5, 3600 * 1000)) {
-      return res.status(429).json({ ok: false, msg: '为保障账号安全，本小时验证码发送次数已达上限，请稍后再试' })
-    }
-    if (!rateCheck(`sms:1d:${phone}`, 10, 24 * 3600 * 1000)) {
-      return res.status(429).json({ ok: false, msg: '为保障账号安全，今日验证码发送次数已达上限，请明日再试' })
-    }
-    if (!rateCheck(`sms:ip:${req.ip}`, 10, 3600 * 1000)) {
-      return res.status(429).json({ ok: false, msg: '操作过于频繁，请稍后再试' })
-    }
-    await issueSmsCode(phone, scene)
+    // 1128 B1: 频控矩阵账本化(sms_codes 推导,重启免疫)——同 sms/send
+    const gated = await smsRateGate(phone, String(req.ip || ''))
+    if (gated) return res.status(429).json({ ok: false, msg: gated })
+    await issueSmsCode(phone, scene, String(req.ip || ''))
     res.json({ ok: true, msg: '验证码已发送' })
   } catch (err) {
     console.error('SMS send-account error:', err.message)
@@ -1507,25 +1528,24 @@ app.post('/api/login', async (req, res) => {
     if (!account || !password) {
       return res.status(400).json({ ok: false, msg: '请输入账户和密码' })
     }
-    if (isAccountLocked(account)) {
-      const f = loginFailBuckets.get(account)
-      const min = Math.ceil((f.lockUntil - Date.now()) / 60000)
+    if (await isAccountLocked(account)) {
+      const min = await lockRemainingMin(account)
       return res.status(429).json({ ok: false, msg: `账号已锁定，${min}分钟后重试` })
     }
 
     const result = await pool.query('SELECT * FROM users WHERE nickname = $1 OR phone = $1', [account])
     if (result.rows.length === 0) {
-      recordLoginFail(account)
+      await recordLoginFail(account)
       return res.status(401).json({ ok: false, msg: '账户或密码错误' })
     }
 
     const user = result.rows[0]
     if (!user.password_hash || !(await verifyPassword(password, user.password_hash))) {
-      recordLoginFail(account)
+      await recordLoginFail(account)
       return res.status(401).json({ ok: false, msg: '账户或密码错误' })
     }
 
-    clearLoginFail(account)
+    await clearLoginFail(account)
     // ⑦封号申诉权(1023): banned 照发会话(申诉端点放行), 响应带 banned 标记 → web 跳拦截页(其余端点已被 requireAuth 拦死)
     const banRow = await pool.query('SELECT restriction FROM users WHERE id=$1', [user.id])
     if (banRow.rows[0] && banRow.rows[0].restriction === 'banned') {
@@ -7633,6 +7653,16 @@ async function cleanupSmsCodes() {
 }
 cleanupSmsCodes()
 setInterval(cleanupSmsCodes, 6 * 3600 * 1000).unref()
+
+// 1128 B2 配套: 失败登录行清理——已解锁且1天未动的行=纯垃圾(防任意账号名试探堆积)
+async function cleanupFailedLogins() {
+  try {
+    const r = await pool.query("DELETE FROM failed_logins WHERE updated_at < NOW() - INTERVAL '1 day' AND (locked_until IS NULL OR locked_until < NOW())")
+    if (r.rowCount > 0) console.log(`[failed-logins-cleanup] 清理 ${r.rowCount} 行`)
+  } catch (e) { console.error('Failed logins cleanup error:', e.message) }
+}
+cleanupFailedLogins()
+setInterval(cleanupFailedLogins, 6 * 3600 * 1000).unref()
 
 // 乐手会话僵尸清扫：5 分钟无心跳即闭（时长冻结在 last_seen；钩子漏网+崩溃进程的兜底）
 async function closeZombieMusicianSessions() {
