@@ -19,6 +19,7 @@ export function AgreementSentinel() {
   const [pending, setPending] = useState<{ userDoc: Doc | null; privacyDoc: Doc | null } | null>(null)
   const [agreed, setAgreed] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [error, setError] = useState("")
   const openRef = useRef(false) // 弹窗已开=重查不重置用户已勾的选框(防回焦/跳页把勾弹回)
 
   const inRoom = !!pathname && pathname.startsWith("/room/")
@@ -28,7 +29,7 @@ export function AgreementSentinel() {
     try {
       const [a, m] = await Promise.all([
         fetch("/api/agreements").then((r) => r.json()),
-        fetch("/api/agreements/my-versions", { credentials: "include" }).then((r) => r.json()),
+        fetch("/api/agreements/my-versions", { credentials: "include", cache: "no-store" }).then((r) => r.json()),
       ])
       if (!a.ok || !m.ok) return
       const needUser = a.userAgreement && m.mine.user_agreement !== a.userAgreement.version
@@ -70,18 +71,25 @@ export function AgreementSentinel() {
 
   const accept = async () => {
     setBusy(true)
+    setError("")
+    // 1128坑案: 路由跳变期浏览器连接池可能被占满致fetch永不发出(nginx零记录)——10s超时+可见报错, 绝不无声死转
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 10000)
     try {
       const res = await fetch("/api/agreements/accept", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
+        cache: "no-store",
         body: JSON.stringify({
           agreementVersion: pending.userDoc ? pending.userDoc.version : undefined,
           privacyVersion: pending.privacyDoc ? pending.privacyDoc.version : undefined,
         }),
+        signal: ctrl.signal,
       })
       if (res.status === 409) {
         // 发版途中版本又变: 重查再战(新弹窗带新版)
+        clearTimeout(timer)
         setBusy(false)
         setPending(null)
         openRef.current = false
@@ -89,7 +97,8 @@ export function AgreementSentinel() {
         return
       }
       const data = await res.json()
-      if (!data.ok) { setBusy(false); return }
+      if (!data.ok) { clearTimeout(timer); setBusy(false); setError(data.msg || "提交失败，请重试"); return }
+      clearTimeout(timer)
       // 同设备记忆同步(欢哥补刀): 本设备下次登录窗直接小字态
       writeSignedVersions({
         agreementVersion: pending.userDoc ? pending.userDoc.version : undefined,
@@ -97,7 +106,11 @@ export function AgreementSentinel() {
       })
       setPending(null)
       openRef.current = false
-    } catch { setBusy(false) }
+    } catch (e) {
+      clearTimeout(timer)
+      setBusy(false)
+      setError(e instanceof Error && e.name === "AbortError" ? "提交超时，请检查网络后重试" : "网络错误，请重试")
+    }
   }
 
   const decline = () => {
@@ -148,7 +161,11 @@ export function AgreementSentinel() {
           </span>
         </button>
 
-        <div className="mt-5 flex gap-2">
+        <p className="mt-3 text-xs" style={{ color: "#FF33AA", visibility: error ? "visible" : "hidden" }}>
+          {error || " "}
+        </p>
+
+        <div className="mt-2 flex gap-2">
           <button
             type="button"
             disabled={!agreed || busy}

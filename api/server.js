@@ -1135,6 +1135,7 @@ app.get('/api/agreements', async (req, res) => {
 // 1128 P2 会话内版本哨兵: 已登录用户查自己已签的最新版本(客户端与当前版比对=感知更新的依据)
 app.get('/api/agreements/my-versions', requireAuth, async (req, res) => {
   try {
+    res.set('Cache-Control', 'no-store') // 1128坑案: 按用户鉴权的接口禁缓存——Express自动ETag致浏览器304拿旧签署状态
     const r = await pool.query(
       `SELECT DISTINCT ON (type) type, agreement_version FROM agreement_acceptances
        WHERE user_id = $1 ORDER BY type, accepted_at DESC`, [req.userId])
