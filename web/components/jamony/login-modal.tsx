@@ -116,6 +116,11 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
       const r = await fetch("/api/agreements")
       const d = await r.json()
       if (d.ok && d.userAgreement && d.privacy) {
+        // 1128 P0c(C1): 版本变化=勾选弹回+提示——每次勾严格对应勾时所呈现的版本(关死跨版本复用勾选: 空窗期发新版场景)
+        if (userDoc && privacyDoc && agreed && (d.userAgreement.version !== userDoc.version || d.privacy.version !== privacyDoc.version)) {
+          setAgreed(false)
+          setError("用户协议已更新，请重新阅读并勾选同意")
+        }
         setUserDoc({ version: d.userAgreement.version, content: d.userAgreement.content })
         setPrivacyDoc({ version: d.privacy.version, content: d.privacy.content })
       } else {
@@ -128,6 +133,19 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
   // ETag条件请求=版本对齐, 无新版时304零字节往返
   useEffect(() => {
     if (showLoginModal || embedded) fetchAgreements()
+  }, [showLoginModal, embedded])
+
+  // 1128 P0c(C2): 回到窗口即重拉——登录卡片挂机空窗期内发新版, 回焦那一秒对齐(304近零成本);
+  // 配合C1弹回勾选=空窗期场景在勾选前解决, 403降级为纯兜底
+  useEffect(() => {
+    if (!(showLoginModal || embedded)) return
+    const onWake = () => { if (!document.hidden) fetchAgreements() }
+    window.addEventListener("focus", onWake)
+    document.addEventListener("visibilitychange", onWake)
+    return () => {
+      window.removeEventListener("focus", onWake)
+      document.removeEventListener("visibilitychange", onWake)
+    }
   }, [showLoginModal, embedded])
 
   useEffect(() => {
@@ -169,6 +187,7 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
 
   const handleSendCode = async () => {
     if (!docsReady) { setError(docsError ? "协议加载失败，请重试后再获取验证码" : "协议加载中，请稍候…"); return }
+    fetchAgreements() // 1128 P0c(C3): 发码=登录流程起点, 顺手对齐版本(fire-and-forget; 若恰逢新版, C1弹回勾选)
     const p = phone.trim()
     if (!PHONE_RE.test(p)) {
       setError("请输入正确的手机号")

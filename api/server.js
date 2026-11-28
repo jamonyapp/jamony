@@ -1069,16 +1069,14 @@ const AGREEMENT_TYPES = {
   user_agreement: { param: 'agreementVersion', title: '《jamony用户协议》' },
   privacy: { param: 'privacyVersion', title: '《jamony隐私政策》' },
 }
-const agreementCache = {} // type -> { data, at }
+// 1128 P0b: 60s 内存缓存退役——admin(独立进程)发版后 api 进程缓存最长60s不知情,
+// 与403重拉叠加=客户端拉回仍旧版→再403→乒乓循环; 表仅数行有唯一索引, 直查零成本
 async function getCurrentAgreement(type = 'user_agreement') {
-  const c = agreementCache[type]
-  if (c && Date.now() - c.at < 60000) return c.data
   const r = await pool.query(
     "SELECT version, to_char(effective_date, 'YYYY-MM-DD') AS effective_date, content FROM agreements WHERE type = $1 ORDER BY id DESC LIMIT 1",
     [type]
   )
-  agreementCache[type] = { data: r.rows[0] || null, at: Date.now() }
-  return agreementCache[type].data
+  return r.rows[0] || null
 }
 
 // 登录硬闸+落档(双协议): 已签当前版的老号放行(换设备免重弹); 任一未签且未带版本=403(required只列缺的); 落档幂等(唯一索引)
