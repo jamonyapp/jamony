@@ -167,10 +167,12 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
       const r = await fetch("/api/agreements")
       const d = await r.json()
       if (d.ok && d.userAgreement && d.privacy) {
-        // 1128 P0c(C1)+A2: 版本变化=勾选弹回/小字态翻回勾选框+提示——每次同意严格对应勾时所呈现的版本
+        // 1128 P0c(C1)+A2: 版本变化=勾选弹回/小字态翻回勾选框+提示——每次同意严格对应勾时所呈现的版本;
+        // 点名式文案(欢哥1128批): 谁变了报谁的名,防「只更新隐私政策却提示用户协议已更新」的误导
         if (userDoc && privacyDoc && (agreed || remembered) && (d.userAgreement.version !== userDoc.version || d.privacy.version !== privacyDoc.version)) {
           setAgreed(false)
-          setError("用户协议已更新，请重新阅读并勾选同意")
+          const names = [d.userAgreement.version !== userDoc.version ? "用户协议" : "", d.privacy.version !== privacyDoc.version ? "隐私政策" : ""].filter(Boolean).join("和")
+          setError(`${names}已更新，请重新阅读并勾选同意`)
         }
         const stored = readSignedVersions()
         setRemembered(!!(stored && d.userAgreement.version === stored.agreementVersion && d.privacy.version === stored.privacyVersion))
