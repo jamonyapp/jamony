@@ -160,19 +160,24 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
   // 1128 A2: 本机已签当前版(双版本都相等)——小字态免勾; 任一不等=勾选框态
   const [remembered, setRemembered] = useState(false)
 
-  const fetchAgreements = async () => {
+  // 1128 文案竞态修复: 返回被翻转的文档名单(未翻转/加载失败=空数组), 发码流程据此合并双事件文案
+  const fetchAgreements = async (): Promise<string[]> => {
     setDocsLoading(true)
     setDocsError(false)
+    let flipped: string[] = []
     try {
       const r = await fetch("/api/agreements")
       const d = await r.json()
       if (d.ok && d.userAgreement && d.privacy) {
         // 1128 P0c(C1)+A2: 版本变化=勾选弹回/小字态翻回勾选框+提示——每次同意严格对应勾时所呈现的版本;
         // 点名式文案(欢哥1128批): 谁变了报谁的名,防「只更新隐私政策却提示用户协议已更新」的误导
-        if (userDoc && privacyDoc && (agreed || remembered) && (d.userAgreement.version !== userDoc.version || d.privacy.version !== privacyDoc.version)) {
-          setAgreed(false)
-          const names = [d.userAgreement.version !== userDoc.version ? "用户协议" : "", d.privacy.version !== privacyDoc.version ? "隐私政策" : ""].filter(Boolean).join("和")
-          setError(`${names}已更新，请重新阅读并勾选同意`)
+        if (userDoc && privacyDoc) {
+          const names = [d.userAgreement.version !== userDoc.version ? "用户协议" : "", d.privacy.version !== privacyDoc.version ? "隐私政策" : ""].filter(Boolean)
+          if (names.length && (agreed || remembered)) {
+            setAgreed(false)
+            setError(`${names.join("和")}已更新，请重新阅读并勾选同意`)
+            flipped = names
+          }
         }
         const stored = readSignedVersions()
         setRemembered(!!(stored && d.userAgreement.version === stored.agreementVersion && d.privacy.version === stored.privacyVersion))
@@ -183,6 +188,7 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
       }
     } catch { setDocsError(true) }
     setDocsLoading(false)
+    return flipped
   }
   // 1128 P0: 弹窗每次打开/embedded进页即拉(旧bug: 唯一拉取链路=登录报错之后→重启即清零→协议升级后死循环);
   // ETag条件请求=版本对齐, 无新版时304零字节往返
@@ -242,23 +248,28 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
 
   const handleSendCode = async () => {
     if (!docsReady) { setError(docsError ? "协议加载失败，请重试后再获取验证码" : "协议加载中，请稍候…"); return }
-    fetchAgreements() // 1128 P0c(C3): 发码=登录流程起点, 顺手对齐版本(fire-and-forget; 若恰逢新版, C1弹回勾选)
-    const p = phone.trim()
-    if (!PHONE_RE.test(p)) {
-      setError("请输入正确的手机号")
-      return
-    }
     setCodeSending(true)
     setError("")
     setNotice("")
+    // 1128 P0c(C3)+文案竞态修复(欢哥案): 先await对齐版本再发码(顺序化)——翻转提示先落,短信结果后到,
+    // 双事件时合并文案,不再互相覆盖(旧fire-and-forget竞态: 短信失败文案顶掉协议更新提示)
+    const flipNames = await fetchAgreements()
+    const flipMsg = flipNames.length ? `${flipNames.join("和")}已更新，请重新阅读并勾选同意` : ""
+    const p = phone.trim()
+    if (!PHONE_RE.test(p)) {
+      setCodeSending(false)
+      setError("请输入正确的手机号")
+      return
+    }
     const err = await sendSmsCode(p, mode === "forgot" ? "reset_password" : "login")
     setCodeSending(false)
     if (err) {
-      setError(err)
+      setError(flipMsg ? `${flipMsg}；${err}` : err)
       return
     }
     setNotice("验证码已发送，5分钟内有效")
     setCountdown(60)
+    if (flipMsg) setError(flipMsg)
   }
 
   const handleAccountLogin = async (e: React.FormEvent) => {
