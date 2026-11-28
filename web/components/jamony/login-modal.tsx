@@ -413,7 +413,7 @@ export function LoginModal({ embedded = false }: { embedded?: boolean }) {
               {showDoc === "user" ? "jamony用户协议" : "jamony隐私政策"}
               {(showDoc === "user" ? userDoc?.version : privacyDoc?.version) ? `（${showDoc === "user" ? userDoc?.version : privacyDoc?.version}）` : ""}
             </h2>
-            <div className="flex-1 overflow-y-auto rounded-xl border p-4 text-xs leading-relaxed" style={{ borderColor: "#1A1A1A", color: "#B0B0B0" }}>
+            <div className="flex-1 overflow-y-auto whitespace-pre-wrap rounded-xl border p-4 text-xs leading-relaxed" style={{ borderColor: "#1A1A1A", color: "#B0B0B0" }}>
               {(showDoc === "user" ? userDoc?.content : privacyDoc?.content) ? plainText((showDoc === "user" ? userDoc?.content : privacyDoc?.content) || "") : "加载中..."}
             </div>
             <button type="button" onClick={() => setShowDoc(null)} className="mt-3 self-center text-xs" style={{ color: "#00AAFF" }}>
