@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { usePathname } from "next/navigation"
 import { Loader2, Check } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
@@ -19,6 +19,7 @@ export function AgreementSentinel() {
   const [pending, setPending] = useState<{ userDoc: Doc | null; privacyDoc: Doc | null } | null>(null)
   const [agreed, setAgreed] = useState(false)
   const [busy, setBusy] = useState(false)
+  const openRef = useRef(false) // 弹窗已开=重查不重置用户已勾的选框(防回焦/跳页把勾弹回)
 
   const inRoom = !!pathname && pathname.startsWith("/room/")
 
@@ -32,17 +33,19 @@ export function AgreementSentinel() {
       if (!a.ok || !m.ok) return
       const needUser = a.userAgreement && m.mine.user_agreement !== a.userAgreement.version
       const needPrivacy = a.privacy && m.mine.privacy !== a.privacy.version
-      if (needUser || needPrivacy) {
+      if ((needUser || needPrivacy) && !openRef.current) {
+        openRef.current = true
         setAgreed(false)
         setPending({ userDoc: needUser ? a.userAgreement : null, privacyDoc: needPrivacy ? a.privacy : null })
       }
     } catch { /* 离线/接口降级=下轮再查, 不打扰 */ }
   }, [user])
 
-  // 触发点: 登录态就位 + 离开房间 + 回焦(长开App期间发版也能感知)
+  // 1128盲区修复(欢哥实锤:窗口内SPA跳页零触发): 触发点=登录态就位+离开房间+回焦+**路由跳变**;
+  // 长驻单页由15min静默巡检兜底(对齐安装包检查的定时哲学,协议场景窗口收窄)
   useEffect(() => {
     if (user && !inRoom) check()
-  }, [user, inRoom, check])
+  }, [user, inRoom, pathname, check])
   useEffect(() => {
     const onWake = () => { if (!document.hidden) check() }
     window.addEventListener("focus", onWake)
@@ -52,6 +55,11 @@ export function AgreementSentinel() {
       document.removeEventListener("visibilitychange", onWake)
     }
   }, [check])
+  useEffect(() => {
+    if (!user) return
+    const t = setInterval(() => { if (!document.hidden) check() }, 15 * 60 * 1000)
+    return () => clearInterval(t)
+  }, [user, check])
 
   if (!pending) return null
 
@@ -76,6 +84,7 @@ export function AgreementSentinel() {
         // 发版途中版本又变: 重查再战(新弹窗带新版)
         setBusy(false)
         setPending(null)
+        openRef.current = false
         check()
         return
       }
@@ -87,12 +96,14 @@ export function AgreementSentinel() {
         privacyVersion: pending.privacyDoc ? pending.privacyDoc.version : undefined,
       })
       setPending(null)
+      openRef.current = false
     } catch { setBusy(false) }
   }
 
   const decline = () => {
     logout()
     setPending(null)
+    openRef.current = false
     dialog.alert("您已退出登录。重新登录时需阅读并同意最新版《jamony用户协议》和《jamony隐私政策》方可使用。", { title: "已退出登录" })
   }
 
