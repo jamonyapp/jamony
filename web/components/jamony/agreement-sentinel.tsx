@@ -21,11 +21,14 @@ export function AgreementSentinel() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const openRef = useRef(false) // 弹窗已开=重查不重置用户已勾的选框(防回焦/跳页把勾弹回)
+  const inRoomRef = useRef(false) // 1128 礼仪闸统一收口: 回焦/巡检触发的房内裸奔洞(欢哥六场景矩阵照出)
 
   const inRoom = !!pathname && pathname.startsWith("/room/")
+  inRoomRef.current = inRoom
 
   const check = useCallback(async () => {
     if (!user) return
+    if (inRoomRef.current) return // 礼仪闸: 房内演奏中任何触发一律不弹(宪法「房间互不影响」), 出房由路由触发接棒
     try {
       const [a, m] = await Promise.all([
         fetch("/api/agreements").then((r) => r.json()),
